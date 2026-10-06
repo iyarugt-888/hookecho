@@ -478,6 +478,7 @@ impl HookEchoApp {
         self.recompute_derived(ctx);
         self.recompute_column_product(ctx);
         self.advance_column_trail(ctx);
+        self.refresh_xsection(ctx);
         // Beam-blockage raster: rebuilt when the camera, site, or tilt moves (DEM tiles are cached).
         self.update_blockage(ctx);
         self.update_lowest_tilt(ctx);

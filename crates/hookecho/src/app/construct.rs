@@ -767,6 +767,9 @@ impl HookEchoApp {
             region: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             local_api: Default::default(),
+            xsection_drag: None,
+            xsection_cut_3d: false,
+            xsection_source: None,
             xsection_pts: Vec::new(),
             xsection: None,
             xsection_tex: None,

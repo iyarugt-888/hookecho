@@ -125,6 +125,95 @@ fn draw_beam_rise(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection) {
     }
 }
 
+/// The line's exact controls and what the window shows about its sampling. The app fills the
+/// current values in; the window writes back an edited bearing/length and one-shot requests.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct XsControls {
+    pub bearing_deg: f64,
+    pub length_km: f64,
+    /// Requested slide this frame, km to the right of A→B.
+    pub slide_km: f64,
+    pub radial: bool,
+    pub swap: bool,
+    pub cut_3d: bool,
+    /// Site, tilts and the span their radials were scanned over.
+    pub info: String,
+}
+
+/// The share of the panel's cells inside real beam coverage.
+pub fn covered_fraction(xs: &CrossSection) -> f32 {
+    let total = xs.cols * xs.rows;
+    if total == 0 {
+        return 0.0;
+    }
+    let covered = (0..xs.rows)
+        .flat_map(|r| (0..xs.cols).map(move |c| (c, r)))
+        .filter(|&(c, r)| xs.is_covered(c, r))
+        .count();
+    covered as f32 / total as f32
+}
+
+fn controls(ui: &mut egui::Ui, ctl: &mut XsControls) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Bearing");
+        ui.add(
+            egui::DragValue::new(&mut ctl.bearing_deg)
+                .range(0.0..=359.9)
+                .speed(0.5)
+                .suffix("°"),
+        )
+        .on_hover_text("A→B, degrees from north; the line swings about its middle");
+        ui.label("Length");
+        ui.add(
+            egui::DragValue::new(&mut ctl.length_km)
+                .range(5.0..=460.0)
+                .speed(0.5)
+                .suffix(" km"),
+        )
+        .on_hover_text("Keeps the middle where it is");
+        ui.separator();
+        ui.label("Slide");
+        for (label, km, tip) in [
+            ("\u{2190}5", -5.0, "5 km to the left of A→B"),
+            ("\u{2190}1", -1.0, "1 km to the left of A→B"),
+            ("1\u{2192}", 1.0, "1 km to the right of A→B"),
+            ("5\u{2192}", 5.0, "5 km to the right of A→B"),
+        ] {
+            if ui.small_button(label).on_hover_text(tip).clicked() {
+                ctl.slide_km += km;
+            }
+        }
+        ui.separator();
+        if ui
+            .small_button("Radial")
+            .on_hover_text(
+                "Swing it about its middle onto the radar's beam, so radial velocity along it \
+                 reads straight",
+            )
+            .clicked()
+        {
+            ctl.radial = true;
+        }
+        if ui
+            .small_button("A\u{21c4}B")
+            .on_hover_text("Swap the ends")
+            .clicked()
+        {
+            ctl.swap = true;
+        }
+        ui.checkbox(&mut ctl.cut_3d, "3D cut").on_hover_text(
+            "Cut the 3D view's smooth volume along this section, a 4 km slab, as it moves",
+        );
+    });
+    if !ctl.info.is_empty() {
+        ui.weak(&ctl.info);
+    }
+    ui.weak(
+        "With the cross-section tool: drag A, B or the middle on the map, swing it by the \u{21bb} \
+         handle (Shift snaps to 15°), Esc puts it back.",
+    );
+}
+
 /// Show the cross-section window. Returns `false` when it should close.
 pub fn show(
     ctx: &egui::Context,
@@ -132,6 +221,7 @@ pub fn show(
     tex: &egui::TextureHandle,
     moment: &mut wxdata::level2::Moment,
     beam_rise: &mut bool,
+    ctl: &mut XsControls,
     drawer: &mut crate::ui::drawer::Drawer,
 ) -> bool {
     use wxdata::level2::Moment;
@@ -185,6 +275,7 @@ pub fn show(
         // label, three moment buttons and two CSV buttons, and a narrow window (a laptop split
         // pane, this window's own minimum before the user resizes it) left no room for a sixth
         // control without the two competing layouts overlapping their text.
+        controls(ui, ctl);
         ui.horizontal(|ui| {
             ui.checkbox(beam_rise, "Beam rise").on_hover_text(
                 "Draw each tilt's beam-centre height across the panel, so a feature reading \

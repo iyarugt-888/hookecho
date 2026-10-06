@@ -915,24 +915,41 @@ impl HookEchoApp {
             self.show_hodo = false;
         }
         self.show_region_stats(ctx);
-        if let (Some(xs), Some(tex)) = (&self.xsection, &self.xsection_tex) {
+        if let (Some(xs), Some(tex), Some(line)) =
+            (&self.xsection, &self.xsection_tex, self.xsection_line())
+        {
             let mut moment = self.xsection_moment;
+            let before = ui::xsection_window::XsControls {
+                bearing_deg: line.bearing(),
+                length_km: line.length_km(),
+                cut_3d: self.xsection_cut_3d,
+                info: self.xsection_info(xs),
+                ..Default::default()
+            };
+            let mut ctl = before.clone();
             let open = ui::xsection_window::show(
                 ctx,
                 xs,
                 tex,
                 &mut moment,
                 &mut self.xsection_beam_rise,
+                &mut ctl,
                 &mut self.drawer,
             );
+            let pane = self
+                .xsection_source
+                .as_ref()
+                .map_or(self.active, |s| s.pane);
             if !open {
                 self.xsection = None;
                 self.xsection_tex = None;
                 self.xsection_pts.clear();
+                self.xsection_source = None;
             } else if moment != self.xsection_moment {
                 self.xsection_moment = moment;
-                let idx = self.active;
-                self.build_xsection(idx, ctx);
+                self.build_xsection(pane, ctx);
+            } else if ctl != before {
+                self.apply_xsection_controls(pane, line, &before, &ctl, ctx);
             }
         }
         // The workstation shows the volume in its 3D volume tool window (`chrome/dock/volume.rs`).

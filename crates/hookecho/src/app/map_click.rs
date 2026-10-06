@@ -236,6 +236,22 @@ impl HookEchoApp {
                     });
                 }
                 MapTool::CrossSection => {
+                    // A tap on one of the line's handles is a handle, not a new endpoint.
+                    if let (Some(line), Some(p)) =
+                        (self.xsection_line(), response.interact_pointer_pos())
+                    {
+                        let cam = self.views[idx].camera;
+                        let to_px = |ll: [f64; 2]| {
+                            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+                            let (x, y) = cam.world_to_screen(w, vp);
+                            egui::pos2(prect.left() + x, prect.top() + y)
+                        };
+                        let touch = ui.input(|i| i.any_touches() || i.has_touch_screen());
+                        let radius = if touch { 24.0 } else { 12.0 };
+                        if xsection_edit::grab_at(&line, p, radius, to_px).is_some() {
+                            return true;
+                        }
+                    }
                     if self.xsection_pts.len() >= 2 {
                         self.xsection_pts.clear();
                     }

@@ -14,6 +14,7 @@ mod chrome;
 mod column_product;
 mod column_trail;
 mod trail;
+mod xsection_edit;
 #[cfg(test)]
 use trail::trail_status_line;
 use trail::TrailState;
@@ -722,6 +723,17 @@ fn format_diff_readout(
             format!("{class} · Δ {magnitude:.1} {units}")
         }
     }
+}
+
+/// What a cross-section was sampled from (see `HookEchoApp::xsection_source`).
+#[derive(Clone, Debug, PartialEq)]
+struct XsectionSource {
+    pane: usize,
+    volume: String,
+    revision: u64,
+    moment: Moment,
+    tilts: usize,
+    span: Option<(DateTime<Utc>, DateTime<Utc>)>,
 }
 
 /// The ZDR-column cache: the volume it was computed for, its columns, and the bright band the
@@ -2181,6 +2193,13 @@ pub struct HookEchoApp {
     /// suggestions.md §3.2). Pure display state — the geometry is already sitting in `xsection`'s
     /// own `beam_lines` regardless, so toggling this never needs a rebuild.
     xsection_beam_rise: bool,
+    /// A cross-section handle being dragged (`app::xsection_edit`).
+    xsection_drag: Option<xsection_edit::SectionDrag>,
+    /// Carry the section into the 3D view's vertical cut as it moves.
+    xsection_cut_3d: bool,
+    /// What the shown section was sampled from — pane, volume, revision, moment — so it is rebuilt
+    /// when that pane's volume grows or changes, and its tilt time span for the window.
+    xsection_source: Option<XsectionSource>,
     /// Lazily-loaded textures for uploaded marker icons, keyed by filename. `None` = load failed
     /// (negative-cached so a missing/corrupt file isn't retried every frame).
     marker_icon_tex: ui::marker_window::IconTextures,
@@ -2988,7 +3007,10 @@ impl HookEchoApp {
     }
 
     fn build_xsection(&mut self, idx: usize, ctx: &egui::Context) {
-        let (a, b) = (self.xsection_pts[0], self.xsection_pts[1]);
+        let [a, b] = match self.xsection_pts.as_slice() {
+            [a, b] => [*a, *b],
+            _ => return,
+        };
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return;
         };
@@ -2997,10 +3019,30 @@ impl HookEchoApp {
         if sweeps.is_empty() {
             return;
         }
+        // The span the contributing tilts were scanned over, from their own radial clocks.
+        let span = vol
+            .elevations
+            .iter()
+            .filter_map(|&e| level2::sweep_time_range(&vol.scan, e, moment))
+            .fold(
+                None,
+                |acc: Option<(DateTime<Utc>, DateTime<Utc>)>, (s, e)| {
+                    Some(acc.map_or((s, e), |(a, b)| (a.min(s), b.max(e))))
+                },
+            );
+        let source = XsectionSource {
+            pane: idx,
+            volume: vol.name.clone(),
+            revision: vol.revision(),
+            moment,
+            tilts: sweeps.len(),
+            span,
+        };
         let Some(xs) = wxdata::xsection::build(&sweeps, (a[0], a[1]), (b[0], b[1]), 300, 120, 18.0)
         else {
             return;
         };
+        self.xsection_source = Some(source);
         let hc_table =
             crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
         let img = ui::xsection_window::to_image(&xs, &hc_table);
@@ -6884,6 +6926,7 @@ impl HookEchoApp {
                     col,
                 );
             }
+            self.paint_xsection_handles(&painter, screen);
         }
 
         // The 3D map's own vertical clip plane (H4's "cross-section line visible in map pane"):

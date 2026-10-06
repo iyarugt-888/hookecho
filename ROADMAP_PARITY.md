@@ -873,6 +873,17 @@ Remaining open:
 
 **Agent prompt:** `Implement M3.6 using section 6. Link existing slice/probe tools around a storm-centered ROI and prove datum, cache, and playback consistency.`
 
+**Status:** implementation: in progress (direct cross-section editing and 3D cut link, increment 1); verification: partial (geometry unit tests; no device interaction).
+
+**Evidence ledger — 2026-10-06, increment 1 (cross-section ergonomics):**
+
+- *User workflow delivered:* with the cross-section tool armed, the section line on the map has four handles — A, B, the middle (slides the whole line, keeping length and bearing) and a rotation handle on an arm to the line's right (swings it about its middle); Shift snaps a swing or an endpoint bearing to 15°; Esc, a lost focus or a cancelled touch puts the line back as it was. A tap on a handle is a handle, not a new endpoint. The same primary-pointer path serves mouse, touch and pen, with a 24 pt grab radius on touch screens. The window adds exact bearing and length entry, 1/5 km perpendicular slides, a radial snap through the radar (keeps the middle and the nearer direction), A⇄B, and **3D cut**, which drives the 3D view's vertical clip plane along the section as a 4 km slab while it moves ([`app/xsection_edit.rs`](crates/hookecho/src/app/xsection_edit.rs)). A provenance line states site, moment, tilts, the span the contributing tilts' radials were scanned over, and the share of the panel inside real beam coverage. The section is rebuilt from the gates (`wxdata::xsection::build`, unchanged) on every edit and whenever its pane's volume or revision changes, so a live tilt or a scrub never leaves an old scan under the panel.
+- *Interfaces/compatibility:* geometry is spherical (`crate::geo`) like the 3D plane's ground track; `SectionLine::plane` is the inverse of `render3d::plane_ground_track` (tested). No settings or workspace format changes.
+- *Commands run and results:* `cargo test -p hookecho --lib xsection` 7 passed (edits keep length/bearing/middle, each handle moves only what it holds, Shift snapping, radial snap through the radar, handle hit radii for cursor vs fingertip, window edits applied in order and an unchanged window changing nothing, the 3D cut lying on the section within 0.5 km); the existing cross-section golden is unchanged; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace --no-fail-fast` 2,339 passed, 0 failed; GPU suite 36 passed (llvmpipe); wasm32 check passes.
+- *Desktop/Android/browser evidence:* none interactive. Pen and touch share the code path but were not exercised on hardware.
+- *Known limitations:* one section at a time, sampled on the UI thread (300×120 nearest-gate grid; cheap, but unprofiled on Android); no 3D in-view section panel or ruler yet; no storm-follow mode; the radial snap swings about the middle rather than also centring on a storm.
+- *Next ready increment:* M3.1 decoded Nyquist/metadata at the Level II boundary; then M3.6 rulers and storm-centred ROI.
+
 ### M4 — Operational GIS
 
 #### M4.1 — Introduce independent GIS layers and groups

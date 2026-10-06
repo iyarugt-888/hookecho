@@ -192,7 +192,11 @@ impl HookEchoApp {
             ),
             MapTool::Measure => (ph::RULER, "Measure", "click two points"),
             MapTool::Marker => (ph::MAP_PIN, "Drop marker", "click the map"),
-            MapTool::CrossSection => (ph::CHART_LINE, "Cross-section", "click two points"),
+            MapTool::CrossSection => (
+                ph::CHART_LINE,
+                "Cross-section",
+                "click two points, drag handles",
+            ),
             MapTool::RegionStats => (ph::CHART_SCATTER, "Region statistics", "click two corners"),
             MapTool::Sounding => (ph::THERMOMETER_SIMPLE, "Sounding", "click a point"),
             MapTool::Forecast => (ph::CLOUD_SUN, "Forecast", "click a point"),

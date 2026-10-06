@@ -45,6 +45,15 @@ cached volumes. The probe names the volume that set each cell; the legend says h
 window is covered and what was left out. A formula that reads an isotherm uses only volumes from
 that reading's own time.
 
+### Added: drag, swing and slide the cross-section
+
+With the cross-section tool, drag either end, slide the line by its middle, or swing it by the
+rotation handle (Shift snaps to 15°); Esc puts it back. The window takes an exact bearing and
+length, slides it sideways a kilometre at a time, snaps it onto a radar radial, swaps its ends,
+and can carry it into the 3D view as a vertical cut. It names the tilts and the time span the
+section was scanned over, how much of it is inside real beam coverage, and it follows its pane
+to each new volume.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at
