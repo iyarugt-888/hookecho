@@ -409,7 +409,7 @@ impl HookEchoApp {
                 crate::dialog::request_open(crate::dialog::ImportKind::GisFile, "");
             }
             PaletteAction::ExportGis => self.export_map_geojson(),
-            PaletteAction::ZoomToGis => self.zoom_to_imported_gis(),
+            PaletteAction::ZoomToGis => self.zoom_to_gis(None),
             PaletteAction::ToggleMap3d => {
                 let view = &mut self.views[self.active];
                 let on = !view.map_3d.enabled;

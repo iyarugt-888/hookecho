@@ -53,6 +53,7 @@ pub mod geo;
 /// Writing what is on the map out as GeoJSON.
 pub mod gis_export;
 /// Converting a generic GIS import (`wxdata::gis`) into a renderable overlay feature.
+pub mod gis_filter;
 pub mod gis_import;
 pub mod gps;
 /// Off-screen rendering for the CLI verifiers and the server snapshot.

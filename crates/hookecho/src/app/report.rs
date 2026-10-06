@@ -92,7 +92,12 @@ impl HookEchoApp {
         };
         // A NetCDF variable name is letters, digits and underscores; the slug has dashes.
         let name = layer.slug().replace('-', "_");
-        let nc = wxdata::netcdf::write(grid, &name, &product, None, &source)?;
+        // A column user product's units are its own; every other layer's are in its long name.
+        let units = (layer == crate::render::FieldLayer::UserColumn)
+            .then(|| self.column_shown(self.active).map(|a| a.units.clone()))
+            .flatten()
+            .filter(|u| !u.is_empty());
+        let nc = wxdata::netcdf::write(grid, &name, &product, units.as_deref(), &source)?;
         Some((layer.slug(), nc))
     }
 
@@ -110,15 +115,67 @@ impl HookEchoApp {
         use crate::render::FieldLayer as FL;
         let view = &self.views[self.active];
         FL::DRAW_ORDER.iter().rev().find_map(|layer| {
-            if !view.fields_on.contains(layer) || !self.mrms_ready(*layer) {
+            // Only a grid this pane is actually drawing: a local radar field built for another
+            // pane's selection is not this pane's to export.
+            if !view.fields_on.contains(layer)
+                || !self.mrms_ready(*layer)
+                || !self.radar_field_ready(self.active, *layer)
+            {
                 return None;
             }
             let state = self.field_state_for(self.active, *layer)?;
             let grid = state.grid.as_ref()?;
+            let product =
+                match self
+                    .column_shown(self.active)
+                    .filter(|_| *layer == FL::UserColumn)
+                {
+                    // The formula travels with the grid, and where any isotherm in it came from.
+                    Some(a) => {
+                        let formula = self
+                            .settings
+                            .udp_products
+                            .iter()
+                            .find(|p| p.name == a.name)
+                            .map_or_else(String::new, |p| p.expression.clone());
+                        let env = a
+                            .env_source
+                            .as_ref()
+                            .map_or_else(String::new, |s| format!(" | environment {s}"));
+                        format!(
+                            "{} [{}] = {formula} (column user product, {} tilts){env}",
+                            a.name, a.units, a.product.tilts
+                        )
+                    }
+                    None if *layer == FL::UserColumnTrail => {
+                        match self
+                            .column_trail_shown(self.active)
+                            .and_then(|t| Some((t, t.shown.as_ref()?)))
+                        {
+                            Some((t, w)) => {
+                                format!(
+                            "{} [{}] trail: {} over {} min ending at the playhead, {} volumes \
+                             {}..{} ({} missing, {} s of the window without history)",
+                            t.name,
+                            t.units,
+                            if self.filters.trail_keep_min { "minimum" } else { "maximum" },
+                            self.filters.trail_window_min,
+                            w.coverage.frames,
+                            w.coverage.from,
+                            w.coverage.to,
+                            w.coverage.missing,
+                            w.coverage.short_s
+                        )
+                            }
+                            None => Self::probe_field_product(*layer),
+                        }
+                    }
+                    None => Self::probe_field_product(*layer),
+                };
             Some((
                 *layer,
                 grid,
-                Self::probe_field_product(*layer),
+                product,
                 self.probe_field_source(*layer, Some(state)),
                 state
                     .stamp
@@ -262,12 +319,15 @@ impl HookEchoApp {
                 "rotation_min_confidence": self.settings.detectors.rotation_min_confidence,
             },
             "tornado_id": self.tornado_lineage_json(),
-            "melting_level": self.freezing.as_ref().map(|(site, epoch, h0, hm20)| json!({
-                "site": site,
-                "source": if epoch.is_some() { "observed sounding" } else { "HRRR analysis" },
-                "synoptic_time_utc": epoch.map(|t| t.to_rfc3339()),
-                "zero_c_m_msl": h0,
-                "minus20_c_m_msl": hm20,
+            "melting_level": self.freezing.as_ref().map(|l| json!({
+                "site": l.site,
+                "source": if l.epoch.is_some() { "observed sounding" } else { "HRRR analysis" },
+                "source_detail": l.source,
+                "synoptic_time_utc": l.epoch.map(|t| t.to_rfc3339()),
+                "zero_c_m_msl": l.h0_m,
+                "minus10_c_m_msl": l.hm10_m,
+                "minus10_c_crossings": l.hm10_crossings,
+                "minus20_c_m_msl": l.hm20_m,
             })),
             "sources": [
                 "NOAA NEXRAD Level II (AWS Open Data: unidata-nexrad-level2)",
@@ -371,6 +431,7 @@ impl HookEchoApp {
             zones: &self.settings.alert_polygons,
             cells: &[],
             overlays: &[],
+            imported: &[],
         });
         entries.push((
             "annotations.geojson".into(),

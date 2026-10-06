@@ -1,11 +1,27 @@
 //! Spatial evidence for a SCIT storm. Source objects stay separate: containment is coverage,
 //! and a nearby radar signature is a tentative association rather than a shared identity.
 
+use wxdata::storm_evidence::{point_links, EvidenceParams, Relation};
+use wxdata::storm_history::StormId;
 use wxdata::{level3::Cell, overlay::GeoFeature, tornado_id::Circulation};
 
 pub(super) const MAX_CIRCULATION_KM: f64 = 10.0;
 /// Two cores nearly equally close to one signature do not establish which storm owns it.
 const AMBIGUITY_KM: f64 = 1.0;
+
+pub(super) fn params() -> EvidenceParams {
+    EvidenceParams {
+        reach_km: MAX_CIRCULATION_KM,
+        ambiguity_km: AMBIGUITY_KM,
+    }
+}
+
+/// A circulation's position as the storm evidence reads it: its centre and every member.
+pub(super) fn circulation_points(circulation: &Circulation) -> Vec<[f64; 2]> {
+    std::iter::once([circulation.id.lon, circulation.id.lat])
+        .chain(circulation.members.iter().map(|m| [m.lon, m.lat]))
+        .collect()
+}
 
 pub(super) struct Evidence<'a> {
     pub cells: &'a [Cell],
@@ -21,14 +37,6 @@ pub(super) struct Associations {
     /// Source circulation index and separation from the nearest member (km).
     pub circulations: Vec<(usize, f64)>,
     pub ambiguous: usize,
-}
-
-fn separation(cell: &Cell, circulation: &Circulation) -> f64 {
-    std::iter::once([circulation.id.lon, circulation.id.lat])
-        .chain(circulation.members.iter().map(|m| [m.lon, m.lat]))
-        .map(|at| crate::geo::great_circle([cell.lon, cell.lat], at).0)
-        .filter(|d| d.is_finite())
-        .fold(f64::INFINITY, f64::min)
 }
 
 /// Associations for one selected storm, evaluated against every current SCIT core so a
@@ -47,21 +55,25 @@ pub(super) fn associate(cell: &Cell, evidence: &Evidence<'_>) -> Associations {
         probsevere: covering(evidence.probsevere),
         ..Default::default()
     };
+    // The same rule the storm evidence record uses (`wxdata::storm_evidence::point_links`), with
+    // this cell first and every other current core after it.
+    let storms: Vec<(StormId, [f64; 2])> = std::iter::once([cell.lon, cell.lat])
+        .chain(
+            evidence
+                .cells
+                .iter()
+                .filter(|c| c.id != cell.id)
+                .map(|c| [c.lon, c.lat]),
+        )
+        .enumerate()
+        .map(|(i, at)| (StormId(i as u64), at))
+        .collect();
     for (i, circulation) in evidence.circulations.iter().enumerate() {
-        let d = separation(cell, circulation);
-        if d > MAX_CIRCULATION_KM {
-            continue;
-        }
-        let other = evidence
-            .cells
-            .iter()
-            .filter(|c| c.id != cell.id)
-            .map(|c| separation(c, circulation))
-            .fold(f64::INFINITY, f64::min);
-        if (other - d).abs() <= AMBIGUITY_KM {
-            result.ambiguous += 1;
-        } else if d < other {
-            result.circulations.push((i, d));
+        let links = point_links(params(), &storms, &circulation_points(circulation));
+        match links.iter().find(|(s, _)| *s == StormId(0)).map(|l| &l.1) {
+            Some(Relation::Nearest { km }) => result.circulations.push((i, *km)),
+            Some(Relation::Ambiguous { .. }) => result.ambiguous += 1,
+            _ => {}
         }
     }
     result
@@ -73,6 +85,11 @@ pub(super) fn associate(cell: &Cell, evidence: &Evidence<'_>) -> Associations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_card_and_the_evidence_record_link_by_the_same_limits() {
+        assert_eq!(params(), wxdata::storm_evidence::EvidenceParams::default());
+    }
     use wxdata::{
         overlay::FeatureKind,
         tornado_id::{Tier, TornadoId},

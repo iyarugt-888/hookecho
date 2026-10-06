@@ -218,6 +218,26 @@ impl Sounding {
         found.or_else(|| self.levels.first().filter(|l| l.temp_c <= t_c).map(|_| 0.0))
     }
 
+    /// Every height (m AGL) where the profile cools through `t_c` going up, lowest first, each
+    /// linear in height between the two levels that bracket it. Only bracketing pairs are used:
+    /// nothing is extrapolated past the top of the ascent or below its first level. More than one
+    /// entry means an inversion re-crossed the isotherm — a caller choosing one should say so.
+    pub fn isotherm_crossings_m(&self, t_c: f64) -> Vec<f64> {
+        let h = self.heights_m();
+        let mut out = Vec::new();
+        for i in 1..self.levels.len() {
+            let (a, b) = (self.levels[i - 1].temp_c, self.levels[i].temp_c);
+            if !(a.is_finite() && b.is_finite() && h[i - 1].is_finite() && h[i].is_finite()) {
+                continue;
+            }
+            if a > t_c && b <= t_c {
+                let k = (a - t_c) / (a - b);
+                out.push(h[i - 1] + (h[i] - h[i - 1]) * k);
+            }
+        }
+        out
+    }
+
     /// Surface-based CAPE (J/kg) and LCL height (m AGL) via a stepped pseudoadiabatic parcel.
     pub fn sb_parcel(&self) -> Option<(f64, f64)> {
         let p = self.parcel()?;
@@ -1134,6 +1154,30 @@ mod tests {
         nose.levels[1].temp_c = 3.0;
         let n0 = nose.isotherm_height_m(0.0).unwrap();
         assert!(n0 > nose.heights_m()[3], "{n0}");
+    }
+
+    #[test]
+    fn isotherm_crossings_list_every_bracketed_crossing_lowest_first() {
+        let s = supercell_profile();
+        let h = s.heights_m();
+        let m10 = s.isotherm_crossings_m(-10.0);
+        assert_eq!(m10.len(), 1);
+        // −10 °C falls between 500 hPa (−8) and 400 hPa (−18).
+        assert!(h[4] < m10[0] && m10[0] < h[5], "{m10:?}");
+        // An inversion that warms back above −10 °C and cools through it again: two crossings,
+        // lowest first, so a caller taking the lowest gets the one encountered ascending.
+        let mut inv = supercell_profile();
+        inv.levels[4].temp_c = -12.0; // 500 hPa below −10 …
+        inv.levels[5].temp_c = -8.0; // … 400 hPa back above it
+        let both = inv.isotherm_crossings_m(-10.0);
+        let hi = inv.heights_m();
+        assert_eq!(both.len(), 2, "{both:?}");
+        assert!(hi[3] < both[0] && both[0] < hi[4], "{both:?}");
+        assert!(hi[5] < both[1] && both[1] < hi[6], "{both:?}");
+        // Never extrapolated: a level colder than the whole ascent has no crossing.
+        assert!(s.isotherm_crossings_m(-90.0).is_empty());
+        // Nor is a surface already colder than the isotherm a crossing.
+        assert!(s.isotherm_crossings_m(40.0).is_empty());
     }
 
     #[test]

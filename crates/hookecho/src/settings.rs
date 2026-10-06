@@ -212,6 +212,90 @@ impl Default for ImportedGisStyle {
     }
 }
 
+/// One imported GIS layer (ROADMAP_PARITY M4.1): where it came from and how it is drawn. Layers
+/// are independent: importing another file adds a layer, and each keeps its own style, labels,
+/// colouring, time mapping, visibility, order and group. `settings.gis_layers` order is the paint
+/// order, first underneath (within the layers drawn above or below the official products).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GisLayerConfig {
+    /// Stable for the layer's life and never reused, so nothing that names a layer can bind to
+    /// a different one after a removal.
+    pub id: u64,
+    /// A path on native/Android, or the name of a [`Settings::web_files`] entry in a browser.
+    pub source: String,
+    /// What the layer is called in lists; the file name when imported.
+    pub name: String,
+    pub visible: bool,
+    pub style: ImportedGisStyle,
+    /// The attribute whose value labels each feature, by name so it survives a re-import.
+    pub label: Option<String>,
+    /// The attribute that colours the features, or `None` for the layer's one colour.
+    pub color_by: Option<String>,
+    /// The attributes holding each feature's valid start and end.
+    pub time_start: Option<String>,
+    pub time_end: Option<String>,
+    /// Paint under the official products (outlooks, watches, warnings) instead of over them.
+    pub below: bool,
+    /// The named group it belongs to, if any.
+    pub group: Option<String>,
+    /// Its points and areas are impact targets: a storm's arrival and closest approach at each
+    /// are listed with the storm (ROADMAP_PARITY M2.3), named by its label attribute.
+    pub targets: bool,
+    /// An attribute filter (`crate::gis_filter`): only features it is true for are drawn,
+    /// clickable, labelled, exported and targeted. Empty shows every feature.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub filter: String,
+}
+
+impl Default for GisLayerConfig {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            source: String::new(),
+            name: String::new(),
+            visible: true,
+            style: ImportedGisStyle::default(),
+            label: None,
+            color_by: None,
+            time_start: None,
+            time_end: None,
+            below: false,
+            group: None,
+            targets: false,
+            filter: String::new(),
+        }
+    }
+}
+
+/// A named group of GIS layers. Hiding a group hides its layers without touching their own
+/// visibility, so showing it again brings back exactly the ones that were on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GisGroup {
+    pub name: String,
+    pub visible: bool,
+}
+
+impl Default for GisGroup {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            visible: true,
+        }
+    }
+}
+
+/// The imported GIS layers as a workspace or scene saw them (ROADMAP_PARITY M4.4): the master
+/// switch, every layer's state by its stable ID, and the group switches.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GisSnapshot {
+    pub shown: bool,
+    pub layers: Vec<GisLayerConfig>,
+    pub groups: Vec<GisGroup>,
+}
+
 /// A saved 3D map look for one 3D product: its floor, ceiling and opacity curve, in that
 /// product's own units (ROADMAP_NEW H2).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -288,35 +372,30 @@ pub struct Settings {
     /// the settings bundle. Empty everywhere else.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub web_files: BTreeMap<String, String>,
-    /// The last GeoJSON file imported as a reference overlay (ROADMAP_NEW I1), so a boundary or
-    /// asset file someone works with every day comes back on launch instead of being re-picked
-    /// each time. Resolved exactly the way [`Self::palettes`] resolves a `.pal`: a path on
-    /// native/Android, or the name of a [`Self::web_files`] entry holding the content in a
-    /// browser, which has no path that would survive a reload.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The imported GIS layers (ROADMAP_PARITY M4.1), in paint order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gis_layers: Vec<GisLayerConfig>,
+    /// Named groups the layers can belong to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gis_groups: Vec<GisGroup>,
+    /// The next layer ID to hand out; IDs are never reused.
+    #[serde(default)]
+    pub gis_next_id: u64,
+    /// Before M4.1 there was one imported layer, remembered in these fields. They are read once,
+    /// by [`Self::migrate_imported_gis`], into a [`GisLayerConfig`] and never written again.
+    #[serde(default, skip_serializing)]
     pub imported_gis: Option<String>,
-    /// ROADMAP_NEW I4: persistent styling for the imported reference layer. Old settings files
-    /// default to the exact neutral-blue appearance they had before styling was configurable.
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub imported_gis_style: ImportedGisStyle,
-    /// ROADMAP_NEW I4: the attribute whose value labels each imported feature on the map, or
-    /// `None` for no labels. A name rather than an index, so it survives re-importing the file.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing)]
     pub imported_gis_label: Option<String>,
-    /// ROADMAP_NEW I4: the attribute that colours the imported features (a ramp for a number,
-    /// a palette for categories), or `None` for the layer's one colour.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing)]
     pub imported_gis_color_by: Option<String>,
-    /// ROADMAP_NEW I5: the attributes holding each imported feature's valid start and end. With
-    /// either set, a feature shows only while the view's time is inside its window.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing)]
     pub imported_gis_time_start: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing)]
     pub imported_gis_time_end: Option<String>,
-    /// ROADMAP_NEW I4 z-order: paint the imported polygons under the official products
-    /// (outlooks, watches, warnings) instead of over them. Clicks already prefer the official
-    /// shape either way.
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub imported_gis_below: bool,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
@@ -1743,6 +1822,9 @@ impl Default for Settings {
         Self {
             default_site: "KTLX".to_string(),
             web_files: BTreeMap::new(),
+            gis_layers: Vec::new(),
+            gis_groups: Vec::new(),
+            gis_next_id: 0,
             imported_gis: None,
             imported_gis_style: ImportedGisStyle::default(),
             imported_gis_label: None,
@@ -1954,15 +2036,158 @@ impl Settings {
         })
     }
 
-    /// The remembered GeoJSON import's content, or why it couldn't be read. `None` when nothing
-    /// has been imported. Resolved the same two ways [`Self::palette_paths`] resolves a `.pal`:
-    /// a `web_files` name holds its own content, anything else is a path to read.
-    pub fn imported_gis_text(&self) -> Option<Result<String, String>> {
-        let key = self.imported_gis.as_ref()?;
-        Some(match self.web_files.get(key) {
+    /// A GIS layer's remembered content, or why it couldn't be read: a `web_files` name holds
+    /// its own content, anything else is a path to read.
+    pub fn gis_source_text(&self, source: &str) -> Result<String, String> {
+        match self.web_files.get(source) {
             Some(text) => Ok(text.clone()),
-            None => std::fs::read_to_string(key).map_err(|e| e.to_string()),
+            None => std::fs::read_to_string(source).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Move the pre-M4.1 single imported layer into the collection, once: the legacy fields are
+    /// cleared (and never written again), so a second call, or a later launch, changes nothing.
+    /// Returns whether anything moved.
+    pub fn migrate_imported_gis(&mut self) -> bool {
+        let Some(source) = self.imported_gis.take() else {
+            return false;
+        };
+        let legacy = GisLayerConfig {
+            style: std::mem::take(&mut self.imported_gis_style),
+            label: self.imported_gis_label.take(),
+            color_by: self.imported_gis_color_by.take(),
+            time_start: self.imported_gis_time_start.take(),
+            time_end: self.imported_gis_time_end.take(),
+            below: std::mem::take(&mut self.imported_gis_below),
+            ..Default::default()
+        };
+        if self.gis_layers.iter().any(|l| l.source == source) {
+            return true;
+        }
+        let id = self.add_gis_layer(source);
+        if let Some(l) = self.gis_layer_mut(id) {
+            *l = GisLayerConfig {
+                id: l.id,
+                source: std::mem::take(&mut l.source),
+                name: std::mem::take(&mut l.name),
+                ..legacy
+            };
+        }
+        true
+    }
+
+    /// Add a layer for `source` (drawn above the others) and return its new ID.
+    pub fn add_gis_layer(&mut self, source: String) -> u64 {
+        let id = self
+            .gis_layers
+            .iter()
+            .map(|l| l.id + 1)
+            .max()
+            .unwrap_or(1)
+            .max(self.gis_next_id)
+            .max(1);
+        self.gis_next_id = id + 1;
+        let name = source
+            .rsplit(['/', '\\'])
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&source)
+            .to_string();
+        self.gis_layers.push(GisLayerConfig {
+            id,
+            source,
+            name,
+            ..Default::default()
+        });
+        id
+    }
+
+    pub fn gis_layer(&self, id: u64) -> Option<&GisLayerConfig> {
+        self.gis_layers.iter().find(|l| l.id == id)
+    }
+
+    pub fn gis_layer_mut(&mut self, id: u64) -> Option<&mut GisLayerConfig> {
+        self.gis_layers.iter_mut().find(|l| l.id == id)
+    }
+
+    /// Whether a layer is to be drawn: its own visibility and its group's. A group that no
+    /// longer exists hides nothing.
+    pub fn gis_layer_shown(&self, id: u64) -> bool {
+        self.gis_layer(id).is_some_and(|l| {
+            l.visible
+                && l.group.as_deref().is_none_or(|g| {
+                    self.gis_groups
+                        .iter()
+                        .find(|x| x.name == g)
+                        .is_none_or(|x| x.visible)
+                })
         })
+    }
+
+    /// Remove a layer, and the browser-stored content it alone used.
+    pub fn remove_gis_layer(&mut self, id: u64) -> Option<GisLayerConfig> {
+        let i = self.gis_layers.iter().position(|l| l.id == id)?;
+        let gone = self.gis_layers.remove(i);
+        if !self.gis_layers.iter().any(|l| l.source == gone.source) {
+            self.web_files.remove(&gone.source);
+        }
+        Some(gone)
+    }
+
+    /// The layers as they are now, for a workspace or scene; `None` with no layers, so a saved
+    /// view that never had any leaves later imports alone.
+    pub fn gis_snapshot(&self, shown: bool) -> Option<GisSnapshot> {
+        (!self.gis_layers.is_empty()).then(|| GisSnapshot {
+            shown,
+            layers: self.gis_layers.clone(),
+            groups: self.gis_groups.clone(),
+        })
+    }
+
+    /// Put the layers back as `snap` saw them: each layer it names by ID (and the same source)
+    /// takes its saved state and order; a layer imported since is hidden, since it was not part
+    /// of the view; group switches are restored. Returns the layers it names that are no longer
+    /// imported (`name (source)`), which are reported rather than bound to a similar layer.
+    pub fn apply_gis_snapshot(&mut self, snap: &GisSnapshot) -> Vec<String> {
+        let same = |a: &GisLayerConfig, b: &GisLayerConfig| a.id == b.id && a.source == b.source;
+        let missing = snap
+            .layers
+            .iter()
+            .filter(|s| !self.gis_layers.iter().any(|l| same(l, s)))
+            .map(|s| format!("{} ({})", s.name, s.source))
+            .collect();
+        let mut ordered: Vec<GisLayerConfig> = snap
+            .layers
+            .iter()
+            .filter(|s| self.gis_layers.iter().any(|l| same(l, s)))
+            .cloned()
+            .collect();
+        for l in &self.gis_layers {
+            if !snap.layers.iter().any(|s| same(l, s)) {
+                ordered.push(GisLayerConfig {
+                    visible: false,
+                    ..l.clone()
+                });
+            }
+        }
+        self.gis_layers = ordered;
+        for g in &snap.groups {
+            match self.gis_groups.iter_mut().find(|x| x.name == g.name) {
+                Some(x) => x.visible = g.visible,
+                None => self.gis_groups.push(g.clone()),
+            }
+        }
+        missing
+    }
+
+    /// Move a layer `delta` places in paint order (positive: drawn later, on top).
+    pub fn move_gis_layer(&mut self, id: u64, delta: isize) {
+        let Some(i) = self.gis_layers.iter().position(|l| l.id == id) else {
+            return;
+        };
+        let j = (i as isize + delta).clamp(0, self.gis_layers.len() as isize - 1) as usize;
+        let l = self.gis_layers.remove(i);
+        self.gis_layers.insert(j, l);
     }
 
     /// Is local `hour` inside the quiet-hours window? Handles the ordinary case of a window that
@@ -2058,6 +2283,10 @@ impl Settings {
         loaded.adopt_tablet_default(cfg!(target_os = "android"));
         loaded.adopt_dock_default();
         loaded.adopt_detector_floors();
+        // The pre-M4.1 single imported layer becomes the first of the collection, once.
+        let migrated = loaded.migrate_imported_gis();
+        // User products saved before IDs existed get theirs now, and keep them (M3.2).
+        let migrated = wxdata::udp_file::ensure_ids(&mut loaded.udp_products) || migrated;
         // Saved key tables gain the plain-key alternatives, so a tablet keyboard without an F row
         // or Page keys can reach every action (see `hotkeys::fill_plain_keys`).
         crate::hotkeys::fill_plain_keys(&mut loaded.keybinds);
@@ -2067,7 +2296,7 @@ impl Settings {
         for m in loaded.markers.iter_mut().filter(|m| m.id.is_empty()) {
             m.id = new_marker_id();
         }
-        if filled {
+        if filled || migrated {
             loaded.save();
         }
         loaded
@@ -2233,20 +2462,84 @@ mod tests {
     /// ordinary case, not an error worth reporting.
     #[test]
     fn no_remembered_gis_import_resolves_to_nothing_at_all() {
-        assert!(Settings::default().imported_gis_text().is_none());
+        let mut s = Settings::default();
+        assert!(!s.migrate_imported_gis());
+        assert!(s.gis_layers.is_empty());
     }
 
+    /// A pre-M4.1 settings file's one layer, with every companion setting, becomes the first layer
+    /// of the collection exactly once, and the old fields are not written back.
     #[test]
-    fn old_settings_keep_the_original_imported_gis_appearance() {
-        let settings: Settings = serde_json::from_str(r#"{"imported_gis":"districts.geojson"}"#)
-            .expect("old settings still deserialize");
-        assert_eq!(settings.imported_gis_style, ImportedGisStyle::default());
-        assert_eq!(settings.imported_gis_style.fill_rgba(), [80, 140, 220, 60]);
-        assert_eq!(settings.imported_gis_style.rendered_stroke_width(), 1.6);
+    fn the_single_imported_layer_migrates_once_with_all_its_settings() {
+        let old = r#"{"imported_gis":"districts.geojson",
+            "imported_gis_style":{"color":[240,80,40],"stroke_width":3.25,"opacity":0.5,"min_zoom":6.5},
+            "imported_gis_label":"NAME","imported_gis_color_by":"POP",
+            "imported_gis_time_start":"BEGIN","imported_gis_below":true}"#;
+        let mut s: Settings = serde_json::from_str(old).expect("old settings still deserialize");
+        assert!(s.migrate_imported_gis());
+        assert_eq!(s.gis_layers.len(), 1);
+        let l = &s.gis_layers[0];
         assert_eq!(
-            settings.imported_gis_style.stroke_rgba(),
-            [80, 140, 220, 220]
+            (l.id, l.source.as_str(), l.name.as_str()),
+            (1, "districts.geojson", "districts.geojson")
         );
+        assert_eq!(l.style.color, [240, 80, 40]);
+        assert_eq!(l.style.min_zoom, 6.5);
+        assert_eq!(l.label.as_deref(), Some("NAME"));
+        assert_eq!(l.color_by.as_deref(), Some("POP"));
+        assert_eq!(l.time_start.as_deref(), Some("BEGIN"));
+        assert_eq!(l.time_end, None);
+        assert!(l.below && l.visible);
+        assert!(!s.migrate_imported_gis(), "once");
+        let saved = serde_json::to_string(&s).unwrap();
+        assert!(!saved.contains("imported_gis"), "{saved}");
+        let back: Settings = serde_json::from_str(&saved).unwrap();
+        assert_eq!(back.gis_layers, s.gis_layers);
+        let mut back = back;
+        assert!(
+            !back.migrate_imported_gis(),
+            "a later launch migrates nothing"
+        );
+        // An old file with only the path gets the original neutral-blue look.
+        let mut plain: Settings = serde_json::from_str(r#"{"imported_gis":"a.geojson"}"#).unwrap();
+        plain.migrate_imported_gis();
+        let st = plain.gis_layers[0].style;
+        assert_eq!(st, ImportedGisStyle::default());
+        assert_eq!(st.fill_rgba(), [80, 140, 220, 60]);
+        assert_eq!(st.stroke_rgba(), [80, 140, 220, 220]);
+    }
+
+    /// Layers are independent: IDs are never reused, order and groups are per layer, a hidden
+    /// group hides without overwriting its layers' own visibility, and removing the last layer
+    /// that used browser-stored content removes the content.
+    #[test]
+    fn gis_layers_keep_their_own_ids_order_groups_and_content() {
+        let mut s = Settings::default();
+        let a = s.add_gis_layer("/data/counties.shp".into());
+        let b = s.add_gis_layer("sites.geojson".into());
+        s.web_files.insert("sites.geojson".into(), "{}".into());
+        assert_eq!((a, b), (1, 2));
+        assert_eq!(s.gis_layer(a).unwrap().name, "counties.shp");
+        s.move_gis_layer(b, -1);
+        assert_eq!(s.gis_layers[0].id, b, "sites now drawn first, underneath");
+        s.move_gis_layer(b, -5);
+        assert_eq!(s.gis_layers[0].id, b, "clamped");
+        s.gis_layer_mut(a).unwrap().group = Some("Assets".into());
+        s.gis_groups.push(GisGroup {
+            name: "Assets".into(),
+            visible: false,
+        });
+        assert!(!s.gis_layer_shown(a) && s.gis_layer(a).unwrap().visible);
+        assert!(s.gis_layer_shown(b));
+        s.gis_groups[0].visible = true;
+        assert!(s.gis_layer_shown(a));
+        s.remove_gis_layer(b);
+        assert!(!s.web_files.contains_key("sites.geojson"));
+        let c = s.add_gis_layer("sites.geojson".into());
+        assert_eq!(c, 3, "a removed layer's ID is not handed out again");
+        s.remove_gis_layer(a);
+        s.remove_gis_layer(c);
+        assert_eq!(s.add_gis_layer("x".into()), 4);
     }
 
     #[test]
@@ -2277,6 +2570,61 @@ mod tests {
         assert_eq!(too_thin.rendered_stroke_width(), 0.5);
     }
 
+    /// A workspace or scene puts the layers back by ID: their state and order as saved, a layer
+    /// imported since hidden, group switches restored, and a layer since removed reported by name
+    /// rather than bound to another layer, even one re-imported from the same file.
+    #[test]
+    fn a_gis_snapshot_restores_layers_by_id_and_reports_the_removed() {
+        let mut s = Settings::default();
+        assert!(
+            s.gis_snapshot(true).is_none(),
+            "nothing imported, nothing saved"
+        );
+        let a = s.add_gis_layer("counties.geojson".into());
+        let b = s.add_gis_layer("sirens.geojson".into());
+        s.gis_layer_mut(a).unwrap().group = Some("Base".into());
+        s.gis_groups.push(GisGroup {
+            name: "Base".into(),
+            visible: true,
+        });
+        s.gis_layer_mut(b).unwrap().style.color = [255, 0, 0];
+        let snap = s.gis_snapshot(true).unwrap();
+        // Afterwards: reordered, restyled, a group hidden, a new layer imported.
+        s.move_gis_layer(b, -1);
+        s.gis_layer_mut(b).unwrap().style.color = [0, 0, 255];
+        s.gis_layer_mut(a).unwrap().visible = false;
+        s.gis_groups[0].visible = false;
+        let c = s.add_gis_layer("roads.geojson".into());
+        assert!(s.apply_gis_snapshot(&snap).is_empty());
+        let ids: Vec<u64> = s.gis_layers.iter().map(|l| l.id).collect();
+        assert_eq!(ids, [a, b, c]);
+        assert_eq!(s.gis_layer(b).unwrap().style.color, [255, 0, 0]);
+        assert!(s.gis_layer_shown(a) && s.gis_layer_shown(b));
+        assert!(
+            !s.gis_layer(c).unwrap().visible,
+            "not part of the saved view"
+        );
+        // Sirens removed and imported again: a new layer, not the saved one.
+        s.remove_gis_layer(b);
+        let b2 = s.add_gis_layer("sirens.geojson".into());
+        let missing = s.apply_gis_snapshot(&snap);
+        assert_eq!(missing, ["sirens.geojson (sirens.geojson)"]);
+        assert!(!s.gis_layer(b2).unwrap().visible);
+        // Saved views from before this carry no snapshot and leave the layers alone.
+        let old_scene: crate::broadcast::Scene =
+            serde_json::from_str(r#"{"name":"Old","lon":-97.0,"lat":35.0,"zoom":7.0}"#).unwrap();
+        assert!(old_scene.gis.is_none());
+        let round: crate::broadcast::Scene = serde_json::from_str(
+            &serde_json::to_string(&crate::broadcast::Scene {
+                gis: Some(snap.clone()),
+                ..old_scene
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(round.gis, Some(snap));
+    }
+
     /// The browser has no path that survives a reload, so a name that matches a `web_files` entry
     /// resolves to that content — the same two-way resolution `palette_paths` does for a `.pal`.
     #[test]
@@ -2284,9 +2632,8 @@ mod tests {
         let mut s = Settings::default();
         s.web_files
             .insert("districts.geojson".into(), "{\"type\":\"x\"}".into());
-        s.imported_gis = Some("districts.geojson".into());
         assert_eq!(
-            s.imported_gis_text().expect("a remembered import"),
+            s.gis_source_text("districts.geojson"),
             Ok("{\"type\":\"x\"}".to_string())
         );
     }
@@ -2295,16 +2642,12 @@ mod tests {
     /// being missing is otherwise indistinguishable from the app having forgotten the import.
     #[test]
     fn a_missing_path_is_an_error_rather_than_silence() {
-        let s = Settings {
-            imported_gis: Some(
-                std::env::temp_dir()
-                    .join("hookecho-no-such-import.geojson")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            ..Default::default()
-        };
-        assert!(s.imported_gis_text().expect("a remembered import").is_err());
+        let s = Settings::default();
+        let path = std::env::temp_dir()
+            .join("hookecho-no-such-import.geojson")
+            .to_string_lossy()
+            .into_owned();
+        assert!(s.gis_source_text(&path).is_err());
     }
 
     #[test]
@@ -2633,18 +2976,38 @@ mod tests {
         let s = Settings {
             hints_seen: Vec::new(),
             web_files: BTreeMap::new(),
+            gis_layers: vec![GisLayerConfig {
+                id: 3,
+                source: "districts.geojson".into(),
+                name: "Districts".into(),
+                visible: false,
+                style: ImportedGisStyle {
+                    color: [240, 80, 40],
+                    stroke_width: 3.25,
+                    opacity: 0.5,
+                    min_zoom: 6.5,
+                },
+                label: Some("NAME".into()),
+                color_by: Some("POP".into()),
+                time_start: Some("BEGIN".into()),
+                time_end: None,
+                below: true,
+                group: Some("Boundaries".into()),
+                targets: true,
+                filter: "POP > 1000".into(),
+            }],
+            gis_groups: vec![GisGroup {
+                name: "Boundaries".into(),
+                visible: false,
+            }],
+            gis_next_id: 4,
             imported_gis: None,
-            imported_gis_style: ImportedGisStyle {
-                color: [240, 80, 40],
-                stroke_width: 3.25,
-                opacity: 0.5,
-                min_zoom: 6.5,
-            },
-            imported_gis_label: Some("NAME".into()),
-            imported_gis_color_by: Some("POP".into()),
-            imported_gis_time_start: Some("BEGIN".into()),
+            imported_gis_style: ImportedGisStyle::default(),
+            imported_gis_label: None,
+            imported_gis_color_by: None,
+            imported_gis_time_start: None,
             imported_gis_time_end: None,
-            imported_gis_below: true,
+            imported_gis_below: false,
             reduce_motion: true,
             hide_far_3d: true,
             far_3d_factor: default_far_3d(),
@@ -2709,6 +3072,7 @@ mod tests {
                 opacity: 1.0,
             }],
             udp_products: vec![wxdata::udp::ProductDef {
+                id: String::new(),
                 name: "Test product".to_string(),
                 units: "dBZ".to_string(),
                 expression: "REF + 1".to_string(),

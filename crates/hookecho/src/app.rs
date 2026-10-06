@@ -11,9 +11,20 @@ mod case;
 /// drawer / pills / alert dock. Only the chrome differs; the map,
 /// windows, and every data path are shared.
 mod chrome;
+mod column_product;
+mod column_trail;
+mod trail;
+mod xsection_edit;
+#[cfg(test)]
+use trail::trail_status_line;
+use trail::TrailState;
+// For the headless verifier and its GPU check, which are native-only.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use column_product::column_upload;
+mod env_levels;
 mod field_state;
-mod goes_timeline;
 mod goes_context;
+mod goes_timeline;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
 mod layer_probe;
@@ -43,7 +54,6 @@ mod contours;
 mod data_age;
 mod data_poll;
 mod detectors;
-mod near_storm;
 mod digest_brief;
 mod draw_panes;
 mod fetch_schedule;
@@ -54,6 +64,7 @@ mod gis_import;
 mod goto;
 mod model_groups;
 mod models;
+mod near_storm;
 mod output_window;
 mod overlay_poll;
 mod overlay_toggle;
@@ -73,10 +84,13 @@ mod self_update_ui;
 mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
+mod community_targets;
 mod detector_markers;
+mod gis_layers;
 mod loop_capture;
 mod map_click;
 mod map_volume;
+mod measure;
 mod pane_3d_overlays;
 mod pane_feeds;
 mod pane_layout;
@@ -91,6 +105,7 @@ mod radar_probe;
 mod radar_products;
 mod rules;
 mod scenes;
+mod settings_bundle;
 mod sharing;
 mod standalone_volume;
 mod surface_feeds;
@@ -714,6 +729,17 @@ fn format_diff_readout(
     }
 }
 
+/// What a cross-section was sampled from (see `HookEchoApp::xsection_source`).
+#[derive(Clone, Debug, PartialEq)]
+struct XsectionSource {
+    pane: usize,
+    volume: String,
+    revision: u64,
+    moment: Moment,
+    tilts: usize,
+    span: Option<(DateTime<Utc>, DateTime<Utc>)>,
+}
+
 /// The ZDR-column cache: the volume it was computed for, its columns, and the bright band the
 /// same pass found.
 /// A place the proximity alerts watch: a saved marker, or wherever the GPS says you are.
@@ -1021,29 +1047,6 @@ fn scan_age_color(t: f32) -> egui::Color32 {
     } else {
         lerp(amber, red, (t - 0.5) * 2.0)
     }
-}
-
-/// What a trail was built for, so any change starts it over.
-type TrailKey = (
-    usize,
-    Moment,
-    usize,
-    wxdata::extrema::Extremum,
-    u16,
-    bool,
-    String,
-);
-
-/// The C2 accumulator and the frames already folded into it, oldest first.
-struct TrailState {
-    key: TrailKey,
-    folded: Vec<String>,
-    acc: Option<BinnedSweep>,
-    /// Bumped on every fold or restart so the shown-image key changes as the trail grows.
-    generation: u32,
-    restarted: Option<wxdata::extrema::Mismatch>,
-    /// When the newest folded frame was taken, for the decay step to the next one.
-    last_time: Option<DateTime<Utc>>,
 }
 
 type ShownKey = (
@@ -1429,7 +1432,7 @@ pub struct HookEchoApp {
     built_gen: u64,
     built_zoom_bucket: i32,
     /// Whether the imported GIS layer was above its minimum zoom at the last tessellation (I4).
-    built_imported_visible: bool,
+    built_imported_visible: u64,
     built_theme: crate::settings::Theme,
     /// Whether the overlay geometry was split for the globe.
     built_globe: bool,
@@ -1559,6 +1562,8 @@ pub struct HookEchoApp {
     warning_popup: Option<ui::warning_window::WarningPopup>,
     /// People, homes and towns inside open alerts (Census), by alert id.
     impacts: impact::ImpactBook,
+    /// Towns in storms' projected paths, looked up on request (M2.3).
+    towns: community_targets::TownsBook,
     /// The impact the open feature details show (a discussion's or a watch's), by its key in
     /// `impacts`; `None` for features that have no people count.
     detail_impact: Option<String>,
@@ -1762,11 +1767,17 @@ pub struct HookEchoApp {
     /// What the locally derived products (VIL/VILD/echo tops) were last computed from:
     /// The accepted volume revision, sweep policy, settings and both temperature levels.
     derived_key: Option<radar_products::DerivedKey>,
-    /// `(site, epoch, 0 °C height, −20 °C height)` above sea level in metres, for the hail grids
-    /// and every other consumer of a melting level. `epoch` is `None` for the live HRRR analysis
-    /// and the synoptic time of the observed sounding for an archived volume — read through
-    /// [`App::freezing_for`], which only hands a view the levels for its own site and epoch.
-    freezing: Option<(String, Option<chrono::DateTime<chrono::Utc>>, f64, f64)>,
+    /// The column user product build in flight, the one on the GPU, and the last failure with the
+    /// selection it answered (`app::column_product`).
+    column_requested: Option<column_product::ColumnKey>,
+    column_accepted: Option<Arc<column_product::ColumnAccepted>>,
+    column_failed: Option<(column_product::ColumnKey, String)>,
+    /// The column product trail being built for the active pane (`app::column_trail`).
+    column_trail: Option<column_trail::ColumnTrailState>,
+    /// The most recent isotherm heights (`env_levels::EnvLevels`), for the hail grids and every
+    /// other consumer of a melting level. Read through [`App::freezing_for`] /
+    /// [`App::env_levels_for`], which only hand a view the levels for its own site and epoch.
+    freezing: Option<env_levels::EnvLevels>,
     /// When, and for which `(site, epoch)`, the last request went out — the throttle.
     freezing_last_fetch: Option<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
     /// Accumulation window (hours) for the observed snowfall analysis, and the one last fetched.
@@ -1958,23 +1969,17 @@ pub struct HookEchoApp {
     fire_incidents: Vec<wxdata::wfigs::FireIncident>,
     fire_bounds: Option<(f64, f64, f64, f64)>,
     fire_last_fetch: Option<Instant>,
-    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON or Shapefile (converted by `gis_import`,
-    /// see that module's own doc comment) — no fetch/clock fields the way the feed-backed layers
-    /// above have, since there is no feed to refresh, only the one file the user picked.
+    /// The master switch for every imported GIS layer (session only); each layer's own
+    /// visibility is in `settings.gis_layers`.
     show_imported_gis: bool,
-    imported_gis: Vec<GeoFeature>,
-    /// The imported points and lines, which `GeoFeature`'s rings-only shape cannot hold — painted
-    /// directly by `render_pane` beside the freehand annotation strokes.
-    imported_marks: crate::gis_import::Marks,
-    /// The imported features' colours by `settings.imported_gis_color_by` and their legend,
-    /// for the attribute they were computed for; cleared on import.
-    imported_colors: Option<crate::gis_import::ColoredBy>,
-    /// The imported features' valid windows for the mapped start/end attributes (I5), for the
-    /// attributes they were read with; cleared on import.
-    imported_time: Option<ImportedTime>,
-    /// Which imported features are valid at the view's time; `None` when no time attribute is
-    /// mapped, which shows them all.
-    imported_shown: Option<Vec<bool>>,
+    /// What was read from each imported GIS layer's file (ROADMAP_PARITY M4.1), by layer ID.
+    gis: Vec<gis_layers::LoadedGis>,
+    /// Per `overlays` entry, the imported layer it came from (`None`: an official product).
+    overlay_layer: Vec<Option<u64>>,
+    /// The layer the Layer Manager is editing.
+    gis_selected: Option<u64>,
+    /// The layer settings the overlays were last assembled for, hashed.
+    gis_settings_key: u64,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -2188,6 +2193,13 @@ pub struct HookEchoApp {
     /// suggestions.md §3.2). Pure display state — the geometry is already sitting in `xsection`'s
     /// own `beam_lines` regardless, so toggling this never needs a rebuild.
     xsection_beam_rise: bool,
+    /// A cross-section handle being dragged (`app::xsection_edit`).
+    xsection_drag: Option<xsection_edit::SectionDrag>,
+    /// Carry the section into the 3D view's vertical cut as it moves.
+    xsection_cut_3d: bool,
+    /// What the shown section was sampled from — pane, volume, revision, moment — so it is rebuilt
+    /// when that pane's volume grows or changes, and its tilt time span for the window.
+    xsection_source: Option<XsectionSource>,
     /// Lazily-loaded textures for uploaded marker icons, keyed by filename. `None` = load failed
     /// (negative-cached so a missing/corrupt file isn't retried every frame).
     marker_icon_tex: ui::marker_window::IconTextures,
@@ -2495,8 +2507,16 @@ impl HookEchoApp {
         let epoch = self.freezing_epoch(idx);
         self.freezing
             .as_ref()
-            .filter(|(s, e, ..)| s == site && *e == epoch)
-            .map(|(.., h0, hm20)| (*h0, *hm20))
+            .filter(|l| l.answers(site, epoch))
+            .map(|l| (l.h0_m, l.hm20_m))
+    }
+
+    /// The full isotherm reading for view `idx`, under the same site-and-epoch rule as
+    /// [`Self::freezing_for`].
+    pub(crate) fn env_levels_for(&self, idx: usize) -> Option<&env_levels::EnvLevels> {
+        let site = self.views[idx].site.as_deref()?;
+        let epoch = self.freezing_epoch(idx);
+        self.freezing.as_ref().filter(|l| l.answers(site, epoch))
     }
 
     /// Request the melting level view `idx` wants (see [`Self::freezing_epoch`]). Throttled per
@@ -2626,20 +2646,6 @@ impl HookEchoApp {
         let (u, v) = (u / n as f32, v / n as f32);
         let dir = u.atan2(v).to_degrees().rem_euclid(360.0);
         Some((dir, (u * u + v * v).sqrt()))
-    }
-
-    /// Height of pane `idx`'s beam centre above the radar, in feet, over the point `ll`
-    /// (`[lon, lat]`). `None` when the pane has no site or no loaded tilt.
-    ///
-    /// Ground range is close enough to slant range for the shallow tilts this is read at, and the
-    /// 4/3-earth model is the same one the cross-section draws with
-    /// ([`wxdata::xsection::beam_height_km`]), so the two agree.
-    fn beam_height_ft(&self, idx: usize, ll: [f64; 2]) -> Option<f64> {
-        let v = &self.views[idx];
-        let site = wxdata::sites::site_by_id(v.site.as_deref()?)?;
-        let elev = *v.volume.as_ref()?.elevations.get(v.tilt)? as f64;
-        let (km, _) = crate::geo::great_circle([site.longitude as f64, site.latitude as f64], ll);
-        Some(wxdata::xsection::beam_height_km(km, elev) * 3280.84)
     }
 
     /// Chime when a new volume lands on the live pane you are watching — the "look up" cue for
@@ -2987,7 +2993,10 @@ impl HookEchoApp {
     }
 
     fn build_xsection(&mut self, idx: usize, ctx: &egui::Context) {
-        let (a, b) = (self.xsection_pts[0], self.xsection_pts[1]);
+        let [a, b] = match self.xsection_pts.as_slice() {
+            [a, b] => [*a, *b],
+            _ => return,
+        };
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return;
         };
@@ -2996,10 +3005,30 @@ impl HookEchoApp {
         if sweeps.is_empty() {
             return;
         }
+        // The span the contributing tilts were scanned over, from their own radial clocks.
+        let span = vol
+            .elevations
+            .iter()
+            .filter_map(|&e| level2::sweep_time_range(&vol.scan, e, moment))
+            .fold(
+                None,
+                |acc: Option<(DateTime<Utc>, DateTime<Utc>)>, (s, e)| {
+                    Some(acc.map_or((s, e), |(a, b)| (a.min(s), b.max(e))))
+                },
+            );
+        let source = XsectionSource {
+            pane: idx,
+            volume: vol.name.clone(),
+            revision: vol.revision(),
+            moment,
+            tilts: sweeps.len(),
+            span,
+        };
         let Some(xs) = wxdata::xsection::build(&sweeps, (a[0], a[1]), (b[0], b[1]), 300, 120, 18.0)
         else {
             return;
         };
+        self.xsection_source = Some(source);
         let hc_table =
             crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
         let img = ui::xsection_window::to_image(&xs, &hc_table);
@@ -3380,16 +3409,16 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
-        // (0°C height, −20°C height), metres above sea level — `self.freezing`, already filtered
-        // to the gate's own site by the caller. `None` on the very first inspection of a site (or
-        // a hail grid's own request) before the proactive fetch `inspect_gate` kicks off there —
-        // see that fetch's own doc comment — has actually landed; a UDP formula referencing these
-        // inputs just sees them as missing in the meantime, not the app fetching a second time.
-        freezing: Option<(f64, f64)>,
+        // Isotherm heights above sea level — `self.freezing`, already filtered to the gate's own
+        // site and epoch by the caller (`env_levels_for`). Empty on the very first inspection of a
+        // site before the proactive fetch `inspect_gate` kicks off there has landed; a formula
+        // referencing these inputs just sees them as missing in the meantime.
+        levels: wxdata::udp_column::Levels,
     ) -> wxdata::udp::GateInputs {
         let mut out = wxdata::udp::GateInputs {
-            freezing_level_m: freezing.map(|(h0, _)| h0 as f32),
-            minus20c_height_m: freezing.map(|(_, hm20)| hm20 as f32),
+            freezing_level_m: levels.h0_m,
+            minus10c_height_m: levels.hm10_m,
+            minus20c_height_m: levels.hm20_m,
             ..Default::default()
         };
         for m in [
@@ -3400,7 +3429,8 @@ impl HookEchoApp {
             Moment::SpecificDifferentialPhase,
             Moment::CorrelationCoefficient,
         ] {
-            let Ok(binned) = vol.binned(m, tilt, false) else {
+            // Velocity dealiased, as a product drawn on the map reads it (`Volume::product_sweep`).
+            let Ok(binned) = vol.binned(m, tilt, m == Moment::Velocity) else {
                 continue;
             };
             let Some(sample) = binned.sample_at(lon, lat) else {
@@ -3445,10 +3475,10 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
-        freezing: Option<(f64, f64)>,
+        levels: wxdata::udp_column::Levels,
     ) -> Vec<wxdata::udp::GateInputs> {
         (0..vol.elevations.len())
-            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing))
+            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels))
             .filter(|g| g.beam_height_m.is_some())
             .collect()
     }
@@ -3483,8 +3513,14 @@ impl HookEchoApp {
         // Only meaningful for the gate's own site and time — `self.freezing` is a single
         // most-recent cache, so `freezing_for` filters out another site's reading, or a live one
         // standing in for an archived volume's. Read before `v` for the same borrow reason.
-        let freezing = self.freezing_for(idx);
-        if freezing.is_none() {
+        let levels = self
+            .env_levels_for(idx)
+            .map(env_levels::EnvLevels::column_levels)
+            .unwrap_or_default();
+        let environment = self
+            .env_levels_for(idx)
+            .map(env_levels::EnvLevels::describe);
+        if levels.h0_m.is_none() {
             self.fetch_freezing_levels(ctx, idx);
         }
         let v = &mut self.views[idx];
@@ -3514,8 +3550,8 @@ impl HookEchoApp {
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
-        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing);
-        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, freezing);
+        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels);
+        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, levels);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,
@@ -3524,9 +3560,10 @@ impl HookEchoApp {
             inspection,
             gate_inputs,
             column_inputs,
-            // Filled on a click only (below): the cursor-probe table calls this on every hover
-            // and keeps just the value, and the series reads every volume the pane holds.
+            environment,
+            // Filled on a click only (map_click): the hover probe keeps just the value.
             series: Vec::new(),
+            display: Default::default(),
         })
     }
 
@@ -3568,6 +3605,7 @@ impl HookEchoApp {
                         FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
                         _ => {
                             self.mrms_ready_for(idx, *layer)
+                                && self.radar_field_ready(idx, *layer)
                                 && self
                                     .field_state_for(idx, *layer)
                                     .is_some_and(|state| state.grid.is_some())
@@ -3596,7 +3634,9 @@ impl HookEchoApp {
             | FL::VilDensity
             | FL::EtopLocal
             | FL::HailMehs
-            | FL::HailPosh => "Local radar".into(),
+            | FL::HailPosh
+            | FL::UserColumn
+            | FL::UserColumnTrail => "Local radar".into(),
             FL::SnowBands => "Derived MRMS".into(),
             FL::SnowAnalysis => "NOAA NOHRSC".into(),
             FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),
@@ -3697,20 +3737,6 @@ impl HookEchoApp {
             signed
         };
         model_diff_upload(grid, self.diff_field, self.diff_mode)
-    }
-
-    /// The selected storm, current: `cell_popup` is a copy taken at the click, so the newest
-    /// SCIT update of the same cell (by id) replaces it, keeping its position and attributes live.
-    /// `None` when nothing is selected; the click-time copy when the cell has left the product.
-    pub(crate) fn selected_storm(&self) -> Option<Cell> {
-        let picked = self.cell_popup.as_ref()?;
-        Some(
-            self.active_storm_cells()
-                .iter()
-                .find(|c| !picked.id.is_empty() && c.id == picked.id)
-                .cloned()
-                .unwrap_or_else(|| picked.clone()),
-        )
     }
 
     /// ROADMAP_NEW J2: mark the selected storm — a ring and its id — in the active pane, and in
@@ -4687,47 +4713,6 @@ impl HookEchoApp {
         }
     }
 
-    /// Storm-follow camera: re-lock onto the tracked cell in the freshly-applied volume and recenter
-    /// the active pane on it. Called from the `Cells` apply arm. Reacquires across SCIT renumbering
-    /// by predicting the cell's position from its last motion and adopting the nearest new cell.
-    fn update_follow(&mut self) {
-        let Some((fsite, last, since)) = self.follow_cell.take() else {
-            return;
-        };
-        // Active site changed out from under the follow (site switch) → stop silently.
-        if self.cells_site.as_deref() != Some(fsite.as_str()) {
-            return;
-        }
-        // Same SCIT id in the new volume → the easy case.
-        if let Some(c) = self
-            .storm_cells
-            .iter()
-            .find(|c| !c.id.is_empty() && c.id == last.id)
-            .cloned()
-        {
-            self.recenter_follow(&c);
-            self.follow_cell = Some((fsite, c, Instant::now()));
-            return;
-        }
-        // Renumber/miss: predict where the cell drifted and adopt the nearest new cell within 15 km.
-        let elapsed_h = since.elapsed().as_secs_f64() / 3600.0;
-        let pred = match (last.mvt_deg, last.mvt_kt) {
-            (Some(dir), Some(kt)) if kt > 0.0 => crate::geo::destination_point(
-                [last.lon, last.lat],
-                dir as f64,
-                kt as f64 * 1.852 * elapsed_h,
-            ),
-            _ => [last.lon, last.lat],
-        };
-        if let Some(c) = nearest_cell(&self.storm_cells, pred[0], pred[1], 15.0).cloned() {
-            self.recenter_follow(&c);
-            self.follow_cell = Some((fsite, c, Instant::now()));
-        } else {
-            self.follow_notice = Some((format!("Lost {} — follow ended", last.id), Instant::now()));
-            // follow_cell already taken → stays None.
-        }
-    }
-
     /// Snap the active pane's camera onto a followed cell, keeping the current zoom.
     fn recenter_follow(&mut self, c: &Cell) {
         self.views[self.active].camera.center =
@@ -4804,45 +4789,6 @@ impl HookEchoApp {
         }
     }
 
-    /// Keep the imported features' time filter (I5) in step with the view's time, rebuilding
-    /// the overlays only when the set of valid features actually changes.
-    fn sync_imported_time(&mut self) {
-        let keys = (
-            self.settings.imported_gis_time_start.clone(),
-            self.settings.imported_gis_time_end.clone(),
-        );
-        if keys == (None, None) || self.imported_marks.props.is_empty() {
-            if self.imported_shown.take().is_some() {
-                self.rebuild_overlays();
-            }
-            return;
-        }
-        if self.imported_time.as_ref().is_none_or(|(k, _)| *k != keys) {
-            let bounds = crate::gis_import::time_bounds(
-                &self.imported_marks,
-                keys.0.as_deref(),
-                keys.1.as_deref(),
-            );
-            self.imported_time = Some((keys, bounds));
-        }
-        let Some((_, bounds)) = &self.imported_time else {
-            return;
-        };
-        let t = self.view_target_time().unwrap_or_else(Utc::now);
-        let shown = crate::gis_import::shown_at(bounds, t);
-        if self.imported_shown.as_ref() != Some(&shown) {
-            self.imported_shown = Some(shown);
-            self.rebuild_overlays();
-        }
-    }
-
-    /// Whether imported feature `src` is valid at the view's time (always, with no time filter).
-    fn imported_valid(&self, src: Option<&usize>) -> bool {
-        self.imported_shown
-            .as_ref()
-            .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
-    }
-
     /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
     /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
     /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
@@ -4875,6 +4821,10 @@ impl HookEchoApp {
             env: wxdata::udp_volume::Env {
                 antenna_altitude_m,
                 freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
+                minus10c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm10_m)
+                    .map(|h| h as f32),
             },
         };
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -4886,6 +4836,7 @@ impl HookEchoApp {
             .freezing
             .map(|(a, b)| (a.to_bits(), b.to_bits()))
             .hash(&mut h);
+        spec.env.minus10c_m.map(f32::to_bits).hash(&mut h);
         spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
         def.palette.hash(&mut h);
         Some((spec, h.finish()))
@@ -4929,23 +4880,6 @@ impl HookEchoApp {
             .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme))
             .unwrap_or_else(|| crate::colormap::ramp_table(lo, hi));
         Some((table, name.clone(), units))
-    }
-
-    /// Recompute the imported features' colours when the colouring attribute changed.
-    fn refresh_imported_colors(&mut self) {
-        let Some(key) = self.settings.imported_gis_color_by.clone() else {
-            self.imported_colors = None;
-            return;
-        };
-        if self
-            .imported_colors
-            .as_ref()
-            .is_some_and(|(k, _, _)| *k == key)
-        {
-            return;
-        }
-        let (colors, legend) = crate::gis_import::color_by(&self.imported_marks, &key);
-        self.imported_colors = Some((key, colors, legend));
     }
 
     /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
@@ -5172,7 +5106,7 @@ impl HookEchoApp {
         // Turning the globe on or off re-tessellates: its overlays are split to bend with it.
         let theme_changed =
             self.settings.theme != self.built_theme || self.settings.globe != self.built_globe;
-        let imported_visible = self.settings.imported_gis_style.visible_at(zoom);
+        let imported_visible = self.gis_zoom_key(zoom);
         let imported_flipped = imported_visible != self.built_imported_visible;
         if should_retess(
             self.gesture_live,
@@ -5180,12 +5114,11 @@ impl HookEchoApp {
             bucket != self.built_zoom_bucket || theme_changed || imported_flipped,
         ) {
             self.built_imported_visible = imported_visible;
-            let mut geom = overlay_build::build_with_theme_and_imported_width(
+            let mut geom = overlay_build::build_layered(
                 &self.overlays,
                 zoom,
                 self.settings.theme,
-                self.settings.imported_gis_style.rendered_stroke_width(),
-                imported_visible,
+                &self.overlay_imported_px(zoom),
             );
             let pf: Vec<(&wxdata::placefile::PlaceItem, f32)> = self
                 .visible_placefile_iter()
@@ -6714,14 +6647,12 @@ impl HookEchoApp {
         // Imported GIS points and lines (ROADMAP_NEW I1). The polygon half of an import rides the
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
-        let imported_shown =
-            self.show_imported_gis && self.settings.imported_gis_style.visible_at(cam.zoom);
-        self.paint_imported_marks(&painter, prect, cam, vp, imported_shown);
+        self.paint_gis_marks(&painter, prect, cam, vp);
         // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
         // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
         // file reads as a scatter of names rather than an unreadable smear, and more appear as
         // the map zooms in.
-        self.paint_imported_labels(&painter, prect, cam, vp, imported_shown);
+        self.paint_gis_labels(&painter, prect, cam, vp);
 
         // Saved watch zones, plus the one being clicked out right now.
         {
@@ -6797,40 +6728,7 @@ impl HookEchoApp {
         }
 
         // Measure tool.
-        if !self.measure.is_empty() {
-            let col = egui::Color32::from_rgb(255, 210, 80);
-            let screen = |ll: [f64; 2]| {
-                let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                egui::pos2(prect.left() + sx, prect.top() + sy)
-            };
-            for &pt in &self.measure {
-                painter.circle_filled(screen(pt), 3.5, col);
-            }
-            if self.measure.len() == 2 {
-                let (a, b) = (screen(self.measure[0]), screen(self.measure[1]));
-                painter.line_segment([a, b], egui::Stroke::new(2.0, col));
-                let (km, brg) = crate::geo::great_circle(self.measure[0], self.measure[1]);
-                let mut txt = format!(
-                    "{}  @ {brg:.0}°",
-                    crate::geo::fmt_distance(km, self.metric_in(idx), 1)
-                );
-                // How high the beam is over the far end of the line. The number that decides
-                // whether "there's nothing on radar there" means the storm is weak or means the
-                // scan is looking over its head, and until now it lived only in the cross-section.
-                if let Some(h) = self.beam_height_ft(idx, self.measure[1]) {
-                    txt.push_str(&format!("  ·  beam {h:.0} ft"));
-                }
-                let mid = a + (b - a) * 0.5;
-                painter.text(
-                    mid + egui::vec2(0.0, -10.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    txt,
-                    egui::FontId::proportional(12.0),
-                    col,
-                );
-            }
-        }
+        self.paint_measure(&painter, prect, cam, vp, idx);
 
         self.region.paint(&painter, |ll| {
             let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
@@ -6867,6 +6765,7 @@ impl HookEchoApp {
                     col,
                 );
             }
+            self.paint_xsection_handles(&painter, screen);
         }
 
         // The 3D map's own vertical clip plane (H4's "cross-section line visible in map pane"):
@@ -7244,94 +7143,13 @@ impl HookEchoApp {
         }
     }
 
-    /// Bring back the GeoJSON import this user last chose, at startup. Silent when there is none.
-    ///
-    /// A file that has since moved or been deleted is reported rather than swallowed: the layer
-    /// simply not being there is otherwise indistinguishable from the app having forgotten it,
-    /// and the person is the only one who can fix a missing file. The reference is kept either
-    /// way — a path on a drive that is merely not mounted right now should come back next time,
-    /// not be quietly forgotten because of one failed launch.
-    fn reload_imported_gis(&mut self) {
-        let Some(key) = self.settings.imported_gis.clone() else {
-            return;
-        };
-        // A browser's remembered content is text (a shapefile or KMZ there was stored as
-        // GeoJSON, a KML as itself); a path is read whichever format it is, a shapefile picking
-        // up its .dbf and .prj again.
-        let loaded = match self.settings.web_files.get(&key) {
-            Some(text) if crate::gis_import::is_kml(&key) => crate::gis_import::load_kml(text),
-            Some(text) => crate::gis_import::load_geojson(text),
-            None => crate::gis_import::load_path(&key),
-        };
-        match loaded {
-            Ok(loaded) => {
-                let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
-                self.imported_gis = shapes;
-                self.imported_marks = marks;
-                self.imported_colors = None;
-                self.imported_time = None;
-                // The remembered layer should actually come back, not merely sit loaded and
-                // invisible until the user rediscovers its toggle after every restart.
-                self.show_imported_gis = true;
-                self.rebuild_overlays();
-            }
-            Err(e) => {
-                let name = self.settings.imported_gis.clone().unwrap_or_default();
-                log::warn!("could not reload the imported GIS file {name}: {e}");
-                self.toast(
-                    ToastKind::Error,
-                    format!("Couldn't reload your imported shapes from {name}: {e}"),
-                );
-            }
-        }
-    }
-
-    /// Frame the active pane on everything the last GeoJSON import brought in. A file covering
-    /// somewhere the map isn't currently looking otherwise imports to no visible effect at all —
-    /// the shapes are real, just off-screen.
-    fn zoom_to_imported_gis(&mut self) {
-        let Some((west, south, east, north)) =
-            crate::gis_import::bounds(&self.imported_gis, &self.imported_marks)
-        else {
-            self.toast(
-                ToastKind::Error,
-                "No imported shapes to zoom to".to_string(),
-            );
-            return;
-        };
-        let view = &mut self.views[self.active];
-        let (center_lon, center_lat) = ((west + east) / 2.0, (south + north) / 2.0);
-        // Span in world units rather than degrees: latitude degrees do not have a constant world
-        // height under Mercator, so fitting on degrees would overshoot badly away from the equator.
-        let (x0, y0) = crate::render::mercator::lonlat_to_world(west, north);
-        let (x1, y1) = crate::render::mercator::lonlat_to_world(east, south);
-        let span = (x1 - x0).abs().max((y1 - y0).abs());
-        // A single point (or a shape smaller than a pixel) has no span to fit; a fixed
-        // neighbourhood-scale zoom is the only sensible answer there.
-        let zoom = if span > 1e-9 {
-            // `2^zoom` tiles span the world per axis, so fitting `span` of the world into the
-            // viewport means `2^zoom * span` tiles across it. Back off one notch so the outermost
-            // shapes sit inside the edge rather than exactly on it.
-            (1.0 / span).log2().clamp(1.0, 14.0) - 0.5
-        } else {
-            10.0
-        };
-        view.camera = crate::render::mercator::Camera::at_lonlat(center_lon, center_lat, zoom);
-    }
-
     /// ROADMAP_NEW I6: write everything currently drawn on the map out as one GeoJSON file.
     ///
     /// Deliberately "what is on the map" rather than "everything fetched": `self.overlays` is
     /// already the filtered, toggled set `rebuild_overlays` assembled for display, so an export
     /// matches what the user is looking at instead of quietly carrying layers they had turned off.
     fn export_map_geojson(&mut self) {
-        let features = crate::gis_export::to_features(&crate::gis_export::MapContents {
-            strokes: &self.strokes,
-            markers: &self.settings.markers,
-            zones: &self.settings.alert_polygons,
-            cells: self.active_storm_cells(),
-            overlays: &self.overlays,
-        });
+        let features = self.map_export_features();
         let count = features.len();
         if count == 0 {
             self.toast(
@@ -7352,29 +7170,6 @@ impl HookEchoApp {
                 self.toast(ToastKind::Error, format!("GeoJSON export failed: {e}"));
             }
             crate::dialog::Saved::Cancelled => {}
-        }
-    }
-
-    /// Import a settings bundle (rfd open dialog). The next-frame dirty-diff reloads palettes
-    /// and persists, and the UI (theme, layers, markers…) updates live from the new settings.
-    fn import_settings_bundle(&mut self) {
-        crate::dialog::request_open(crate::dialog::ImportKind::SettingsBundle, "");
-    }
-
-    /// Apply a settings bundle the user picked.
-    fn apply_settings_bundle(&mut self, import: &crate::dialog::Import) {
-        match import
-            .text()
-            .and_then(|s| crate::settings::Settings::import_bundle(&s))
-        {
-            Ok(settings) => {
-                self.settings = settings;
-                self.toast(ToastKind::Success, "Settings imported");
-            }
-            Err(e) => {
-                log::warn!("settings import failed: {e}");
-                self.toast(ToastKind::Error, format!("Settings import failed: {e}"));
-            }
         }
     }
 
@@ -7605,6 +7400,7 @@ pub(crate) fn to_upload(
         ],
         lut,
         precip_flag,
+        gate_alpha: Vec::new(),
         world_min: [wx0 as f32, wy0 as f32],
         world_max: [wx1 as f32, wy1 as f32],
         lut_only,
@@ -7964,12 +7760,6 @@ fn compass8(deg: f64) -> &'static str {
     const N: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     N[(((deg.rem_euclid(360.0) + 22.5) / 45.0) as usize) % 8]
 }
-
-/// The imported features' valid windows and the start/end attributes they were read with.
-type ImportedTime = (
-    (Option<String>, Option<String>),
-    crate::gis_import::TimeBounds,
-);
 
 /// The HRRR isotherm-height surfaces: `(label, colour, heights in km MSL)` per level, and the run.
 type ModelIsotherms = (
@@ -9157,36 +8947,6 @@ fn trail_outline_level(moment: Moment, keep: wxdata::extrema::Extremum) -> f32 {
         (Moment::SpecificDifferentialPhase, _) => 2.0,
         _ => 0.0,
     }
-}
-
-fn trail_status_line(
-    folded: usize,
-    wanted: usize,
-    window_min: u16,
-    keep: wxdata::extrema::Extremum,
-    restarted: Option<wxdata::extrema::Mismatch>,
-) -> String {
-    use wxdata::extrema::{Extremum, Mismatch};
-    let what = match keep {
-        Extremum::Max => "maximum",
-        Extremum::Min => "minimum",
-    };
-    let mut line = if folded < wanted {
-        format!("Building {what} trail: {folded} of {wanted} cached volumes")
-    } else {
-        format!("{what} of {wanted} cached volumes over {window_min} min")
-    };
-    if let Some(why) = restarted {
-        let why = match why {
-            Mismatch::Moment => "the product changed",
-            Mismatch::ValueRange => "raw and dealiased velocity differ",
-            Mismatch::Geometry => "the scan geometry changed",
-            Mismatch::Elevation => "the tilt changed",
-            Mismatch::Site => "the site changed",
-        };
-        line.push_str(&format!(" — restarted: {why}"));
-    }
-    line
 }
 
 #[cfg(test)]

@@ -44,10 +44,47 @@ impl OutputSize {
     }
 }
 
+/// Which pane the program output shows (ROADMAP_PARITY M6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ProgramSource {
+    /// Not chosen yet: the pane active when the window opens is pinned.
+    #[default]
+    Unset,
+    /// Whichever pane the operator is working in, as before M6.1 — chosen explicitly.
+    FollowActive,
+    /// This pane (0-based), whatever the operator does in the others.
+    Pane(usize),
+}
+
+/// The pane program output shows, or why there is none: a pinned pane that has been closed is
+/// not quietly replaced by another.
+pub(crate) fn program_pane(
+    source: ProgramSource,
+    active: usize,
+    panes: usize,
+) -> Result<usize, String> {
+    match source {
+        ProgramSource::Unset | ProgramSource::FollowActive => {
+            Ok(active.min(panes.saturating_sub(1)))
+        }
+        ProgramSource::Pane(i) if i < panes => Ok(i),
+        ProgramSource::Pane(i) => Err(format!("pane {} is not open", i + 1)),
+    }
+}
+
 /// The window's state; session-only.
 #[derive(Default)]
 pub(crate) struct OutputWindow {
     pub open: bool,
+    /// The pane program shows.
+    pub source: ProgramSource,
+    /// The scene cued in preview, waiting for Take.
+    pub cued: Option<crate::broadcast::Scene>,
+    /// Program keeps its own camera: the operator panning or zooming the program pane does not
+    /// move the output, and Take sets it.
+    pub hold: bool,
+    /// The held camera, once taken.
+    pub held: Option<crate::render::mercator::Camera>,
     pub size: OutputSize,
     pub fullscreen: bool,
     /// A title strap along the top, when not empty.
@@ -73,6 +110,11 @@ impl HookEchoApp {
         if !self.output.open || cfg!(target_arch = "wasm32") {
             return;
         }
+        // Program is pinned to the pane active when the window opened, unless chosen otherwise:
+        // the operator moving to another pane does not move the picture on air.
+        if self.output.source == ProgramSource::Unset {
+            self.output.source = ProgramSource::Pane(self.active);
+        }
         let ppp = ctx.pixels_per_point();
         let mut builder = egui::ViewportBuilder::default()
             .with_title("HookEcho Output")
@@ -82,7 +124,7 @@ impl HookEchoApp {
         }
         let want = (self.output.size, self.output.fullscreen);
         let resend = self.output.sent != Some(want);
-        let idx = self.active.min(self.views.len() - 1);
+        let program = program_pane(self.output.source, self.active, self.views.len());
         let mut close = false;
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("hookecho-output"),
@@ -102,9 +144,32 @@ impl HookEchoApp {
                     .show(vctx, |ui| {
                         let rect = ui.max_rect();
                         let octx = ui.ctx().clone();
+                        let idx = match &program {
+                            Ok(idx) => *idx,
+                            Err(why) => {
+                                // Said on the output, not swapped for another pane's picture.
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("No program: {why}"),
+                                    egui::FontId::proportional(24.0),
+                                    egui::Color32::from_gray(160),
+                                );
+                                return;
+                            }
+                        };
                         // A passenger like the mini-loop: the main window's own pane loop owns
-                        // the tile caches.
+                        // the tile caches. A held program view swaps its camera in around the
+                        // render, exactly as the mini-loop does, and the pane gets its own back.
+                        let held = self.output.hold.then(|| {
+                            let cam = *self.output.held.get_or_insert(self.views[idx].camera);
+                            std::mem::replace(&mut self.views[idx].camera, cam)
+                        });
                         self.render_pane(ui, &octx, idx, rect, false, false, false, false, &[]);
+                        if let Some(pane_cam) = held {
+                            self.output.held =
+                                Some(std::mem::replace(&mut self.views[idx].camera, pane_cam));
+                        }
                         let painter = octx.layer_painter(egui::LayerId::new(
                             egui::Order::Foreground,
                             egui::Id::new("output_dressing"),
@@ -174,9 +239,47 @@ impl HookEchoApp {
         ui.collapsing("Output window", |ui| {
             let o = &mut self.output;
             toggle(ui, &mut o.open, "Open the output window").on_hover_text(
-                "The active pane, clean, in a window of its own for OBS or a second screen; \
-                 capture the window titled \u{201c}HookEcho Output\u{201d}",
+                "A pane, clean, in a window of its own for OBS or a second screen; capture the \
+                 window titled \u{201c}HookEcho Output\u{201d}",
             );
+            let panes = self.views.len();
+            let shown = match o.source {
+                ProgramSource::Unset => "The pane active when it opens".to_string(),
+                ProgramSource::FollowActive => "Follow the active pane".to_string(),
+                ProgramSource::Pane(i) if i < panes => format!("Pane {}", i + 1),
+                ProgramSource::Pane(i) => format!("Pane {} (not open)", i + 1),
+            };
+            egui::ComboBox::from_label("Program shows")
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    for i in 0..panes {
+                        ui.selectable_value(
+                            &mut o.source,
+                            ProgramSource::Pane(i),
+                            format!("Pane {}", i + 1),
+                        );
+                    }
+                    ui.selectable_value(
+                        &mut o.source,
+                        ProgramSource::FollowActive,
+                        "Follow the active pane",
+                    );
+                })
+                .response
+                .on_hover_text(
+                    "Pin program to one pane so working in the others never changes what is on \
+                     air; scenes are taken into this pane",
+                );
+            if toggle(ui, &mut o.hold, "Hold the program view")
+                .on_hover_text(
+                    "Program keeps its own camera: panning or zooming that pane no longer moves \
+                     the output, and Take sets it",
+                )
+                .changed()
+            {
+                // Held from where the pane is looking now; released, the output follows it again.
+                o.held = None;
+            }
             egui::ComboBox::from_label("Size")
                 .selected_text(o.size.label())
                 .show_ui(ui, |ui| {
@@ -242,6 +345,21 @@ fn paint_strap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program_stays_on_its_pane_and_a_closed_one_is_not_replaced() {
+        use ProgramSource::*;
+        // The operator moves to pane 3: a pinned program stays on pane 1.
+        assert_eq!(program_pane(Pane(0), 2, 4), Ok(0));
+        assert_eq!(program_pane(FollowActive, 2, 4), Ok(2));
+        assert_eq!(program_pane(Unset, 2, 4), Ok(2));
+        // Pane 3 closed: no program, said, rather than whichever pane is now third or active.
+        assert_eq!(
+            program_pane(Pane(2), 0, 2),
+            Err("pane 3 is not open".into())
+        );
+        assert_eq!(program_pane(FollowActive, 5, 2), Ok(1));
+    }
 
     #[test]
     fn the_output_is_the_asked_for_pixels_at_any_scaling() {

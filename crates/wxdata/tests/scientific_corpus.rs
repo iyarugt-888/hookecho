@@ -876,3 +876,407 @@ fn cached_mayfield_is_one_tornado_marker() {
     assert!(before >= 1, "the tornado is detected");
     assert_eq!(after, 1, "one tornado, one marker");
 }
+
+/// Great-circle distance (km) and initial bearing (deg) from the radar, written here rather than
+/// borrowed from the crate so the column check below does not share its geometry with the code
+/// under test.
+fn range_bearing(lat0: f64, lon0: f64, lat: f64, lon: f64) -> (f64, f64) {
+    let (p0, p1) = (lat0.to_radians(), lat.to_radians());
+    let dl = (lon - lon0).to_radians();
+    let c = (p0.sin() * p1.sin() + p0.cos() * p1.cos() * dl.cos()).clamp(-1.0, 1.0);
+    let y = dl.sin() * p1.cos();
+    let x = p0.cos() * p1.sin() - p0.sin() * p1.cos() * dl.cos();
+    (6371.0 * c.acos(), y.atan2(x).to_degrees().rem_euclid(360.0))
+}
+
+/// The value of `s` over ground range `r` / azimuth `az`, by searching for the gate whose ground
+/// range is nearest rather than inverting the beam geometry, and that beam's height (m above the
+/// radar) over the point.
+fn sample_over(s: &level2::BinnedSweep, r: f64, az: f64) -> Option<(Option<f32>, f64)> {
+    let e = s.elevation_deg as f64;
+    let (mut best, mut best_d) = (0usize, f64::MAX);
+    for g in 0..s.gate_count {
+        let slant = s.first_gate_km as f64 + g as f64 * s.gate_interval_km as f64;
+        let d = (wxdata::xsection::ground_from_slant_km(slant, e) - r).abs();
+        if d < best_d {
+            (best, best_d) = (g, d);
+        }
+    }
+    if best_d > s.gate_interval_km as f64 * 0.75 {
+        return None;
+    }
+    let bin = (az / 360.0 * s.az_bins as f64).floor() as usize % s.az_bins;
+    let code = s.data[bin * s.gate_count + best];
+    let v = (code >= 2)
+        .then(|| s.value_min + (code as f32 - 2.0) / 253.0 * (s.value_max - s.value_min));
+    let h = wxdata::xsection::beam_height_km(wxdata::xsection::slant_from_ground_km(r, e), e);
+    Some((v, h * 1000.0))
+}
+
+/// ROADMAP_PARITY M3.3: column user products on real volumes. `max_vertical(REF)` must be the local
+/// composite cell for cell; a masked CC minimum and a ZDR-above-a-height maximum must match an
+/// independent column calculation within one gate's sampling ambiguity.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_column_products_match_independent_columns() {
+    use wxdata::udp_column::{evaluate_grid, ColumnEnv, ColumnTilt, Levels};
+    for id in ["denver-hail-2017", "mayfield-2021"] {
+        let m = corpus::manifest();
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+        // Every distinct tilt, cropped to 60 km as the derived-product check does: original gate
+        // values and missing rows, nothing interpolated.
+        let crop = |mut s: level2::BinnedSweep| {
+            let gates = s.gate_count.min(240);
+            s.data = s
+                .data
+                .chunks_exact(s.gate_count)
+                .flat_map(|row| row[..gates].iter().copied())
+                .collect();
+            s.gate_count = gates;
+            s
+        };
+        let tilts: Vec<ColumnTilt> = (0..level2::elevation_angles(&scan).len())
+            .map(|t| {
+                let get = |m| level2::bin_scan(&scan, m, t).ok().map(crop);
+                [
+                    get(Moment::Reflectivity),
+                    None,
+                    None,
+                    get(Moment::DifferentialReflectivity),
+                    None,
+                    get(Moment::CorrelationCoefficient),
+                ]
+            })
+            .filter(|t| t.iter().any(Option::is_some))
+            .collect();
+        assert!(tilts.len() >= 8, "{id}: {} tilts", tilts.len());
+        let time = f.source.acquisition_time;
+        let grid = |src: &str, env: &ColumnEnv| {
+            evaluate_grid(&wxdata::udp::parse(src).unwrap(), &tilts, env, time)
+                .unwrap_or_else(|e| panic!("{id} {src}: {e}"))
+        };
+
+        let composite = grid("max_vertical(REF)", &ColumnEnv::default());
+        assert_eq!(composite.field.time, time, "the source clock, not now");
+        let refl: Vec<_> = tilts.iter().filter_map(|t| t[0].clone()).collect();
+        let derived = wxdata::derived::derive(
+            &refl,
+            &wxdata::derived::DerivedOpts {
+                time,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            composite
+                .field
+                .values
+                .iter()
+                .map(|v| v.to_bits())
+                .eq(derived.composite.values.iter().map(|v| v.to_bits())),
+            "{id}: max_vertical(REF) differs from the local composite"
+        );
+        assert!(composite.cells_with_value > 1000, "{id}");
+
+        // A height stated as a test parameter, not an observed melting level.
+        let antenna = 1_700.0f32;
+        let h0 = 3_600.0f32;
+        let env = ColumnEnv {
+            antenna_altitude_m: Some(antenna),
+            levels: Levels {
+                h0_m: Some(h0),
+                ..Default::default()
+            },
+        };
+        let cc = grid("min_vertical(CC, REF >= 45)", &ColumnEnv::default());
+        let zdr = grid(
+            "max_vertical(ZDR, BEAM_ALTITUDE_M > FREEZING_LEVEL_M)",
+            &env,
+        );
+        let (lat0, lon0) = (refl[0].radar_lat as f64, refl[0].radar_lon as f64);
+        let fld = &cc.field;
+        let (dlon, dlat) = (
+            (fld.lon_east - fld.lon_west) / fld.nx as f64,
+            (fld.lat_north - fld.lat_south) / fld.ny as f64,
+        );
+        let (mut checked, mut cc_bad, mut zdr_bad, mut cc_hits, mut zdr_hits) = (0, 0, 0, 0, 0);
+        for gy in (0..fld.ny).step_by(3) {
+            for gx in (0..fld.nx).step_by(3) {
+                let (lat, lon) = (
+                    fld.lat_north - (gy as f64 + 0.5) * dlat,
+                    fld.lon_west + (gx as f64 + 0.5) * dlon,
+                );
+                let (r, az) = range_bearing(lat0, lon0, lat, lon);
+                if !(5.0..55.0).contains(&r) {
+                    continue;
+                }
+                let (mut cc_min, mut zdr_max): (Option<f32>, Option<f32>) = (None, None);
+                for t in &tilts {
+                    let z = t[0].as_ref().and_then(|s| sample_over(s, r, az));
+                    let c = t[5].as_ref().and_then(|s| sample_over(s, r, az));
+                    if let (Some((Some(z), _)), Some((Some(c), _))) = (z, c) {
+                        if z >= 45.0 {
+                            cc_min = Some(cc_min.map_or(c, |m| m.min(c)));
+                        }
+                    }
+                    let base = t[0].as_ref().or(t[3].as_ref()).unwrap();
+                    let e = base.elevation_deg as f64;
+                    let h = wxdata::xsection::beam_height_km(
+                        wxdata::xsection::slant_from_ground_km(r, e),
+                        e,
+                    ) * 1000.0;
+                    if let Some((Some(v), _)) = t[3].as_ref().and_then(|s| sample_over(s, r, az)) {
+                        if antenna + h as f32 > h0 {
+                            zdr_max = Some(zdr_max.map_or(v, |m| m.max(v)));
+                        }
+                    }
+                }
+                let i = gy * fld.nx + gx;
+                let agree = |want: Option<f32>, got: f32| match want {
+                    Some(w) => (got - w).abs() < 1e-4,
+                    None => got.is_nan(),
+                };
+                checked += 1;
+                cc_hits += usize::from(cc_min.is_some());
+                zdr_hits += usize::from(zdr_max.is_some());
+                cc_bad += usize::from(!agree(cc_min, cc.field.values[i]));
+                zdr_bad += usize::from(!agree(zdr_max, zdr.field.values[i]));
+            }
+        }
+        eprintln!(
+            "{id}: {checked} cells, CC-min {cc_hits} with a core level ({cc_bad} differ), \
+             ZDR-above {zdr_hits} with a level above ({zdr_bad} differ)"
+        );
+        assert!(
+            checked > 800 && cc_hits > 20 && zdr_hits > 200,
+            "{id}: too few cells"
+        );
+        // A cell whose point sits on a gate boundary can resolve to the neighbouring gate under
+        // the two (equivalent) nearest-gate rules; nothing else may differ.
+        assert!(cc_bad * 100 <= checked, "{id}: {cc_bad} CC cells differ");
+        assert!(zdr_bad * 100 <= checked, "{id}: {zdr_bad} ZDR cells differ");
+    }
+}
+
+/// Cost of a column product over a whole real volume (every tilt, full range), printed for the
+/// evidence ledger. No budget is asserted: CI machines differ, and this is not a device claim.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_column_product_full_volume_cost() {
+    use wxdata::udp_column::{evaluate_grid, ColumnEnv, ColumnTilt};
+    let m = corpus::manifest();
+    let f = m.fixtures.iter().find(|f| f.id == "mayfield-2021").unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let tilts: Vec<ColumnTilt> = (0..level2::elevation_angles(&scan).len())
+        .map(|t| {
+            let get = |m| level2::bin_scan(&scan, m, t).ok();
+            [
+                get(Moment::Reflectivity),
+                None,
+                None,
+                get(Moment::DifferentialReflectivity),
+                None,
+                get(Moment::CorrelationCoefficient),
+            ]
+        })
+        .collect();
+    for src in [
+        "max_vertical(REF)",
+        "min_vertical(CC, REF >= 45)",
+        "first_height_above(REF, 50)",
+        "max_layer(ZDR, 3000, 6000) * (count_above(REF, 40) >= 3)",
+    ] {
+        let t0 = std::time::Instant::now();
+        let p = evaluate_grid(
+            &wxdata::udp::parse(src).unwrap(),
+            &tilts,
+            &ColumnEnv::default(),
+            f.source.acquisition_time,
+        )
+        .unwrap();
+        eprintln!(
+            "{src}: {}x{} cells, {} tilts, {} with value, {:.0} ms",
+            p.field.nx,
+            p.field.ny,
+            p.tilts,
+            p.cells_with_value,
+            t0.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
+/// Every Message 31 radial data block in `bytes`, read straight from the ICD layout rather than
+/// through the decoder: block id "RRAD", then LRTUP, unambiguous range (0.1 km), two noise levels
+/// (4 bytes each) and Nyquist velocity (0.01 m/s), big-endian. Returns `(nyquist, range)` raw.
+fn radial_blocks_by_hand(bytes: Vec<u8>) -> Vec<(u16, u16)> {
+    let file = nexrad_data::volume::File::new(bytes);
+    let file = if file.compressed() {
+        file.decompress().unwrap()
+    } else {
+        file
+    };
+    let mut out = Vec::new();
+    for record in file.records().unwrap() {
+        let record = if record.compressed() {
+            record.decompress().unwrap()
+        } else {
+            nexrad_data::volume::Record::new(record.data().to_vec())
+        };
+        let data = record.data();
+        let mut i = 0;
+        while i + 18 <= data.len() {
+            if &data[i..i + 4] == b"RRAD" {
+                let be = |at: usize| u16::from_be_bytes([data[i + at], data[i + at + 1]]);
+                let lrtup = be(4);
+                if (20..=40).contains(&lrtup) {
+                    out.push((be(16), be(6)));
+                    i += lrtup as usize;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// M3.1: the Nyquist velocity and unambiguous range each radial was collected with are decoded
+/// from its own radial block, not estimated, and every binned row carries its writer's values.
+#[test]
+fn decoded_doppler_metadata_matches_an_independent_read_of_the_radial_blocks() {
+    let m = corpus::manifest();
+    for f in m.fixtures.iter().filter(|f| f.tier == "offline") {
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let mut by_hand = radial_blocks_by_hand(bytes.clone());
+        let scan = level2::decode_volume(bytes).unwrap();
+        let mut decoded: Vec<(u16, u16)> = scan
+            .sweeps()
+            .iter()
+            .flat_map(|s| s.radials())
+            .filter_map(|r| {
+                Some((
+                    (r.nyquist_velocity_mps()? * 100.0).round() as u16,
+                    (r.unambiguous_range_km()? * 10.0).round() as u16,
+                ))
+            })
+            .collect();
+        let radials: usize = scan.sweeps().iter().map(|s| s.radials().len()).sum();
+        assert!(
+            !by_hand.is_empty(),
+            "{}: no radial blocks found by hand",
+            f.id
+        );
+        by_hand.retain(|(n, r)| *n > 0 && *r > 0);
+        by_hand.sort_unstable();
+        decoded.sort_unstable();
+        assert_eq!(
+            decoded.len(),
+            radials,
+            "{}: a radial lost its metadata",
+            f.id
+        );
+        assert_eq!(
+            decoded, by_hand,
+            "{}: decoded values differ from the blocks",
+            f.id
+        );
+        // Physically plausible WSR-88D values, read with the ICD's scales.
+        for (n, r) in &decoded {
+            let (n, r) = (f32::from(*n) * 0.01, f32::from(*r) * 0.1);
+            assert!((5.0..=50.0).contains(&n), "{}: Nyquist {n} m/s", f.id);
+            assert!(
+                (80.0..=520.0).contains(&r),
+                "{}: unambiguous range {r} km",
+                f.id
+            );
+        }
+        // Binned rows carry the writer's decoded values, unknown elsewhere.
+        // The partial files keep only the first (surveillance) records, whose radials carry a
+        // Nyquist too; the full volumes' velocity rows are checked in the cached test below.
+        let v = [Moment::Velocity, Moment::Reflectivity]
+            .into_iter()
+            .find_map(|m| level2::bin_scan(&scan, m, 0).ok())
+            .unwrap_or_else(|| panic!("{}: nothing to bin", f.id));
+        {
+            assert_eq!(v.row_nyquist_mps.len(), v.az_bins, "{}", f.id);
+            let known: Vec<f32> = v
+                .row_nyquist_mps
+                .iter()
+                .copied()
+                .filter(|x| x.is_finite())
+                .collect();
+            assert!(!known.is_empty(), "{}: no row with a Nyquist", f.id);
+            let allowed: Vec<f32> = decoded.iter().map(|(n, _)| f32::from(*n) * 0.01).collect();
+            assert!(
+                known
+                    .iter()
+                    .all(|k| allowed.iter().any(|a| (a - k).abs() < 1e-3)),
+                "{}: a row's Nyquist is not one its radials carried",
+                f.id
+            );
+            eprintln!(
+                "{}: {} radials, Nyquist {:?} m/s on the lowest tilt",
+                f.id,
+                radials,
+                {
+                    let mut u: Vec<i32> =
+                        known.iter().map(|k| (k * 100.0).round() as i32).collect();
+                    u.sort_unstable();
+                    u.dedup();
+                    u.iter().map(|x| *x as f32 / 100.0).collect::<Vec<_>>()
+                }
+            );
+        }
+    }
+}
+
+/// The same on full volumes' velocity: every lowest-velocity-tilt row carries the Nyquist of the
+/// radial that wrote it, and the decoded values are the ones the radial blocks hold.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_velocity_rows_carry_their_decoded_nyquist() {
+    let m = corpus::manifest();
+    for id in ["mayfield-2021", "denver-hail-2017", "moore-2013"] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let mut by_hand = radial_blocks_by_hand(bytes.clone());
+        by_hand.retain(|(n, r)| *n > 0 && *r > 0);
+        let scan = level2::decode_volume(bytes).unwrap();
+        let (t, v) = (0..level2::elevation_angles(&scan).len())
+            .find_map(|t| Some((t, level2::bin_scan(&scan, Moment::Velocity, t).ok()?)))
+            .unwrap_or_else(|| panic!("{id}: no velocity tilt"));
+        let known: Vec<f32> = v
+            .row_nyquist_mps
+            .iter()
+            .copied()
+            .filter(|x| x.is_finite())
+            .collect();
+        let filled = v
+            .data
+            .chunks(v.gate_count)
+            .filter(|r| r.iter().any(|&c| c >= 2))
+            .count();
+        assert!(
+            known.len() >= filled,
+            "{id}: {} rows with data, {} with a Nyquist",
+            filled,
+            known.len()
+        );
+        let allowed: std::collections::BTreeSet<u16> = by_hand.iter().map(|(n, _)| *n).collect();
+        let mut seen: Vec<u16> = known.iter().map(|k| (k * 100.0).round() as u16).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert!(
+            seen.iter().all(|n| allowed.contains(n)),
+            "{id}: {seen:?} not among the blocks"
+        );
+        eprintln!(
+            "{id}: velocity tilt {t} ({:.1}°): {} rows, Nyquist {:?} m/s; estimate from values {:?}",
+            v.elevation_deg,
+            known.len(),
+            seen.iter().map(|n| f32::from(*n) / 100.0).collect::<Vec<_>>(),
+            v.estimated_nyquist_mps()
+        );
+    }
+}

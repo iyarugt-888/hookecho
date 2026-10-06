@@ -39,12 +39,25 @@ impl HookEchoApp {
             .show(ctx, &mut self.settings, &pf_status, &mut self.drawer);
         let active = self.active;
         let before = self.views[active].user_product.clone();
+        let column_before = self.views[active].column_product.clone();
+        let column_status = match self.column_status(active) {
+            Some(column_product::ColumnStatus::Unavailable(why)) => Some(why),
+            _ => None,
+        };
+        let view = &mut self.views[active];
         self.udp_window.show(
             ctx,
             &mut self.settings,
             &mut self.drawer,
-            &mut self.views[active].user_product,
+            &mut view.user_product,
+            &mut view.column_product,
+            column_status,
         );
+        if self.views[active].column_product != column_before {
+            // The product and its field layer go on and off together.
+            let on = self.views[active].column_product.is_some();
+            self.set_field(crate::render::FieldLayer::UserColumn, on);
+        }
         if self.views[active].user_product != before {
             let v = &mut self.views[active];
             v.product_range = None;
@@ -74,29 +87,62 @@ impl HookEchoApp {
                     (l, name)
                 })
                 .collect();
-        let label_keys = if self.layer_window_open && self.settings.imported_gis.is_some() {
-            crate::gis_import::label_keys(&self.imported_marks)
-        } else {
-            Vec::new()
+        // The imported GIS layers (ROADMAP_PARITY M4.1): one row each, and the attributes,
+        // legend and time count of the one being edited.
+        let rows: Vec<ui::layer_window::GisRow> = self
+            .settings
+            .gis_layers
+            .iter()
+            .map(|c| {
+                let l = self.gis_loaded(c.id);
+                ui::layer_window::GisRow {
+                    id: c.id,
+                    features: l.map_or(0, |l| l.len()),
+                    error: l.and_then(|l| l.error.clone()),
+                }
+            })
+            .collect();
+        let edited = self
+            .gis_selected
+            .filter(|id| self.settings.gis_layer(*id).is_some())
+            .or_else(|| self.settings.gis_layers.last().map(|l| l.id));
+        let edited_layer = edited.and_then(|id| self.gis_loaded(id));
+        let label_keys = match edited_layer {
+            Some(l) if self.layer_window_open => crate::gis_import::label_keys(&l.marks),
+            _ => Vec::new(),
         };
-        let legend = self.imported_colors.as_ref().map(|(_, _, l)| l.clone());
-        let time_count = self
-            .imported_shown
-            .as_ref()
+        let legend = edited_layer.and_then(|l| l.colors.as_ref().map(|(_, _, g)| g.clone()));
+        let time_count = edited_layer
+            .and_then(|l| l.shown.as_ref())
             .map(|m| (m.iter().filter(|&&s| s).count(), m.len()));
+        let mut selected = edited;
         let imported = ui::layer_window::Imported {
+            rows: &rows,
             keys: &label_keys,
             legend: legend.as_ref(),
             time_count,
+            filter_error: edited_layer.and_then(|l| l.filter_error.clone()),
         };
-        if ui::layer_window::show(
+        let outcome = ui::layer_window::show(
             ctx,
             &mut self.layer_window_open,
             &mut self.settings,
             &active_fields,
             &imported,
+            &mut selected,
             &mut self.drawer,
-        ) {
+        );
+        self.gis_selected = selected;
+        if let Some(id) = outcome.remove {
+            self.remove_gis(id);
+        }
+        if let Some(id) = outcome.zoom {
+            self.zoom_to_gis(Some(id));
+        }
+        if let Some(id) = outcome.export {
+            self.export_gis_layer(id);
+        }
+        if outcome.changed {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
             // edits need a rebuild; placefile/field opacity changes also remain safely covered.
             self.rebuild_overlays();
@@ -701,6 +747,17 @@ impl HookEchoApp {
         let cell_explanations =
             wxdata::cellscore::score_all_explained(cells, &self.probsevere, couplets);
         let cell_scores: Vec<u8> = cell_explanations.iter().map(|e| e.score).collect();
+        // Each row's trend is its storm's, not its (recycled) SCIT ID's; built only while the
+        // table is open.
+        let storm_trends: std::collections::HashMap<String, Vec<ui::cell_window::CellSample>> =
+            if self.cells_window.open {
+                cells
+                    .iter()
+                    .map(|c| (c.id.clone(), self.storm_trend(&c.id)))
+                    .collect()
+            } else {
+                Default::default()
+            };
         if let Some(id) = ui::cells_window::show(
             &mut self.cells_window,
             ctx,
@@ -708,7 +765,7 @@ impl HookEchoApp {
             &cell_scores,
             &cell_explanations,
             &zdr_cells,
-            &self.cell_trends,
+            &storm_trends,
             crate::theme::accent(self.settings.theme),
             &mut self.drawer,
         ) {
@@ -732,11 +789,13 @@ impl HookEchoApp {
         let dock_3d = std::mem::take(&mut self.cell_view3d);
         let show_details = !workstation || dock_follow || dock_3d;
         if let Some(cell) = self.cell_popup.as_ref().filter(|_| show_details) {
-            let trend = self
-                .cell_trends
-                .get(&cell.id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+            // The storm's trend while it is in the table; a storm that has left it has none to
+            // add to, and its old ID may be another storm's.
+            let trend_owned = match self.selected_storm_live() {
+                Some((live, true)) => self.storm_trend(&live.id),
+                _ => Vec::new(),
+            };
+            let trend = trend_owned.as_slice();
             let following = self
                 .follow_cell
                 .as_ref()
@@ -902,24 +961,49 @@ impl HookEchoApp {
             self.show_hodo = false;
         }
         self.show_region_stats(ctx);
-        if let (Some(xs), Some(tex)) = (&self.xsection, &self.xsection_tex) {
+        if let (Some(xs), Some(tex), Some(line)) =
+            (&self.xsection, &self.xsection_tex, self.xsection_line())
+        {
             let mut moment = self.xsection_moment;
+            let before = ui::xsection_window::XsControls {
+                bearing_deg: line.bearing(),
+                length_km: line.length_km(),
+                cut_3d: self.xsection_cut_3d,
+                info: self.xsection_info(xs),
+                antenna_msl_km: self.views[self
+                    .xsection_source
+                    .as_ref()
+                    .map_or(self.active, |s| s.pane)]
+                .site
+                .as_deref()
+                .and_then(wxdata::sites::site_by_id)
+                .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0),
+                ..Default::default()
+            };
+            let mut ctl = before.clone();
             let open = ui::xsection_window::show(
                 ctx,
                 xs,
                 tex,
                 &mut moment,
                 &mut self.xsection_beam_rise,
+                &mut ctl,
                 &mut self.drawer,
             );
+            let pane = self
+                .xsection_source
+                .as_ref()
+                .map_or(self.active, |s| s.pane);
             if !open {
                 self.xsection = None;
                 self.xsection_tex = None;
                 self.xsection_pts.clear();
+                self.xsection_source = None;
             } else if moment != self.xsection_moment {
                 self.xsection_moment = moment;
-                let idx = self.active;
-                self.build_xsection(idx, ctx);
+                self.build_xsection(pane, ctx);
+            } else if ctl != before {
+                self.apply_xsection_controls(pane, line, &before, &ctl, ctx);
             }
         }
         // The workstation shows the volume in its 3D volume tool window (`chrome/dock/volume.rs`).
@@ -1002,7 +1086,7 @@ impl HookEchoApp {
                 self.sync_pane(idx, ctx);
             }
         }
-        self.sync_imported_time();
+        self.sync_gis_layers();
         for idx in 0..self.views.len() {
             self.sync_isosurface(idx, ctx);
             self.prebuild_loop3d(idx, ctx);

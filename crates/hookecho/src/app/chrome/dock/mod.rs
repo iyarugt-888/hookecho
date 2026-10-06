@@ -35,6 +35,7 @@ mod sounding;
 mod sources;
 mod storm_associations;
 mod storms;
+pub(crate) use storms::Resolved;
 mod timeline;
 mod view3d;
 mod volume;
@@ -141,8 +142,13 @@ pub(crate) struct Probe {
     pub native_row_ms: Option<i64>,
     pub native_pass: wxdata::live_pass::RowPass,
     pub pass_site: Option<String>,
-    /// The sweep's estimated Nyquist velocity, m/s (velocity only).
+    /// The sweep's estimated Nyquist velocity, m/s (velocity only): read off the values, a
+    /// fallback when nothing better is known.
     pub nyquist_mps: Option<f32>,
+    /// The Nyquist velocity decoded from the radial that wrote this gate's row, m/s.
+    pub nyquist_decoded_mps: Option<f32>,
+    /// The unambiguous range decoded from the same radial, km.
+    pub unambiguous_km: Option<f32>,
     /// The value came from the dealiased sweep.
     pub dealiased: bool,
 }
@@ -469,6 +475,9 @@ pub(crate) struct DockState {
     pub bulletin_seen: Option<String>,
     /// The storms open in the Cell window, oldest first (at most [`cell::MAX_OPEN`]).
     pub cells_open: Vec<String>,
+    /// The SCIT table `cells_open` (and `cell_last_sel`) were written against, so a new table
+    /// carries them through the storm history instead of matching recycled IDs.
+    cells_open_scan: Option<i64>,
     /// The Cell window shows its open storms side by side.
     pub cell_compare: bool,
     /// The storm selected last frame, so a newly selected one joins the Cell window once.
@@ -535,6 +544,7 @@ impl Default for DockState {
             rects: [None; 3],
             bulletin_seen: None,
             cells_open: Vec::new(),
+            cells_open_scan: None,
             cell_compare: false,
             cell_last_sel: None,
             phone: false,

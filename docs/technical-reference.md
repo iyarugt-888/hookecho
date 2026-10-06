@@ -948,6 +948,9 @@ cargo run --release -- --headless-glm                       # GOES satellite lig
 cargo run --release -- --headless-fronts                    # WPC surface analysis
 cargo run --release -- --headless-hrrr uh 3 uh.png          # refc|uh|smoke
 cargo run --release -- --headless-rules KTLX                # would your alert rules fire?
+# A column user product from a local Archive II file, offline; isotherms (m MSL) only as given:
+cargo run --release -- --headless-column KFTG20170508_203405_V06 \
+  "max_vertical(ZDR, BEAM_ALTITUDE_M > FREEZING_LEVEL_M)" zdr.png 3600
 ```
 
 ```sh

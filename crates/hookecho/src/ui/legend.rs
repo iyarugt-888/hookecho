@@ -668,3 +668,126 @@ pub fn draw_box(
         );
     }
 }
+
+/// A card for a field coloured by a [`ColorTable`] over `range` rather than a fixed ramp — a column
+/// user product. The bar is sampled from the very LUT the GPU draws with
+/// ([`crate::colormap::bake_lut`] over the same range), so the key and the map cannot disagree.
+/// `note`, when given, is a second line under the bar (where the environment came from, or why
+/// nothing is drawn yet).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_table_card(
+    painter: &egui::Painter,
+    map_rect: Rect,
+    title: &str,
+    units: &str,
+    table: &ColorTable,
+    range: (f32, f32),
+    note: Option<&str>,
+    y_offset: f32,
+) -> f32 {
+    let font = FontId::proportional(10.0);
+    let origin = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
+    let note_h = if note.is_some() { 13.0 } else { 0.0 };
+    let panel = Rect::from_min_size(
+        origin,
+        Vec2::new(BAR_W + PAD_X * 2.0, BAR_H + 16.0 + 14.0 + note_h),
+    );
+    let bar = Rect::from_min_size(panel.min + Vec2::new(PAD_X, 16.0), Vec2::new(BAR_W, BAR_H));
+    card(painter, panel);
+    let lut = crate::colormap::bake_lut(table, range, None);
+    let at = |i: usize| {
+        let i = i.clamp(2, 255) * 4;
+        Color32::from_rgb(lut[i], lut[i + 1], lut[i + 2])
+    };
+    const SEGMENTS: usize = 64;
+    let mut mesh = Mesh::default();
+    for k in 0..SEGMENTS {
+        let (t0, t1) = (k as f32 / SEGMENTS as f32, (k + 1) as f32 / SEGMENTS as f32);
+        let (c0, c1) = (
+            at(2 + (t0 * 253.0).round() as usize),
+            at(2 + (t1 * 253.0).round() as usize),
+        );
+        let q = Rect::from_min_max(
+            egui::pos2(bar.left() + t0 * bar.width(), bar.top()),
+            egui::pos2(bar.left() + t1 * bar.width(), bar.bottom()),
+        );
+        let i = mesh.vertices.len() as u32;
+        for (p, c) in [
+            (q.left_top(), c0),
+            (q.right_top(), c1),
+            (q.right_bottom(), c1),
+            (q.left_bottom(), c0),
+        ] {
+            mesh.colored_vertex(p, c);
+        }
+        mesh.add_triangle(i, i + 1, i + 2);
+        mesh.add_triangle(i, i + 2, i + 3);
+    }
+    painter.add(Shape::mesh(mesh));
+    painter.rect_stroke(
+        bar,
+        0.0,
+        Stroke::new(1.0, Color32::from_gray(90)),
+        egui::StrokeKind::Inside,
+    );
+    let num = |v: f32| {
+        if v.abs() >= 10.0 || v.fract() == 0.0 {
+            format!("{v:.0}")
+        } else {
+            format!("{v:.2}")
+        }
+    };
+    for (v, align, x) in [
+        (range.0, Align2::LEFT_TOP, bar.left()),
+        (range.1, Align2::RIGHT_TOP, bar.right()),
+    ] {
+        painter.text(
+            egui::pos2(x, bar.bottom() + 2.0),
+            align,
+            num(v),
+            font.clone(),
+            Color32::from_gray(225),
+        );
+    }
+    let head = if units.is_empty() {
+        title.to_string()
+    } else {
+        format!("{title} ({units})")
+    };
+    painter.text(
+        panel.left_top() + Vec2::new(PAD_X, 3.0),
+        Align2::LEFT_TOP,
+        head,
+        font.clone(),
+        Color32::WHITE,
+    );
+    if let Some(note) = note {
+        painter.text(
+            egui::pos2(panel.left() + PAD_X, bar.bottom() + 15.0),
+            Align2::LEFT_TOP,
+            note,
+            font,
+            Color32::from_gray(190),
+        );
+    }
+    panel.height() + 6.0
+}
+
+/// One line on a card, for a selected field with nothing to key yet: what it is waiting for.
+pub fn draw_status_card(painter: &egui::Painter, map_rect: Rect, text: &str, y_offset: f32) -> f32 {
+    let font = FontId::proportional(10.0);
+    let origin = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
+    let galley = painter.layout(
+        text.to_string(),
+        font,
+        Color32::from_gray(225),
+        BAR_W + PAD_X * 2.0,
+    );
+    let panel = Rect::from_min_size(
+        origin,
+        Vec2::new(BAR_W + PAD_X * 2.0, galley.size().y + 8.0),
+    );
+    card(painter, panel);
+    painter.galley(panel.min + Vec2::new(PAD_X, 4.0), galley, Color32::WHITE);
+    panel.height() + 6.0
+}

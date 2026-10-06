@@ -1156,6 +1156,8 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::MrmsReflM20c => return None,
         // Its colours are its own (a composite's adaptive palette, `app::rgb_upload`), not a ramp.
         FL::GoesRgb => return None,
+        // The product's own colour table and range (`app::radar_products::column_upload`).
+        FL::UserColumn | FL::UserColumnTrail => return None,
     })
 }
 
@@ -1278,7 +1280,7 @@ mod tests {
 
     /// Layers colored outside this table. A new `FieldLayer` must join the table or this list —
     /// forgetting both silently ships a layer with no legend.
-    const NO_RAMP: [FieldLayer; 17] = [
+    const NO_RAMP: [FieldLayer; 19] = [
         FieldLayer::Mrms,
         // An RGB composite colours itself: its upload builds an adaptive palette per image.
         FieldLayer::GoesRgb,
@@ -1305,6 +1307,10 @@ mod tests {
         // Colored per statistic (a spread and a probability need scales of their own), so the
         // upload is built in `ensemble_layer` rather than tabulated here.
         FieldLayer::Ensemble,
+        // A column user product is coloured by its own definition's table over its own range,
+        // built with the accepted grid (`app::column_product::column_upload`).
+        FieldLayer::UserColumn,
+        FieldLayer::UserColumnTrail,
     ];
 
     #[test]

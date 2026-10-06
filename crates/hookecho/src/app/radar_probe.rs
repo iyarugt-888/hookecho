@@ -3,6 +3,19 @@ use crate::settings::VelocityUnit;
 use wxdata::level2::Moment;
 
 impl super::HookEchoApp {
+    /// How pane `idx` draws its radar gates: the dealiased velocity or the raw value, and the
+    /// storm motion SRV subtracts. One answer for the map, the cursor probe and the gate
+    /// inspector.
+    pub(super) fn map_display(&self, idx: usize) -> crate::ui::gate_inspector::MapDisplay {
+        let v = &self.views[idx];
+        crate::ui::gate_inspector::MapDisplay {
+            dealiased: self.settings.dealias_velocity
+                && v.moment == Moment::Velocity
+                && !v.site.as_deref().is_some_and(wxdata::tdwr::is_tdwr),
+            storm_motion: v.storm_motion_set(),
+        }
+    }
+
     /// Top visible field, otherwise the radar gate with the selected display processing.
     pub(super) fn probe_row(
         &mut self,
@@ -22,12 +35,7 @@ impl super::HookEchoApp {
         } else {
             moment.short_name()
         };
-        let dealias = self.settings.dealias_velocity
-            && moment == Moment::Velocity
-            && !self.views[idx]
-                .site
-                .as_deref()
-                .is_some_and(wxdata::tdwr::is_tdwr);
+        let dealias = self.map_display(idx).dealiased;
         match self.inspect_gate(ctx, idx, lon, lat, None) {
             Some(popup) => crate::ui::cursor_probe::ProbeRow {
                 pane: idx,

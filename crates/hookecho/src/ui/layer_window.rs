@@ -9,14 +9,27 @@
 use crate::render::FieldLayer;
 use crate::settings::Settings;
 
-/// What the Layer Manager shows about the imported GIS layer beyond its settings.
+/// One imported GIS layer's row: what was read from its file.
+pub(crate) struct GisRow {
+    pub id: u64,
+    pub features: usize,
+    /// Why its file could not be read, when it could not.
+    pub error: Option<String>,
+}
+
+/// What the Layer Manager shows about the imported GIS layers beyond their settings.
 pub(crate) struct Imported<'a> {
-    /// Every attribute name in the file: the choices for labels, colours and times.
+    /// Every layer, in `settings.gis_layers` order.
+    pub rows: &'a [GisRow],
+    /// Every attribute name in the edited layer's file: the choices for labels, colours and
+    /// times.
     pub keys: &'a [String],
     /// The colour-by legend, when one is on.
     pub legend: Option<&'a crate::gis_import::Legend>,
-    /// With a time attribute mapped: how many features are valid at the view's time, of all.
+    /// With a time mapping or a filter: how many features are shown, of all.
     pub time_count: Option<(usize, usize)>,
+    /// Why the edited layer's filter does not parse (the previous one stays in use).
+    pub filter_error: Option<String>,
 }
 
 /// One attribute picker: "None" or any of `keys`, bound to `value`.
@@ -47,20 +60,33 @@ fn attribute_combo(
     changed
 }
 
+/// What the window asks of the app.
+#[derive(Debug, Default)]
+pub(crate) struct Outcome {
+    /// Anything changed: the overlays are reassembled.
+    pub changed: bool,
+    /// Remove this imported layer.
+    pub remove: Option<u64>,
+    /// Frame the map on this imported layer.
+    pub zoom: Option<u64>,
+    /// Write this imported layer's shown features out as GeoJSON.
+    pub export: Option<u64>,
+}
+
 /// Show the window. `active` is the field layers currently painting, with their display names
-/// (only those get a slider).
-/// Returns `true` if anything changed (the caller bumps the overlay generation so the tessellated
-/// geometry rebuilds).
+/// (only those get a slider); `selected` is the imported layer being edited.
 pub(crate) fn show(
     ctx: &egui::Context,
     open: &mut bool,
     settings: &mut Settings,
     active: &[(FieldLayer, String)],
     imported: &Imported,
+    selected: &mut Option<u64>,
     drawer: &mut crate::ui::drawer::Drawer,
-) -> bool {
+) -> Outcome {
+    let mut out = Outcome::default();
     if !*open {
-        return false;
+        return out;
     }
     let mut changed = false;
     let mut win_open = *open;
@@ -73,7 +99,7 @@ pub(crate) fn show(
         egui::Window::new("Layer Manager"),
     ) else {
         *open = win_open;
-        return false;
+        return out;
     };
     window.show(ctx, |ui| {
         if !active.is_empty() {
@@ -92,148 +118,13 @@ pub(crate) fn show(
             }
             ui.separator();
         }
-        if let Some(source) = settings.imported_gis.clone() {
-            ui.label(egui::RichText::new("Imported GIS").strong());
-            let name = source
-                .rsplit(['/', '\\'])
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&source);
-            ui.weak(name).on_hover_text(source);
-            ui.horizontal(|ui| {
-                ui.label("Color");
-                changed |= ui
-                    .color_edit_button_srgb(&mut settings.imported_gis_style.color)
-                    .on_hover_text("Color for imported polygons, lines, and points")
-                    .changed();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .small_button("Reset style")
-                        .on_hover_text("Restore the neutral-blue imported-layer style")
-                        .clicked()
-                    {
-                        settings.imported_gis_style = Default::default();
-                        changed = true;
-                    }
-                });
-            });
-            ui.horizontal(|ui| {
-                ui.label("Outline");
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut settings.imported_gis_style.stroke_width, 0.5..=8.0)
-                            .suffix(" px")
-                            .max_decimals(1),
-                    )
-                    .on_hover_text("Width for imported polygon edges, lines, and point symbols")
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                ui.label("Opacity");
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut settings.imported_gis_style.opacity, 0.05..=1.0)
-                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
-                    )
-                    .on_hover_text(format!(
-                        "Opacity {:.0}%",
-                        settings.imported_gis_style.opacity * 100.0
-                    ))
-                    .changed();
-            });
-            let keys = imported.keys;
-            ui.horizontal(|ui| {
-                ui.label("Label")
-                    .on_hover_text("Label each imported feature with this attribute's value");
-                changed |= attribute_combo(
-                    ui,
-                    "imported_gis_label",
-                    "None",
-                    keys,
-                    &mut settings.imported_gis_label,
-                );
-            });
-            ui.horizontal(|ui| {
-                ui.label("Color by").on_hover_text(
-                    "Color features by an attribute: a ramp for numbers, a palette for categories",
-                );
-                changed |= attribute_combo(
-                    ui,
-                    "imported_gis_color_by",
-                    "None (one color)",
-                    keys,
-                    &mut settings.imported_gis_color_by,
-                );
-            });
-            if settings.imported_gis_color_by.is_some() {
-                if let Some(legend) = imported.legend {
-                    color_legend(ui, legend);
-                }
-            }
-            ui.horizontal(|ui| {
-                ui.label("Valid from").on_hover_text(
-                    "Show each feature only from the time in this attribute, following the \
-                     timeline",
-                );
-                changed |= attribute_combo(
-                    ui,
-                    "imported_gis_time_start",
-                    "Always",
-                    keys,
-                    &mut settings.imported_gis_time_start,
-                );
-            });
-            ui.horizontal(|ui| {
-                ui.label("Valid until").on_hover_text(
-                    "Hide each feature from the time in this attribute, following the timeline",
-                );
-                changed |= attribute_combo(
-                    ui,
-                    "imported_gis_time_end",
-                    "Always",
-                    keys,
-                    &mut settings.imported_gis_time_end,
-                );
-            });
-            if let Some((shown, total)) = imported.time_count {
-                ui.weak(format!(
-                    "{shown} of {total} features valid at the view's time"
-                ));
-            }
-            changed |= ui
-                .checkbox(
-                    &mut settings.imported_gis_below,
-                    "Draw under warnings, watches and outlooks",
-                )
-                .on_hover_text(
-                    "Paint the imported polygons beneath the official products instead of over them; clicks prefer the official shape either way",
-                )
-                .changed();
-            ui.horizontal(|ui| {
-                ui.label("Show from zoom");
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut settings.imported_gis_style.min_zoom, 0.0..=14.0)
-                            .step_by(0.5)
-                            .custom_formatter(|v, _| {
-                                if v <= 0.0 {
-                                    "always".to_string()
-                                } else {
-                                    format!("{v:.1}")
-                                }
-                            }),
-                    )
-                    .on_hover_text(
-                        "Hide the imported layer when zoomed out past this (about 4 is the \
-                         whole U.S., 7 a state, 10 a county)",
-                    )
-                    .changed();
-            });
-            ui.weak("Color, outline and opacity apply to every geometry; Color by recolors each feature.");
+        if !settings.gis_layers.is_empty() {
+            gis_layers(ui, settings, imported, selected, &mut out);
+            changed |= out.changed;
             ui.separator();
         }
         if settings.placefiles.is_empty() {
-            if settings.imported_gis.is_none() && active.is_empty() {
+            if settings.gis_layers.is_empty() && active.is_empty() {
                 ui.weak("No configurable layers are active.");
             }
             return;
@@ -279,7 +170,329 @@ pub(crate) fn show(
         }
     });
     *open = win_open;
-    changed
+    out.changed |= changed;
+    out
+}
+
+/// The imported GIS layers (ROADMAP_PARITY M4.1): one row each — visibility, name, what was read
+/// or why not, order, zoom-to and remove — the groups' switches, and the editor for the selected
+/// layer's style, labels, colouring, time mapping, side and group.
+fn gis_layers(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    imported: &Imported,
+    selected: &mut Option<u64>,
+    out: &mut Outcome,
+) {
+    let mut changed = false;
+    ui.label(egui::RichText::new("Imported GIS layers").strong());
+    ui.weak("Top of the list paints first (underneath).");
+    let n = settings.gis_layers.len();
+    let mut shift: Option<(u64, isize)> = None;
+    for i in 0..n {
+        let id = settings.gis_layers[i].id;
+        let row = imported.rows.iter().find(|r| r.id == id);
+        ui.horizontal(|ui| {
+            let layer = &mut settings.gis_layers[i];
+            changed |= ui
+                .checkbox(&mut layer.visible, "")
+                .on_hover_text("Show this layer")
+                .changed();
+            let mut name = egui::RichText::new(&layer.name);
+            if *selected == Some(id) {
+                name = name.strong();
+            }
+            if ui
+                .selectable_label(*selected == Some(id), name)
+                .on_hover_text(&layer.source)
+                .clicked()
+            {
+                *selected = Some(id);
+            }
+            match row {
+                Some(GisRow { error: Some(e), .. }) => {
+                    ui.colored_label(egui::Color32::from_rgb(230, 120, 60), "missing")
+                        .on_hover_text(format!(
+                            "{e}\nRe-import the file to restore this layer with its settings, or \
+                             remove it."
+                        ));
+                }
+                Some(r) => {
+                    ui.weak(r.features.to_string())
+                        .on_hover_text("Shapes, lines and points read from the file");
+                }
+                None => {}
+            }
+            if let Some(g) = &layer.group {
+                ui.weak(format!("· {g}"));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .small_button("✕")
+                    .on_hover_text("Remove this layer")
+                    .clicked()
+                {
+                    out.remove = Some(id);
+                }
+                if ui
+                    .small_button("⌖")
+                    .on_hover_text("Zoom to this layer")
+                    .clicked()
+                {
+                    out.zoom = Some(id);
+                }
+                if ui
+                    .small_button("⤓")
+                    .on_hover_text(
+                        "Export the features this layer shows (filter and time applied) as GeoJSON",
+                    )
+                    .clicked()
+                {
+                    out.export = Some(id);
+                }
+                if ui
+                    .add_enabled(i + 1 < n, egui::Button::new("▼"))
+                    .on_hover_text("Paint later (on top)")
+                    .clicked()
+                {
+                    shift = Some((id, 1));
+                }
+                if ui
+                    .add_enabled(i > 0, egui::Button::new("▲"))
+                    .on_hover_text("Paint earlier (underneath)")
+                    .clicked()
+                {
+                    shift = Some((id, -1));
+                }
+            });
+        });
+    }
+    if let Some((id, d)) = shift {
+        settings.move_gis_layer(id, d);
+        changed = true;
+    }
+    // Groups in use get a switch; hiding one keeps its layers' own checkboxes as they are.
+    let used: Vec<String> = {
+        let mut g: Vec<String> = settings
+            .gis_layers
+            .iter()
+            .filter_map(|l| l.group.clone())
+            .collect();
+        g.sort();
+        g.dedup();
+        g
+    };
+    for name in &used {
+        if !settings.gis_groups.iter().any(|g| &g.name == name) {
+            settings.gis_groups.push(crate::settings::GisGroup {
+                name: name.clone(),
+                visible: true,
+            });
+        }
+    }
+    settings.gis_groups.retain(|g| used.contains(&g.name));
+    if !settings.gis_groups.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Groups");
+            for g in &mut settings.gis_groups {
+                changed |= ui
+                    .checkbox(&mut g.visible, &g.name)
+                    .on_hover_text("Show this group's layers (each keeps its own switch)")
+                    .changed();
+            }
+        });
+    }
+    let Some(i) = selected.and_then(|id| settings.gis_layers.iter().position(|l| l.id == id))
+    else {
+        out.changed |= changed;
+        return;
+    };
+    ui.add_space(4.0);
+    let groups: Vec<String> = settings.gis_groups.iter().map(|g| g.name.clone()).collect();
+    let layer = &mut settings.gis_layers[i];
+    ui.horizontal(|ui| {
+        ui.label("Name");
+        ui.text_edit_singleline(&mut layer.name);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Group")
+            .on_hover_text("Type a name to start a group");
+        let mut text = layer.group.clone().unwrap_or_default();
+        let edit = ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0));
+        if edit.changed() {
+            let t = text.trim();
+            layer.group = (!t.is_empty()).then(|| t.to_string());
+            changed = true;
+        }
+        egui::ComboBox::from_id_salt("gis_layer_group")
+            .selected_text("…")
+            .width(24.0)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(layer.group.is_none(), "None").clicked() {
+                    layer.group = None;
+                    changed = true;
+                }
+                for g in &groups {
+                    if ui
+                        .selectable_label(layer.group.as_deref() == Some(g.as_str()), g)
+                        .clicked()
+                    {
+                        layer.group = Some(g.clone());
+                        changed = true;
+                    }
+                }
+            });
+    });
+    ui.horizontal(|ui| {
+        ui.label("Color");
+        changed |= ui
+            .color_edit_button_srgb(&mut layer.style.color)
+            .on_hover_text("Color for this layer's polygons, lines, and points")
+            .changed();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button("Reset style")
+                .on_hover_text("Restore the neutral-blue imported-layer style")
+                .clicked()
+            {
+                layer.style = Default::default();
+                changed = true;
+            }
+        });
+    });
+    ui.horizontal(|ui| {
+        ui.label("Outline");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.stroke_width, 0.5..=8.0)
+                    .suffix(" px")
+                    .max_decimals(1),
+            )
+            .on_hover_text("Width for this layer's polygon edges, lines, and point symbols")
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Opacity");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.opacity, 0.05..=1.0)
+                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+            )
+            .on_hover_text(format!("Opacity {:.0}%", layer.style.opacity * 100.0))
+            .changed();
+    });
+    let keys = imported.keys;
+    ui.horizontal(|ui| {
+        ui.label("Label")
+            .on_hover_text("Label each feature with this attribute's value");
+        changed |= attribute_combo(ui, "imported_gis_label", "None", keys, &mut layer.label);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Color by").on_hover_text(
+            "Color features by an attribute: a ramp for numbers, a palette for categories",
+        );
+        changed |= attribute_combo(
+            ui,
+            "imported_gis_color_by",
+            "None (one color)",
+            keys,
+            &mut layer.color_by,
+        );
+    });
+    if layer.color_by.is_some() {
+        if let Some(legend) = imported.legend {
+            color_legend(ui, legend);
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label("Valid from").on_hover_text(
+            "Show each feature only from the time in this attribute, following the timeline",
+        );
+        changed |= attribute_combo(
+            ui,
+            "imported_gis_time_start",
+            "Always",
+            keys,
+            &mut layer.time_start,
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("Valid until").on_hover_text(
+            "Hide each feature from the time in this attribute, following the timeline",
+        );
+        changed |= attribute_combo(
+            ui,
+            "imported_gis_time_end",
+            "Always",
+            keys,
+            &mut layer.time_end,
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("Filter").on_hover_text(
+            "Show only features this is true for, e.g. POP > 1000 and TYPE = \"school\". \
+             Compare with =, !=, <, <=, >, >= or contains; combine with and, or, not; \
+             NAME is missing. A feature without the attribute is not shown; names with spaces \
+             go in `backticks`.",
+        );
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut layer.filter)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("every feature"),
+            )
+            .changed();
+    });
+    if let Some(e) = &imported.filter_error {
+        ui.colored_label(
+            egui::Color32::from_rgb(230, 130, 130),
+            format!("Filter not applied: {e} (the previous one is still in use)"),
+        );
+    }
+    if let Some((shown, total)) = imported.time_count {
+        ui.weak(format!(
+            "{shown} of {total} features shown (valid at the view's time and passing the filter)"
+        ));
+    }
+    changed |= ui
+        .checkbox(&mut layer.targets, "Impact targets")
+        .on_hover_text(
+            "List a storm's arrival and closest approach at this layer's points, and when its \
+             path enters each area, with the storm (named by the Label attribute)",
+        )
+        .changed();
+    changed |= ui
+        .checkbox(
+            &mut layer.below,
+            "Draw under warnings, watches and outlooks",
+        )
+        .on_hover_text(
+            "Paint this layer's polygons beneath the official products instead of over them; \
+             clicks prefer the official shape either way",
+        )
+        .changed();
+    ui.horizontal(|ui| {
+        ui.label("Show from zoom");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.min_zoom, 0.0..=14.0)
+                    .step_by(0.5)
+                    .custom_formatter(|v, _| {
+                        if v <= 0.0 {
+                            "always".to_string()
+                        } else {
+                            format!("{v:.1}")
+                        }
+                    }),
+            )
+            .on_hover_text(
+                "Hide this layer when zoomed out past this (about 4 is the whole U.S., 7 a \
+                 state, 10 a county)",
+            )
+            .changed();
+    });
+    ui.weak("Color, outline and opacity apply to every geometry; Color by recolors each feature.");
+    out.changed |= changed;
 }
 
 /// The imported layer's colour key: a gradient bar with its range, or a swatch per category.

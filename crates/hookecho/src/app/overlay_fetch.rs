@@ -38,6 +38,10 @@ pub(crate) enum OverlayMsg {
     GoesFootprintFor(GoesRequest, wxdata::goes_abi::Footprint),
     /// Atomic local build with its accepted frame identity and source coverage.
     DerivedFields(Box<radar_products::DerivedDelivery>),
+    /// A column user product build (`app::column_product`).
+    ColumnProduct(Box<super::column_product::ColumnDelivery>),
+    /// Volumes evaluated for a column product trail (`app::column_trail`).
+    ColumnTrail(Box<super::column_trail::ColumnTrailDelivery>),
     StampedField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
@@ -72,16 +76,10 @@ pub(crate) enum OverlayMsg {
         u16,
         Box<wxdata::ensemble::EnsembleRun>,
     ),
-    /// `(0 °C, −20 °C)` level heights above sea level, in metres, at `site`'s radar — for the
-    /// melting-level `epoch` they were requested for (see [`OverlaySource::FreezingLevels`]), so
-    /// a reply that lands after the user moved to another site or time is filed under the one it
-    /// actually answers.
-    FreezingLevels {
-        site: String,
-        epoch: Option<chrono::DateTime<chrono::Utc>>,
-        h0: f64,
-        hm20: f64,
-    },
+    /// Isotherm heights above sea level at a site's radar — for the melting-level epoch they were
+    /// requested for (see [`OverlaySource::FreezingLevels`]), so a reply that lands after the
+    /// user moved to another site or time is filed under the one it actually answers.
+    FreezingLevels(Box<super::env_levels::EnvLevels>),
     /// Local storm reports: live trailing window (`None`) or an archive bucket (feature CC).
     StormReports(Option<i64>, Vec<wxdata::spc::StormReport>),
     /// Live Spotter Network positions (CONUS-wide; filtered to the active site at draw time).
@@ -957,12 +955,15 @@ impl OverlaySource {
                 // Above the launch site's surface, taken as above the radar (the two sit within a
                 // few hundred metres of each other everywhere in CONUS — see `melting_levels`),
                 // then put back on the sea-level datum the HRRR branch below reports in.
-                OverlayMsg::FreezingLevels {
+                OverlayMsg::FreezingLevels(Box::new(super::env_levels::EnvLevels {
                     site,
                     epoch: Some(t),
-                    h0: m.h0_m + elev_m,
-                    hm20: m.hm20_m + elev_m,
-                }
+                    h0_m: m.h0_m + elev_m,
+                    hm20_m: m.hm20_m + elev_m,
+                    hm10_m: m.hm10_m.map(|h| h + elev_m),
+                    source: format!("{} sounding", m.label),
+                    hm10_crossings: Some(m.hm10_crossings),
+                }))
             }
             OverlaySource::FreezingLevels {
                 site,
@@ -992,16 +993,39 @@ impl OverlaySource {
                     f64::NEG_INFINITY,
                 )
                 .await?;
+                // 263 K is −10.15 °C. Optional: the hail grids need only the other two, so a
+                // missing −10 °C field leaves that one level unavailable rather than failing both.
+                let hm10 = wxdata::hrrr::fetch_field(
+                    http,
+                    wxdata::hrrr::Model::Hrrr,
+                    "HGT",
+                    "263 K level",
+                    0,
+                    f64::NEG_INFINITY,
+                )
+                .await
+                .ok()
+                // Only from the same analysis run as the other two, never a neighbouring cycle.
+                .filter(|f| f.run == h0.run && f.fcst_hour == h0.fcst_hour)
+                .and_then(|f| f.field.sample_bilinear(lon, lat));
                 match (
                     h0.field.sample_bilinear(lon, lat),
                     hm20.field.sample_bilinear(lon, lat),
                 ) {
-                    (Some(a), Some(b)) => OverlayMsg::FreezingLevels {
-                        site,
-                        epoch: None,
-                        h0: a as f64,
-                        hm20: b as f64,
-                    },
+                    (Some(a), Some(b)) if hm20.run == h0.run => {
+                        OverlayMsg::FreezingLevels(Box::new(super::env_levels::EnvLevels {
+                            site,
+                            epoch: None,
+                            h0_m: a as f64,
+                            hm20_m: b as f64,
+                            hm10_m: hm10.map(f64::from),
+                            source: format!("HRRR analysis {}", h0.run.format("%d %HZ")),
+                            hm10_crossings: None,
+                        }))
+                    }
+                    (Some(_), Some(_)) => {
+                        anyhow::bail!("HRRR isotherm fields came from different runs")
+                    }
                     _ => anyhow::bail!("no freezing levels at {lon},{lat}"),
                 }
             }

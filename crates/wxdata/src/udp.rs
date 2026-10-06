@@ -8,10 +8,11 @@
 //! of a tilt or a volume ([`crate::udp_volume`]), a product is also drawn on the map, in 2D in
 //! place of a moment and in 3D as a volume.
 //!
-//! Still out of scope for this pass, and noted for the same reason: environmental-height inputs
-//! (freezing level, -10C/-20C heights) — these need external model data, not just a decoded
-//! volume, so a `max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)`-style formula has to
-//! spell its height bounds as literal numbers today rather than naming those levels directly.
+//! Environmental heights (`FREEZING_LEVEL_M`, `MINUS10C_HEIGHT_M`, `MINUS20C_HEIGHT_M`) are inputs
+//! like any other, metres above sea level, filled by the caller only from a source matched to the
+//! volume's own site and time (see [`crate::udp_column`]); a formula that reads one the caller
+//! does not have evaluates as missing. Column formulas are drawn on the map as a 2D field by
+//! [`crate::udp_column::evaluate_grid`].
 //!
 //! No native code ever runs: expressions parse to a fixed [`Expr`] tree and every node the parser
 //! can produce is one this module's own evaluator interprets, so a malformed or malicious formula
@@ -33,7 +34,8 @@
 //!
 //! Identifiers are case-insensitive. Inputs: `REF`, `VEL`, `SW`, `ZDR`, `KDP`, `CC`, `RANGE_KM`
 //! (ground range), `AZIMUTH_DEG`, `ELEVATION_DEG`, `BEAM_HEIGHT_M` (above radar), and
-//! `BEAM_ALTITUDE_M` (above sea level when site elevation is known). Functions:
+//! `BEAM_ALTITUDE_M` (above sea level when site elevation is known), and the environmental heights
+//! above. `VEL` is the dealiased radial velocity, as the map draws it. Functions:
 //! `min`, `max` (2 args), `mean` (2–8 args), `clamp` (3 args: value, low, high), `abs` (1 arg).
 //! Comparisons and logical operators produce `1.0`
 //! (true) or `0.0` (false); the ternary's condition treats any nonzero value as true.
@@ -84,6 +86,11 @@ pub enum Input {
     /// hail weighting tops out at, same source and same population rule as
     /// [`Self::FreezingLevelM`].
     Minus20cHeightM,
+    /// −10°C isotherm height, metres above sea level: HRRR's `263 K level` analysis live (263 K
+    /// is −10.15 °C), the lowest −10 °C crossing of that day's observed ascent on an archived
+    /// volume. Same datum and population rule as [`Self::FreezingLevelM`]; missing, never
+    /// interpolated from the other two levels, when its source does not carry it.
+    Minus10cHeightM,
 }
 
 impl Input {
@@ -102,12 +109,13 @@ impl Input {
             "BEAM_ALTITUDE_M" => Self::BeamAltitudeM,
             "FREEZING_LEVEL_M" => Self::FreezingLevelM,
             "MINUS20C_HEIGHT_M" => Self::Minus20cHeightM,
+            "MINUS10C_HEIGHT_M" => Self::Minus10cHeightM,
             _ => return None,
         })
     }
 
     /// Every input name a formula can reference — for building an editor's autocomplete/help list.
-    pub const ALL: [Input; 13] = [
+    pub const ALL: [Input; 14] = [
         Input::Reflectivity,
         Input::Velocity,
         Input::SpectrumWidth,
@@ -120,6 +128,7 @@ impl Input {
         Input::BeamHeightM,
         Input::BeamAltitudeM,
         Input::FreezingLevelM,
+        Input::Minus10cHeightM,
         Input::Minus20cHeightM,
     ];
 
@@ -139,6 +148,7 @@ impl Input {
             Self::BeamAltitudeM => "BEAM_ALTITUDE_M",
             Self::FreezingLevelM => "FREEZING_LEVEL_M",
             Self::Minus20cHeightM => "MINUS20C_HEIGHT_M",
+            Self::Minus10cHeightM => "MINUS10C_HEIGHT_M",
         }
     }
 }
@@ -162,6 +172,8 @@ pub struct GateInputs {
     pub freezing_level_m: Option<f32>,
     /// See [`Input::Minus20cHeightM`]'s doc comment.
     pub minus20c_height_m: Option<f32>,
+    /// See [`Input::Minus10cHeightM`]'s doc comment.
+    pub minus10c_height_m: Option<f32>,
 }
 
 impl GateInputs {
@@ -180,6 +192,7 @@ impl GateInputs {
             Input::BeamAltitudeM => self.beam_altitude_m,
             Input::FreezingLevelM => self.freezing_level_m,
             Input::Minus20cHeightM => self.minus20c_height_m,
+            Input::Minus10cHeightM => self.minus10c_height_m,
         }
     }
 }
@@ -313,6 +326,39 @@ impl Expr {
                 ExprNode::Bin(_, a, b) => walk(a) || walk(b),
                 ExprNode::Call(f, args) => f.is_column_aware() || args.iter().any(walk),
                 ExprNode::Ternary(c, a, b) => walk(c) || walk(a) || walk(b),
+            }
+        }
+        walk(&self.0)
+    }
+
+    /// How deeply vertical/layer functions nest: 0 for a gate formula, 1 for
+    /// `max_vertical(REF)`, 2 for `max_vertical(REF, REF > max_vertical(REF) - 5)`. Each level
+    /// re-walks the whole column per entry, so cost grows as the column length to this power.
+    pub fn column_depth(&self) -> usize {
+        fn walk(n: &ExprNode) -> usize {
+            match n {
+                ExprNode::Number(_) | ExprNode::Var(_) => 0,
+                ExprNode::Neg(a) | ExprNode::Not(a) => walk(a),
+                ExprNode::Bin(_, a, b) => walk(a).max(walk(b)),
+                ExprNode::Call(f, args) => {
+                    let inner = args.iter().map(walk).max().unwrap_or(0);
+                    inner + usize::from(f.is_column_aware())
+                }
+                ExprNode::Ternary(c, a, b) => walk(c).max(walk(a)).max(walk(b)),
+            }
+        }
+        walk(&self.0)
+    }
+
+    /// Nodes in the parsed tree: the work one evaluation does, for bounding a whole grid.
+    pub fn node_count(&self) -> usize {
+        fn walk(n: &ExprNode) -> usize {
+            1 + match n {
+                ExprNode::Number(_) | ExprNode::Var(_) => 0,
+                ExprNode::Neg(a) | ExprNode::Not(a) => walk(a),
+                ExprNode::Bin(_, a, b) => walk(a) + walk(b),
+                ExprNode::Call(_, args) => args.iter().map(walk).sum(),
+                ExprNode::Ternary(c, a, b) => walk(c) + walk(a) + walk(b),
             }
         }
         walk(&self.0)
@@ -920,11 +966,13 @@ impl Parser<'_> {
 }
 
 /// A saved user-defined product: a name, the source formula, and enough display metadata to show
-/// its value sensibly. Serializable so a set of these can be written to disk — see
-/// `crates/hookecho/src/udp_store.rs` for where the app keeps them; syncing and exporting them are
-/// not implemented yet.
+/// its value sensibly. Serializable; [`crate::udp_file`] carries them between installations.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProductDef {
+    /// Stable for the product's life, so a re-imported update replaces it rather than adding a
+    /// copy (`crate::udp_file`). Empty in definitions saved before IDs existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub name: String,
     pub units: String,
     pub expression: String,
@@ -967,6 +1015,7 @@ mod tests {
             beam_altitude_m: Some(1500.0),
             freezing_level_m: Some(3000.0),
             minus20c_height_m: Some(6500.0),
+            minus10c_height_m: Some(4800.0),
         }
     }
 
@@ -1128,6 +1177,7 @@ mod tests {
     #[test]
     fn product_def_compiles_its_own_expression() {
         let def = ProductDef {
+            id: String::new(),
             name: "Hail signature".into(),
             units: "dBZ".into(),
             expression: "REF > 55 && ZDR < 1 ? REF : 0".into(),
@@ -1145,6 +1195,7 @@ mod tests {
     #[test]
     fn product_def_reports_its_own_syntax_error() {
         let def = ProductDef {
+            id: String::new(),
             name: "broken".into(),
             units: "".into(),
             expression: "REF +".into(),

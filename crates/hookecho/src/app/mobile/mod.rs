@@ -332,7 +332,7 @@ impl super::HookEchoApp {
             crate::app::MapTool::RadarSuitability => "Tap a point to rank nearby radars",
             crate::app::MapTool::Measure => "Tap two points to measure",
             crate::app::MapTool::Marker => "Tap the map to drop a marker",
-            crate::app::MapTool::CrossSection => "Tap two points for a cross-section",
+            crate::app::MapTool::CrossSection => "Tap two points; drag its handles to move it",
             crate::app::MapTool::RegionStats => "Tap two corners of a box for its statistics",
             crate::app::MapTool::Sounding => "Tap a point for a sounding",
             crate::app::MapTool::Climatology => "Tap a point for tornado climatology",

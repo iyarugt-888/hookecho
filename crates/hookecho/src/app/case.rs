@@ -45,6 +45,12 @@ impl HookEchoApp {
                 })
                 .collect(),
             udp_products: self.settings.udp_products.clone(),
+            manual_tracks: self
+                .storm_tracks
+                .tracks
+                .iter()
+                .map(crate::app::storm_track::ManualTrack::to_case)
+                .collect(),
             notes: String::new(),
         }
     }
@@ -116,6 +122,22 @@ impl HookEchoApp {
             })
             .collect();
         let added = added + merge_by(&mut self.strokes, &strokes, |s| s.points.clone());
+        // Manual tracks come back as historical estimates for their own time, never live; one
+        // already here (same origin, motion and time) is not added twice.
+        let tracks: Vec<crate::app::storm_track::ManualTrack> = case
+            .manual_tracks
+            .iter()
+            .map(crate::app::storm_track::ManualTrack::from_case)
+            .collect();
+        let added = added
+            + merge_by(&mut self.storm_tracks.tracks, &tracks, |t| {
+                (
+                    t.origin.map(f64::to_bits),
+                    t.bearing_deg.to_bits(),
+                    t.speed_kmh.to_bits(),
+                    t.t0,
+                )
+            });
         self.settings.save();
         self.rebuild_overlays();
         let what = if added > 0 {

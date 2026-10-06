@@ -4,6 +4,42 @@
 use super::*;
 
 impl HookEchoApp {
+    /// Add the products in a picked product file (ROADMAP_PARITY M3.2): each checked first, one
+    /// with an ID already here updated in place, every refusal or adjustment listed.
+    fn apply_udp_import(&mut self, import: &crate::dialog::Import) {
+        let known = |code: &str| wxdata::level2::Moment::from_code(code).is_some();
+        let result = import
+            .text()
+            .and_then(|text| wxdata::udp_file::import(&text, &known));
+        match result {
+            Ok(got) => {
+                let n = got.products.len();
+                let (added, replaced) =
+                    wxdata::udp_file::merge(&mut self.settings.udp_products, got.products);
+                let mut report = vec![format!(
+                    "Imported {n} product{} from {}: {added} added, {replaced} updated",
+                    if n == 1 { "" } else { "s" },
+                    import.name()
+                )];
+                report.extend(got.diagnostics);
+                self.toast(
+                    if n == 0 {
+                        ToastKind::Error
+                    } else {
+                        ToastKind::Info
+                    },
+                    report[0].clone(),
+                );
+                self.udp_window.report = report;
+                self.udp_window.open = true;
+            }
+            Err(e) => {
+                self.udp_window.report = vec![format!("Import failed: {e}")];
+                self.toast(ToastKind::Error, format!("Product import failed: {e}"));
+            }
+        }
+    }
+
     /// Route a picked file to whatever asked for it.
     pub(crate) fn apply_import(&mut self, import: crate::dialog::Import) {
         use crate::dialog::ImportKind as K;
@@ -11,6 +47,7 @@ impl HookEchoApp {
             // Routed to `open_case` before this, which needs the egui context.
             K::Case => {}
             K::SettingsBundle => self.apply_settings_bundle(&import),
+            K::UdpProducts => self.apply_udp_import(&import),
             K::Palette if import.tag == crate::ui::palette_editor::EDITOR_TAG => {
                 match import.text() {
                     Ok(text) => self.palette_editor.pending_import = Some(text),
@@ -105,18 +142,15 @@ impl HookEchoApp {
                             name
                         }),
                     };
-                    let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
-                    let n = shapes.len() + marks.len();
-                    self.imported_gis = shapes;
-                    self.imported_marks = marks;
-                    self.imported_colors = None;
-                    self.imported_time = None;
-                    self.show_imported_gis = true;
-                    self.rebuild_overlays();
-                    self.settings.imported_gis = remembered.ok();
+                    // A layer of its own beside any already imported, or the same file's layer
+                    // refreshed with its settings kept (ROADMAP_PARITY M4.1). A browser file whose
+                    // text could not be kept still shows for this session, by its name.
+                    let source = remembered.unwrap_or_else(|_| import.name());
+                    let id = self.add_gis_import(source, loaded.features);
+                    let n = self.gis_loaded(id).map_or(0, |l| l.len());
                     // Framing the import is the difference between "nothing happened" and
                     // "there it is" for a file covering somewhere the map isn't looking.
-                    self.zoom_to_imported_gis();
+                    self.zoom_to_gis(Some(id));
                     let mut message = format!("Imported {n} shapes from {}", import.name());
                     if let Some(note) = &loaded.note {
                         message.push_str(&format!(" — {note}"));

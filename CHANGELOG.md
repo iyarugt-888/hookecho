@@ -8,6 +8,195 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the output window stays on its pane; scenes are cued, then taken
+
+The output window now stays on the pane that was active when you opened it, so working in another
+pane no longer changes what is on air. Pick a different pane, or "Follow the active pane" for the
+old behaviour, under Output window → Program shows. Clicking a scene now cues it in a preview that
+shows where it will go and anything it will skip; Take puts the whole scene on at once. Alt+1..9
+still switch scenes straight away. If the program pane has been closed, Take is refused and the
+output says so instead of switching to another pane.
+
+### Added: filter an imported layer by its attributes
+
+Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it
+is true for are drawn, clickable, labelled, exported and used as impact targets. A feature that
+doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
+the previous one in force and says what is wrong.
+
+### Added: cases keep your manual storm tracks
+
+Saving a case now keeps your manual storm-motion tracks, with the time each was set for and the
+storm it came from. Opening the case brings them back faded and marked as from the case; they are
+not used for a storm's arrival times until you press Reactivate.
+
+### Added: towns in a storm's path
+
+The storm's Threat section has a "Towns in its path" button: it asks the Census Bureau which towns
+the storm's projected one-hour path touches and lists each with its 2020 population and when the
+storm reaches the town's centre. Its edge can be reached sooner, and the card says so.
+
+### Added: imported layers as impact targets
+
+Mark an imported GIS layer as "Impact targets" in the Layer Manager and the storm's Threat section
+lists when it reaches each of the layer's points and how close it passes, and when its path enters
+each of the layer's areas — or that only the edge of its uncertainty swath does — from SCIT's
+motion and from your manual motion when you have set one.
+
+### Added: a ruler in the cross-section
+
+Turn on Ruler in the cross-section window and drag across the panel to measure: distance across,
+height gained, straight-line distance, and at each end the height above the radar, the height above
+sea level, and the value there. Heights in the cross-section are now labelled as above the radar.
+
+### Added: export and import user-defined products
+
+User-defined products → Export… saves your products as a portable file; Import… adds products from
+one. Each product keeps a stable identity, so importing an updated copy replaces it instead of
+adding a duplicate, and a product whose name is already taken is renamed rather than hidden. Every
+product is checked before it is added, and anything refused or adjusted is listed: a formula that
+doesn't parse, is too large or nests column functions; a colour table this build doesn't have; a
+file that mixes heights measured from the radar with heights above sea level.
+
+### Added: the gate inspector says what the map is showing
+
+For velocity, the gate inspector now has a "Map shows" row: the value the map colours at that gate
+and how it was made — the raw or dealiased velocity, or storm-relative velocity with the storm
+motion and how much of it falls along that radial.
+
+### Added: hold the program view
+
+Output window → "Hold the program view" keeps the output's own camera: panning or zooming the
+program pane no longer moves what is on air, and taking a scene moves only the output.
+
+### Added: workspaces and scenes remember your GIS layers
+
+Saving a workspace or a broadcast scene now records which imported GIS layers were on, in what
+order and style, and which groups were shown; switching to it puts them back. A layer imported
+afterwards is hidden when you switch to a view that didn't have it. If a saved view names a layer
+you have since removed, you're told which one rather than it quietly being replaced by another.
+Workspaces and scenes saved earlier leave your layers as they are.
+
+### Added: imported points and lines can be clicked and exported
+
+Clicking an imported point or line now opens its attributes, as clicking an imported polygon does.
+"Export map as GeoJSON" now includes imported points and lines, and writes every imported feature
+with its own attributes and the name of its layer.
+
+### Added: several imported GIS layers at once
+
+Importing a GIS file now adds a layer instead of replacing the one you had. Each layer keeps its
+own color, outline, opacity, labels, color-by attribute, time mapping, minimum zoom and whether it
+draws under the official products. The Layer Manager lists them in paint order: show or hide each
+one, reorder, zoom to it, remove it, and put layers in named groups you can switch on and off
+together. Re-importing a file that is already a layer updates its shapes and keeps its settings.
+A layer whose file can't be found at launch stays in the list marked missing, with the reason,
+instead of disappearing. Your existing imported layer and its settings carry over automatically.
+
+### Added: a storm's manual motion shows beside SCIT's
+
+A manual track started from a storm now stays attached to that storm, even when SCIT renumbers
+it. The Inspector and Cell window show it on its own "Manual motion" line next to SCIT's motion:
+the motion you set, the time it was set for, how old it is relative to the scan on screen, and
+whether it is SCIT's motion unchanged or adjusted from it. Tracks drawn freehand are not attached
+to any storm.
+
+The Cell window's Threat section also lists arrival times at your saved places from that manual
+motion, beside SCIT's own list, each timed from when the motion was set and stated against the scan
+on screen.
+
+### Fixed: a selected or followed storm stays the same storm when SCIT renumbers it
+
+SCIT reuses and changes its cell IDs. A selected storm whose ID changed used to drop out of the
+selection, and a different storm that was later given the old ID took over the selection, the
+follow and the trend chart. Selection, follow and trends now go by the storm history: a renamed
+storm keeps its selection, follow and whole trend; a storm that leaves the table is shown as of
+its last scan and says so; a followed storm missing from one scan is held in place rather than
+swapped for whatever cell is nearby.
+
+### Added: what each storm has been linked to, over time
+
+The Cell window's Storm section now lists, under the storm's History line, every warning,
+ProbSevere object, tornado detection and SCIT hail report the storm has been linked to since it was
+first tracked: when, over how many scans, how the value changed (`ProbSevere object 4321 — Tor 40%
+→ Tor 62%`), and how it was linked — inside the polygon, the nearest storm to the detection, or as
+close to another storm, in which case it is listed on both as not attributed. A storm's record
+survives SCIT changing its ID, a detector finishing after the scan arrived, and seeking back in a
+loop. Watches are not counted as warnings.
+
+### Added: column user-defined products on the map
+
+A user-defined product built on a vertical/layer function (`max_vertical`, `max_layer`,
+`first_height_above`, `count_above`, …) now draws as a 2D field over the tilt — "Show on map" in
+User-defined products, or "Column user product" in the layer list. It is evaluated from every tilt
+of the pane's own volume on the local-derived 0.01° grid, through the same nearest-gate rule as
+the local composite (`max_vertical(REF)` is that composite, cell for cell), under the pane's live
+temporal policy, off the UI thread, and only for the scan, revision, product definition and
+environment it was asked for. Its legend samples the drawn colour table and states the source
+acquisition span and any older-pass or masked rows; the cursor probe reads the exact cell and how
+many beams sampled it; GeoTIFF/NetCDF exports carry the formula, units and environment source.
+The pane's choice is saved with workspaces. Cells are drawn as evaluated, never smoothed between.
+
+Formulas can read `MINUS10C_HEIGHT_M`: HRRR's `263 K level` while following live, the lowest
+−10 °C crossing of that day's observed sounding on an archived volume. A formula needing an
+isotherm the matched source lacks is not drawn and says why; nothing is substituted. The gate
+inspector evaluates a column formula with the map's rules (based at the lowest sampled level),
+reads velocity dealiased as the map does, and names where its environmental heights came from.
+
+### Changed: max/min trails are exact over the window, and fading no longer changes values
+
+The trail layer now recomputes the extremum of the cached volumes inside the window ending at the
+playhead, so a strong old core leaves the trail when its volume leaves the window, and scrubbing
+backward gives the same trail as starting there. "Fade with age" draws older gates fainter instead
+of weakening their values: the probe, threshold, outlines and GeoTIFF read the same numbers either
+way. The cursor probe names the scan that set each gate and how long before the playhead; the
+status line and exports say when the history is shorter than the window or volumes are missing.
+Exported trails carry the playhead's time instead of the wall clock.
+
+### Added: trails of column user products
+
+"Column user product trail" draws the maximum or minimum of the pane's column product over the
+loop's volumes in the trail window ending at the playhead, built in the background from the
+cached volumes. The probe names the volume that set each cell; the legend says how much of the
+window is covered and what was left out. A formula that reads an isotherm uses only volumes from
+that reading's own time.
+
+### Added: drag, swing and slide the cross-section
+
+With the cross-section tool, drag either end, slide the line by its middle, or swing it by the
+rotation handle (Shift snaps to 15°); Esc puts it back. The window takes an exact bearing and
+length, slides it sideways a kilometre at a time, snaps it onto a radar radial, swaps its ends,
+and can carry it into the 3D view as a vertical cut. It names the tilts and the time span the
+section was scanned over, how much of it is inside real beam coverage, and it follows its pane
+to each new volume.
+
+### Changed: Nyquist velocity is read from the data, not guessed
+
+The gate inspector and the workstation Inspector now show the Nyquist velocity and unambiguous
+range each radial was collected with, decoded from its Level II message, labelled "decoded". When
+the data does not carry them, the old estimate read off the velocities appears under its own
+"estimated" label instead; nothing estimated is shown as decoded.
+
+### Added: live latency to the GPU finishing the frame
+
+The Log shows, beside the time from receiving a live radar update to queueing it for the GPU, the
+time until the GPU actually finished drawing it, with medians, 95th percentiles and how many
+updates could not be observed. Screen presentation is not included and the label says so.
+
+### Fixed: the 3D volume reads the same gates as the cross-section
+
+The smooth 3D volume and CAPPI used a flat-earth range conversion, so far from the radar a
+voxel could show the neighbouring gate's value from what the cross-section and derived grids
+show at the same spot. All of them now sample through one rule.
+
+### Fixed: locally derived grids are drawn where they were sampled
+
+The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at
+exactly 0.01° but declared the range disk's unrounded extent, so readers and the renderer placed
+cells up to one cell (~1 km) toward the east and south edges. The declared extent now matches the
+sampled cells. Probes and exports of local radar fields also require the pane's own selection,
+as drawing already did.
+
 ### Added: pane-owned MRMS analyses and precipitation tint
 
 MRMS catalog fields now follow each pane's archive cursor when analysis time is unlinked, and

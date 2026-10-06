@@ -59,6 +59,24 @@ pub(crate) struct ManualTrack {
     /// A line track's storm edge at `t0` (a QLCS, a gust front), moving as one with the
     /// motion; empty for a single storm. The origin is its middle.
     pub edge: Vec<[f64; 2]>,
+    /// The storm it was started from, when it was (ROADMAP_PARITY M2.1: manual objects may stay
+    /// unassociated). Kept as the source reference, never updated: the storm history says which
+    /// storm that is now.
+    pub source: Option<TrackSource>,
+    /// Reopened from a saved case: an estimate for its own time, drawn faded and left out of a
+    /// storm's arrivals until the analyst reactivates it (ROADMAP_PARITY M2.4).
+    pub historical: bool,
+}
+
+/// Where a manual track was seeded from.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TrackSource {
+    /// The SCIT cell ID at seeding, and the time of that table.
+    pub cell_id: String,
+    pub scan: Option<DateTime<Utc>>,
+    /// SCIT's motion then, toward degrees and km/h, so an adjustment can be read against it.
+    pub scit_bearing_deg: f64,
+    pub scit_speed_kmh: f64,
 }
 
 impl ManualTrack {
@@ -73,6 +91,57 @@ impl ManualTrack {
             cone_deg: 10.0,
             mark_interval_min: DEFAULT_MARK_INTERVAL_MIN,
             edge: Vec::new(),
+            source: None,
+            historical: false,
+        }
+    }
+
+    /// This track as a case keeps it.
+    pub(crate) fn to_case(&self) -> crate::case::CaseTrack {
+        crate::case::CaseTrack {
+            origin: self.origin,
+            bearing_deg: self.bearing_deg,
+            speed_kmh: self.speed_kmh,
+            t0: self.t0,
+            left_width_km: self.left_width_km,
+            right_width_km: self.right_width_km,
+            cone_deg: self.cone_deg,
+            mark_interval_min: self.mark_interval_min,
+            edge: self.edge.clone(),
+            source_cell: self.source.as_ref().map(|s| s.cell_id.clone()),
+            source_scan: self.source.as_ref().and_then(|s| s.scan),
+            scit_motion: self
+                .source
+                .as_ref()
+                .map(|s| (s.scit_bearing_deg, s.scit_speed_kmh)),
+        }
+    }
+
+    /// A track reopened from a case: as saved, and historical. Values a hand-edited file could
+    /// make nonsensical are brought back into the ranges the editor allows.
+    pub(crate) fn from_case(c: &crate::case::CaseTrack) -> Self {
+        let finite = |v: f64, d: f64| if v.is_finite() { v } else { d };
+        ManualTrack {
+            origin: c.origin,
+            bearing_deg: finite(c.bearing_deg, 0.0).rem_euclid(360.0),
+            speed_kmh: finite(c.speed_kmh, 0.0).clamp(0.0, 150.0 * KMH_PER_KT),
+            t0: c.t0,
+            left_width_km: finite(c.left_width_km, 3.0).max(0.0),
+            right_width_km: finite(c.right_width_km, 3.0).max(0.0),
+            cone_deg: finite(c.cone_deg, 10.0).clamp(0.0, 45.0),
+            mark_interval_min: if c.mark_interval_min == 0 {
+                DEFAULT_MARK_INTERVAL_MIN
+            } else {
+                c.mark_interval_min
+            },
+            edge: c.edge.clone(),
+            source: c.source_cell.as_ref().map(|cell| TrackSource {
+                cell_id: cell.clone(),
+                scan: c.source_scan,
+                scit_bearing_deg: c.scit_motion.map_or(0.0, |m| m.0),
+                scit_speed_kmh: c.scit_motion.map_or(0.0, |m| m.1),
+            }),
+            historical: true,
         }
     }
 
@@ -131,6 +200,12 @@ impl ManualTrack {
         let mut t = Self::new([cell.lon, cell.lat], t0);
         t.bearing_deg = f64::from(cell.mvt_deg?).rem_euclid(360.0);
         t.speed_kmh = f64::from(cell.mvt_kt?) * KMH_PER_KT;
+        t.source = Some(TrackSource {
+            cell_id: cell.id.clone(),
+            scan: cell.time,
+            scit_bearing_deg: t.bearing_deg,
+            scit_speed_kmh: t.speed_kmh,
+        });
         Some(t)
     }
 
@@ -182,7 +257,7 @@ impl ManualTrack {
     }
 
     /// The swath's outline to the horizon, left edge out and right edge back.
-    fn swath(&self) -> Vec<[f64; 2]> {
+    pub(crate) fn swath(&self) -> Vec<[f64; 2]> {
         const STEPS: usize = 12;
         let km = self.speed_kmh * HORIZON_MIN / 60.0;
         let edge = |i: usize, side: f64| {
@@ -655,10 +730,85 @@ fn width_control(ui: &mut egui::Ui, label: &str, width_km: &mut f64, metric: boo
     changed
 }
 
+/// One line on a storm's manual motion for the storm's own card: the motion, when it was set, and
+/// how it compares with the SCIT motion it was started from.
+pub(crate) fn manual_motion_line(
+    track: &ManualTrack,
+    now: Option<DateTime<Utc>>,
+    metric: bool,
+    fmt_time: impl Fn(DateTime<Utc>) -> String,
+) -> String {
+    let speed = |kmh: f64| {
+        if metric {
+            format!("{kmh:.0} km/h")
+        } else {
+            format!("{:.0} mph", kmh / 1.609_344)
+        }
+    };
+    let mut line = format!(
+        "{} at {} ({:03.0}°), set for {}",
+        compass(track.bearing_deg),
+        speed(track.speed_kmh),
+        track.bearing_deg,
+        fmt_time(track.t0)
+    );
+    if let Some(age) = now.map(|n| (n - track.t0).num_minutes()).filter(|m| *m > 0) {
+        line.push_str(&format!(", {age} min before this scan"));
+    }
+    if let Some(src) = &track.source {
+        let turned = (track.bearing_deg - src.scit_bearing_deg + 540.0).rem_euclid(360.0) - 180.0;
+        let faster = track.speed_kmh - src.scit_speed_kmh;
+        if turned.abs() < 0.5 && faster.abs() < 0.5 {
+            line.push_str(&format!(
+                "; SCIT's motion for cell {}, unadjusted",
+                src.cell_id
+            ));
+        } else {
+            line.push_str(&format!(
+                "; adjusted from SCIT's {} at {} for cell {}",
+                compass(src.scit_bearing_deg),
+                speed(src.scit_speed_kmh),
+                src.cell_id
+            ));
+        }
+    }
+    line
+}
+
 impl HookEchoApp {
     pub(crate) fn storm_track_keys(&mut self, ctx: &egui::Context) {
         self.storm_tracks
             .keys(ctx, self.tool == MapTool::StormTrack, self.capture_key);
+    }
+
+    /// The manual tracks started from `cell`'s storm, newest first: the storm history decides
+    /// which storm a track's seeding cell was, so a track follows its storm through a SCIT
+    /// renumbering and is never shown for another storm that took the old ID.
+    pub(crate) fn manual_tracks_for(&self, cell: &wxdata::level3::Cell) -> Vec<&ManualTrack> {
+        use super::chrome::Resolved;
+        self.storm_tracks
+            .tracks
+            .iter()
+            .rev()
+            .filter(|t| {
+                // A reopened estimate is not this storm's motion now until reactivated.
+                if t.historical {
+                    return false;
+                }
+                let Some(src) = &t.source else {
+                    return false;
+                };
+                match self
+                    .dock
+                    .storm_ids
+                    .resolve(&src.cell_id, src.scan.map(|s| s.timestamp()))
+                {
+                    Resolved::Current(id) => id == cell.id,
+                    Resolved::Gone(_) => false,
+                    Resolved::Unknown => !cell.id.is_empty() && src.cell_id == cell.id,
+                }
+            })
+            .collect()
     }
 
     /// Seed the manual tool from the same SCIT motion and source time in every storm UI.
@@ -855,6 +1005,12 @@ impl HookEchoApp {
             }
             for (i, t) in self.storm_tracks.tracks.iter().enumerate() {
                 let selected = self.storm_tracks.selected == Some(i);
+                // A reopened estimate reads as one: faded, never as a live motion.
+                let col = if t.historical {
+                    col.gamma_multiply(0.45)
+                } else {
+                    col
+                };
                 let fill = col.gamma_multiply(if selected { 0.16 } else { 0.09 });
                 if t.is_line() {
                     // The swept area, a quad per segment (the whole is not convex); then the
@@ -1088,6 +1244,26 @@ impl HookEchoApp {
                                     );
                                     if ui.selectable_label(sel, name).clicked() {
                                         st.selected = if sel { None } else { Some(i) };
+                                    }
+                                    if track.historical {
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "from a case, set for {}",
+                                                track.t0.format("%Y-%m-%d %H:%MZ")
+                                            ))
+                                            .small()
+                                            .weak(),
+                                        );
+                                        if ui
+                                            .small_button("Reactivate")
+                                            .on_hover_text(
+                                                "Use this saved estimate as a current motion: it \
+                                                 still projects from the time it was set for",
+                                            )
+                                            .clicked()
+                                        {
+                                            track.historical = false;
+                                        }
                                     }
                                     let mut kt = track.speed_kmh / KMH_PER_KT;
                                     if ui
@@ -1661,6 +1837,87 @@ mod tests {
         );
         assert_eq!(t.bearing_deg, 95.0);
         assert!((t.speed_kmh - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_manual_motion_reads_against_the_scit_motion_it_started_from() {
+        let t0 = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let cell = wxdata::level3::Cell {
+            id: "O7".into(),
+            lon: -97.0,
+            lat: 35.0,
+            time: Some(t0),
+            mvt_deg: Some(240.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let mut t = ManualTrack::from_cell(&cell, t0).unwrap();
+        let src = t.source.clone().unwrap();
+        assert_eq!((src.cell_id.as_str(), src.scan), ("O7", Some(t0)));
+        let fmt = |d: DateTime<Utc>| format!("t{}", d.timestamp() - 1_700_000_000);
+        assert_eq!(
+            manual_motion_line(&t, Some(t0), true, fmt),
+            "WSW at 56 km/h (240°), set for t0; SCIT's motion for cell O7, unadjusted"
+        );
+        t.bearing_deg = 260.0;
+        t.speed_kmh = 40.0;
+        let later = t0 + chrono::Duration::minutes(10);
+        assert_eq!(
+            manual_motion_line(&t, Some(later), false, fmt),
+            "W at 25 mph (260°), set for t0, 10 min before this scan; adjusted from SCIT's WSW \
+             at 35 mph for cell O7"
+        );
+        // A track drawn by hand belongs to no storm and says nothing about SCIT.
+        let free = ManualTrack::new([-97.0, 35.0], t0);
+        assert!(free.source.is_none());
+        assert!(!manual_motion_line(&free, None, true, fmt).contains("SCIT"));
+    }
+
+    #[test]
+    fn a_saved_track_reopens_as_it_was_and_historical() {
+        let t0 = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let cell = wxdata::level3::Cell {
+            id: "O7".into(),
+            lon: -97.0,
+            lat: 35.0,
+            time: Some(t0),
+            mvt_deg: Some(240.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let mut t = ManualTrack::from_cell(&cell, t0).unwrap();
+        t.bearing_deg = 255.0;
+        t.left_width_km = 5.0;
+        let saved = t.to_case();
+        let json = serde_json::to_string(&saved).unwrap();
+        let back = ManualTrack::from_case(&serde_json::from_str(&json).unwrap());
+        assert!(back.historical, "never a live estimate on reopening");
+        assert_eq!(
+            ManualTrack {
+                historical: false,
+                ..back.clone()
+            },
+            t,
+            "everything else as saved, its source storm included"
+        );
+        // A hand-edited file cannot make a nonsense motion.
+        let mut bad = saved;
+        bad.speed_kmh = f64::NAN;
+        bad.bearing_deg = -30.0;
+        bad.cone_deg = 400.0;
+        let b = ManualTrack::from_case(&bad);
+        assert_eq!((b.speed_kmh, b.bearing_deg, b.cone_deg), (0.0, 330.0, 45.0));
+        // A case written before tracks were kept opens with none.
+        let old: crate::case::CaseManifest = serde_json::from_str(
+            &serde_json::to_string(&serde_json::json!({
+                "format": 1, "name": "x", "app_version": "0", "created_utc": "2026-01-01T00:00:00Z",
+                "time_utc": null, "span_min": 0, "sites": [],
+                "workspace": {"name": "x", "panes": []}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(old.manual_tracks.is_empty());
     }
 
     fn track() -> ManualTrack {

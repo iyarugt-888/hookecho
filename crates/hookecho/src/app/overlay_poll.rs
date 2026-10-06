@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// How long a SCIT ID's trend samples outlive the ID leaving the table, so a storm that took a
+/// new ID keeps its earlier samples (two hours; `CELL_TREND_MAX` volumes is a little more).
+const CELL_TREND_KEEP_S: i64 = 2 * 3600;
+
 impl HookEchoApp {
     pub(crate) fn poll_overlays(&mut self) {
         crate::prof_scope!("poll_overlays");
@@ -71,6 +75,12 @@ impl HookEchoApp {
                     }
                     if let Ok(OverlayMsg::DerivedFields(delivery)) = &result {
                         if !self.derived_key_current(&delivery.key) {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                    }
+                    if let Ok(OverlayMsg::ColumnProduct(delivery)) = &result {
+                        if !self.column_delivery_current(delivery) {
                             self.acquisition.discard(&lane, generation);
                             continue;
                         }
@@ -222,13 +232,23 @@ impl HookEchoApp {
                         }
                         // Cell ids churn every volume, and the map only ever grew — an entry
                         // per cell the radar has ever named, for as long as the site is the same.
-                        // Keep the ones this volume still has.
-                        self.cell_trends
-                            .retain(|id, _| cells.iter().any(|c| &c.id == id));
+                        // Keep the ones this volume still has, and those sampled within the last
+                        // two hours: a storm that took a new ID keeps its samples under the old
+                        // one, read back through its history (`StormIdentity::trend`).
+                        let newest = cells.iter().filter_map(|c| c.time).max();
+                        self.cell_trends.retain(|id, hist| {
+                            cells.iter().any(|c| &c.id == id)
+                                || hist.last().and_then(|s| s.time).zip(newest).is_some_and(
+                                    |(t, n)| (n - t).num_seconds() <= CELL_TREND_KEEP_S,
+                                )
+                        });
                         if !past.is_empty() {
                             merge_cell_history(&mut self.cell_trends, &past);
                             self.cells_history_site = Some(site.clone());
                         }
+                        // The storm history first, so following and selection read this table
+                        // through it (`StormIdentity::resolve`).
+                        self.dock.storm_ids.feed(Some(site.as_str()), &cells);
                         self.storm_cells = cells;
                         self.cells_site = Some(site);
                         self.update_follow();
@@ -308,6 +328,8 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
+                OverlayMsg::ColumnProduct(delivery) => self.accept_column_product(*delivery),
+                OverlayMsg::ColumnTrail(delivery) => self.accept_column_trail(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
                     // The field's original request resolves to a currently wanted immutable slot.
                     if let Some(context) = self
@@ -399,12 +421,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Spotters(spotters) => self.spotters = spotters,
                 OverlayMsg::Fronts(a) => self.fronts = Some(a),
-                OverlayMsg::FreezingLevels {
-                    site,
-                    epoch,
-                    h0,
-                    hm20,
-                } => self.freezing = Some((site, epoch, h0, hm20)),
+                OverlayMsg::FreezingLevels(levels) => self.freezing = Some(*levels),
                 OverlayMsg::ProbSevere(f) => {
                     self.evaluate_probsevere_rules(&f);
                     self.probsevere = f;

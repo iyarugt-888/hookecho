@@ -236,6 +236,22 @@ impl HookEchoApp {
                     });
                 }
                 MapTool::CrossSection => {
+                    // A tap on one of the line's handles is a handle, not a new endpoint.
+                    if let (Some(line), Some(p)) =
+                        (self.xsection_line(), response.interact_pointer_pos())
+                    {
+                        let cam = self.views[idx].camera;
+                        let to_px = |ll: [f64; 2]| {
+                            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+                            let (x, y) = cam.world_to_screen(w, vp);
+                            egui::pos2(prect.left() + x, prect.top() + y)
+                        };
+                        let touch = ui.input(|i| i.any_touches() || i.has_touch_screen());
+                        let radius = if touch { 24.0 } else { 12.0 };
+                        if xsection_edit::grab_at(&line, p, radius, to_px).is_some() {
+                            return true;
+                        }
+                    }
                     if self.xsection_pts.len() >= 2 {
                         self.xsection_pts.clear();
                     }
@@ -297,7 +313,9 @@ impl HookEchoApp {
                     };
                     self.gate_popup = self.inspect_gate(ctx, idx, gate_lon, gate_lat, tilt);
                     // The same point across the loop this pane holds (ROADMAP_NEW C4).
+                    let display = self.map_display(idx);
                     if let Some(p) = self.gate_popup.as_mut() {
+                        p.display = display;
                         p.series = self.views[idx].point_series(
                             p.moment,
                             p.inspection.elevation_deg,
@@ -496,16 +514,13 @@ impl HookEchoApp {
                             None => {
                                 // Warnings/watches open the warning window (deduped by alert id
                                 // across MultiPolygon parts); other features use the generic popup.
-                                let mut hits = overlay::hit_all(&self.overlays, lon, lat);
                                 // An imported layer hidden below its minimum zoom is not
                                 // there to click either.
-                                if !self
-                                    .settings
-                                    .imported_gis_style
-                                    .visible_at(self.views[self.active].camera.zoom)
-                                {
-                                    hits.retain(|f| f.kind != overlay::FeatureKind::Imported);
-                                }
+                                let hits = self.overlay_hits(
+                                    lon,
+                                    lat,
+                                    self.views[self.active].camera.zoom,
+                                );
                                 let mut seen = std::collections::HashSet::new();
                                 let mut cards: Vec<ui::warning_window::WarnCard> = hits
                                     .iter()
@@ -524,7 +539,22 @@ impl HookEchoApp {
                                         ui::alert_panel::severity_rank(&c.info.event),
                                     ))
                                 });
-                                if !cards.is_empty() {
+                                // An imported point or line under the click (drawn over the
+                                // polygons) opens its attributes, unless an alert is there.
+                                let mark = if cards.is_empty() {
+                                    let cam = self.views[self.active].camera;
+                                    let touch =
+                                        ctx.input(|i| i.any_touches() || i.has_touch_screen());
+                                    self.gis_mark_hit(lon, lat, &cam, touch)
+                                } else {
+                                    None
+                                };
+                                if let Some(detail) = mark {
+                                    self.warning_popup = None;
+                                    self.gate_popup = None;
+                                    self.detail_impact = None;
+                                    self.detail = Some(detail);
+                                } else if !cards.is_empty() {
                                     self.detail = None;
                                     self.gate_popup = None;
                                     // Open straight to the full bulletin of the top alert; the

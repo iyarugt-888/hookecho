@@ -1064,9 +1064,10 @@ pub(crate) fn show(
         });
         ui.checkbox(&mut filters.trail_decay, "Fade with age")
             .on_hover_text(
-                "Let the older part of the trail fade, so the path reads as a direction: \
-                 the newest core at full strength, a quarter of the scale weaker by the start of \
-                 the window",
+                "Draw older parts of the trail fainter, so the path reads as a direction: each \
+                 gate's opacity follows the age of the scan that set it, down to a quarter at \
+                 the start of the window. Display only — the values, probe and exports are the \
+                 same with it on or off",
             );
         if ui
             .button("Reset at playhead")
@@ -1103,9 +1104,10 @@ pub(crate) fn show(
             ui.small(filters.trail_status.as_str());
         }
         ui.small(
-            "Drawn in place of the radar for this product and tilt. The value threshold and \
-             smoothing apply to the trail. Built from volumes already in the loop, ending at \
-             the playhead.",
+            "Drawn in place of the radar for this product and tilt: the exact extremum over the \
+             cached volumes in the window ending at the playhead, recomputed as it moves, so a \
+             frame leaves the trail when it leaves the window. The value threshold and \
+             smoothing apply to the trail; the probe shows which scan set each gate.",
         );
     }
 

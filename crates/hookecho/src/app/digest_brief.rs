@@ -155,10 +155,7 @@ impl HookEchoApp {
                     .map(|rows| rows.iter().filter(|(l, _)| l != "Gates").cloned().collect())
                     .unwrap_or_default(),
                 signatures: Vec::new(),
-                trend: self
-                    .cell_trends
-                    .get(&c.id)
-                    .and_then(|t| sb::trend_of(t, TREND_MIN)),
+                trend: sb::trend_of(&self.storm_trend(&c.id), TREND_MIN),
                 flashes_5min: flashes.as_ref().map(|f| {
                     f.iter()
                         .filter(|p| crate::geo::great_circle(at, **p).0 <= sb::ATTACH_KM)

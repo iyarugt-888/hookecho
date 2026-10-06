@@ -887,6 +887,10 @@ pub struct MapView {
     /// A user-defined product (`Settings::udp_products`, by name) shown on the map in place of
     /// the moment, worked out at every gate of the shown tilt.
     pub user_product: Option<String>,
+    /// A column user-defined product (by name) drawn as the `FieldLayer::UserColumn` 2D field
+    /// over the moment (`app::column_product`). Separate from `user_product`: a column formula
+    /// has one value per ground point, so it does not replace the tilt shown beneath it.
+    pub column_product: Option<String>,
     /// The range the shown user product's colours span, for its legend.
     pub product_range: Option<(f32, f32)>,
     /// The moment the pane was on when the product was put on the map: picking another moment
@@ -1107,6 +1111,7 @@ impl MapView {
             column_max: false,
             clean_reflectivity: false,
             user_product: None,
+            column_product: None,
             product_range: None,
             product_moment: Moment::Reflectivity,
             flash_ranges: [None; Moment::ALL.len()],
@@ -1167,6 +1172,12 @@ impl MapView {
         } else {
             None
         }
+    }
+
+    /// The SRV storm motion as set: toward degrees and knots, when SRV is on for velocity.
+    pub fn storm_motion_set(&self) -> Option<(f32, f32)> {
+        self.storm_motion_uv()
+            .map(|_| (self.storm_dir_deg, self.storm_speed_kt))
     }
 
     /// Storm motion as (east, north) components in m/s, from the toolbox dir/speed (knots).

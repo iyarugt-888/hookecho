@@ -44,6 +44,7 @@ impl HookEchoApp {
             chrome: Some(self.capture_chrome()),
             // A sounding open when the snapshot is taken is part of how this analyst works here.
             sound_center: self.sounding_window.open,
+            gis: self.settings.gis_snapshot(self.show_imported_gis),
             extra: Default::default(),
         }
     }
@@ -123,6 +124,9 @@ impl HookEchoApp {
                 .overlays_on
                 .iter()
                 .any(|s| OverlayToggle::from_slug(s) == Some(t));
+        }
+        if let Some(gis) = &ws.gis {
+            self.apply_gis_snapshot(gis, &format!("Workspace \u{201c}{}\u{201d}", ws.name));
         }
         // Same rule for the national field layers: an unknown slug is a layer this build
         // doesn't have, which is a thing to skip rather than an error.

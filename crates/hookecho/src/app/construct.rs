@@ -380,7 +380,7 @@ impl HookEchoApp {
             overlay_gen: 0,
             built_gen: u64::MAX,
             built_zoom_bucket: i32::MIN,
-            built_imported_visible: true,
+            built_imported_visible: 0,
             built_theme: crate::settings::Theme::Dark,
             built_globe: false,
             pending_overlay: None,
@@ -440,6 +440,7 @@ impl HookEchoApp {
             follow_notice: None,
             warning_popup: None,
             impacts: Default::default(),
+            towns: Default::default(),
             detail_impact: None,
             error_chip: None,
             storm_cells: Vec::new(),
@@ -556,6 +557,10 @@ impl HookEchoApp {
             derived_key: None,
             snow_hours: 24,
             snow_fetched: None,
+            column_requested: None,
+            column_accepted: None,
+            column_failed: None,
+            column_trail: None,
             freezing: None,
             freezing_last_fetch: None,
             show_metar: false,
@@ -655,11 +660,10 @@ impl HookEchoApp {
             fire_bounds: None,
             fire_last_fetch: None,
             show_imported_gis: false,
-            imported_gis: Vec::new(),
-            imported_marks: crate::gis_import::Marks::default(),
-            imported_colors: None,
-            imported_time: None,
-            imported_shown: None,
+            gis: Vec::new(),
+            overlay_layer: Vec::new(),
+            gis_selected: None,
+            gis_settings_key: 0,
             show_aqi: false,
             aqi: Vec::new(),
             aqi_bounds: None,
@@ -763,6 +767,9 @@ impl HookEchoApp {
             region: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             local_api: Default::default(),
+            xsection_drag: None,
+            xsection_cut_3d: false,
+            xsection_source: None,
             xsection_pts: Vec::new(),
             xsection: None,
             xsection_tex: None,
@@ -827,7 +834,7 @@ impl HookEchoApp {
             app.apply_model_engine(sel);
         }
         app.palettes.reload(&app.settings.palette_paths());
-        app.reload_imported_gis();
+        app.reload_gis_layers();
         app.apply_goto_env();
         app.drain_goto_file();
         #[cfg(target_arch = "wasm32")]

@@ -145,6 +145,10 @@ impl HookEchoApp {
                         y,
                         self.settings.temp_unit,
                     );
+                } else if *top == FL::UserColumn {
+                    y += self.paint_column_key(painter, prect, idx, y);
+                } else if *top == FL::UserColumnTrail {
+                    y += self.paint_column_trail_key(painter, prect, idx, y);
                 } else {
                     y += ui::legend::draw_field(painter, prect, *top, y, self.settings.temp_unit);
                 }

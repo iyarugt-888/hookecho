@@ -76,6 +76,12 @@ impl HookEchoApp {
 
     /// Shared fields can only draw in a pane showing the source volume and accepted revision.
     pub(crate) fn radar_field_ready(&self, idx: usize, layer: crate::render::FieldLayer) -> bool {
+        if layer == crate::render::FieldLayer::UserColumn {
+            return self.column_field_ready(idx);
+        }
+        if layer == crate::render::FieldLayer::UserColumnTrail {
+            return self.column_trail_ready(idx);
+        }
         if !LAYERS.contains(&layer) {
             return true;
         }

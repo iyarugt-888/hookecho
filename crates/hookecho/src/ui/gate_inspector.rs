@@ -25,9 +25,58 @@ pub struct GateInspectorPopup {
     /// user-defined-product formula (`max_vertical`, `max_layer`, …; ROADMAP_NEW C1) reduces
     /// over. A tilt this point falls outside of is simply absent, not a placeholder entry.
     pub column_inputs: Vec<wxdata::udp::GateInputs>,
+    /// Where the environmental heights a formula reads came from at this site and time
+    /// (`app::env_levels::EnvLevels::describe`); `None` when no matched reading exists, in which
+    /// case those inputs are missing rather than substituted.
+    pub environment: Option<String>,
     /// `moment` at this point in every volume the pane holds, oldest first — the loop being
     /// played, at the nearest tilt in each (see `MapView::point_series`).
     pub series: Vec<(chrono::DateTime<chrono::Utc>, Option<f32>)>,
+    /// How the map draws this gate, so the inspector can say what the colour on screen is.
+    pub display: MapDisplay,
+}
+
+/// How the map draws a radar gate (ROADMAP_PARITY M3.1): which value it reads and what it does
+/// to it before colouring.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MapDisplay {
+    /// The map reads the dealiased velocity (velocity with dealiasing on; not a TDWR).
+    pub dealiased: bool,
+    /// The storm motion SRV subtracts, as set: toward degrees and knots.
+    pub storm_motion: Option<(f32, f32)>,
+}
+
+/// What the map shows at this gate, for velocity: which value it is, how it was derived, and the
+/// value itself (m/s), or `None` when the input it needs is missing here — never another value in
+/// its place. `None` for any other moment, which the map draws as the raw value.
+pub(crate) fn map_shows(popup: &GateInspectorPopup) -> Option<(String, Option<f32>)> {
+    if popup.moment != Moment::Velocity {
+        return None;
+    }
+    let i = &popup.inspection;
+    let (base_name, base) = if popup.display.dealiased {
+        ("dealiased", i.dealiased_value)
+    } else {
+        ("raw", i.sample.value)
+    };
+    let base = base.filter(|v| v.is_finite());
+    Some(match popup.display.storm_motion {
+        Some((dir, kt)) => {
+            // The same radial projection the radar shader subtracts.
+            let ms = kt / 1.943_844;
+            let (east, north) = (ms * dir.to_radians().sin(), ms * dir.to_radians().cos());
+            let az = i.sample.azimuth_deg.to_radians();
+            let toward = east * az.sin() + north * az.cos();
+            (
+                format!(
+                    "SRV: {base_name} velocity − storm motion {dir:03.0}° at {kt:.0} kt \
+                     (−{toward:.1} m/s along this radial)"
+                ),
+                base.map(|v| v - toward),
+            )
+        }
+        None => (format!("{base_name} velocity"), base),
+    })
 }
 
 pub fn show(
@@ -124,15 +173,21 @@ pub(crate) fn attributes(
     let udp_rows: Vec<(&str, String)> = udp_products
         .iter()
         .map(|def| {
+            // A column formula reads the whole column under the point with the map's rules (its
+            // base is the lowest sampled level, not this tilt), so the two cannot disagree; a gate
+            // formula reads this gate.
             let value = match def.compile() {
-                Ok(expr) => match wxdata::udp::evaluate_at_column(
-                    &expr,
-                    &popup.gate_inputs,
-                    &popup.column_inputs,
-                ) {
-                    Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
-                    None => "—".to_string(),
-                },
+                Ok(expr) => {
+                    let v = if expr.uses_column() {
+                        wxdata::udp_column::evaluate_column(&expr, &popup.column_inputs)
+                    } else {
+                        wxdata::udp::evaluate(&expr, &popup.gate_inputs)
+                    };
+                    match v {
+                        Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
+                        None => "—".to_string(),
+                    }
+                }
                 Err(e) => format!("Error: {e}"),
             };
             (def.name.as_str(), value)
@@ -156,6 +211,13 @@ pub(crate) fn attributes(
         (
             "GEOMETRY",
             vec![
+                (
+                    "Unambiguous range",
+                    i.unambiguous_range_km.map_or_else(
+                        || "not in this data".into(),
+                        |km| format!("{km:.1} km (decoded)"),
+                    ),
+                ),
                 ("Slant range", format!("{:.2} km", i.sample.range_km)),
                 ("Ground range", format!("{:.2} km", i.ground_range_km)),
                 ("Beam height", format!("{:.0} ft", i.beam_height_ft)),
@@ -175,13 +237,40 @@ pub(crate) fn attributes(
             let mut rows = vec![("Raw value", raw_value)];
             if popup.moment == Moment::Velocity {
                 rows.push(("Dealiased value", opt(i.dealiased_value, " m/s", 1)));
-                rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+                // Decoded from the radial that wrote this row, else an estimate read off the
+                // values — each under its own label, never one for the other.
+                rows.push((
+                    "Nyquist velocity (decoded)",
+                    i.nyquist_decoded_mps
+                        .map_or_else(|| "not in this data".into(), |n| format!("{n:.2} m/s")),
+                ));
+                if i.nyquist_decoded_mps.is_none() {
+                    rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+                }
+                if let Some((how, v)) = map_shows(popup) {
+                    rows.push((
+                        "Map shows",
+                        match v {
+                            Some(v) => format!("{v:.1} m/s — {how}"),
+                            None => format!("no value here — {how} needs a value this gate lacks"),
+                        },
+                    ));
+                }
             }
             rows
         }),
     ];
     if !udp_rows.is_empty() {
-        groups.push(("USER-DEFINED", udp_rows));
+        let mut rows = udp_rows;
+        rows.push(("Column levels", popup.column_inputs.len().to_string()));
+        rows.push((
+            "Environment",
+            popup
+                .environment
+                .clone()
+                .unwrap_or_else(|| "none for this radar and time".into()),
+        ));
+        groups.push(("USER-DEFINED", rows));
     }
     let columns = if ui.available_width() >= 480.0 { 3 } else { 1 };
     for chunk in groups.chunks(columns) {
@@ -493,11 +582,45 @@ mod tests {
                 gate_interval_km: 0.25,
                 elevation_deg: 0.5,
                 nyquist_mps: (moment == Moment::Velocity).then_some(32.0),
+                nyquist_decoded_mps: None,
+                unambiguous_range_km: None,
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),
+            environment: None,
             series: Vec::new(),
+            display: MapDisplay::default(),
         }
+    }
+
+    /// The inspector says what colour the map put on this gate and how it was made: the raw or
+    /// dealiased velocity, or SRV from either with the storm motion along this radial taken off;
+    /// a missing input leaves the map value missing, not the other value in its place.
+    #[test]
+    fn the_map_value_names_its_derivation() {
+        let mut p = sample_popup(Moment::Velocity, true, Some(-4.0));
+        p.inspection.sample.azimuth_deg = 90.0;
+        let (how, v) = map_shows(&p).unwrap();
+        assert_eq!((how.as_str(), v), ("raw velocity", Some(-4.0)));
+        p.display.dealiased = true;
+        assert_eq!(map_shows(&p).unwrap().1, Some(28.0));
+        // 10 m/s toward the east, on a radial pointing east: all of it comes off.
+        p.display.storm_motion = Some((90.0, 19.438_44));
+        let (how, v) = map_shows(&p).unwrap();
+        assert!((v.unwrap() - 18.0).abs() < 1e-3, "{v:?}");
+        assert!(
+            how.starts_with("SRV: dealiased velocity − storm motion 090° at 19 kt"),
+            "{how}"
+        );
+        assert!(how.contains("−10.0 m/s along this radial"), "{how}");
+        // At right angles to the motion, none of it does.
+        p.inspection.sample.azimuth_deg = 0.0;
+        assert!((map_shows(&p).unwrap().1.unwrap() - 28.0).abs() < 1e-3);
+        // No dealiased value at this gate: SRV has nothing to start from, and says so.
+        p.inspection.dealiased_value = None;
+        assert_eq!(map_shows(&p).unwrap().1, None);
+        // Reflectivity is drawn as it is.
+        assert!(map_shows(&sample_popup(Moment::Reflectivity, false, Some(40.0))).is_none());
     }
 
     #[test]
@@ -689,6 +812,31 @@ mod tests {
         }
     }
 
+    /// The decoded Nyquist is shown as decoded, and the estimate only when nothing was decoded —
+    /// under its own "(est.)" label; an unknown range says so instead of inventing one.
+    #[test]
+    fn decoded_and_estimated_nyquist_keep_their_own_labels() {
+        let mut popup = sample_popup(Moment::Velocity, false, Some(-12.0));
+        let labels = labels_for(&popup, &[]);
+        assert!(
+            labels.iter().any(|s| s == "Nyquist velocity (est.)"),
+            "{labels:?}"
+        );
+        assert!(labels.iter().any(|s| s == "not in this data"), "{labels:?}");
+        popup.inspection.nyquist_decoded_mps = Some(26.42);
+        popup.inspection.unambiguous_range_km = Some(117.3);
+        let labels = labels_for(&popup, &[]);
+        assert!(labels.iter().any(|s| s == "26.42 m/s"), "{labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "117.3 km (decoded)"),
+            "{labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|s| s == "Nyquist velocity (est.)"),
+            "no estimate beside a decoded value: {labels:?}"
+        );
+    }
+
     /// A gate carried over from the previous rotation must say how far behind it is. Without
     /// this the inspector reports the volume's time for a reading that could be a minute older,
     /// which is a position error presented as a measurement.
@@ -771,6 +919,7 @@ mod tests {
         assert!(!none.iter().any(|s| s == "USER-DEFINED"), "{none:?}");
 
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Boosted REF".into(),
             units: "dBZ".into(),
             expression: "REF + 10".into(),
@@ -783,12 +932,46 @@ mod tests {
         assert!(with.iter().any(|s| s == "52.50 dBZ"), "{with:?}");
     }
 
+    /// A column formula reads the column under the point, based at its lowest level — what the
+    /// map's `UserColumn` cell holds — not the clicked tilt.
+    #[test]
+    fn a_column_product_reads_the_column_not_the_clicked_tilt() {
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
+        popup.gate_inputs.reflectivity = Some(42.5); // the clicked (upper) tilt
+        let level = |h: f32, z: f32| wxdata::udp::GateInputs {
+            reflectivity: Some(z),
+            beam_height_m: Some(h),
+            ..Default::default()
+        };
+        // Handed over out of order: the lowest level is still the base.
+        popup.column_inputs = vec![level(3000.0, 42.5), level(800.0, 30.0), level(6000.0, 55.0)];
+        let products = [wxdata::udp::ProductDef {
+            id: String::new(),
+            name: "Growth".into(),
+            units: "dB".into(),
+            expression: "max_vertical(REF) - REF".into(),
+            range: None,
+            palette: None,
+        }];
+        let labels = labels_for(&popup, &products);
+        assert!(
+            labels.iter().any(|s| s == "25.00 dB"),
+            "55 − base 30: {labels:?}"
+        );
+        assert!(labels.iter().any(|s| s == "3"), "three levels: {labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "none for this radar and time"),
+            "{labels:?}"
+        );
+    }
+
     /// A formula that fails to compile shows the error inline rather than silently dropping the
     /// row or panicking the popup.
     #[test]
     fn a_broken_product_shows_its_error_instead_of_a_value() {
         let popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Broken".into(),
             units: "".into(),
             expression: "REF +".into(),
@@ -807,6 +990,7 @@ mod tests {
         let popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
         // sample_popup's gate_inputs is all-None by default (see `Default::default()` above).
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Needs velocity".into(),
             units: "m/s".into(),
             expression: "VEL".into(),

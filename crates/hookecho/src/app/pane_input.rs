@@ -95,7 +95,12 @@ impl HookEchoApp {
         }
         // The draw tool takes the drag away from the pan, the same deal the measure tool makes
         // with the click: while it's armed, a drag draws. Disarm it (Esc / another tool) to pan.
-        let tracking = self.storm_track_input(idx, prect, &response, ui, quiet && !swipe_dragging);
+        // A drag that starts on a cross-section handle edits the section instead of panning.
+        let ui_ctx = ui.ctx().clone();
+        let editing =
+            self.xsection_input(idx, prect, &response, ui, quiet && !swipe_dragging, &ui_ctx);
+        let tracking =
+            editing || self.storm_track_input(idx, prect, &response, ui, quiet && !swipe_dragging);
         if tracking {
             // The storm-motion tool took the drag (or holds a handle): no pan under it.
         } else if self.tool == MapTool::Draw && quiet && !swipe_dragging {

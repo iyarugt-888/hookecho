@@ -166,17 +166,16 @@ impl HookEchoApp {
         let table = &table_owned;
         // Cheap handle taken before the volume is borrowed mutably below.
         let precip = precip_context.map(|(_, grid)| grid);
-        let trail_acc = trail_tag
-            .as_ref()
-            .and(self.trail.as_ref())
-            .and_then(|t| t.acc.as_ref());
+        let trail = trail_tag.as_ref().and(self.trail.as_ref());
+        let trail_acc = trail.and_then(|t| t.shown.as_ref()).map(|w| &w.sweep);
+        let trail_alpha = trail.and_then(TrailState::gate_alpha).cloned();
         // Read off the sweep in hand rather than fetched later: the paint pass only has a shared
         // borrow of the volume, and binning needs a mutable one.
         let want_age = self.show_scan_age;
         let mut ring: Option<ScanAgeRing> = None;
         let mut product_range: Option<(f32, f32)> = None;
         let upload = if let Some(acc) = trail_acc {
-            Ok::<_, anyhow::Error>(to_upload(
+            let mut up = to_upload(
                 acc,
                 table,
                 threshold,
@@ -185,7 +184,10 @@ impl HookEchoApp {
                 precip.as_deref(),
                 lut_only,
                 None,
-            ))
+            );
+            // Age as display opacity only; the values uploaded are the trail's own.
+            up.gate_alpha = trail_alpha.unwrap_or_default();
+            Ok::<_, anyhow::Error>(up)
         } else {
             let telemetry = self.views[data]
                 .live_render_started

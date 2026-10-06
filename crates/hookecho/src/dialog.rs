@@ -86,6 +86,8 @@ pub enum ImportKind {
     GisFile,
     /// A case-study package written by Save case (ROADMAP_NEW K3).
     Case,
+    /// A user-defined product file (ROADMAP_PARITY M3.2).
+    UdpProducts,
 }
 
 impl ImportKind {
@@ -98,6 +100,7 @@ impl ImportKind {
             ImportKind::ChaseGpx => "GPX track",
             ImportKind::GisFile => "GIS file (GeoJSON, Shapefile or zipped Shapefile, KML or KMZ)",
             ImportKind::Case => "HookEcho case",
+            ImportKind::UdpProducts => "User-defined products",
         }
     }
 
@@ -110,6 +113,7 @@ impl ImportKind {
             ImportKind::ChaseGpx => &["gpx"],
             ImportKind::GisFile => &["json", "geojson", "shp", "zip", "kml", "kmz"],
             ImportKind::Case => &["json"],
+            ImportKind::UdpProducts => &["json"],
         }
     }
 
@@ -129,6 +133,7 @@ impl ImportKind {
             // rarely wired up), and plain GeoJSON is often served/saved as `.json` anyway.
             ImportKind::GisFile => "*/*",
             ImportKind::Case => "application/json",
+            ImportKind::UdpProducts => "application/json",
         }
     }
 }
@@ -237,6 +242,7 @@ mod android_open {
             ImportKind::ChaseGpx => "gpx",
             ImportKind::GisFile => "gis",
             ImportKind::Case => "case",
+            ImportKind::UdpProducts => "udp",
         }
     }
 
@@ -249,6 +255,7 @@ mod android_open {
             "gpx" => ImportKind::ChaseGpx,
             "gis" => ImportKind::GisFile,
             "case" => ImportKind::Case,
+            "udp" => ImportKind::UdpProducts,
             _ => return None,
         })
     }

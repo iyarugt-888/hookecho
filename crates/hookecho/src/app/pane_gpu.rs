@@ -119,6 +119,14 @@ impl HookEchoApp {
         // --- Radar (this pane's product, its own volume) ---
         self.map_3d_controls(idx, prect, ctx);
         let (radar_upload, mut draw_radar) = self.pane_radar(idx, idx);
+        // A timed live upload needs the next frame soon: that frame's prepare is where the GPU
+        // completion of this one is registered (`render::LiveQueueTimings`).
+        if radar_upload
+            .as_ref()
+            .is_some_and(|r| r.telemetry.is_some() && !r.lut_only)
+        {
+            ctx.request_repaint();
+        }
         // A flashing range needs a frame at its next beat, even with nothing else moving.
         if self.views[idx].flash_ranges.iter().any(Option::is_some) {
             ctx.request_repaint_after(std::time::Duration::from_millis(

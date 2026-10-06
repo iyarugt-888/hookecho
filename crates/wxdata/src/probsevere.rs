@@ -105,6 +105,18 @@ pub fn parse_probsevere(json: &str) -> anyhow::Result<Vec<GeoFeature>> {
     Ok(out)
 }
 
+/// A ProbSevere feature's own object ID, as its detail carries it, or `None` when the source gave
+/// none.
+pub fn object_id(feature: &GeoFeature) -> Option<&str> {
+    feature
+        .detail
+        .lines()
+        .next()?
+        .strip_prefix("ProbSevere storm ")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +132,7 @@ mod tests {
         assert_eq!(f[0].kind, FeatureKind::ProbSevere);
         // Dominant = ProbSevere 78 → badge "Svr 78%".
         assert_eq!(f[0].title, "Svr 78%");
+        assert_eq!(object_id(&f[0]), Some("12345"));
         assert!(f[0].detail.contains("Tornado: 12%"));
         assert_eq!(f[0].rings[0].len(), 5);
     }

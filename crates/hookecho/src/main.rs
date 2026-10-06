@@ -681,6 +681,33 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Column user product verify (M3.3), offline from a local Archive II file:
+    // `hookecho --headless-column <volume.ar2> "<formula>" <out.png> [h0,hm10,hm20 metres MSL]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-column") {
+        let (Some(path), Some(formula)) = (args.get(pos + 1), args.get(pos + 2)) else {
+            eprintln!("usage: --headless-column <volume> \"<formula>\" <out.png> [h0,hm10,hm20]");
+            std::process::exit(2);
+        };
+        let out = args
+            .get(pos + 3)
+            .filter(|a| !a.starts_with("--"))
+            .map(String::as_str)
+            .unwrap_or("column.png");
+        let levels = args.get(pos + 4).filter(|a| !a.starts_with("--")).map(|s| {
+            let v: Vec<Option<f32>> = s.split(',').map(|x| x.trim().parse().ok()).collect();
+            wxdata::udp_column::Levels {
+                h0_m: v.first().copied().flatten(),
+                hm10_m: v.get(1).copied().flatten(),
+                hm20_m: v.get(2).copied().flatten(),
+            }
+        });
+        if let Err(e) = headless::run_column(path, formula, out, levels.unwrap_or_default()) {
+            eprintln!("headless column product failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // Cross-section verify: `hookecho --headless-xsection SITE lon1,lat1 lon2,lat2 <out.png>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-xsection") {
         let site = args.get(pos + 1).map(String::as_str).unwrap_or("KTLX");

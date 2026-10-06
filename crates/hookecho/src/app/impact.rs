@@ -76,6 +76,7 @@ impl HookEchoApp {
     /// Take finished impact lookups, and start one for each open alert card that has none.
     pub(crate) fn sync_impacts(&mut self, ctx: &egui::Context) {
         self.impacts.take_arrivals();
+        self.sync_towns();
         let Some(ids) = self.warning_popup.as_ref().map(|p| {
             p.cards
                 .iter()

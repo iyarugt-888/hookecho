@@ -21,6 +21,10 @@ pub(super) struct LiveStats {
     decode_ms: Option<f32>,
     /// Client transport receipt to completed GPU queue writes, p50/p95 and sample count.
     queue_ms: Option<(f32, f32, usize)>,
+    /// Receipt → GPU finished the frame that drew it: p50, p95, samples.
+    gpu_done_ms: Option<(f32, f32, usize)>,
+    /// Live uploads whose GPU completion was not observed (excluded, not counted as zero).
+    gpu_unobserved: u64,
     retries: u32,
     frame_age_s: Option<i64>,
     /// `(ingest lag s, decode ms)` of recent arrivals, oldest first.
@@ -46,6 +50,8 @@ impl HookEchoApp {
             lag_s: v.live_history.back().map(|h| h.1),
             decode_ms: v.last_decode_time.map(|d| d.as_secs_f32() * 1000.0),
             queue_ms: queue_percentiles(&v.live_queue_timings.samples_micros()),
+            gpu_done_ms: queue_percentiles(&v.live_queue_timings.gpu_done_samples_micros()),
+            gpu_unobserved: v.live_queue_timings.unobserved(),
             retries: v.live_retries,
             frame_age_s: v
                 .displayed_radar_time()
@@ -210,6 +216,28 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
         );
         ui.label(ws::text(
             "Client receipt → GPU queue writes",
+            10.0,
+            t.text_dim,
+        ));
+    }
+    if let Some((p50, p95, count)) = s.gpu_done_ms {
+        ws::kv(
+            ui,
+            t,
+            "GPU done",
+            &if s.gpu_unobserved > 0 {
+                format!(
+                    "p50 {p50:.0} / p95 {p95:.0} ms · {count} ({} not observed)",
+                    s.gpu_unobserved
+                )
+            } else {
+                format!("p50 {p50:.0} / p95 {p95:.0} ms · {count}")
+            },
+            (p50 >= 150.0 || p95 >= 400.0).then_some(t.warn),
+        );
+        ui.label(ws::text(
+            "Client receipt → GPU finished the frame that drew it (seen by the next frame at \
+             the latest; screen scan-out not measured)",
             10.0,
             t.text_dim,
         ));

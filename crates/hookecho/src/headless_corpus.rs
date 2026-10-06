@@ -275,3 +275,347 @@ fn pinned_radar_values_and_missing_sectors_render_consistently() {
     report["active_fixture"] = serde_json::Value::Null;
     save_report(&output, &report);
 }
+
+/// ROADMAP_PARITY M3.3: a column user product drawn through the production field renderer lands
+/// where its CPU cells say — coloured from the same quantization and LUT the app uploads, and
+/// transparent wherever the column has no value. Checked at stable pixel neighbourhoods (all five
+/// subpixel samples in one cell), so a cell edge where the shader may pick the neighbour is
+/// excluded rather than tolerated.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_column_product_renders_where_its_cells_are() {
+    use wxdata::udp_column::{evaluate_grid, ColumnEnv, ColumnProduct, ColumnTilt};
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bytes =
+        std::fs::read(repo.join("crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"))
+            .expect("required radar input");
+    let scan = level2::decode_volume(bytes).expect("real partial volume");
+    let tilts: Vec<ColumnTilt> = (0..level2::elevation_angles(&scan).len())
+        .map(|t| {
+            let get = |m| level2::bin_scan(&scan, m, t).ok();
+            [
+                get(Moment::Reflectivity),
+                None,
+                None,
+                None,
+                None,
+                get(Moment::CorrelationCoefficient),
+            ]
+        })
+        .filter(|t| t.iter().any(Option::is_some))
+        .collect();
+    let output = repo.join("target/parity-review/m3.3");
+    std::fs::create_dir_all(&output).expect("review directory");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    eprintln!("column product adapter: {:?}", adapter.get_info());
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let layer = crate::render::FieldLayer::UserColumn;
+    let stable = |p: &ColumnProduct, camera: &Camera, x: u32, y: u32| {
+        let mut out: Option<Option<u32>> = None;
+        for (dx, dy) in [
+            (0.0, 0.0),
+            (-0.25, 0.0),
+            (0.25, 0.0),
+            (0.0, -0.25),
+            (0.0, 0.25),
+        ] {
+            let w = camera.screen_to_world(
+                (x as f32 + 0.5 + dx, y as f32 + 0.5 + dy),
+                (SIZE as f32, SIZE as f32),
+            );
+            let (lon, lat) = world_to_lonlat(w.0, w.1);
+            let (v, _) = p.at(lon, lat)?;
+            let cell = v.map(f32::to_bits);
+            if out.is_some_and(|o| o != cell) {
+                return None;
+            }
+            out = Some(cell);
+        }
+        out.map(|c| c.map(f32::from_bits))
+    };
+    for src in ["max_vertical(REF)", "min_vertical(CC, REF >= 30)"] {
+        let p = evaluate_grid(
+            &wxdata::udp::parse(src).unwrap(),
+            &tilts,
+            &ColumnEnv::default(),
+            chrono::DateTime::from_timestamp(1_639_193_029, 0).unwrap(),
+        )
+        .expect("column product on the real partial volume");
+        let values: Vec<Option<f32>> = p
+            .field
+            .values
+            .iter()
+            .map(|v| v.is_finite().then_some(*v))
+            .collect();
+        let range = wxdata::udp_volume::auto_range(values.iter(), None).unwrap();
+        let table = crate::colormap::ramp_table(range.0, range.1);
+        let upload = crate::app::column_upload(&p.field, &table, range);
+        let lut = crate::colormap::bake_lut(&table, range, None);
+        let (lon0, lat0) = (
+            f64::from(tilts[0][0].as_ref().unwrap().radar_lon),
+            f64::from(tilts[0][0].as_ref().unwrap().radar_lat),
+        );
+        let camera = Camera::at_lonlat(lon0, lat0, 8.0);
+        let mut cb = callback(tilts[0][0].as_ref().unwrap(), &camera);
+        cb.radar_upload = None;
+        cb.draw_radar = false;
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        let empty = read_target(&device, &queue, &target, SIZE);
+        cb.field_uploads = vec![(layer, upload)];
+        cb.field_draws = vec![(layer, 1.0)];
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        let actual = read_target(&device, &queue, &target, SIZE);
+        let name = if src.starts_with("max") {
+            "composite"
+        } else {
+            "core-cc"
+        };
+        image::save_buffer(
+            output.join(format!("column-{name}.png")),
+            &actual,
+            SIZE,
+            SIZE,
+            image::ColorType::Rgba8,
+        )
+        .expect("save column render");
+        let (lo, hi) = range;
+        let (mut colored, mut wrong, mut clear, mut filled) = (0usize, 0usize, 0usize, 0usize);
+        for y in 2..SIZE - 2 {
+            for x in 2..SIZE - 2 {
+                let Some(cell) = stable(&p, &camera, x, y) else {
+                    continue;
+                };
+                let i = ((y * SIZE + x) * 4) as usize;
+                let pixel = &actual[i..i + 4];
+                match cell {
+                    None => {
+                        clear += 1;
+                        filled += usize::from(pixel != &empty[i..i + 4]);
+                    }
+                    Some(v) => {
+                        let code =
+                            (2.0 + ((v - lo) / (hi - lo)).clamp(0.0, 1.0) * 253.0).round() as usize;
+                        let e = &lut[code * 4..code * 4 + 4];
+                        if e[3] == 0 {
+                            continue;
+                        }
+                        colored += 1;
+                        let a = f64::from(e[3]) / 255.0;
+                        let want = [
+                            srgb(linear(e[0]) * a + BACKGROUND.r * (1.0 - a)),
+                            srgb(linear(e[1]) * a + BACKGROUND.g * (1.0 - a)),
+                            srgb(linear(e[2]) * a + BACKGROUND.b * (1.0 - a)),
+                        ];
+                        let bad = pixel
+                            .iter()
+                            .zip(want)
+                            .any(|(a, e)| (i16::from(*a) - i16::from(e)).abs() > 8);
+                        wrong += usize::from(bad);
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "{src}: {colored} stable coloured pixels, {wrong} colour mismatches; \
+             {clear} empty-cell pixels, {filled} filled"
+        );
+        assert!(
+            colored > 500 && clear > 1000,
+            "{src}: too few stable samples"
+        );
+        assert!(
+            wrong * 200 <= colored,
+            "{src}: {wrong} of {colored} pixels mis-coloured"
+        );
+        assert_eq!(filled, 0, "{src}: an empty column was drawn");
+    }
+}
+
+/// ROADMAP_PARITY M3.4: a trail's age fade is per-gate display opacity. Gates at full opacity
+/// must draw exactly as with no opacity texture at all; faded gates blend their unchanged colour
+/// at the requested alpha; the uploaded values are untouched.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_gate_opacity_fades_display_only() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bytes =
+        std::fs::read(repo.join("crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"))
+            .expect("required radar input");
+    let scan = level2::decode_volume(bytes).expect("real partial volume");
+    let sweep = level2::bin_scan(&scan, Moment::Reflectivity, 0).expect("real reflectivity");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, _adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
+    let render = |resources: &mut RenderResources, alpha: Vec<u8>| {
+        let mut cb = callback(&sweep, &camera);
+        if let Some(up) = cb.radar_upload.as_mut() {
+            up.gate_alpha = alpha;
+        }
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        read_target(&device, &queue, &target, SIZE)
+    };
+    let data_before = sweep.data.clone();
+    let plain = render(&mut resources, Vec::new());
+    // Opaque everywhere: identical to no texture.
+    let opaque = render(&mut resources, vec![255; sweep.data.len()]);
+    assert_eq!(plain, opaque, "an opaque fade must not change a pixel");
+    // The eastern half of the azimuths at a quarter opacity.
+    const FLOOR: u8 = 64;
+    let half: Vec<u8> = (0..sweep.az_bins)
+        .flat_map(|bin| {
+            let a = if bin < sweep.az_bins / 2 { FLOOR } else { 255 };
+            std::iter::repeat_n(a, sweep.gate_count)
+        })
+        .collect();
+    // Upload into a fresh resource set so the opacity texture is built, not just rewritten.
+    let mut fresh = RenderResources::new(&device, format);
+    let faded = render(&mut fresh, half);
+    let empty = {
+        let mut cb = callback(&sweep, &camera);
+        cb.radar_upload = None;
+        cb.draw_radar = false;
+        fresh.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        read_target(&device, &queue, &target, SIZE)
+    };
+    let (mut kept, mut blended, mut wrong) = (0usize, 0usize, 0usize);
+    for y in 2..SIZE - 2 {
+        for x in 2..SIZE - 2 {
+            let i = ((y * SIZE + x) * 4) as usize;
+            if plain[i..i + 4] == empty[i..i + 4] {
+                continue; // nothing drawn here
+            }
+            let w = camera
+                .screen_to_world((x as f32 + 0.5, y as f32 + 0.5), (SIZE as f32, SIZE as f32));
+            let (lon, lat) = world_to_lonlat(w.0, w.1);
+            let Some(g) = sweep.sample_at(lon, lat) else {
+                continue;
+            };
+            // Stay clear of the north and south seams between the two halves.
+            let az = f64::from(g.azimuth_deg);
+            if !(5.0..175.0).contains(&az) && !(185.0..355.0).contains(&az) {
+                continue;
+            }
+            if az >= 180.0 {
+                kept += 1;
+                wrong += usize::from(faded[i..i + 4] != plain[i..i + 4]);
+            } else {
+                blended += 1;
+                let a = f64::from(FLOOR) / 255.0;
+                let bg = [BACKGROUND.r, BACKGROUND.g, BACKGROUND.b];
+                let bad = (0..3).any(|c| {
+                    let full = linear(plain[i + c]);
+                    let want = srgb(full * a + bg[c] * (1.0 - a));
+                    (i16::from(faded[i + c]) - i16::from(want)).abs() > 8
+                });
+                wrong += usize::from(bad);
+            }
+        }
+    }
+    eprintln!("gate opacity: {kept} opaque pixels, {blended} faded pixels, {wrong} wrong");
+    assert!(kept > 1_000 && blended > 1_000, "too few drawn pixels");
+    assert!(wrong * 200 <= kept + blended, "{wrong} pixels wrong");
+    assert_eq!(sweep.data, data_before, "the fade changed values");
+}
+
+/// ROADMAP_PARITY M1.2: a live upload's receipt clock reaches the GPU-completion stage — reported
+/// only after the frame that drew it has finished on the device, never before its queue writes.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bytes =
+        std::fs::read(repo.join("crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"))
+            .expect("required radar input");
+    let scan = level2::decode_volume(bytes).expect("real partial volume");
+    let sweep = level2::bin_scan(&scan, Moment::Reflectivity, 0).expect("real reflectivity");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, _adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
+    let timings = std::sync::Arc::new(crate::render::LiveQueueTimings::default());
+    let received = wxdata::clock::Instant::now();
+    let mut cb = callback(&sweep, &camera);
+    if let Some(up) = cb.radar_upload.as_mut() {
+        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+    }
+    resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+    assert_eq!(
+        timings.samples_micros().len(),
+        1,
+        "queue writes recorded at upload"
+    );
+    assert!(
+        timings.gpu_done_samples_micros().is_empty(),
+        "no completion before the drawing frame was even asked about"
+    );
+    // The pane's next frame registers the completion of the one that drew the upload.
+    let mut next = callback(&sweep, &camera);
+    next.radar_upload = None;
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    let queued = timings.samples_micros()[0];
+    let done = timings.gpu_done_samples_micros();
+    assert_eq!(done.len(), 1, "one completion per live upload");
+    assert!(
+        done[0] >= queued,
+        "completion {} µs before queue {} µs",
+        done[0],
+        queued
+    );
+    eprintln!("receipt → queue {queued} µs, → GPU done {} µs", done[0]);
+    // A LUT-only recolour is not a live update and adds no sample.
+    let mut recolour = callback(&sweep, &camera);
+    if let Some(up) = recolour.radar_upload.as_mut() {
+        up.lut_only = true;
+        up.data.clear();
+        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+    }
+    resources.render_once(&device, &queue, &view, &recolour, BACKGROUND);
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    assert_eq!(timings.gpu_done_samples_micros().len(), 1);
+    // A frame followed too late is excluded and counted, never recorded as a long latency.
+    let mut late = callback(&sweep, &camera);
+    if let Some(up) = late.radar_upload.as_mut() {
+        up.data[0] ^= 1; // a real change, so it is a live write
+        up.telemetry = Some((
+            wxdata::clock::Instant::now(),
+            std::sync::Arc::clone(&timings),
+        ));
+    }
+    resources.render_once(&device, &queue, &view, &late, BACKGROUND);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    assert_eq!(timings.gpu_done_samples_micros().len(), 1);
+    assert_eq!(timings.unobserved(), 1);
+}

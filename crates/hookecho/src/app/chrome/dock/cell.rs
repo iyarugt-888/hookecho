@@ -51,6 +51,8 @@ enum CellAct {
     Compare,
     /// Close this storm from the window.
     Close(String),
+    /// Look up the Census towns in its projected path.
+    FindTowns,
 }
 
 /// One row of the core-statistics table: the label, the value, and whether it is notable.
@@ -211,7 +213,11 @@ impl HookEchoApp {
     /// The core-statistics rows (label, value) around each of `at` on pane `idx`'s displayed
     /// tilt, the same table this window shows, with the tilt binned once for all of them. The
     /// Storm Digest's brief reads its cores through this.
-    pub(crate) fn core_rows_at(&mut self, idx: usize, at: &[(f64, f64)]) -> Vec<Vec<(String, String)>> {
+    pub(crate) fn core_rows_at(
+        &mut self,
+        idx: usize,
+        at: &[(f64, f64)],
+    ) -> Vec<Vec<(String, String)>> {
         if at.is_empty() {
             return Vec::new();
         }
@@ -245,6 +251,16 @@ impl HookEchoApp {
             .iter()
             .map(|c| c.id.clone())
             .collect();
+        // A new table: each open storm is carried to its cell in it, by the storm history.
+        let scan = self.dock.storm_ids.fed_scan();
+        if scan != self.dock.cells_open_scan {
+            let then = self.dock.cells_open_scan;
+            let open = std::mem::take(&mut self.dock.cells_open);
+            self.dock.cells_open = self.dock.storm_ids.carry_ids(&open, then, &live);
+            let last: Vec<String> = self.dock.cell_last_sel.take().into_iter().collect();
+            self.dock.cell_last_sel = self.dock.storm_ids.carry_ids(&last, then, &live).pop();
+            self.dock.cells_open_scan = scan;
+        }
         self.dock.cells_open.retain(|id| live.contains(id));
         let sel = self
             .selected_storm()
@@ -269,6 +285,10 @@ impl HookEchoApp {
     }
 
     pub(super) fn dock_cell(&mut self, host: Host<'_>) {
+        let ctx = match &host {
+            Host::Docked(ui) => ui.ctx().clone(),
+            Host::Floating(c) => (*c).clone(),
+        };
         if !self.dock.cell.open || !self.dock.cell_available {
             return;
         }
@@ -304,13 +324,42 @@ impl HookEchoApp {
             .collect();
         let sweeps = self.core_sweeps(self.active);
         let core = core_at(&sweeps, c.lon, c.lat);
-        let trends: Vec<Vec<crate::ui::cell_window::CellSample>> = open
-            .iter()
-            .map(|(o, _)| self.cell_trends.get(&o.id).cloned().unwrap_or_default())
-            .collect();
-        let trend = self.cell_trends.get(&c.id).cloned().unwrap_or_default();
+        let trends: Vec<Vec<crate::ui::cell_window::CellSample>> =
+            open.iter().map(|(o, _)| self.storm_trend(&o.id)).collect();
+        let trend = self.storm_trend(&c.id);
         // Its persistent identity across scans (ROADMAP_PARITY M2.1).
-        let identity = self.dock.storm_ids.describe(&c.id);
+        let in_table = self.selected_storm_live().is_some_and(|(_, live)| live);
+        let gone = self.cell_popup.as_ref().and_then(|p| {
+            match self
+                .dock
+                .storm_ids
+                .resolve(&p.id, p.time.map(|t| t.timestamp()))
+            {
+                super::Resolved::Gone(storm) => Some(self.dock.storm_ids.gone_note(storm)),
+                _ => None,
+            }
+        });
+        // A storm SCIT no longer reports is shown as it was, and says why; its old ID may be
+        // another storm's now, so nothing is looked up by it.
+        let identity = match &gone {
+            Some(why) => Some(format!(
+                "not in the latest SCIT table ({why}) — shown as of {}",
+                c.time
+                    .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                    .unwrap_or_else(|| "its selection".into())
+            )),
+            None => self.dock.storm_ids.describe(&c.id),
+        };
+        // What it has been linked to over those scans, each by the rule that linked it.
+        let evidence = if !in_table {
+            Vec::new()
+        } else {
+            self.dock.storm_ids.evidence_lines(&c.id, |s| {
+                chrono::DateTime::from_timestamp(s, 0)
+                    .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                    .unwrap_or_default()
+            })
+        };
         let explained = wxdata::cellscore::score_all_explained(
             std::slice::from_ref(&c),
             &self.probsevere,
@@ -339,7 +388,7 @@ impl HookEchoApp {
             .follow_cell
             .as_ref()
             .is_some_and(|(_, f, _)| f.id == c.id);
-        let rows = super::inspector::storm_rows(&c, metric);
+        let rows = self.storm_card_rows(&c, metric);
         // Whether the tornado detectors ran on this volume at all: "no detection" means nothing
         // only if they did.
         let (detectors_ran, tornado_lineage) = {
@@ -356,6 +405,25 @@ impl HookEchoApp {
                     .map(|(_, _, l)| l.lines())
                     .unwrap_or_default(),
             )
+        };
+        // Towns in its path (M2.3), searched along the manual motion when one is set, else SCIT's.
+        let search = {
+            let vol = self.views[self.active].volume.as_ref();
+            let t0 = c
+                .time
+                .or_else(|| vol.map(|v| v.time))
+                .unwrap_or_else(chrono::Utc::now);
+            self.manual_tracks_for(&c)
+                .first()
+                .map(|t| (*t).clone())
+                .or_else(|| crate::app::storm_track::ManualTrack::from_cell(&c, t0))
+        };
+        let (town_targets, towns) = match &search {
+            Some(track) => {
+                let (t, state) = self.town_targets(track);
+                (t, Some(state.cloned()))
+            }
+            None => (Vec::new(), None),
         };
         let threat = {
             let vol = self.views[self.active].volume.as_ref();
@@ -375,6 +443,8 @@ impl HookEchoApp {
                 .cloned()
                 .unwrap_or_default();
             let circulations = self.cached_circulations(&name, &rot, &tds);
+            let (mut targets, targets_dropped) = self.impact_targets();
+            targets.extend(town_targets);
             let markers: Vec<(String, [f64; 2])> = self
                 .settings
                 .markers
@@ -392,6 +462,8 @@ impl HookEchoApp {
                 &markers,
                 t0,
                 metric,
+                self.manual_tracks_for(&c).first().copied(),
+                (&targets, targets_dropped),
             )
         };
         let mut header = ws::HeaderAction::None;
@@ -501,6 +573,12 @@ impl HookEchoApp {
                                 if let Some(line) = &identity {
                                     ws::kv(ui, &t, "History", line, None);
                                 }
+                                for (i, line) in evidence.iter().take(8).enumerate() {
+                                    ws::kv(ui, &t, if i == 0 { "Linked" } else { "" }, line, None);
+                                }
+                                if evidence.len() > 8 {
+                                    ws::kv(ui, &t, "", &format!("and {} more", evidence.len() - 8), None);
+                                }
                             });
                             // What threatens where: the tornado detection at this storm, the
                             // warnings over it, and when its motion brings it to your places.
@@ -541,6 +619,54 @@ impl HookEchoApp {
                                     ws::kv(ui, &t, name, when, hot.then_some(t.warn));
                                 }
                                 if let Some(m) = &threat.motion {
+                                    ui.label(ws::text(m, 10.5, t.text_faint));
+                                }
+                                for (name, when, hot) in &threat.target_etas {
+                                    ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                }
+                                if let Some(n) = &threat.target_note {
+                                    ui.label(ws::text(n, 10.5, t.text_faint));
+                                }
+                                {
+                                    use crate::app::community_targets::TownsState;
+                                    match &towns {
+                                        None => {}
+                                        Some(None) => {
+                                            if ws::button(ui, &t, "Towns in its path", 0.0)
+                                                .named("Look up the Census 2020 towns its projected path touches (asks the Census Bureau's service)")
+                                                .clicked()
+                                            {
+                                                act = Some(CellAct::FindTowns);
+                                            }
+                                        }
+                                        Some(Some(TownsState::Pending)) => {
+                                            ui.label(ws::text("Looking up towns in its path\u{2026}", 10.5, t.text_faint));
+                                        }
+                                        Some(Some(TownsState::Ready(p))) if p.is_empty() => {
+                                            ui.label(ws::text("No Census places touch its projected path", 10.5, t.text_faint));
+                                        }
+                                        Some(Some(TownsState::Ready(_))) => {
+                                            ui.label(ws::text(
+                                                "Towns: Census 2020 places its 1-hour path touches; times are to each town's centre point, and its edge can be reached sooner",
+                                                10.5,
+                                                t.text_faint,
+                                            ));
+                                        }
+                                        Some(Some(TownsState::Failed(e))) => {
+                                            ui.label(ws::text(format!("Town lookup failed: {e}"), 10.5, t.text_faint));
+                                        }
+                                    }
+                                }
+                                if let Some(m) = &threat.manual_motion {
+                                    for (name, when, hot) in &threat.manual_target_etas {
+                                        ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                    }
+                                    if threat.manual_etas.is_empty() {
+                                        ws::kv(ui, &t, "Manual", "no saved place ahead within 2 h", None);
+                                    }
+                                    for (name, when, hot) in &threat.manual_etas {
+                                        ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                    }
                                     ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
                             });
@@ -695,6 +821,11 @@ impl HookEchoApp {
             Some(CellAct::View3d) => self.cell_view3d = true,
             Some(CellAct::TrackManually) => {
                 self.track_cell_manually(&c);
+            }
+            Some(CellAct::FindTowns) => {
+                if let Some(track) = &search {
+                    self.request_towns(track, &ctx);
+                }
             }
             Some(CellAct::Center) => {
                 let cam = &mut self.views[self.active].camera;
@@ -877,6 +1008,108 @@ struct Threat {
     etas: Vec<(String, String, bool)>,
     /// Where the arrival times come from, said plainly; `None` without a motion.
     motion: Option<String>,
+    /// The same from a manual motion set for this storm, beside SCIT's, never merged with it.
+    manual_etas: Vec<(String, String, bool)>,
+    manual_motion: Option<String>,
+    /// Arrivals at the imported layers' impact targets (ROADMAP_PARITY M2.3), per motion: SCIT's,
+    /// then the manual one when set; and a note when targets were left out past the bounds.
+    target_etas: Vec<(String, String, bool)>,
+    manual_target_etas: Vec<(String, String, bool)>,
+    target_note: Option<String>,
+}
+
+/// Arrival at each impact target from `track`, in-path first then soonest: a point's arrival and
+/// closest approach as for a saved place; an area's entry by the storm's path, or contact by the
+/// uncertainty swath's edge only, said as such; an area it is already in, said as inside.
+fn target_arrivals(
+    track: &crate::app::storm_track::ManualTrack,
+    targets: &[crate::app::gis_layers::Target],
+    scan: chrono::DateTime<chrono::Utc>,
+    metric: bool,
+) -> Vec<(f64, String, String, bool)> {
+    use crate::app::gis_layers::TargetShape;
+    let points: Vec<(String, [f64; 2])> = targets
+        .iter()
+        .filter_map(|t| match t.shape {
+            TargetShape::Point(p) => Some((format!("{} ({})", t.name, t.layer), p)),
+            TargetShape::Area(_) => None,
+        })
+        .collect();
+    let mut out = arrivals(track, &points, scan, metric);
+    for t in targets {
+        let TargetShape::Area(ring) = &t.shape else {
+            continue;
+        };
+        let Some(z) = track.zone_eta(ring) else {
+            continue;
+        };
+        let when = track.t0 + chrono::Duration::seconds((z.minutes * 60.0) as i64);
+        let rel = (when - scan).num_seconds() as f64 / 60.0;
+        let at = if rel >= 0.0 {
+            format!("~{} (+{rel:.0} min)", when.format("%H:%MZ"))
+        } else {
+            format!(
+                "~{} ({:.0} min before this scan)",
+                when.format("%H:%MZ"),
+                -rel
+            )
+        };
+        let text = if z.grazes {
+            format!("{at} \u{b7} only the swath's edge reaches it")
+        } else if z.minutes == 0.0 {
+            format!(
+                "inside at the motion's time ({})",
+                track.t0.format("%H:%MZ")
+            )
+        } else {
+            format!("{at} \u{b7} path enters")
+        };
+        out.push((rel, format!("{} ({})", t.name, t.layer), text, !z.grazes));
+    }
+    out.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    out
+}
+
+/// Arrival at each saved place from `track`, soonest in-path first: `(minutes after the scan,
+/// place, "~21:15Z (+23 min) · passes 2 mi N", in the path)`. Times are from the track's own
+/// analysis time, stated against the scan on screen.
+fn arrivals(
+    track: &crate::app::storm_track::ManualTrack,
+    markers: &[(String, [f64; 2])],
+    scan: chrono::DateTime<chrono::Utc>,
+    metric: bool,
+) -> Vec<(f64, String, String, bool)> {
+    use crate::app::storm_track::{compass, distance};
+    let mut out: Vec<(f64, String, String, bool)> = markers
+        .iter()
+        .filter_map(|(name, p)| {
+            let e = track.eta(*p)?;
+            let when = track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+            let rel = (when - scan).num_seconds() as f64 / 60.0;
+            let pass = if e.closest_km < 0.5 {
+                "direct hit".to_string()
+            } else {
+                format!(
+                    "passes {} {}",
+                    distance(e.closest_km, metric),
+                    compass(track.bearing_deg + if e.right { -90.0 } else { 90.0 })
+                )
+            };
+            let rel_text = if rel >= 0.0 {
+                format!("+{rel:.0} min")
+            } else {
+                format!("{:.0} min before this scan", -rel)
+            };
+            Some((
+                rel,
+                name.clone(),
+                format!("~{} ({rel_text}) \u{b7} {pass}", when.format("%H:%MZ")),
+                e.in_path,
+            ))
+        })
+        .collect();
+    out.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    out
 }
 
 impl Threat {
@@ -891,6 +1124,9 @@ fn threat_for(
     markers: &[(String, [f64; 2])],
     t0: chrono::DateTime<chrono::Utc>,
     metric: bool,
+    manual: Option<&crate::app::storm_track::ManualTrack>,
+    // The impact targets, and how many were left out past their bounds.
+    (targets, targets_dropped): (&[crate::app::gis_layers::Target], usize),
 ) -> Threat {
     use crate::app::storm_track::{compass, distance, ManualTrack};
     let at = [c.lon, c.lat];
@@ -899,12 +1135,19 @@ fn threat_for(
     let tornado = associations.circulations.first().map(|&(i, separation)| {
         let z = &evidence.circulations[i];
         let (d, bearing) = km(z.id.lon, z.id.lat);
-        let place = if d < 1.0 { "at the core".to_string() } else {
+        let place = if d < 1.0 {
+            "at the core".to_string()
+        } else {
             format!("{} {} of it", distance(d, metric), compass(bearing))
         };
-        format!("{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
-            z.id.tier.label(), wxdata::evidence::out_of_100(z.id.score), z.members.len(),
-            if z.members.len() == 1 { "" } else { "s" }, distance(separation, metric))
+        format!(
+            "{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
+            z.id.tier.label(),
+            wxdata::evidence::out_of_100(z.id.score),
+            z.members.len(),
+            if z.members.len() == 1 { "" } else { "s" },
+            distance(separation, metric)
+        )
     });
     let mut warnings: Vec<String> = associations
         .warnings
@@ -939,48 +1182,59 @@ fn threat_for(
             t.speed_kmh / 1.852
         )
     });
-    let mut etas: Vec<(f64, String, String, bool)> = track
-        .map(|t| {
-            markers
-                .iter()
-                .filter_map(|(name, p)| {
-                    let e = t.eta(*p)?;
-                    let when = t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
-                    let pass = if e.closest_km < 0.5 {
-                        "direct hit".to_string()
-                    } else {
-                        format!(
-                            "passes {} {}",
-                            distance(e.closest_km, metric),
-                            compass(t.bearing_deg + if e.right { -90.0 } else { 90.0 })
-                        )
-                    };
-                    Some((
-                        e.minutes,
-                        name.clone(),
-                        format!(
-                            "~{} (+{:.0} min) \u{b7} {pass}",
-                            when.format("%H:%MZ"),
-                            e.minutes
-                        ),
-                        e.in_path,
-                    ))
-                })
-                .collect()
-        })
+    let etas = track
+        .as_ref()
+        .map(|t| arrivals(t, markers, t0, metric))
         .unwrap_or_default();
-    etas.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    let manual_motion = manual.map(|m| {
+        format!(
+            "Arrivals from your manual motion, {:03.0}\u{b0} at {:.0} kt set for {}, rounded to the \
+             minute",
+            m.bearing_deg,
+            m.speed_kmh / 1.852,
+            m.t0.format("%H:%MZ")
+        )
+    });
+    let manual_etas = manual
+        .map(|m| arrivals(m, markers, t0, metric))
+        .unwrap_or_default();
+    let five = |v: Vec<(f64, String, String, bool)>| -> Vec<(String, String, bool)> {
+        v.into_iter()
+            .take(5)
+            .map(|(_, n, w, h)| (n, w, h))
+            .collect()
+    };
+    let eight = |v: Vec<(f64, String, String, bool)>| -> Vec<(String, String, bool)> {
+        v.into_iter()
+            .take(8)
+            .map(|(_, n, w, h)| (n, w, h))
+            .collect()
+    };
+    let target_etas = track
+        .as_ref()
+        .map(|t| target_arrivals(t, targets, t0, metric))
+        .unwrap_or_default();
+    let manual_target_etas = manual
+        .map(|m| target_arrivals(m, targets, t0, metric))
+        .unwrap_or_default();
+    let target_note = (targets_dropped > 0).then(|| {
+        format!(
+            "{targets_dropped} more targets beyond the first 2,000 points and 200 areas are not \
+             checked"
+        )
+    });
     Threat {
         probsevere,
         ambiguous: associations.ambiguous,
         tornado,
         warnings,
-        etas: etas
-            .into_iter()
-            .take(5)
-            .map(|(_, n, w, h)| (n, w, h))
-            .collect(),
+        etas: five(etas),
         motion,
+        manual_etas: five(manual_etas),
+        manual_motion,
+        target_etas: eight(target_etas),
+        manual_target_etas: eight(manual_target_etas),
+        target_note,
     }
 }
 
@@ -1050,6 +1304,8 @@ mod threat_tests {
             &[("Home".into(), ahead), ("Work".into(), behind)],
             t0,
             false,
+            None,
+            (&[], 0),
         );
         assert_eq!(th.tornado, None);
         assert_eq!(th.warnings, ["Tornado Warning (tornado observed)"]);
@@ -1079,8 +1335,108 @@ mod threat_tests {
             &[("Home".into(), [-96.8, 35.0])],
             chrono::Utc::now(),
             true,
+            None,
+            (&[], 0),
         );
         assert!(th.motion.is_none() && th.etas.is_empty());
+        assert!(th.manual_motion.is_none() && th.manual_etas.is_empty());
+    }
+
+    /// An imported layer's targets: a point ahead gets its arrival, an area the path crosses gets
+    /// its entry, an area only the uncertainty swath's edge touches is said as such (and listed
+    /// after the ones in the path), and an area the storm is in is inside now.
+    #[test]
+    fn targets_get_arrivals_entries_and_edge_contact_said_apart() {
+        use crate::app::gis_layers::{Target, TargetShape};
+        use chrono::TimeZone;
+        let scan = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let c = cell(); // due east at 30 kt from 35N 97W
+        let track = crate::app::storm_track::ManualTrack::from_cell(&c, scan).unwrap();
+        let o = [c.lon, c.lat];
+        let at = |east_km: f64, north_km: f64| {
+            let p = crate::geo::destination_point(o, 90.0, east_km);
+            crate::geo::destination_point(p, 0.0, north_km)
+        };
+        let square = |e0: f64, e1: f64, n0: f64, n1: f64| {
+            vec![at(e0, n0), at(e1, n0), at(e1, n1), at(e0, n1)]
+        };
+        let target = |name: &str, shape| Target {
+            name: name.into(),
+            layer: "Sites".into(),
+            shape,
+        };
+        let targets = vec![
+            target("Siren", TargetShape::Point(at(28.0, 0.0))),
+            target("Town", TargetShape::Area(square(35.0, 45.0, -5.0, 5.0))),
+            target("Farm", TargetShape::Area(square(25.0, 35.0, 6.0, 12.0))),
+            target("Here", TargetShape::Area(square(-5.0, 5.0, -5.0, 5.0))),
+            target("Far", TargetShape::Area(square(30.0, 40.0, 60.0, 70.0))),
+        ];
+        let got = target_arrivals(&track, &targets, scan, true);
+        let find = |n: &str| got.iter().find(|r| r.1.starts_with(n));
+        let here = find("Here").expect("inside");
+        assert!(here.2.starts_with("inside") && here.3, "{here:?}");
+        let siren = find("Siren (Sites)").expect("point");
+        assert!(siren.2.contains("(+30 min)") && siren.3, "{siren:?}");
+        let town = find("Town").expect("area");
+        assert!(town.2.contains("path enters") && town.3, "{town:?}");
+        let farm = find("Farm").expect("edge");
+        assert!(
+            farm.2.contains("only the swath's edge") && !farm.3,
+            "{farm:?}"
+        );
+        assert!(find("Far (").is_none(), "out of reach: not listed");
+        assert_eq!(
+            got.last().unwrap().1,
+            "Farm (Sites)",
+            "edge contact after the path"
+        );
+    }
+
+    #[test]
+    fn a_manual_motion_gives_its_own_arrivals_from_its_own_time() {
+        use crate::app::storm_track::ManualTrack;
+        use chrono::TimeZone;
+        let scan = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let c = Cell {
+            time: Some(scan),
+            ..cell()
+        };
+        // Set ten minutes before the scan, due east at 60 km/h from where the storm was then.
+        let set = scan - chrono::Duration::minutes(10);
+        let mut m = ManualTrack::from_cell(&c, set).unwrap();
+        m.bearing_deg = 90.0;
+        m.speed_kmh = 60.0;
+        let home = crate::geo::destination_point([c.lon, c.lat], 90.0, 30.0);
+        let th = threat_for(
+            &c,
+            &super::super::storm_associations::Evidence {
+                cells: std::slice::from_ref(&c),
+                circulations: &[],
+                warnings: &[],
+                probsevere: &[],
+            },
+            &[("Home".into(), home)],
+            scan,
+            true,
+            Some(&m),
+            (&[], 0),
+        );
+        // 30 km at 60 km/h is 30 min after it was set: 20 min after the scan.
+        assert_eq!(th.manual_etas.len(), 1, "{:?}", th.manual_etas);
+        assert!(
+            th.manual_etas[0].1.contains("(+20 min)"),
+            "{}",
+            th.manual_etas[0].1
+        );
+        let line = th.manual_motion.unwrap();
+        assert!(
+            line.contains("manual motion, 090\u{b0} at 32 kt set for"),
+            "{line}"
+        );
+        // SCIT's arrivals stand on their own beside it.
+        assert_eq!(th.etas.len(), 1);
+        assert_ne!(th.etas[0].1, th.manual_etas[0].1);
     }
 }
 

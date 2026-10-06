@@ -453,9 +453,9 @@ impl HookEchoApp {
             self.model_fields.get(&request).map(|slot| &slot.state)
         } else if let Some(request) = self.selected_mrms_context_for(idx, layer) {
             self.mrms_fields.get(&request).map(|slot| &slot.state)
-        } else if mrms_context::is_mrms(layer) {
-            None
-        } else if goes_context::is_goes(layer) && !self.goes_ready_for(idx, layer) {
+        } else if mrms_context::is_mrms(layer)
+            || (goes_context::is_goes(layer) && !self.goes_ready_for(idx, layer))
+        {
             None
         } else {
             self.fields.get(&layer)

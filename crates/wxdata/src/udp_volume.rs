@@ -43,6 +43,8 @@ pub struct Env {
     pub antenna_altitude_m: Option<f32>,
     /// (0 °C, −20 °C) heights above sea level, metres.
     pub freezing: Option<(f32, f32)>,
+    /// −10 °C height above sea level, metres, from the same matched source.
+    pub minus10c_m: Option<f32>,
 }
 
 fn decode(s: &BinnedSweep, code: u8) -> Option<f32> {
@@ -130,6 +132,7 @@ pub fn evaluate_tilt(
                 beam_altitude_m: env.antenna_altitude_m.map(|a| a + height_m),
                 freezing_level_m: env.freezing.map(|f| f.0),
                 minus20c_height_m: env.freezing.map(|f| f.1),
+                minus10c_height_m: env.minus10c_m,
             };
             out[bin * base.gate_count + gate] = evaluate(expr, &inputs).filter(|v| v.is_finite());
         }
