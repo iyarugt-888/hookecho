@@ -205,4 +205,18 @@ mod tests {
         f.nx = 0;
         assert!(write(&f, "").is_none());
     }
+
+    /// Writes the test grid to `HOOKECHO_GEOTIFF_SAMPLE`, for GDAL to read back:
+    /// `HOOKECHO_GEOTIFF_SAMPLE=/tmp/x.tif cargo test -p wxdata --lib write_geotiff_sample -- --ignored`
+    #[test]
+    #[ignore = "writes a file for an external reader"]
+    fn write_geotiff_sample() {
+        if let Ok(path) = std::env::var("HOOKECHO_GEOTIFF_SAMPLE") {
+            std::fs::write(
+                path,
+                write(&field(), "MESH (mm) 2013-05-20T20:08Z").unwrap(),
+            )
+            .unwrap();
+        }
+    }
 }
