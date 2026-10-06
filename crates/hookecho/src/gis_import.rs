@@ -421,23 +421,35 @@ fn polygon_feature(rings: Vec<Vec<[f64; 2]>>, title: String, detail: String) -> 
 /// carries, falling back to the geometry's own type so an attribute-less shape still gets a name
 /// rather than an empty title bar.
 fn feature_title(f: &GisFeature) -> String {
+    props_title(&f.properties, f.geometry.kind_name())
+}
+
+/// [`feature_title`] from the attributes alone, `kind` naming the geometry when none fits.
+pub(crate) fn props_title(
+    props: &serde_json::Map<String, serde_json::Value>,
+    kind: &str,
+) -> String {
     for key in ["name", "NAME", "Name", "title", "TITLE", "label", "LABEL"] {
-        if let Some(v) = f.properties.get(key).and_then(|v| v.as_str()) {
+        if let Some(v) = props.get(key).and_then(|v| v.as_str()) {
             return v.to_string();
         }
     }
-    f.geometry.kind_name().to_string()
+    kind.to_string()
 }
 
 /// The click popup body: every attribute the file carried, verbatim — a first GIS import has no
 /// way to know which fields the person who clicked actually cares about, so showing all of them
 /// beats guessing at a subset.
 fn feature_detail(f: &GisFeature) -> String {
-    if f.properties.is_empty() {
+    props_detail(&f.properties)
+}
+
+/// [`feature_detail`] from the attributes alone: what a clicked point or line shows.
+pub(crate) fn props_detail(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    if props.is_empty() {
         return "Imported shape (no attributes)".to_string();
     }
-    let mut lines: Vec<String> = f
-        .properties
+    let mut lines: Vec<String> = props
         .iter()
         .map(|(k, v)| {
             let v = match v {

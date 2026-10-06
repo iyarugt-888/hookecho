@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: imported points and lines can be clicked and exported
+
+Clicking an imported point or line now opens its attributes, as clicking an imported polygon does.
+"Export map as GeoJSON" now includes imported points and lines, and writes every imported feature
+with its own attributes and the name of its layer.
+
 ### Added: several imported GIS layers at once
 
 Importing a GIS file now adds a layer instead of replacing the one you had. Each layer keeps its

@@ -148,6 +148,43 @@ pub(crate) fn paint_order(settings: &crate::settings::Settings) -> (Vec<u64>, Ve
     )
 }
 
+/// The point or line of `marks` under world position `at`, if any: a point within `point_tol`, a
+/// line within `line_tol` of any segment (world units), points before lines (they sit on top),
+/// the last drawn first, features invalid at the view's time left out. Returns the source
+/// feature and the geometry's name.
+pub(crate) fn mark_at(
+    marks: &Marks,
+    valid: impl Fn(Option<&usize>) -> bool,
+    at: (f64, f64),
+    point_tol: f64,
+    line_tol: f64,
+) -> Option<(usize, &'static str)> {
+    let world = |ll: &[f64; 2]| crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+    for (i, p) in marks.points.iter().enumerate().rev() {
+        let w = world(p);
+        if (w.0 - at.0).hypot(w.1 - at.1) <= point_tol && valid(marks.point_src.get(i)) {
+            return marks.point_src.get(i).map(|&s| (s, "Point"));
+        }
+    }
+    for (i, line) in marks.lines.iter().enumerate().rev() {
+        let near = line.windows(2).any(|ab| {
+            let (a, b) = (world(&ab[0]), world(&ab[1]));
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((at.0 - a.0) * dx + (at.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a.0 + t * dx - at.0).hypot(a.1 + t * dy - at.1) <= line_tol
+        });
+        if near && valid(marks.line_src.get(i)) {
+            return marks.line_src.get(i).map(|&s| (s, "Line"));
+        }
+    }
+    None
+}
+
 impl HookEchoApp {
     pub(crate) fn gis_loaded(&self, id: u64) -> Option<&LoadedGis> {
         self.gis.iter().find(|l| l.id == id)
@@ -393,6 +430,118 @@ impl HookEchoApp {
             .collect()
     }
 
+    /// The imported point or line under `(lon, lat)` on a map at `cam`, topmost layer first, as
+    /// the popup it opens: its title, every attribute, and its layer's colour. Within the drawn
+    /// symbol, plus a few pixels for a finger or an unsteady hand.
+    pub(crate) fn gis_mark_hit(
+        &self,
+        lon: f64,
+        lat: f64,
+        cam: &crate::render::mercator::Camera,
+        touch: bool,
+    ) -> Option<Detail> {
+        let at = crate::render::mercator::lonlat_to_world(lon, lat);
+        let slack = if touch { 12.0 } else { 4.0 };
+        let px = cam.world_per_pixel();
+        for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
+            let width = f64::from(config.style.rendered_stroke_width());
+            let point_tol = (2.5 + width * 0.625 + slack) * px;
+            let line_tol = (width / 2.0 + slack) * px;
+            let Some((src, kind)) =
+                mark_at(&layer.marks, |s| layer.valid(s), at, point_tol, line_tol)
+            else {
+                continue;
+            };
+            let props = layer.marks.props.get(src)?;
+            let c = config.style.stroke_rgba();
+            return Some(Detail {
+                title: crate::gis_import::props_title(props, kind),
+                body: format!(
+                    "{}\n\nLayer: {}",
+                    crate::gis_import::props_detail(props),
+                    config.name
+                ),
+                color: c,
+                image: None,
+                link: None,
+            });
+        }
+        None
+    }
+
+    /// Everything the map's GeoJSON export writes (ROADMAP_NEW I6): annotations, markers, zones,
+    /// storm cells, the official overlays shown, and the imported layers' features.
+    pub(crate) fn map_export_features(&self) -> Vec<wxdata::gis::GisFeature> {
+        crate::gis_export::to_features(&crate::gis_export::MapContents {
+            strokes: &self.strokes,
+            markers: &self.settings.markers,
+            zones: &self.settings.alert_polygons,
+            cells: self.active_storm_cells(),
+            overlays: &self.official_overlays(),
+            imported: &self.gis_export_features(),
+        })
+    }
+
+    /// The overlays that are official products, not imported layers: an export writes imported
+    /// layers from their files' own attributes ([`Self::gis_export_features`]), not as overlay text.
+    pub(crate) fn official_overlays(&self) -> Vec<GeoFeature> {
+        self.overlays
+            .iter()
+            .zip(&self.overlay_layer)
+            .filter(|(_, l)| l.is_none())
+            .map(|(f, _)| f.clone())
+            .collect()
+    }
+
+    /// Every imported feature as the active pane shows it — its layer on and above its minimum
+    /// zoom, the feature valid at the view's time — with the attributes its file gave it, plus
+    /// `hookecho: "imported"` and the layer's name, for the map's GeoJSON export.
+    pub(crate) fn gis_export_features(&self) -> Vec<wxdata::gis::GisFeature> {
+        use wxdata::gis::{Geometry, GisFeature};
+        let zoom = self.views[self.active].camera.zoom;
+        let mut out = Vec::new();
+        for (config, layer) in self.gis_marks_shown(zoom) {
+            let m = &layer.marks;
+            let props = |src: Option<&usize>| {
+                let mut p = src
+                    .and_then(|&s| m.props.get(s))
+                    .cloned()
+                    .unwrap_or_default();
+                p.insert("hookecho".into(), "imported".into());
+                p.insert("layer".into(), config.name.clone().into());
+                p
+            };
+            for (i, f) in layer.shapes.iter().enumerate() {
+                let src = m.shape_src.get(i);
+                if layer.valid(src) && !f.rings.is_empty() {
+                    out.push(GisFeature {
+                        geometry: Geometry::Polygon(f.rings.clone()),
+                        properties: props(src),
+                    });
+                }
+            }
+            for (i, line) in m.lines.iter().enumerate() {
+                let src = m.line_src.get(i);
+                if layer.valid(src) {
+                    out.push(GisFeature {
+                        geometry: Geometry::LineString(line.clone()),
+                        properties: props(src),
+                    });
+                }
+            }
+            for (i, p) in m.points.iter().enumerate() {
+                let src = m.point_src.get(i);
+                if layer.valid(src) {
+                    out.push(GisFeature {
+                        geometry: Geometry::Point(*p),
+                        properties: props(src),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Points and lines of every shown layer, each in its own style.
     pub(crate) fn paint_gis_marks(
         &self,
@@ -580,5 +729,41 @@ mod tests {
         assert_eq!(layer.colors.as_ref().unwrap().0, "POP");
         config.color_by = None;
         assert!(layer.sync(&config, t) && layer.colors.is_none());
+    }
+
+    #[test]
+    fn a_click_finds_the_point_or_line_under_it_and_not_one_out_of_its_time() {
+        let at = |lon: f64, lat: f64| crate::render::mercator::lonlat_to_world(lon, lat);
+        let features = vec![
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::LineString(vec![[-98.0, 35.0], [-96.0, 35.0]]),
+                properties: Default::default(),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Point([-97.0, 35.0]),
+                properties: Default::default(),
+            },
+        ];
+        let (_, marks) = crate::gis_import::to_renderable(features);
+        let tol = 1e-5; // about 2 km of world at these latitudes
+        let all = |_: Option<&usize>| true;
+        // On the point (which also sits on the line): the point, drawn on top, wins.
+        assert_eq!(
+            mark_at(&marks, all, at(-97.0, 35.0), tol, tol),
+            Some((1, "Point"))
+        );
+        // Along the line away from the point.
+        assert_eq!(
+            mark_at(&marks, all, at(-96.5, 35.001), tol, tol),
+            Some((0, "Line"))
+        );
+        // Off both.
+        assert_eq!(mark_at(&marks, all, at(-96.5, 35.5), tol, tol), None);
+        // The point outside the view's time is not there to click; the line under it is.
+        let not_point = |s: Option<&usize>| s != Some(&1);
+        assert_eq!(
+            mark_at(&marks, not_point, at(-97.0, 35.0), tol, tol),
+            Some((0, "Line"))
+        );
     }
 }

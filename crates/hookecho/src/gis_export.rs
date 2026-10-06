@@ -27,6 +27,10 @@ pub(crate) struct MapContents<'a> {
     /// The assembled overlay set (`app.rs`'s `self.overlays`): warnings, outlooks, watch boxes,
     /// ProbSevere, fire perimeters and any imported shapes, already filtered to what is displayed.
     pub overlays: &'a [GeoFeature],
+    /// The imported GIS layers' features as shown (ROADMAP_PARITY M4.1), each with the attributes
+    /// its file gave it and a `layer` property: written as they are, points and lines included.
+    /// A caller passing these leaves the imported polygons out of `overlays`.
+    pub imported: &'a [GisFeature],
 }
 
 fn props(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String, Value> {
@@ -128,6 +132,8 @@ pub(crate) fn to_features(map: &MapContents<'_>) -> Vec<GisFeature> {
         });
     }
 
+    out.extend(map.imported.iter().cloned());
+
     for feature in map.overlays {
         if feature.rings.is_empty() {
             continue;
@@ -166,6 +172,7 @@ mod tests {
             zones: &[],
             cells: &[],
             overlays: &[],
+            imported: &[],
         }
     }
 
@@ -333,5 +340,40 @@ mod tests {
         assert_eq!(kind_of(&back[0]), "annotation");
         assert_eq!(kind_of(&back[1]), "marker");
         assert_eq!(back[1].geometry, Geometry::Point([-97.5, 35.2]));
+    }
+
+    /// Imported points and lines leave with the attributes their file gave them, and the layer
+    /// they belong to, and read back through this app's own importer.
+    #[test]
+    fn imported_points_and_lines_export_with_their_own_attributes() {
+        let attrs = |name: &str| {
+            let mut p = Map::new();
+            p.insert("NAME".into(), text(name));
+            p.insert("hookecho".into(), text("imported"));
+            p.insert("layer".into(), text("Sirens"));
+            p
+        };
+        let imported = vec![
+            GisFeature {
+                geometry: Geometry::Point([-97.4, 35.2]),
+                properties: attrs("Siren 12"),
+            },
+            GisFeature {
+                geometry: Geometry::LineString(vec![[-97.5, 35.1], [-97.3, 35.3]]),
+                properties: attrs("Route 9"),
+            },
+        ];
+        let json = to_geojson(&MapContents {
+            imported: &imported,
+            ..empty()
+        });
+        let back = crate::gis_import::load_geojson(&json).expect("reads back");
+        assert_eq!(back.features.len(), 2);
+        for (f, name) in back.features.iter().zip(["Siren 12", "Route 9"]) {
+            assert_eq!(f.properties["NAME"], text(name));
+            assert_eq!(f.properties["layer"], text("Sirens"));
+        }
+        assert!(matches!(back.features[0].geometry, Geometry::Point(_)));
+        assert!(matches!(back.features[1].geometry, Geometry::LineString(_)));
     }
 }

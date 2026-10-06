@@ -537,7 +537,22 @@ impl HookEchoApp {
                                         ui::alert_panel::severity_rank(&c.info.event),
                                     ))
                                 });
-                                if !cards.is_empty() {
+                                // An imported point or line under the click (drawn over the
+                                // polygons) opens its attributes, unless an alert is there.
+                                let mark = if cards.is_empty() {
+                                    let cam = self.views[self.active].camera;
+                                    let touch =
+                                        ctx.input(|i| i.any_touches() || i.has_touch_screen());
+                                    self.gis_mark_hit(lon, lat, &cam, touch)
+                                } else {
+                                    None
+                                };
+                                if let Some(detail) = mark {
+                                    self.warning_popup = None;
+                                    self.gate_popup = None;
+                                    self.detail_impact = None;
+                                    self.detail = Some(detail);
+                                } else if !cards.is_empty() {
                                     self.detail = None;
                                     self.gate_popup = None;
                                     // Open straight to the full bulletin of the top alert; the

@@ -7191,13 +7191,7 @@ impl HookEchoApp {
     /// already the filtered, toggled set `rebuild_overlays` assembled for display, so an export
     /// matches what the user is looking at instead of quietly carrying layers they had turned off.
     fn export_map_geojson(&mut self) {
-        let features = crate::gis_export::to_features(&crate::gis_export::MapContents {
-            strokes: &self.strokes,
-            markers: &self.settings.markers,
-            zones: &self.settings.alert_polygons,
-            cells: self.active_storm_cells(),
-            overlays: &self.overlays,
-        });
+        let features = self.map_export_features();
         let count = features.len();
         if count == 0 {
             self.toast(

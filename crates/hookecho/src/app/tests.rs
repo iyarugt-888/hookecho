@@ -18,7 +18,7 @@ fn an_id_shorter_than_the_buffer_does_not_carry_trailing_junk() {
 /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
 #[test]
 fn app_rs_only_gets_smaller() {
-    const CEILING: usize = 9052;
+    const CEILING: usize = 9046;
     let lines = include_str!("../app.rs").lines().count();
     assert!(
         lines <= CEILING,
@@ -411,7 +411,9 @@ fn the_separate_rotation_and_debris_layers_restore_as_tornado_detection() {
     );
     assert_eq!(OverlayToggle::from_slug("MergeTornado"), None);
     assert!(
-        !OverlayToggle::ALL.iter().any(|t| matches!(t.slug().as_str(), "Tds" | "Couplets")),
+        !OverlayToggle::ALL
+            .iter()
+            .any(|t| matches!(t.slug().as_str(), "Tds" | "Couplets")),
         "the merged layers are not toggles of their own any more"
     );
     // A saved workspace naming only the debris layer reports nothing it cannot restore.

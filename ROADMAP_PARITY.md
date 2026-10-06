@@ -968,6 +968,8 @@ Remaining open:
 
 **Agent prompt:** `Implement M4.3 using section 6. Complete per-layer rules and shared feature inspection without modifying original geometry or warning interaction priority.`
 
+**Evidence ledger — 2026-10-06, increment 1 (points and lines clickable and exported):** imported points and lines were drawn but could not be clicked, and the map's GeoJSON export dropped them and flattened imported polygons' attributes into a text field. A click now finds the imported point or line under it ([`mark_at`](crates/hookecho/src/app/gis_layers.rs): within the drawn symbol or stroke plus 4 px, 12 px on a touch screen; points before lines; topmost layer first; features outside the view's time left out) and opens the same attribute popup a polygon does, naming its layer; an alert under the click still takes precedence. The export writes every shown imported feature — polygons, lines and points — with the attributes its file gave it plus `hookecho: "imported"` and `layer`, and the official overlays as before. Tests: `a_click_finds_the_point_or_line_under_it_and_not_one_out_of_its_time`, `imported_points_and_lines_export_with_their_own_attributes` (read back through the app's importer); full workspace 2,362 passed, Clippy `-D warnings`, the WASM library check. Open: attribute filtering and rule-based styling, per-feature inspection beyond the popup (a table), Android touch walkthrough.
+
 #### M4.4 — Restore and exchange GIS scenes reliably
 
 **Priority:** P1. **Depends on:** M2.4, M4.3. **Original references:** ROADMAP_2 §§5.5, 12.2; ROADMAP_NEW §§I6, K3, K4, M5.

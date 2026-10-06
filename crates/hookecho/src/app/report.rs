@@ -431,6 +431,7 @@ impl HookEchoApp {
             zones: &self.settings.alert_polygons,
             cells: &[],
             overlays: &[],
+            imported: &[],
         });
         entries.push((
             "annotations.geojson".into(),
