@@ -96,6 +96,53 @@ impl ManualTrack {
         }
     }
 
+    /// This track as GeoJSON features (ROADMAP_PARITY M4.4): the projected path of its storm (or
+    /// a line's middle) over the hour and the uncertainty swath around it, each carrying the
+    /// motion, the analysis time it is projected from, its source storm, and whether it is a
+    /// historical estimate. Coordinates are `[lon, lat]` WGS84; speeds km/h, angles degrees.
+    pub(crate) fn to_features(&self) -> Vec<wxdata::gis::GisFeature> {
+        use serde_json::{json, Value};
+        use wxdata::gis::{Geometry, GisFeature};
+        let base = |kind: &str| {
+            let mut p = json!({
+                "hookecho": kind,
+                "t0": self.t0.to_rfc3339(),
+                "horizon_min": HORIZON_MIN,
+                "bearing_deg": (self.bearing_deg * 10.0).round() / 10.0,
+                "speed_kmh": (self.speed_kmh * 10.0).round() / 10.0,
+                "left_width_km": self.left_width_km,
+                "right_width_km": self.right_width_km,
+                "cone_deg": self.cone_deg,
+                "historical": self.historical,
+            });
+            if let Some(src) = &self.source {
+                p["source_cell"] = Value::from(src.cell_id.clone());
+                if let Some(scan) = src.scan {
+                    p["source_scan"] = Value::from(scan.to_rfc3339());
+                }
+            }
+            p.as_object().cloned().unwrap_or_default()
+        };
+        let path: Vec<[f64; 2]> = (0..=HORIZON_MIN as usize)
+            .step_by(5)
+            .map(|m| self.at(m as f64))
+            .collect();
+        let mut ring = self.swath();
+        if ring.first() != ring.last() {
+            ring.push(ring[0]);
+        }
+        vec![
+            GisFeature {
+                geometry: Geometry::LineString(path),
+                properties: base("manual-track-path"),
+            },
+            GisFeature {
+                geometry: Geometry::Polygon(vec![ring]),
+                properties: base("manual-track-swath"),
+            },
+        ]
+    }
+
     /// This track as a case keeps it.
     pub(crate) fn to_case(&self) -> crate::case::CaseTrack {
         crate::case::CaseTrack {
@@ -1918,6 +1965,34 @@ mod tests {
         )
         .unwrap();
         assert!(old.manual_tracks.is_empty());
+    }
+
+    #[test]
+    fn a_track_exports_its_path_and_swath_with_its_motion_and_time() {
+        let t = track(); // due east at 60 km/h from 35N 97W
+        let f = t.to_features();
+        assert_eq!(f.len(), 2);
+        let wxdata::gis::Geometry::LineString(path) = &f[0].geometry else {
+            panic!("{:?}", f[0].geometry);
+        };
+        assert_eq!(path.len(), 13, "every 5 minutes over the hour");
+        let (km, brg) = great_circle(path[0], path[12]);
+        assert!(
+            (km - 60.0).abs() < 0.1 && (brg - 90.0).abs() < 1.0,
+            "{km} {brg}"
+        );
+        let wxdata::gis::Geometry::Polygon(rings) = &f[1].geometry else {
+            panic!("{:?}", f[1].geometry);
+        };
+        assert_eq!(rings[0].first(), rings[0].last(), "a closed ring");
+        let p = &f[1].properties;
+        assert_eq!(p["hookecho"], "manual-track-swath");
+        assert_eq!(p["speed_kmh"], 60.0);
+        assert_eq!(p["historical"], false);
+        assert_eq!(p["t0"], t.t0.to_rfc3339());
+        // Read back through the app's own importer.
+        let back = crate::gis_import::load_geojson(&wxdata::gis::to_geojson(&f)).unwrap();
+        assert_eq!(back.features.len(), 2);
     }
 
     fn track() -> ManualTrack {

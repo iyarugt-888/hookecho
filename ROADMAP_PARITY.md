@@ -1005,6 +1005,8 @@ Remaining open:
 
 **Evidence ledger — 2026-10-06, increment 2 (filtered layer export):** each imported layer's row in the Layer Manager exports the features that layer shows — valid at the view's time and passing its filter — as GeoJSON with each feature's own attributes, `hookecho: "imported"` and the layer name (`layer_features`, the same function the whole-map export uses per layer, so the two cannot disagree). The default visible-map export is unchanged. Test: the layer export writes exactly the filtered features, in `a_layer_filter_and_its_time_window_decide_together`; full workspace 2,384 passed, Clippy `-D warnings`, the WASM library check. Open: selection-based export (needs the feature table), manual-track/route/contour vectors with metadata, QGIS reader reports.
 
+**Evidence ledger — 2026-10-06, increment 3 (manual tracks in the map export):** the map's GeoJSON export now carries every manual storm-motion track as true projected geometry (`ManualTrack::to_features`): the path of the storm (or a line's middle) every 5 minutes over the hour, and the closed uncertainty-swath polygon the map draws, each with `t0` (the analysis time it projects from), horizon, bearing, speed (km/h), both widths, cone, the source SCIT cell and scan, and whether it is a historical estimate. Coordinates are WGS84 `[lon, lat]`. Test: `a_track_exports_its_path_and_swath_with_its_motion_and_time` (60 km due east over the hour, closed ring, metadata, read back through the importer); full workspace 2,385 passed, Clippy `-D warnings`, the WASM library check. Open: route geometry and threshold/contour vectors, QGIS reader reports.
+
 ### M5 — Synchronized weather context and presentation
 
 #### M5.1 — Support independent link groups and source contexts

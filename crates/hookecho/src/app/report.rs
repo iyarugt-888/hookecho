@@ -432,6 +432,7 @@ impl HookEchoApp {
             cells: &[],
             overlays: &[],
             imported: &[],
+            tracks: &[],
         });
         entries.push((
             "annotations.geojson".into(),

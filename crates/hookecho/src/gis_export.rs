@@ -31,6 +31,9 @@ pub(crate) struct MapContents<'a> {
     /// its file gave it and a `layer` property: written as they are, points and lines included.
     /// A caller passing these leaves the imported polygons out of `overlays`.
     pub imported: &'a [GisFeature],
+    /// Manual storm-motion tracks as written by `ManualTrack::to_features`: each projected path
+    /// and its uncertainty swath, with the motion, time and source they were drawn from.
+    pub tracks: &'a [GisFeature],
 }
 
 fn props(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String, Value> {
@@ -133,6 +136,7 @@ pub(crate) fn to_features(map: &MapContents<'_>) -> Vec<GisFeature> {
     }
 
     out.extend(map.imported.iter().cloned());
+    out.extend(map.tracks.iter().cloned());
 
     for feature in map.overlays {
         if feature.rings.is_empty() {
@@ -173,6 +177,7 @@ mod tests {
             cells: &[],
             overlays: &[],
             imported: &[],
+            tracks: &[],
         }
     }
 

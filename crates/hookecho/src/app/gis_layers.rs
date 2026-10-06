@@ -599,6 +599,12 @@ impl HookEchoApp {
             cells: self.active_storm_cells(),
             overlays: &self.official_overlays(),
             imported: &self.gis_export_features(),
+            tracks: &self
+                .storm_tracks
+                .tracks
+                .iter()
+                .flat_map(crate::app::storm_track::ManualTrack::to_features)
+                .collect::<Vec<_>>(),
         })
     }
 

@@ -17,6 +17,11 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: manual storm tracks in the map export
+
+"Export map as GeoJSON" now includes your manual storm tracks: each one's projected path and its
+uncertainty swath, with the motion, the time it projects from and the storm it was started from.
+
 ### Added: filter an imported layer by its attributes
 
 Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it
