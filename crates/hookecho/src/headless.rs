@@ -5916,6 +5916,13 @@ fn backtest_event(
         let mut scanned: Vec<i64> = Vec::new();
         let freezing = freezing_levels_for(site, first).await;
         let cache = backtest_cache_dir();
+        // The HRRR hour beside the radar (`HOOKECHO_BACKTEST_HRRR=1`): the app's environment gate
+        // on the markers, and each row's inflow STP. Off by default: it fetches from the HRRR
+        // archive (cropped to this radar and cached with the volumes, so only once).
+        let use_env = std::env::var("HOOKECHO_BACKTEST_HRRR").is_ok_and(|v| v == "1");
+        let http = reqwest::Client::new();
+        let mut env_hours: std::collections::HashMap<i64, Option<wxdata::near_storm::EnvHour>> =
+            std::collections::HashMap::new();
         for (t, id) in ids {
             let scan = match level2::download_scan(id, cache.clone()).await {
                 Ok(s) => s,
@@ -6105,6 +6112,7 @@ fn backtest_event(
                 track_id: None,
                 track_age_volumes: None,
                 azshear_trend: None,
+                env_stp: None,
                 features: None,
                 vrot_ms: None,
                 g2g_ms: None,
@@ -6323,13 +6331,30 @@ fn backtest_event(
             if let Some((rlon, rlat)) = radar_pos {
                 use chrono::Datelike;
                 let analysed = wxdata::llsd_analyst::analyse(llsd_all.clone(), &raw_hits, &[]);
-                // No environment gate: the backtest has no HRRR hour beside the radar. Its
-                // effect on these markers is measured from the sampled environment instead
-                // (`scripts/fusion/environment.py apply`, detectionplan.md).
+                // The environment gate, as the app draws it, when the run has HRRR hours. The
+                // hour is cropped to 250 km of the radar, past the farthest marker.
+                let valid = t.timestamp().div_euclid(3600) * 3600;
+                if use_env && !env_hours.contains_key(&valid) {
+                    let when = chrono::DateTime::from_timestamp(valid, 0).unwrap_or(t);
+                    let hour = wxdata::near_storm::fetch_hour_near(
+                        &http,
+                        when,
+                        rlon,
+                        rlat,
+                        250.0,
+                        cache.as_deref(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        eprintln!("  {site} {}: no HRRR hour, {e:#}", when.format("%H:%MZ"));
+                        None
+                    });
+                    env_hours.insert(valid, hour);
+                }
                 let options = wxdata::llsd_analyst::VerdictOptions {
                     rotation_only_possible: Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE),
                     turbines_in_year: Some(t.year()),
-                    environment: None,
+                    environment: env_hours.get(&valid).and_then(Option::as_ref),
                 };
                 for c in wxdata::llsd_analyst::circulations_with(
                     &analysed,
@@ -6372,6 +6397,17 @@ fn backtest_event(
                 hits.len(),
                 couplets.len()
             );
+        }
+        // Each row's inflow STP from its volume's HRRR hour, for fits that weigh the environment.
+        for c in &mut candidates {
+            let valid = (c.minute * 60).div_euclid(3600) * 3600;
+            if let Some(Some(hour)) = env_hours.get(&valid) {
+                c.env_stp = hour.sample(c.lon, c.lat).map(|s| s.stp);
+            }
+        }
+        if use_env {
+            let had = env_hours.values().filter(|h| h.is_some()).count();
+            println!("  {site}: HRRR environment for {had} of {} hour(s)", env_hours.len());
         }
         anyhow::Ok((
             tds,

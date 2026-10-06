@@ -125,6 +125,10 @@ pub struct Candidate {
     pub track_id: Option<u64>,
     pub track_age_volumes: Option<usize>,
     pub azshear_trend: Option<f32>,
+    /// Fixed-layer STP over the inflow beside it, from the HRRR hour of its volume
+    /// (`near_storm::EnvSample::stp`); `None` when the backtest ran without one
+    /// (`HOOKECHO_BACKTEST_HRRR`) or the hour could not be had.
+    pub env_stp: Option<f32>,
     /// The fusion's features, in `tornado_fusion::FEATURE_NAMES` order (fused candidates only).
     pub features: Option<Vec<f32>>,
     /// Inside a tornado warning marked observed at its own volume. Recorded, never scored: an
@@ -623,7 +627,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
     const HEADER: &str = "event,site,volume,minute,detector,lon,lat,range_km,beam_base_km,\
         beam_top_km,raw_score,final_score,gates,tilts,vrot_ms,g2g_ms,min_cc,mean_cc,mean_z,max_z,\
         zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey,\
-        azshear_s,track_id,track_age_volumes,azshear_trend,matched_truths";
+        azshear_s,track_id,track_age_volumes,azshear_trend,env_stp,matched_truths";
     fn cell(s: &str) -> String {
         if s.contains([',', '"', '\n']) {
             format!("\"{}\"", s.replace('"', "\"\""))
@@ -678,6 +682,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             o(c.track_id),
             o(c.track_age_volumes),
             f(c.azshear_trend),
+            f(c.env_stp),
             c.matched_truths.join(";"),
         ];
         let features = c.features.as_deref().unwrap_or(&[]);
@@ -730,6 +735,7 @@ mod tests {
             track_id: None,
             track_age_volumes: None,
             azshear_trend: None,
+            env_stp: None,
             features: None,
         }
     }
