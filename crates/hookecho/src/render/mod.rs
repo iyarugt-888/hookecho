@@ -107,6 +107,10 @@ pub struct RadarUpload {
     /// (0 rain, 1 snow, 2 mix). Empty when the tint is off; a 1×1 dummy is bound instead,
     /// because every binding has to exist whether or not it is read.
     pub precip_flag: Vec<u8>,
+    /// Per-gate display opacity, one byte per gate in `data`'s layout (255 opaque), multiplied
+    /// into the colour's alpha. Empty for every ordinary sweep; a temporal-extrema trail fills it
+    /// from each gate's contributor age. Display only: `data` (the values) is never changed by it.
+    pub gate_alpha: Vec<u8>,
     /// World-space quad corners covering the disk (min/max box).
     pub world_min: [f32; 2],
     pub world_max: [f32; 2],
@@ -1086,6 +1090,8 @@ struct TileGpu {
 struct RadarGpu {
     tex: wgpu::Texture,
     flag: wgpu::Texture,
+    /// Per-gate opacity (`RadarUpload::gate_alpha`), or a 1×1 dummy.
+    alpha: wgpu::Texture,
     lut: wgpu::Texture,
     uni: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -1096,6 +1102,7 @@ struct RadarGpu {
     /// shape writes into these textures instead of building new ones with a new bind group.
     dims: (u32, u32),
     flag_dims: (u32, u32),
+    alpha_dims: (u32, u32),
 }
 
 struct ObservedGpu {
@@ -1295,6 +1302,18 @@ impl RenderResources {
                 // and 1×1 when the tint is off.
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Per-gate display opacity (a trail's age). 1×1 when unused; the shader reads it
+                // only when its size is the sweep's, so the uniform layout stays as it was.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Uint,
@@ -1778,16 +1797,25 @@ impl RenderResources {
         existing: Option<RadarGpu>,
     ) -> Option<RadarGpu> {
         let flag_dims = flag_dims(r);
+        let alpha_dims = alpha_dims(r);
         // Same shape: write into the retained textures and keep the bind group. Dimensions are
         // the only thing a bind group depends on here, so nothing else can go stale.
         if let Some(mut g) = existing {
-            if g.dims == (r.gate_count, r.az_bins) && g.flag_dims == flag_dims {
+            // A LUT-only upload carries no gate bytes of either kind, so it keeps whatever opacity
+            // texture the sweep it recolours already has.
+            if g.dims == (r.gate_count, r.az_bins)
+                && g.flag_dims == flag_dims
+                && (r.lut_only || g.alpha_dims == alpha_dims)
+            {
                 if !r.lut_only {
                     for rows in changed_row_ranges(&g.data, &r.data, r.gate_count as usize) {
                         write_r8_rows(queue, &g.tex, g.dims, &r.data, rows);
                     }
                     g.data.clone_from(&r.data);
                     write_r8(queue, &g.flag, g.flag_dims, &flag_bytes(r, g.flag_dims));
+                    if g.alpha_dims != (1, 1) {
+                        write_r8(queue, &g.alpha, g.alpha_dims, &r.gate_alpha);
+                    }
                 }
                 queue.write_buffer(&g.uni, 0, bytemuck::cast_slice(&r.uniform));
                 write_lut(queue, &g.lut, &r.lut);
@@ -1905,6 +1933,27 @@ impl RenderResources {
             flag_size,
         );
         let flag_view = flag_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let alpha_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("radar_gate_alpha"),
+            size: wgpu::Extent3d {
+                width: alpha_dims.0,
+                height: alpha_dims.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let alpha_bytes: &[u8] = if alpha_dims == (1, 1) {
+            &[255]
+        } else {
+            &r.gate_alpha
+        };
+        write_r8(queue, &alpha_tex, alpha_dims, alpha_bytes);
+        let alpha_view = alpha_tex.create_view(&wgpu::TextureViewDescriptor::default());
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("radar_bg"),
@@ -1926,18 +1975,24 @@ impl RenderResources {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(&flag_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&alpha_view),
+                },
             ],
         });
         record_radar_queue_time(r);
         Some(RadarGpu {
             tex,
             flag: flag_tex,
+            alpha: alpha_tex,
             lut: lut_tex,
             uni,
             bind_group,
             data: r.data.clone(),
             dims: (r.gate_count, r.az_bins),
             flag_dims,
+            alpha_dims,
         })
     }
 
@@ -2972,6 +3027,16 @@ mod tests {
 fn flag_dims(r: &RadarUpload) -> (u32, u32) {
     let (nx, ny) = (r.uniform[11] as u32, r.uniform[12] as u32);
     match r.precip_flag.len() == (nx * ny) as usize && nx > 0 {
+        true => (nx, ny),
+        false => (1, 1),
+    }
+}
+
+/// The per-gate opacity texture size: the sweep's own when the upload carries one byte per gate,
+/// else the 1×1 dummy (which the shader ignores because its size is not the sweep's).
+fn alpha_dims(r: &RadarUpload) -> (u32, u32) {
+    let (nx, ny) = (r.gate_count, r.az_bins);
+    match r.gate_alpha.len() == (nx * ny) as usize && nx > 1 {
         true => (nx, ny),
         false => (1, 1),
     }

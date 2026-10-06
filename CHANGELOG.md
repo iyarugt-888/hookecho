@@ -27,6 +27,16 @@ isotherm the matched source lacks is not drawn and says why; nothing is substitu
 inspector evaluates a column formula with the map's rules (based at the lowest sampled level),
 reads velocity dealiased as the map does, and names where its environmental heights came from.
 
+### Changed: max/min trails are exact over the window, and fading no longer changes values
+
+The trail layer now recomputes the extremum of the cached volumes inside the window ending at the
+playhead, so a strong old core leaves the trail when its volume leaves the window, and scrubbing
+backward gives the same trail as starting there. "Fade with age" draws older gates fainter instead
+of weakening their values: the probe, threshold, outlines and GeoTIFF read the same numbers either
+way. The cursor probe names the scan that set each gate and how long before the playhead; the
+status line and exports say when the history is shorter than the window or volumes are missing.
+Exported trails carry the playhead's time instead of the wall clock.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at

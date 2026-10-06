@@ -283,7 +283,7 @@ fn pinned_radar_values_and_missing_sectors_render_consistently() {
 /// excluded rather than tolerated.
 #[test]
 #[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
-fn pinned_column_product_renders_where_its_cells_are() {
+fn gpu_column_product_renders_where_its_cells_are() {
     use wxdata::udp_column::{evaluate_grid, ColumnEnv, ColumnProduct, ColumnTilt};
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let bytes =
@@ -437,4 +437,98 @@ fn pinned_column_product_renders_where_its_cells_are() {
         );
         assert_eq!(filled, 0, "{src}: an empty column was drawn");
     }
+}
+
+/// ROADMAP_PARITY M3.4: a trail's age fade is per-gate display opacity. Gates at full opacity
+/// must draw exactly as with no opacity texture at all; faded gates blend their unchanged colour
+/// at the requested alpha; the uploaded values are untouched.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_gate_opacity_fades_display_only() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bytes =
+        std::fs::read(repo.join("crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"))
+            .expect("required radar input");
+    let scan = level2::decode_volume(bytes).expect("real partial volume");
+    let sweep = level2::bin_scan(&scan, Moment::Reflectivity, 0).expect("real reflectivity");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, _adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
+    let render = |resources: &mut RenderResources, alpha: Vec<u8>| {
+        let mut cb = callback(&sweep, &camera);
+        if let Some(up) = cb.radar_upload.as_mut() {
+            up.gate_alpha = alpha;
+        }
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        read_target(&device, &queue, &target, SIZE)
+    };
+    let data_before = sweep.data.clone();
+    let plain = render(&mut resources, Vec::new());
+    // Opaque everywhere: identical to no texture.
+    let opaque = render(&mut resources, vec![255; sweep.data.len()]);
+    assert_eq!(plain, opaque, "an opaque fade must not change a pixel");
+    // The eastern half of the azimuths at a quarter opacity.
+    const FLOOR: u8 = 64;
+    let half: Vec<u8> = (0..sweep.az_bins)
+        .flat_map(|bin| {
+            let a = if bin < sweep.az_bins / 2 { FLOOR } else { 255 };
+            std::iter::repeat_n(a, sweep.gate_count)
+        })
+        .collect();
+    // Upload into a fresh resource set so the opacity texture is built, not just rewritten.
+    let mut fresh = RenderResources::new(&device, format);
+    let faded = render(&mut fresh, half);
+    let empty = {
+        let mut cb = callback(&sweep, &camera);
+        cb.radar_upload = None;
+        cb.draw_radar = false;
+        fresh.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        read_target(&device, &queue, &target, SIZE)
+    };
+    let (mut kept, mut blended, mut wrong) = (0usize, 0usize, 0usize);
+    for y in 2..SIZE - 2 {
+        for x in 2..SIZE - 2 {
+            let i = ((y * SIZE + x) * 4) as usize;
+            if plain[i..i + 4] == empty[i..i + 4] {
+                continue; // nothing drawn here
+            }
+            let w = camera
+                .screen_to_world((x as f32 + 0.5, y as f32 + 0.5), (SIZE as f32, SIZE as f32));
+            let (lon, lat) = world_to_lonlat(w.0, w.1);
+            let Some(g) = sweep.sample_at(lon, lat) else {
+                continue;
+            };
+            // Stay clear of the north and south seams between the two halves.
+            let az = f64::from(g.azimuth_deg);
+            if !(5.0..175.0).contains(&az) && !(185.0..355.0).contains(&az) {
+                continue;
+            }
+            if az >= 180.0 {
+                kept += 1;
+                wrong += usize::from(faded[i..i + 4] != plain[i..i + 4]);
+            } else {
+                blended += 1;
+                let a = f64::from(FLOOR) / 255.0;
+                let bg = [BACKGROUND.r, BACKGROUND.g, BACKGROUND.b];
+                let bad = (0..3).any(|c| {
+                    let full = linear(plain[i + c]);
+                    let want = srgb(full * a + bg[c] * (1.0 - a));
+                    (i16::from(faded[i + c]) - i16::from(want)).abs() > 8
+                });
+                wrong += usize::from(bad);
+            }
+        }
+    }
+    eprintln!("gate opacity: {kept} opaque pixels, {blended} faded pixels, {wrong} wrong");
+    assert!(kept > 1_000 && blended > 1_000, "too few drawn pixels");
+    assert!(wrong * 200 <= kept + blended, "{wrong} pixels wrong");
+    assert_eq!(sweep.data, data_before, "the fade changed values");
 }

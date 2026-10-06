@@ -12,6 +12,10 @@ mod case;
 /// windows, and every data path are shared.
 mod chrome;
 mod column_product;
+mod trail;
+#[cfg(test)]
+use trail::trail_status_line;
+use trail::TrailState;
 // For the headless verifier and its GPU check, which are native-only.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use column_product::column_upload;
@@ -1026,29 +1030,6 @@ fn scan_age_color(t: f32) -> egui::Color32 {
     } else {
         lerp(amber, red, (t - 0.5) * 2.0)
     }
-}
-
-/// What a trail was built for, so any change starts it over.
-type TrailKey = (
-    usize,
-    Moment,
-    usize,
-    wxdata::extrema::Extremum,
-    u16,
-    bool,
-    String,
-);
-
-/// The C2 accumulator and the frames already folded into it, oldest first.
-struct TrailState {
-    key: TrailKey,
-    folded: Vec<String>,
-    acc: Option<BinnedSweep>,
-    /// Bumped on every fold or restart so the shown-image key changes as the trail grows.
-    generation: u32,
-    restarted: Option<wxdata::extrema::Mismatch>,
-    /// When the newest folded frame was taken, for the decay step to the next one.
-    last_time: Option<DateTime<Utc>>,
 }
 
 type ShownKey = (
@@ -7637,6 +7618,7 @@ pub(crate) fn to_upload(
         ],
         lut,
         precip_flag,
+        gate_alpha: Vec::new(),
         world_min: [wx0 as f32, wy0 as f32],
         world_max: [wx1 as f32, wy1 as f32],
         lut_only,
@@ -9189,36 +9171,6 @@ fn trail_outline_level(moment: Moment, keep: wxdata::extrema::Extremum) -> f32 {
         (Moment::SpecificDifferentialPhase, _) => 2.0,
         _ => 0.0,
     }
-}
-
-fn trail_status_line(
-    folded: usize,
-    wanted: usize,
-    window_min: u16,
-    keep: wxdata::extrema::Extremum,
-    restarted: Option<wxdata::extrema::Mismatch>,
-) -> String {
-    use wxdata::extrema::{Extremum, Mismatch};
-    let what = match keep {
-        Extremum::Max => "maximum",
-        Extremum::Min => "minimum",
-    };
-    let mut line = if folded < wanted {
-        format!("Building {what} trail: {folded} of {wanted} cached volumes")
-    } else {
-        format!("{what} of {wanted} cached volumes over {window_min} min")
-    };
-    if let Some(why) = restarted {
-        let why = match why {
-            Mismatch::Moment => "the product changed",
-            Mismatch::ValueRange => "raw and dealiased velocity differ",
-            Mismatch::Geometry => "the scan geometry changed",
-            Mismatch::Elevation => "the tilt changed",
-            Mismatch::Site => "the site changed",
-        };
-        line.push_str(&format!(" — restarted: {why}"));
-    }
-    line
 }
 
 #[cfg(test)]

@@ -344,139 +344,12 @@ impl HookEchoApp {
         }
     }
 
-    /// C2: bring the active pane's extremum trail up to date and return the tag that makes the
-    /// shown-image key change as it grows, or `None` when there is nothing to draw.
-    ///
-    /// The trail is built from volumes already in the decode cache, oldest first, and at most
-    /// [`Self::TRAIL_FOLDS_PER_FRAME`] are folded per UI frame: binning a sweep is real work, and a
-    /// two-hour window is two dozen of them. The image grows over a few frames instead of
-    /// stalling one. A window that slides (a live arrival, a scrub) cannot un-fold its oldest
-    /// frame, so a change to the oldest wanted volume starts the trail over.
-    pub(crate) fn advance_trail(
-        &mut self,
-        data: usize,
-        moment: Moment,
-        tilt: usize,
-    ) -> Option<String> {
-        use wxdata::extrema::{self, Extremum, Merge};
-        let window = self.filters.trail_window_min;
-        let keep = if self.filters.trail_keep_min {
-            Extremum::Min
-        } else {
-            Extremum::Max
-        };
-        // This runs every UI frame while the layer is on, so names are cloned only for the frames
-        // inside the window rather than for the whole day's timeline.
-        let (newest, in_window): (Option<DateTime<Utc>>, Vec<String>) = {
-            let tl = &self.views[data].timeline;
-            let upto = &tl.frames[..(tl.playhead + 1).min(tl.frames.len())];
-            let newest = upto.iter().rev().find_map(|id| id.date_time());
-            let cutoff = newest.map(|n| n - chrono::Duration::minutes(i64::from(window)));
-            let names = upto
-                .iter()
-                .filter(|id| id.date_time().zip(cutoff).is_some_and(|(t, c)| t >= c))
-                .map(|id| id.name().to_string())
-                .collect();
-            (newest, names)
-        };
-        if newest.is_none() {
-            self.trail = None;
-            self.trail_more = false;
-            return None;
-        }
-        let wanted: Vec<String> = in_window
-            .into_iter()
-            .filter(|name| self.scan_cache.contains(name))
-            .collect();
-        let Some(oldest) = wanted.first().cloned() else {
-            self.trail = None;
-            self.trail_more = false;
-            return None;
-        };
-        let decaying = self.filters.trail_decay;
-        let key: TrailKey = (data, moment, tilt, keep, window, decaying, oldest);
-        let stale = self
-            .trail
-            .as_ref()
-            .is_none_or(|t| t.key != key || !wanted.starts_with(&t.folded));
-        if stale {
-            self.trail = Some(TrailState {
-                key,
-                folded: Vec::new(),
-                acc: None,
-                generation: self
-                    .trail
-                    .as_ref()
-                    .map_or(0, |t| t.generation.wrapping_add(1)),
-                restarted: None,
-                last_time: None,
-            });
-        }
-        let state = self.trail.as_mut()?;
-        let start = state.folded.len();
-        for name in wanted.iter().skip(start).take(Self::TRAIL_FOLDS_PER_FRAME) {
-            // Recorded as folded even when it cannot be binned, so one bad volume is skipped
-            // once rather than retried every frame.
-            state.folded.push(name.clone());
-            state.generation = state.generation.wrapping_add(1);
-            let Some(scan) = self.scan_cache.peek(name).map(Arc::clone) else {
-                continue;
-            };
-            let sweep = match level2::bin_scan(&scan, moment, tilt) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::debug!("trail: skipping {name}: {e}");
-                    continue;
-                }
-            };
-            let taken = self.views[data]
-                .timeline
-                .frames
-                .iter()
-                .find(|id| id.name() == name.as_str())
-                .and_then(|id| id.date_time());
-            state.last_time = taken.or(state.last_time);
-            match state.acc.as_mut() {
-                None => state.acc = Some(extrema::start(&sweep)),
-                Some(acc) => {
-                    if decaying {
-                        if let (Some(then), Some(now)) = (state.last_time, taken) {
-                            let min = (now - then).num_seconds() as f32 / 60.0;
-                            extrema::decay(acc, keep, extrema::decay_codes(min, window));
-                        }
-                    }
-                    if let Merge::Reset(why) = extrema::accumulate(acc, &sweep, keep) {
-                        state.restarted = Some(why);
-                        *acc = extrema::start(&sweep);
-                    }
-                }
-            }
-        }
-        self.trail_more = state.folded.len() < wanted.len();
-        let folded = state.folded.len();
-        let restarted = state.restarted;
-        let generation = state.generation;
-        let has_image = state.acc.is_some();
-        self.filters.trail_status =
-            trail_status_line(folded, wanted.len(), window, keep, restarted);
-        if decaying {
-            self.filters.trail_status.push_str(", older part faded");
-        }
-        has_image.then(|| format!("trail{generation}"))
-    }
-
     /// Write the current max/min trail out (ROADMAP_NEW C2): as a GeoTIFF of its values on a
     /// lat/lon grid, or as GeoJSON outlines of the path at the pane's value threshold — or, with
     /// none set, at [`trail_outline_level`] for the product.
     pub(crate) fn export_trail(&mut self, raster: bool) {
         use wxdata::extrema::Extremum;
-        let v = &self.views[self.active];
-        let time = v
-            .timeline
-            .current()
-            .and_then(|id| id.date_time())
-            .unwrap_or_else(Utc::now);
-        let (moment, threshold) = (v.moment, v.active_threshold());
+        let threshold = self.views[self.active].active_threshold();
         let Some(state) = self.trail.as_ref() else {
             self.toast(
                 ToastKind::Error,
@@ -484,15 +357,24 @@ impl HookEchoApp {
             );
             return;
         };
-        let keep = state.key.3;
-        let window = state.key.4;
-        let Some(grid) = state
-            .acc
-            .as_ref()
-            .and_then(|acc| wxdata::derived::sweep_grid(acc, time))
-        else {
+        let (keep, window, moment) = (state.key.keep, state.key.window_min, state.key.moment());
+        // The trail's own time: the playhead it is computed as of, never the wall clock.
+        let shown = state.shown.as_ref().zip(
+            state
+                .anchor
+                .and_then(|a| chrono::DateTime::from_timestamp(a, 0)),
+        );
+        let Some((shown, time)) = shown else {
             self.toast(ToastKind::Error, "The trail has nothing to export yet");
             return;
+        };
+        let coverage = shown.coverage;
+        let Some(grid) = wxdata::derived::sweep_grid(&shown.sweep, time) else {
+            self.toast(ToastKind::Error, "The trail has nothing to export yet");
+            return;
+        };
+        let span = |t: i64| {
+            chrono::DateTime::from_timestamp(t, 0).map_or_else(String::new, |t| t.to_rfc3339())
         };
         let what = match keep {
             Extremum::Max => "max",
@@ -505,9 +387,15 @@ impl HookEchoApp {
         );
         let (bytes, ext, count) = if raster {
             let desc = format!(
-                "HookEcho {what} {} trail, {window} min ending {}",
+                "HookEcho {what} {} trail, {window} min ending {} | {} frames {}..{}, {} missing, \
+                 {} s of the window without history | physical values, no age fade",
                 moment.short_name(),
-                time.to_rfc3339()
+                time.to_rfc3339(),
+                coverage.frames,
+                span(coverage.from),
+                span(coverage.to),
+                coverage.missing,
+                coverage.short_s
             );
             match wxdata::geotiff::write(&grid, &desc) {
                 Some(b) => (b, "tif", None),
@@ -532,6 +420,11 @@ impl HookEchoApp {
                         "level": level,
                         "window_min": window,
                         "ending_utc": time.to_rfc3339(),
+                        "frames": coverage.frames,
+                        "first_frame_utc": span(coverage.from),
+                        "last_frame_utc": span(coverage.to),
+                        "missing_volumes": coverage.missing,
+                        "window_without_history_s": coverage.short_s,
                     })
                     .as_object()
                     .cloned()

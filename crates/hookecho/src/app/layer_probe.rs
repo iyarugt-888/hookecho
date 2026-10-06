@@ -33,7 +33,11 @@ pub(crate) struct ProbeLine {
 }
 
 impl ProbeLine {
-    fn new(layer: impl Into<String>, value: impl Into<String>, detail: Option<String>) -> Self {
+    pub(super) fn new(
+        layer: impl Into<String>,
+        value: impl Into<String>,
+        detail: Option<String>,
+    ) -> Self {
         Self {
             layer: layer.into(),
             value: value.into(),
@@ -222,6 +226,10 @@ impl HookEchoApp {
                 line.stamp = stamp;
                 out.push(line);
             }
+        }
+        // The trail drawn in the sweep's place: its own value and the scan that supplied it.
+        if let Some(line) = self.trail_probe_line(idx, lon, lat) {
+            out.push(line);
         }
 
         // Every gridded field on the pane, top of the draw order first.

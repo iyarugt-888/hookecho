@@ -1,7 +1,7 @@
 # Column user products — first evidence (M3.3)
 
 These two renders come from the explicit GPU check
-`headless::corpus::pinned_column_product_renders_where_its_cells_are`, run on Linux with Mesa
+`headless::corpus::gpu_column_product_renders_where_its_cells_are`, run on Linux with Mesa
 llvmpipe (LLVM 20.1.2, Vulkan, software rasterizer), 384 × 384 at zoom 8.0 centred on KPAH. The
 input is the committed real partial Mayfield volume
 (`crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2`, a modified NOAA/Unidata subset

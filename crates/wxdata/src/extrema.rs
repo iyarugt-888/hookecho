@@ -55,6 +55,10 @@ pub enum Merge {
     /// The sweep does not describe the same beam as the accumulator, so nothing was merged and
     /// the caller should start over from this frame. Carries why, for the layer's status line.
     Reset(Mismatch),
+    /// The frame is older than the newest held and does not describe the same beam: it was left
+    /// out and the trail kept. The newest beam decides what the trail is, so the same frames give
+    /// the same trail whatever order they arrive in. ([`SlidingTrail::push`] only.)
+    Skipped(Mismatch),
 }
 
 /// Why two sweeps could not share a trail.
@@ -245,6 +249,19 @@ pub struct WindowTrail {
     pub coverage: Coverage,
 }
 
+impl WindowTrail {
+    /// The trail at `(lon, lat)`: the gate sample (value, geometry) and the time of the frame
+    /// that supplied it. `None` outside the sweep.
+    pub fn at_point(&self, lon: f64, lat: f64) -> Option<(crate::level2::GateSample, Option<i64>)> {
+        let s = self.sweep.sample_at(lon, lat)?;
+        let who = self
+            .sweep
+            .index_at(lon, lat)
+            .and_then(|i| self.contributor.get(i).copied().flatten());
+        Some((s, who))
+    }
+}
+
 /// An exact sliding-window trail (ROADMAP_PARITY M3.4): the frames of the last `window_s`
 /// seconds are kept (at most `max_frames`, oldest dropped first), and the trail as of any moment
 /// is recomputed from those inside the window. So advancing past the strongest old frame removes
@@ -283,11 +300,29 @@ impl SlidingTrail {
         self.frames.is_empty()
     }
 
+    /// The times of the frames held, oldest first.
+    pub fn times(&self) -> impl Iterator<Item = i64> + '_ {
+        self.frames.iter().map(|(t, _)| *t)
+    }
+
+    /// Keep only frames inside the window ending at `now`. A trail anchored to a scrubbed
+    /// playhead calls this before adding the frames it lacks, so a backward seek drops the frames
+    /// after the playhead rather than letting them push the older ones it now needs out of
+    /// [`Self::push`]'s window-behind-the-newest bound.
+    pub fn retain_window(&mut self, now: i64) {
+        let from = now - self.window_s;
+        self.frames.retain(|(t, _)| *t >= from && *t <= now);
+    }
+
     /// Add the frame scanned at `time` (seconds since the epoch). A frame at a time already held
-    /// replaces it; one that does not describe the same beam resets the trail to it.
+    /// replaces it. One that does not describe the same beam resets the trail to it when it is
+    /// the newest, and is skipped when it is older (a backward scrub across a VCP change).
     pub fn push(&mut self, time: i64, sweep: &BinnedSweep) -> Merge {
         if let Some((_, held)) = self.frames.first() {
             if let Some(why) = mismatch(held, sweep) {
+                if self.frames.last().is_some_and(|(newest, _)| time < *newest) {
+                    return Merge::Skipped(why);
+                }
                 self.frames.clear();
                 self.frames.push((time, start(sweep)));
                 self.last_reset = Some(why);
@@ -703,6 +738,121 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A scrub back past the newest frame, as the app drives it: retain the window ending at the
+    /// playhead, add the frames it lacks, read it as of the playhead. The answer must be exactly
+    /// the one a trail built fresh at that playhead gives, whatever was held before.
+    #[test]
+    fn a_backward_scrub_rebuilds_exactly_what_a_fresh_trail_gives() {
+        let frames: Vec<(i64, BinnedSweep)> = (0..10)
+            .map(|k| {
+                (
+                    300 * k as i64,
+                    frame(move |i| ((k * 37 + i * 11) % 250) as u8 + 2),
+                )
+            })
+            .collect();
+        let window = 1_200;
+        let drive = |t: &mut SlidingTrail, now: i64| {
+            t.retain_window(now);
+            for (ft, f) in frames
+                .iter()
+                .filter(|(ft, _)| *ft <= now && *ft >= now - window)
+            {
+                if !t.times().any(|h| h == *ft) {
+                    t.push(*ft, f);
+                }
+            }
+            t.at(now).unwrap()
+        };
+        let mut live = SlidingTrail::new(Extremum::Max, window, 64);
+        drive(&mut live, 2_700); // played to the end
+        for now in [1_800, 600, 2_100, 0, 2_700] {
+            let scrubbed = drive(&mut live, now);
+            let fresh = drive(&mut SlidingTrail::new(Extremum::Max, window, 64), now);
+            assert_eq!(scrubbed.sweep.data, fresh.sweep.data, "values at {now}");
+            assert_eq!(scrubbed.contributor, fresh.contributor, "times at {now}");
+            assert_eq!(scrubbed.coverage, fresh.coverage, "coverage at {now}");
+            assert!(live.times().all(|t| t <= now && t >= now - window));
+        }
+    }
+
+    /// Frames from two different beams (a VCP change moved the cut) in any arrival order end in
+    /// the same trail: the newest beam's frames, as the app's retry loop drives it.
+    #[test]
+    fn mixed_beams_converge_to_the_newest_beams_trail_in_any_order() {
+        let mut other = frame(|_| 240);
+        other.elevation_deg = 0.9;
+        let frames: Vec<(i64, BinnedSweep)> = vec![
+            (0, frame(|_| 100)),
+            (300, other.clone()),
+            (600, frame(|_| 120)),
+            (900, frame(|_| 110)),
+        ];
+        let orders: [[usize; 4]; 4] = [[0, 1, 2, 3], [3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1]];
+        let mut results = Vec::new();
+        for order in orders {
+            let mut t = SlidingTrail::new(Extremum::Max, 3_600, 16);
+            let mut skipped = std::collections::HashSet::new();
+            // The app's loop: every frame not held and not skipped is offered again next round.
+            for _ in 0..4 {
+                for &k in &order {
+                    let (ft, f) = &frames[k];
+                    if t.times().any(|h| h == *ft) || skipped.contains(ft) {
+                        continue;
+                    }
+                    match t.push(*ft, f) {
+                        Merge::Skipped(_) => {
+                            skipped.insert(*ft);
+                        }
+                        Merge::Reset(_) => skipped.clear(),
+                        Merge::Merged => {}
+                    }
+                }
+            }
+            let w = t.at(900).unwrap();
+            results.push((t.times().collect::<Vec<_>>(), w.sweep.data.clone()));
+        }
+        for r in &results[1..] {
+            assert_eq!(r, &results[0]);
+        }
+        assert_eq!(
+            results[0].0,
+            vec![0, 600, 900],
+            "the 0.9° frame is left out"
+        );
+        assert!(results[0].1.iter().all(|&c| c == 120));
+    }
+
+    #[test]
+    fn a_point_reads_its_gate_and_the_frame_that_supplied_it() {
+        let mut t = SlidingTrail::new(Extremum::Max, 3_600, 8);
+        t.push(100, &frame(|i| if i == 5 { 200 } else { 50 }));
+        t.push(400, &frame(|_| 120));
+        let w = t.at(400).unwrap();
+        // Every gate's lookup agrees with the raster: the same index the value came from.
+        let s = &w.sweep;
+        let mut hits = 0;
+        for bin in 0..AZ {
+            for gate in 0..GATES {
+                let az = (bin as f64 + 0.5) * 360.0 / AZ as f64;
+                let ground = (gate as f64 + 0.5) * s.gate_interval_km as f64;
+                let (lat0, lon0) = (s.radar_lat as f64, s.radar_lon as f64);
+                let dlat = ground * az.to_radians().cos() / 111.2;
+                let dlon = ground * az.to_radians().sin() / (111.2 * lat0.to_radians().cos());
+                let Some(i) = s.index_at(lon0 + dlon, lat0 + dlat) else {
+                    continue;
+                };
+                let (sample, who) = w.at_point(lon0 + dlon, lat0 + dlat).unwrap();
+                assert_eq!(who, w.contributor[i]);
+                let code = s.data[i];
+                assert_eq!(sample.value.is_some(), code >= 2);
+                assert_eq!(who, Some(if code == 200 { 100 } else { 400 }));
+                hits += 1;
+            }
+        }
+        assert!(hits >= AZ * GATES / 2, "only {hits} gates located");
     }
 
     #[test]

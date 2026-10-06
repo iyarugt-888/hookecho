@@ -52,6 +52,9 @@ struct Radar {
 @group(1) @binding(1) var sweep_tex: texture_2d<u32>;
 @group(1) @binding(2) var lut_tex: texture_2d<f32>;
 @group(1) @binding(3) var precip_flag_tex: texture_2d<u32>;
+// Per-gate display opacity, 255 = opaque (a trail's age fade). A 1×1 dummy when unused: read only
+// when its size is the sweep's. It scales alpha and never changes which colour a value gets.
+@group(1) @binding(4) var gate_alpha_tex: texture_2d<u32>;
 
 struct VsIn { @location(0) world: vec2<f32> };
 struct VsOut {
@@ -193,6 +196,17 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         color = textureLoad(lut_tex, vec2<i32>(i32(round(rawf)), row), 0);
     }
     if (color.a == 0.0) { discard; }
+
+    let alpha_dims = textureDimensions(gate_alpha_tex);
+    if (i32(alpha_dims.x) == i32(radar.gate_count) && i32(alpha_dims.y) == nbins) {
+        let ga = textureLoad(
+            gate_alpha_tex,
+            vec2<i32>(i32(gate_f), ((i32(az_bin) % nbins) + nbins) % nbins),
+            0,
+        ).r;
+        color = vec4<f32>(color.rgb, color.a * f32(ga) / 255.0);
+        if (color.a == 0.0) { discard; }
+    }
 
     // Mark carried-over data. Without this the display is honest about *where* echo is but not
     // about *when* it was measured: a wedge from the previous rotation looks exactly like the
