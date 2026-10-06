@@ -51,8 +51,9 @@ pub const INFLOW_KM: f64 = 40.0;
 pub const HIGH: f64 = 0.9;
 /// Under this inflow STP a Possible Tornado ID verdict is not shown
 /// ([`crate::llsd_analyst::VerdictOptions::environment`]). On eight random years of severe-weather
-/// windows it took the app's false markers from 0.56 to 0.31 per radar-hour, fewer in every year,
-/// at POD 0.38 to 0.33; on four random tornado samples it cost at most a point of POD
+/// windows it took the app's false markers from 0.56 to 0.32 per radar-hour at POD 0.38 to 0.33
+/// (0.31 with the STP shear term SPC's fixed-layer STP does not use, which it was first measured
+/// with); on four random tornado samples it cost at most a point of POD
 /// (detectionplan.md, "The near-storm environment").
 pub const GATE_STP: f32 = 0.25;
 
@@ -568,7 +569,7 @@ mod tests {
         let s = hour(MOIST).sample(-98.0, 35.5).unwrap();
         assert_eq!(
             s.summary(),
-            "STP 4.0 \u{b7} 0\u{2013}1 km helicity 300 m\u{b2}/s\u{b2} \u{b7} CAPE 3000 J/kg \u{b7} \
+            "STP 6.0 \u{b7} 0\u{2013}1 km helicity 300 m\u{b2}/s\u{b2} \u{b7} CAPE 3000 J/kg \u{b7} \
              cloud base 900 m \u{b7} 0\u{2013}6 km shear 30 m/s"
         );
     }

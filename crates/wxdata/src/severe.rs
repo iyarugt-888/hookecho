@@ -52,8 +52,8 @@ pub fn lapse_rate(t_lo: f64, z_lo: f64, t_hi: f64, z_hi: f64) -> f64 {
     (t_lo - t_hi) / dz_km
 }
 
-/// Shear term shared by STP and SCP: zero below 10 m/s, capped at 1.0 above 20 m/s.
-fn shear_term(shear6_ms: f64) -> f64 {
+/// SCP's shear term: zero below 10 m/s, capped at 1.0 above 20 m/s.
+fn scp_shear_term(shear6_ms: f64) -> f64 {
     if shear6_ms < 10.0 {
         0.0
     } else {
@@ -61,16 +61,27 @@ fn shear_term(shear6_ms: f64) -> f64 {
     }
 }
 
+/// STP's shear term as SPC computes it (Thompson et al. 2012), the same as the effective-layer
+/// STP's below: zero below 12.5 m/s, capped at 1.5 above 30 m/s. The fixed-layer STP once used
+/// SCP's, which read deep-shear environments a third low and kept 10-12.5 m/s ones in.
+fn stp_shear_term(shear6_ms: f64) -> f64 {
+    if shear6_ms < 12.5 {
+        0.0
+    } else {
+        (shear6_ms / 20.0).min(1.5)
+    }
+}
+
 /// Significant Tornado Parameter (fixed layer). Shared with the point sounding, which calls this
 /// rather than keeping a second copy of the constants.
 pub fn stp(sbcape: f64, srh1: f64, shear6_ms: f64, lcl_agl_m: f64) -> f64 {
     let lcl_term = ((2000.0 - lcl_agl_m) / 1000.0).clamp(0.0, 1.0);
-    (sbcape / 1500.0) * (srh1.max(0.0) / 150.0) * shear_term(shear6_ms) * lcl_term
+    (sbcape / 1500.0) * (srh1.max(0.0) / 150.0) * stp_shear_term(shear6_ms) * lcl_term
 }
 
 /// Supercell Composite Parameter, shared with the point sounding.
 pub fn scp(sbcape: f64, srh3: f64, shear6_ms: f64) -> f64 {
-    (sbcape / 1000.0) * (srh3.max(0.0) / 50.0) * shear_term(shear6_ms)
+    (sbcape / 1000.0) * (srh3.max(0.0) / 50.0) * scp_shear_term(shear6_ms)
 }
 
 /// Energy-Helicity Index over 0–1 km, shared with the point sounding.
@@ -537,10 +548,23 @@ mod tests {
     }
 
     #[test]
+    fn stp_weighs_deep_shear_to_thirty_metres_a_second_and_scp_to_twenty() {
+        let (s25, s30, s40) = (
+            stp(1500.0, 150.0, 25.0, 1000.0),
+            stp(1500.0, 150.0, 30.0, 1000.0),
+            stp(1500.0, 150.0, 40.0, 1000.0),
+        );
+        assert!((s25 - 1.25).abs() < 1e-9 && (s30 - 1.5).abs() < 1e-9 && s40 == s30);
+        assert_eq!(scp(1000.0, 50.0, 30.0), scp(1000.0, 50.0, 20.0));
+    }
+
+    #[test]
     fn terms_zero_out() {
-        // Shear below 10 m/s kills STP and SCP outright.
+        // Shear below 10 m/s kills STP and SCP outright; below 12.5 m/s, STP.
         assert_eq!(stp(4000.0, 400.0, 8.0, 500.0), 0.0);
         assert_eq!(scp(4000.0, 400.0, 8.0), 0.0);
+        assert_eq!(stp(4000.0, 400.0, 12.0, 500.0), 0.0);
+        assert!(scp(4000.0, 400.0, 12.0) > 0.0);
         // An LCL at/above 2 km kills STP.
         assert_eq!(stp(4000.0, 400.0, 20.0, 2400.0), 0.0);
         // Negative (anticyclonic) helicity contributes nothing.
