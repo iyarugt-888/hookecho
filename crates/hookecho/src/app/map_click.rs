@@ -512,16 +512,13 @@ impl HookEchoApp {
                             None => {
                                 // Warnings/watches open the warning window (deduped by alert id
                                 // across MultiPolygon parts); other features use the generic popup.
-                                let mut hits = overlay::hit_all(&self.overlays, lon, lat);
                                 // An imported layer hidden below its minimum zoom is not
                                 // there to click either.
-                                if !self
-                                    .settings
-                                    .imported_gis_style
-                                    .visible_at(self.views[self.active].camera.zoom)
-                                {
-                                    hits.retain(|f| f.kind != overlay::FeatureKind::Imported);
-                                }
+                                let hits = self.overlay_hits(
+                                    lon,
+                                    lat,
+                                    self.views[self.active].camera.zoom,
+                                );
                                 let mut seen = std::collections::HashSet::new();
                                 let mut cards: Vec<ui::warning_window::WarnCard> = hits
                                     .iter()

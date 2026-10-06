@@ -105,18 +105,15 @@ impl HookEchoApp {
                             name
                         }),
                     };
-                    let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
-                    let n = shapes.len() + marks.len();
-                    self.imported_gis = shapes;
-                    self.imported_marks = marks;
-                    self.imported_colors = None;
-                    self.imported_time = None;
-                    self.show_imported_gis = true;
-                    self.rebuild_overlays();
-                    self.settings.imported_gis = remembered.ok();
+                    // A layer of its own beside any already imported, or the same file's layer
+                    // refreshed with its settings kept (ROADMAP_PARITY M4.1). A browser file whose
+                    // text could not be kept still shows for this session, by its name.
+                    let source = remembered.unwrap_or_else(|_| import.name());
+                    let id = self.add_gis_import(source, loaded.features);
+                    let n = self.gis_loaded(id).map_or(0, |l| l.len());
                     // Framing the import is the difference between "nothing happened" and
                     // "there it is" for a file covering somewhere the map isn't looking.
-                    self.zoom_to_imported_gis();
+                    self.zoom_to_gis(Some(id));
                     let mut message = format!("Imported {n} shapes from {}", import.name());
                     if let Some(note) = &loaded.note {
                         message.push_str(&format!(" — {note}"));

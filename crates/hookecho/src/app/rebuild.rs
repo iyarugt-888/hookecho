@@ -180,37 +180,16 @@ impl HookEchoApp {
         if self.show_fires {
             v.extend(self.fire_perims.iter().cloned());
         }
-        if self.show_imported_gis {
-            let style = self.settings.imported_gis_style;
-            self.refresh_imported_colors();
-            let colors = self.imported_colors.as_ref().map(|(_, c, _)| c);
-            let src = &self.imported_marks.shape_src;
-            let shown = |i: usize| {
-                self.imported_shown
-                    .as_ref()
-                    .is_none_or(|m| src.get(i).and_then(|&s| m.get(s)).copied().unwrap_or(true))
-            };
-            let imported = self
-                .imported_gis
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| shown(i))
-                .map(|(i, feature)| {
-                    let mut feature = feature.clone();
-                    let mut style = style;
-                    if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
-                        style.color = c;
-                    }
-                    crate::gis_import::apply_style(&mut feature, style);
-                    feature
-                });
-            // The list is painted in order: first is underneath (I4 z-order).
-            if self.settings.imported_gis_below {
-                v.splice(0..0, imported);
-            } else {
-                v.extend(imported);
-            }
-        }
+        // Imported GIS layers (ROADMAP_PARITY M4.1), each in its own place in the paint order:
+        // first is underneath, and a layer set to draw under the official products goes first.
+        let [below, above] = self.gis_overlay_parts();
+        let official = v.len();
+        let mut layer_of: Vec<Option<u64>> = below.iter().map(|(_, id)| Some(*id)).collect();
+        layer_of.extend(std::iter::repeat_n(None, official));
+        layer_of.extend(above.iter().map(|(_, id)| Some(*id)));
+        v.splice(0..0, below.into_iter().map(|(f, _)| f));
+        v.extend(above.into_iter().map(|(f, _)| f));
+        self.overlay_layer = layer_of;
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);
     }

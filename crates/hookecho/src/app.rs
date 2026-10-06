@@ -85,6 +85,7 @@ mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
 mod detector_markers;
+mod gis_layers;
 mod loop_capture;
 mod map_click;
 mod map_volume;
@@ -1428,7 +1429,7 @@ pub struct HookEchoApp {
     built_gen: u64,
     built_zoom_bucket: i32,
     /// Whether the imported GIS layer was above its minimum zoom at the last tessellation (I4).
-    built_imported_visible: bool,
+    built_imported_visible: u64,
     built_theme: crate::settings::Theme,
     /// Whether the overlay geometry was split for the globe.
     built_globe: bool,
@@ -1963,23 +1964,17 @@ pub struct HookEchoApp {
     fire_incidents: Vec<wxdata::wfigs::FireIncident>,
     fire_bounds: Option<(f64, f64, f64, f64)>,
     fire_last_fetch: Option<Instant>,
-    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON or Shapefile (converted by `gis_import`,
-    /// see that module's own doc comment) — no fetch/clock fields the way the feed-backed layers
-    /// above have, since there is no feed to refresh, only the one file the user picked.
+    /// The master switch for every imported GIS layer (session only); each layer's own
+    /// visibility is in `settings.gis_layers`.
     show_imported_gis: bool,
-    imported_gis: Vec<GeoFeature>,
-    /// The imported points and lines, which `GeoFeature`'s rings-only shape cannot hold — painted
-    /// directly by `render_pane` beside the freehand annotation strokes.
-    imported_marks: crate::gis_import::Marks,
-    /// The imported features' colours by `settings.imported_gis_color_by` and their legend,
-    /// for the attribute they were computed for; cleared on import.
-    imported_colors: Option<crate::gis_import::ColoredBy>,
-    /// The imported features' valid windows for the mapped start/end attributes (I5), for the
-    /// attributes they were read with; cleared on import.
-    imported_time: Option<ImportedTime>,
-    /// Which imported features are valid at the view's time; `None` when no time attribute is
-    /// mapped, which shows them all.
-    imported_shown: Option<Vec<bool>>,
+    /// What was read from each imported GIS layer's file (ROADMAP_PARITY M4.1), by layer ID.
+    gis: Vec<gis_layers::LoadedGis>,
+    /// Per `overlays` entry, the imported layer it came from (`None`: an official product).
+    overlay_layer: Vec<Option<u64>>,
+    /// The layer the Layer Manager is editing.
+    gis_selected: Option<u64>,
+    /// The layer settings the overlays were last assembled for, hashed.
+    gis_settings_key: u64,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -4803,45 +4798,6 @@ impl HookEchoApp {
         }
     }
 
-    /// Keep the imported features' time filter (I5) in step with the view's time, rebuilding
-    /// the overlays only when the set of valid features actually changes.
-    fn sync_imported_time(&mut self) {
-        let keys = (
-            self.settings.imported_gis_time_start.clone(),
-            self.settings.imported_gis_time_end.clone(),
-        );
-        if keys == (None, None) || self.imported_marks.props.is_empty() {
-            if self.imported_shown.take().is_some() {
-                self.rebuild_overlays();
-            }
-            return;
-        }
-        if self.imported_time.as_ref().is_none_or(|(k, _)| *k != keys) {
-            let bounds = crate::gis_import::time_bounds(
-                &self.imported_marks,
-                keys.0.as_deref(),
-                keys.1.as_deref(),
-            );
-            self.imported_time = Some((keys, bounds));
-        }
-        let Some((_, bounds)) = &self.imported_time else {
-            return;
-        };
-        let t = self.view_target_time().unwrap_or_else(Utc::now);
-        let shown = crate::gis_import::shown_at(bounds, t);
-        if self.imported_shown.as_ref() != Some(&shown) {
-            self.imported_shown = Some(shown);
-            self.rebuild_overlays();
-        }
-    }
-
-    /// Whether imported feature `src` is valid at the view's time (always, with no time filter).
-    fn imported_valid(&self, src: Option<&usize>) -> bool {
-        self.imported_shown
-            .as_ref()
-            .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
-    }
-
     /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
     /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
     /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
@@ -4933,23 +4889,6 @@ impl HookEchoApp {
             .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme))
             .unwrap_or_else(|| crate::colormap::ramp_table(lo, hi));
         Some((table, name.clone(), units))
-    }
-
-    /// Recompute the imported features' colours when the colouring attribute changed.
-    fn refresh_imported_colors(&mut self) {
-        let Some(key) = self.settings.imported_gis_color_by.clone() else {
-            self.imported_colors = None;
-            return;
-        };
-        if self
-            .imported_colors
-            .as_ref()
-            .is_some_and(|(k, _, _)| *k == key)
-        {
-            return;
-        }
-        let (colors, legend) = crate::gis_import::color_by(&self.imported_marks, &key);
-        self.imported_colors = Some((key, colors, legend));
     }
 
     /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
@@ -5176,7 +5115,7 @@ impl HookEchoApp {
         // Turning the globe on or off re-tessellates: its overlays are split to bend with it.
         let theme_changed =
             self.settings.theme != self.built_theme || self.settings.globe != self.built_globe;
-        let imported_visible = self.settings.imported_gis_style.visible_at(zoom);
+        let imported_visible = self.gis_zoom_key(zoom);
         let imported_flipped = imported_visible != self.built_imported_visible;
         if should_retess(
             self.gesture_live,
@@ -5184,12 +5123,11 @@ impl HookEchoApp {
             bucket != self.built_zoom_bucket || theme_changed || imported_flipped,
         ) {
             self.built_imported_visible = imported_visible;
-            let mut geom = overlay_build::build_with_theme_and_imported_width(
+            let mut geom = overlay_build::build_layered(
                 &self.overlays,
                 zoom,
                 self.settings.theme,
-                self.settings.imported_gis_style.rendered_stroke_width(),
-                imported_visible,
+                &self.overlay_imported_px(zoom),
             );
             let pf: Vec<(&wxdata::placefile::PlaceItem, f32)> = self
                 .visible_placefile_iter()
@@ -6718,14 +6656,12 @@ impl HookEchoApp {
         // Imported GIS points and lines (ROADMAP_NEW I1). The polygon half of an import rides the
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
-        let imported_shown =
-            self.show_imported_gis && self.settings.imported_gis_style.visible_at(cam.zoom);
-        self.paint_imported_marks(&painter, prect, cam, vp, imported_shown);
+        self.paint_gis_marks(&painter, prect, cam, vp);
         // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
         // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
         // file reads as a scatter of names rather than an unreadable smear, and more appear as
         // the map zooms in.
-        self.paint_imported_labels(&painter, prect, cam, vp, imported_shown);
+        self.paint_gis_labels(&painter, prect, cam, vp);
 
         // Saved watch zones, plus the one being clicked out right now.
         {
@@ -7249,81 +7185,6 @@ impl HookEchoApp {
         }
     }
 
-    /// Bring back the GeoJSON import this user last chose, at startup. Silent when there is none.
-    ///
-    /// A file that has since moved or been deleted is reported rather than swallowed: the layer
-    /// simply not being there is otherwise indistinguishable from the app having forgotten it,
-    /// and the person is the only one who can fix a missing file. The reference is kept either
-    /// way — a path on a drive that is merely not mounted right now should come back next time,
-    /// not be quietly forgotten because of one failed launch.
-    fn reload_imported_gis(&mut self) {
-        let Some(key) = self.settings.imported_gis.clone() else {
-            return;
-        };
-        // A browser's remembered content is text (a shapefile or KMZ there was stored as
-        // GeoJSON, a KML as itself); a path is read whichever format it is, a shapefile picking
-        // up its .dbf and .prj again.
-        let loaded = match self.settings.web_files.get(&key) {
-            Some(text) if crate::gis_import::is_kml(&key) => crate::gis_import::load_kml(text),
-            Some(text) => crate::gis_import::load_geojson(text),
-            None => crate::gis_import::load_path(&key),
-        };
-        match loaded {
-            Ok(loaded) => {
-                let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
-                self.imported_gis = shapes;
-                self.imported_marks = marks;
-                self.imported_colors = None;
-                self.imported_time = None;
-                // The remembered layer should actually come back, not merely sit loaded and
-                // invisible until the user rediscovers its toggle after every restart.
-                self.show_imported_gis = true;
-                self.rebuild_overlays();
-            }
-            Err(e) => {
-                let name = self.settings.imported_gis.clone().unwrap_or_default();
-                log::warn!("could not reload the imported GIS file {name}: {e}");
-                self.toast(
-                    ToastKind::Error,
-                    format!("Couldn't reload your imported shapes from {name}: {e}"),
-                );
-            }
-        }
-    }
-
-    /// Frame the active pane on everything the last GeoJSON import brought in. A file covering
-    /// somewhere the map isn't currently looking otherwise imports to no visible effect at all —
-    /// the shapes are real, just off-screen.
-    fn zoom_to_imported_gis(&mut self) {
-        let Some((west, south, east, north)) =
-            crate::gis_import::bounds(&self.imported_gis, &self.imported_marks)
-        else {
-            self.toast(
-                ToastKind::Error,
-                "No imported shapes to zoom to".to_string(),
-            );
-            return;
-        };
-        let view = &mut self.views[self.active];
-        let (center_lon, center_lat) = ((west + east) / 2.0, (south + north) / 2.0);
-        // Span in world units rather than degrees: latitude degrees do not have a constant world
-        // height under Mercator, so fitting on degrees would overshoot badly away from the equator.
-        let (x0, y0) = crate::render::mercator::lonlat_to_world(west, north);
-        let (x1, y1) = crate::render::mercator::lonlat_to_world(east, south);
-        let span = (x1 - x0).abs().max((y1 - y0).abs());
-        // A single point (or a shape smaller than a pixel) has no span to fit; a fixed
-        // neighbourhood-scale zoom is the only sensible answer there.
-        let zoom = if span > 1e-9 {
-            // `2^zoom` tiles span the world per axis, so fitting `span` of the world into the
-            // viewport means `2^zoom * span` tiles across it. Back off one notch so the outermost
-            // shapes sit inside the edge rather than exactly on it.
-            (1.0 / span).log2().clamp(1.0, 14.0) - 0.5
-        } else {
-            10.0
-        };
-        view.camera = crate::render::mercator::Camera::at_lonlat(center_lon, center_lat, zoom);
-    }
-
     /// ROADMAP_NEW I6: write everything currently drawn on the map out as one GeoJSON file.
     ///
     /// Deliberately "what is on the map" rather than "everything fetched": `self.overlays` is
@@ -7372,8 +7233,12 @@ impl HookEchoApp {
             .text()
             .and_then(|s| crate::settings::Settings::import_bundle(&s))
         {
-            Ok(settings) => {
+            Ok(mut settings) => {
+                // A bundle written before M4.1 carries the one layer the old way.
+                settings.migrate_imported_gis();
                 self.settings = settings;
+                // The layers are reloaded from the bundle's own list (`sync_gis_layers`).
+                self.gis.clear();
                 self.toast(ToastKind::Success, "Settings imported");
             }
             Err(e) => {
@@ -7970,12 +7835,6 @@ fn compass8(deg: f64) -> &'static str {
     const N: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     N[(((deg.rem_euclid(360.0) + 22.5) / 45.0) as usize) % 8]
 }
-
-/// The imported features' valid windows and the start/end attributes they were read with.
-type ImportedTime = (
-    (Option<String>, Option<String>),
-    crate::gis_import::TimeBounds,
-);
 
 /// The HRRR isotherm-height surfaces: `(label, colour, heights in km MSL)` per level, and the run.
 type ModelIsotherms = (

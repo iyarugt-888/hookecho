@@ -87,29 +87,58 @@ impl HookEchoApp {
                     (l, name)
                 })
                 .collect();
-        let label_keys = if self.layer_window_open && self.settings.imported_gis.is_some() {
-            crate::gis_import::label_keys(&self.imported_marks)
-        } else {
-            Vec::new()
+        // The imported GIS layers (ROADMAP_PARITY M4.1): one row each, and the attributes,
+        // legend and time count of the one being edited.
+        let rows: Vec<ui::layer_window::GisRow> = self
+            .settings
+            .gis_layers
+            .iter()
+            .map(|c| {
+                let l = self.gis_loaded(c.id);
+                ui::layer_window::GisRow {
+                    id: c.id,
+                    features: l.map_or(0, |l| l.len()),
+                    error: l.and_then(|l| l.error.clone()),
+                }
+            })
+            .collect();
+        let edited = self
+            .gis_selected
+            .filter(|id| self.settings.gis_layer(*id).is_some())
+            .or_else(|| self.settings.gis_layers.last().map(|l| l.id));
+        let edited_layer = edited.and_then(|id| self.gis_loaded(id));
+        let label_keys = match edited_layer {
+            Some(l) if self.layer_window_open => crate::gis_import::label_keys(&l.marks),
+            _ => Vec::new(),
         };
-        let legend = self.imported_colors.as_ref().map(|(_, _, l)| l.clone());
-        let time_count = self
-            .imported_shown
-            .as_ref()
+        let legend = edited_layer.and_then(|l| l.colors.as_ref().map(|(_, _, g)| g.clone()));
+        let time_count = edited_layer
+            .and_then(|l| l.shown.as_ref())
             .map(|m| (m.iter().filter(|&&s| s).count(), m.len()));
+        let mut selected = edited;
         let imported = ui::layer_window::Imported {
+            rows: &rows,
             keys: &label_keys,
             legend: legend.as_ref(),
             time_count,
         };
-        if ui::layer_window::show(
+        let outcome = ui::layer_window::show(
             ctx,
             &mut self.layer_window_open,
             &mut self.settings,
             &active_fields,
             &imported,
+            &mut selected,
             &mut self.drawer,
-        ) {
+        );
+        self.gis_selected = selected;
+        if let Some(id) = outcome.remove {
+            self.remove_gis(id);
+        }
+        if let Some(id) = outcome.zoom {
+            self.zoom_to_gis(Some(id));
+        }
+        if outcome.changed {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
             // edits need a rebuild; placefile/field opacity changes also remain safely covered.
             self.rebuild_overlays();
@@ -1045,7 +1074,7 @@ impl HookEchoApp {
                 self.sync_pane(idx, ctx);
             }
         }
-        self.sync_imported_time();
+        self.sync_gis_layers();
         for idx in 0..self.views.len() {
             self.sync_isosurface(idx, ctx);
             self.prebuild_loop3d(idx, ctx);

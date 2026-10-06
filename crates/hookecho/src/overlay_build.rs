@@ -67,14 +67,28 @@ pub fn build_with_theme(
     build_with_theme_and_imported_width(features, zoom, theme, 1.6, true)
 }
 
-/// Theme-aware overlay build with a user-selected imported-GIS outline width. Official products
-/// retain the established 1.6 px edge; only `FeatureKind::Imported` reads this extra style.
+/// Theme-aware overlay build with one imported-GIS outline width for every imported feature.
+/// Official products retain the established 1.6 px edge.
 pub fn build_with_theme_and_imported_width(
     features: &[GeoFeature],
     zoom: f64,
     theme: crate::settings::Theme,
     imported_stroke_px: f32,
     show_imported: bool,
+) -> OverlayGeom {
+    let px = vec![show_imported.then_some(imported_stroke_px); features.len()];
+    build_layered(features, zoom, theme, &px)
+}
+
+/// Theme-aware overlay build where each imported feature reads its own layer's outline width
+/// (ROADMAP_PARITY M4.1): `imported_px[i]` for feature `i`, `None` leaving it out (its layer is
+/// below its minimum zoom), not drawing it transparent. Official products ignore it and keep
+/// the established 1.6 px edge; an imported feature past the end of `imported_px` is left out.
+pub fn build_layered(
+    features: &[GeoFeature],
+    zoom: f64,
+    theme: crate::settings::Theme,
+    imported_px: &[Option<f32>],
 ) -> OverlayGeom {
     let mut geom = OverlayGeom::default();
     let mut fill_tess = FillTessellator::new();
@@ -85,12 +99,13 @@ pub fn build_with_theme_and_imported_width(
     // should not make the polygon interior itself less accurate.
     let fill_opts = FillOptions::default().with_tolerance(px(1.6) * 0.5);
 
-    for f in features {
+    for (i, f) in features.iter().enumerate() {
+        let imported = imported_px.get(i).copied().flatten();
         // An imported layer below its minimum zoom (I4) is left out, not drawn transparent.
-        if !show_imported && f.kind == wxdata::overlay::FeatureKind::Imported {
+        if f.kind == wxdata::overlay::FeatureKind::Imported && imported.is_none() {
             continue;
         }
-        let stroke_w = px(feature_stroke_px(f.kind, imported_stroke_px));
+        let stroke_w = px(feature_stroke_px(f.kind, imported.unwrap_or(1.6)));
         let stroke_opts = StrokeOptions::default()
             .with_line_width(stroke_w)
             .with_tolerance(stroke_w * 0.5);
@@ -412,5 +427,43 @@ mod high_contrast_tests {
         let hidden = build_with_theme_and_imported_width(&[f], 6.0, theme, 1.6, false);
         assert!(!shown.indices.is_empty());
         assert!(hidden.indices.is_empty());
+    }
+
+    #[test]
+    fn each_imported_feature_reads_its_own_layers_width_and_zoom() {
+        let rings = vec![vec![
+            [-98.0, 35.0],
+            [-97.0, 35.0],
+            [-97.0, 36.0],
+            [-98.0, 35.0],
+        ]];
+        let (shapes, _) = crate::gis_import::to_renderable(vec![wxdata::gis::GisFeature {
+            geometry: wxdata::gis::Geometry::Polygon(rings),
+            properties: Default::default(),
+        }]);
+        let f = shapes[0].clone();
+        let theme = crate::settings::Theme::Dark;
+        let extent = |g: &OverlayGeom| {
+            let xs = g.vertices.iter().map(|v| v.world[0]);
+            xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min)
+        };
+        let thin = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(1.0)]);
+        let wide = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(6.0)]);
+        assert!(
+            extent(&wide) > extent(&thin),
+            "a wider layer outline reaches further"
+        );
+        // Two layers' copies of one shape: the hidden one is left out, the other drawn as its
+        // own layer says, exactly as if alone.
+        let both = build_layered(&[f.clone(), f.clone()], 6.0, theme, &[Some(1.0), None]);
+        assert_eq!(both.indices.len(), thin.indices.len());
+        assert_eq!(extent(&both), extent(&thin));
+        // An official feature does not read the imported widths.
+        let mut warning = f;
+        warning.kind = wxdata::overlay::FeatureKind::Warning;
+        let a = build_layered(std::slice::from_ref(&warning), 6.0, theme, &[None]);
+        let b = build_layered(std::slice::from_ref(&warning), 6.0, theme, &[Some(8.0)]);
+        assert_eq!(extent(&a), extent(&b));
+        assert!(!a.indices.is_empty());
     }
 }
