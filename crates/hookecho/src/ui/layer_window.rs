@@ -421,6 +421,13 @@ fn gis_layers(
         ));
     }
     changed |= ui
+        .checkbox(&mut layer.targets, "Impact targets")
+        .on_hover_text(
+            "List a storm's arrival and closest approach at this layer's points, and when its \
+             path enters each area, with the storm (named by the Label attribute)",
+        )
+        .changed();
+    changed |= ui
         .checkbox(
             &mut layer.below,
             "Draw under warnings, watches and outlooks",

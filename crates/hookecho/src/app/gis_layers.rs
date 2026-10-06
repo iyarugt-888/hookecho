@@ -121,6 +121,26 @@ impl LoadedGis {
     }
 }
 
+/// The most point and area targets one storm's arrivals are computed for: arrivals run every
+/// frame the storm's card is open, and an area entry walks the projection minute by minute.
+pub(crate) const MAX_POINT_TARGETS: usize = 2000;
+pub(crate) const MAX_AREA_TARGETS: usize = 200;
+
+/// A place a storm's arrival is computed for, from an imported layer marked as targets.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Target {
+    pub name: String,
+    pub layer: String,
+    pub shape: TargetShape,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TargetShape {
+    Point([f64; 2]),
+    /// An area's outer ring.
+    Area(Vec<[f64; 2]>),
+}
+
 /// Read a layer's source: a browser's remembered text (a shapefile or KMZ there was stored as
 /// GeoJSON, a KML as itself), or a path, read whichever format it is.
 fn load_source(
@@ -498,6 +518,72 @@ impl HookEchoApp {
             overlays: &self.official_overlays(),
             imported: &self.gis_export_features(),
         })
+    }
+
+    /// Every target from the layers marked as targets and shown, features valid at the view's
+    /// time, bounded by [`MAX_POINT_TARGETS`] and [`MAX_AREA_TARGETS`]; and how many were left
+    /// out past those bounds.
+    pub(crate) fn impact_targets(&self) -> (Vec<Target>, usize) {
+        let mut out = Vec::new();
+        let (mut points, mut areas, mut dropped) = (0, 0, 0);
+        for c in
+            self.settings.gis_layers.iter().filter(|c| {
+                c.targets && self.show_imported_gis && self.settings.gis_layer_shown(c.id)
+            })
+        {
+            let Some(l) = self.gis_loaded(c.id) else {
+                continue;
+            };
+            let name = |src: Option<&usize>, kind: &str| {
+                let props = src.and_then(|&s| l.marks.props.get(s));
+                let by_label = c
+                    .label
+                    .as_deref()
+                    .and_then(|k| crate::gis_import::label_text(props?, k));
+                by_label.unwrap_or_else(|| {
+                    props.map_or_else(
+                        || kind.to_string(),
+                        |p| crate::gis_import::props_title(p, kind),
+                    )
+                })
+            };
+            for (i, p) in l.marks.points.iter().enumerate() {
+                let src = l.marks.point_src.get(i);
+                if !l.valid(src) {
+                    continue;
+                }
+                if points == MAX_POINT_TARGETS {
+                    dropped += 1;
+                    continue;
+                }
+                points += 1;
+                out.push(Target {
+                    name: name(src, "Point"),
+                    layer: c.name.clone(),
+                    shape: TargetShape::Point(*p),
+                });
+            }
+            for (i, f) in l.shapes.iter().enumerate() {
+                let src = l.marks.shape_src.get(i);
+                let Some(ring) = f.rings.first().filter(|r| r.len() >= 3) else {
+                    continue;
+                };
+                if !l.valid(src) {
+                    continue;
+                }
+                if areas == MAX_AREA_TARGETS {
+                    dropped += 1;
+                    continue;
+                }
+                areas += 1;
+                out.push(Target {
+                    name: name(src, "Area"),
+                    layer: c.name.clone(),
+                    shape: TargetShape::Area(ring.clone()),
+                });
+            }
+        }
+        (out, dropped)
     }
 
     /// The overlays that are official products, not imported layers: an export writes imported

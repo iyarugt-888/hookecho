@@ -239,6 +239,9 @@ pub struct GisLayerConfig {
     pub below: bool,
     /// The named group it belongs to, if any.
     pub group: Option<String>,
+    /// Its points and areas are impact targets: a storm's arrival and closest approach at each
+    /// are listed with the storm (ROADMAP_PARITY M2.3), named by its label attribute.
+    pub targets: bool,
 }
 
 impl Default for GisLayerConfig {
@@ -255,6 +258,7 @@ impl Default for GisLayerConfig {
             time_end: None,
             below: false,
             group: None,
+            targets: false,
         }
     }
 }
@@ -2984,6 +2988,7 @@ mod tests {
                 time_end: None,
                 below: true,
                 group: Some("Boundaries".into()),
+                targets: true,
             }],
             gis_groups: vec![GisGroup {
                 name: "Boundaries".into(),

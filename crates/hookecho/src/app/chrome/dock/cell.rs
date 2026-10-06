@@ -408,6 +408,7 @@ impl HookEchoApp {
                 .cloned()
                 .unwrap_or_default();
             let circulations = self.cached_circulations(&name, &rot, &tds);
+            let (targets, targets_dropped) = self.impact_targets();
             let markers: Vec<(String, [f64; 2])> = self
                 .settings
                 .markers
@@ -426,6 +427,7 @@ impl HookEchoApp {
                 t0,
                 metric,
                 self.manual_tracks_for(&c).first().copied(),
+                (&targets, targets_dropped),
             )
         };
         let mut header = ws::HeaderAction::None;
@@ -583,7 +585,16 @@ impl HookEchoApp {
                                 if let Some(m) = &threat.motion {
                                     ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
+                                for (name, when, hot) in &threat.target_etas {
+                                    ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                }
+                                if let Some(n) = &threat.target_note {
+                                    ui.label(ws::text(n, 10.5, t.text_faint));
+                                }
                                 if let Some(m) = &threat.manual_motion {
+                                    for (name, when, hot) in &threat.manual_target_etas {
+                                        ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                    }
                                     if threat.manual_etas.is_empty() {
                                         ws::kv(ui, &t, "Manual", "no saved place ahead within 2 h", None);
                                     }
@@ -929,6 +940,63 @@ struct Threat {
     /// The same from a manual motion set for this storm, beside SCIT's, never merged with it.
     manual_etas: Vec<(String, String, bool)>,
     manual_motion: Option<String>,
+    /// Arrivals at the imported layers' impact targets (ROADMAP_PARITY M2.3), per motion: SCIT's,
+    /// then the manual one when set; and a note when targets were left out past the bounds.
+    target_etas: Vec<(String, String, bool)>,
+    manual_target_etas: Vec<(String, String, bool)>,
+    target_note: Option<String>,
+}
+
+/// Arrival at each impact target from `track`, in-path first then soonest: a point's arrival and
+/// closest approach as for a saved place; an area's entry by the storm's path, or contact by the
+/// uncertainty swath's edge only, said as such; an area it is already in, said as inside.
+fn target_arrivals(
+    track: &crate::app::storm_track::ManualTrack,
+    targets: &[crate::app::gis_layers::Target],
+    scan: chrono::DateTime<chrono::Utc>,
+    metric: bool,
+) -> Vec<(f64, String, String, bool)> {
+    use crate::app::gis_layers::TargetShape;
+    let points: Vec<(String, [f64; 2])> = targets
+        .iter()
+        .filter_map(|t| match t.shape {
+            TargetShape::Point(p) => Some((format!("{} ({})", t.name, t.layer), p)),
+            TargetShape::Area(_) => None,
+        })
+        .collect();
+    let mut out = arrivals(track, &points, scan, metric);
+    for t in targets {
+        let TargetShape::Area(ring) = &t.shape else {
+            continue;
+        };
+        let Some(z) = track.zone_eta(ring) else {
+            continue;
+        };
+        let when = track.t0 + chrono::Duration::seconds((z.minutes * 60.0) as i64);
+        let rel = (when - scan).num_seconds() as f64 / 60.0;
+        let at = if rel >= 0.0 {
+            format!("~{} (+{rel:.0} min)", when.format("%H:%MZ"))
+        } else {
+            format!(
+                "~{} ({:.0} min before this scan)",
+                when.format("%H:%MZ"),
+                -rel
+            )
+        };
+        let text = if z.grazes {
+            format!("{at} \u{b7} only the swath's edge reaches it")
+        } else if z.minutes == 0.0 {
+            format!(
+                "inside at the motion's time ({})",
+                track.t0.format("%H:%MZ")
+            )
+        } else {
+            format!("{at} \u{b7} path enters")
+        };
+        out.push((rel, format!("{} ({})", t.name, t.layer), text, !z.grazes));
+    }
+    out.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    out
 }
 
 /// Arrival at each saved place from `track`, soonest in-path first: `(minutes after the scan,
@@ -986,6 +1054,8 @@ fn threat_for(
     t0: chrono::DateTime<chrono::Utc>,
     metric: bool,
     manual: Option<&crate::app::storm_track::ManualTrack>,
+    // The impact targets, and how many were left out past their bounds.
+    (targets, targets_dropped): (&[crate::app::gis_layers::Target], usize),
 ) -> Threat {
     use crate::app::storm_track::{compass, distance, ManualTrack};
     let at = [c.lon, c.lat];
@@ -1063,6 +1133,25 @@ fn threat_for(
             .map(|(_, n, w, h)| (n, w, h))
             .collect()
     };
+    let eight = |v: Vec<(f64, String, String, bool)>| -> Vec<(String, String, bool)> {
+        v.into_iter()
+            .take(8)
+            .map(|(_, n, w, h)| (n, w, h))
+            .collect()
+    };
+    let target_etas = track
+        .as_ref()
+        .map(|t| target_arrivals(t, targets, t0, metric))
+        .unwrap_or_default();
+    let manual_target_etas = manual
+        .map(|m| target_arrivals(m, targets, t0, metric))
+        .unwrap_or_default();
+    let target_note = (targets_dropped > 0).then(|| {
+        format!(
+            "{targets_dropped} more targets beyond the first 2,000 points and 200 areas are not \
+             checked"
+        )
+    });
     Threat {
         probsevere,
         ambiguous: associations.ambiguous,
@@ -1072,6 +1161,9 @@ fn threat_for(
         motion,
         manual_etas: five(manual_etas),
         manual_motion,
+        target_etas: eight(target_etas),
+        manual_target_etas: eight(manual_target_etas),
+        target_note,
     }
 }
 
@@ -1142,6 +1234,7 @@ mod threat_tests {
             t0,
             false,
             None,
+            (&[], 0),
         );
         assert_eq!(th.tornado, None);
         assert_eq!(th.warnings, ["Tornado Warning (tornado observed)"]);
@@ -1172,9 +1265,61 @@ mod threat_tests {
             chrono::Utc::now(),
             true,
             None,
+            (&[], 0),
         );
         assert!(th.motion.is_none() && th.etas.is_empty());
         assert!(th.manual_motion.is_none() && th.manual_etas.is_empty());
+    }
+
+    /// An imported layer's targets: a point ahead gets its arrival, an area the path crosses gets
+    /// its entry, an area only the uncertainty swath's edge touches is said as such (and listed
+    /// after the ones in the path), and an area the storm is in is inside now.
+    #[test]
+    fn targets_get_arrivals_entries_and_edge_contact_said_apart() {
+        use crate::app::gis_layers::{Target, TargetShape};
+        use chrono::TimeZone;
+        let scan = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let c = cell(); // due east at 30 kt from 35N 97W
+        let track = crate::app::storm_track::ManualTrack::from_cell(&c, scan).unwrap();
+        let o = [c.lon, c.lat];
+        let at = |east_km: f64, north_km: f64| {
+            let p = crate::geo::destination_point(o, 90.0, east_km);
+            crate::geo::destination_point(p, 0.0, north_km)
+        };
+        let square = |e0: f64, e1: f64, n0: f64, n1: f64| {
+            vec![at(e0, n0), at(e1, n0), at(e1, n1), at(e0, n1)]
+        };
+        let target = |name: &str, shape| Target {
+            name: name.into(),
+            layer: "Sites".into(),
+            shape,
+        };
+        let targets = vec![
+            target("Siren", TargetShape::Point(at(28.0, 0.0))),
+            target("Town", TargetShape::Area(square(35.0, 45.0, -5.0, 5.0))),
+            target("Farm", TargetShape::Area(square(25.0, 35.0, 6.0, 12.0))),
+            target("Here", TargetShape::Area(square(-5.0, 5.0, -5.0, 5.0))),
+            target("Far", TargetShape::Area(square(30.0, 40.0, 60.0, 70.0))),
+        ];
+        let got = target_arrivals(&track, &targets, scan, true);
+        let find = |n: &str| got.iter().find(|r| r.1.starts_with(n));
+        let here = find("Here").expect("inside");
+        assert!(here.2.starts_with("inside") && here.3, "{here:?}");
+        let siren = find("Siren (Sites)").expect("point");
+        assert!(siren.2.contains("(+30 min)") && siren.3, "{siren:?}");
+        let town = find("Town").expect("area");
+        assert!(town.2.contains("path enters") && town.3, "{town:?}");
+        let farm = find("Farm").expect("edge");
+        assert!(
+            farm.2.contains("only the swath's edge") && !farm.3,
+            "{farm:?}"
+        );
+        assert!(find("Far (").is_none(), "out of reach: not listed");
+        assert_eq!(
+            got.last().unwrap().1,
+            "Farm (Sites)",
+            "edge contact after the path"
+        );
     }
 
     #[test]
@@ -1204,6 +1349,7 @@ mod threat_tests {
             scan,
             true,
             Some(&m),
+            (&[], 0),
         );
         // 30 km at 60 km/h is 30 min after it was set: 20 min after the scan.
         assert_eq!(th.manual_etas.len(), 1, "{:?}", th.manual_etas);

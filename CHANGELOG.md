@@ -17,6 +17,13 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: imported layers as impact targets
+
+Mark an imported GIS layer as "Impact targets" in the Layer Manager and the storm's Threat section
+lists when it reaches each of the layer's points and how close it passes, and when its path enters
+each of the layer's areas — or that only the edge of its uncertainty swath does — from SCIT's
+motion and from your manual motion when you have set one.
+
 ### Added: a ruler in the cross-section
 
 Turn on Ruler in the cross-section window and drag across the panel to measure: distance across,
