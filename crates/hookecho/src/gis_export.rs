@@ -39,6 +39,9 @@ pub(crate) struct MapContents<'a> {
     pub routes: &'a [wxdata::route::Route],
     pub route_selected: usize,
     pub route_engine: &'a str,
+    /// Model contour lines as written by the contour layer: each line with its field, level,
+    /// unit, model, run and valid time.
+    pub contours: &'a [GisFeature],
 }
 
 fn props(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String, Value> {
@@ -146,6 +149,7 @@ pub(crate) fn to_features(map: &MapContents<'_>) -> Vec<GisFeature> {
 
     out.extend(map.imported.iter().cloned());
     out.extend(map.tracks.iter().cloned());
+    out.extend(map.contours.iter().cloned());
 
     // Routes as the provider returned them: its road geometry, distance and time, unchanged.
     for (i, r) in map.routes.iter().enumerate() {
@@ -208,6 +212,7 @@ mod tests {
             routes: &[],
             route_selected: 0,
             route_engine: "",
+            contours: &[],
         }
     }
 

@@ -436,6 +436,7 @@ impl HookEchoApp {
             routes: &[],
             route_selected: 0,
             route_engine: "",
+            contours: &[],
         });
         entries.push((
             "annotations.geojson".into(),

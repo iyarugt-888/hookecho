@@ -1009,6 +1009,8 @@ Remaining open:
 
 **Evidence ledger — 2026-10-06, increment 4 (routes in the map export):** the map's GeoJSON export carries the planned routes as the routing provider returned them — its road geometry, distance (m) and duration (s) at full precision, its summary, the engine (OSRM/Valhalla) and which route was chosen — using the existing route data, not a new engine. A route with fewer than two points is left out. Test: `routes_export_with_their_distance_time_and_choice`; full workspace 2,386 passed, Clippy `-D warnings`, the WASM library check. Open: threshold/contour vectors with source/time/unit, QGIS reader reports.
 
+**Evidence ledger — 2026-10-06, increment 5 (contour vectors in the map export):** the map's GeoJSON export carries every active model contour layer's lines ([`contour_features`](crates/hookecho/src/app/contours.rs)), each as a WGS84 line with its field, level, display unit (null when the field has none — never guessed), model, run and valid time, in the layers' own order so the same map writes the same file. Lines of fewer than two points are left out. Test: `contour_lines_export_with_field_level_unit_and_times`; full workspace 2,387 passed, Clippy `-D warnings`, the WASM library check. Open: radar threshold outlines as vectors, QGIS reader reports, portable manifests packaging layer files.
+
 ### M5 — Synchronized weather context and presentation
 
 #### M5.1 — Support independent link groups and source contexts

@@ -608,6 +608,7 @@ impl HookEchoApp {
             routes: &self.route_window.routes,
             route_selected: self.route_window.selected,
             route_engine: self.settings.route_engine.label(),
+            contours: &self.contour_features(),
         })
     }
 

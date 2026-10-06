@@ -25,6 +25,9 @@ uncertainty swath, with the motion, the time it projects from and the storm it w
 The export also includes planned routes, with each one's road geometry, distance, driving time,
 routing service and which one you chose.
 
+Model contour lines on the map are exported too, each with its field, level, unit, model run and
+valid time.
+
 ### Added: filter an imported layer by its attributes
 
 Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it

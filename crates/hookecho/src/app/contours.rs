@@ -256,7 +256,64 @@ pub(crate) struct ContourEntry {
     pub fetched_key: Option<(wxdata::hrrr::Model, crate::settings::TempUnit)>,
 }
 
+/// One contour layer's lines as GeoJSON features (ROADMAP_PARITY M4.4): each line at its level,
+/// with the field, its display unit (absent when the field has none, never guessed), the model,
+/// its run and valid time. Coordinates are WGS84 `[lon, lat]`.
+pub(crate) fn contour_features(
+    field: &str,
+    unit: Option<&str>,
+    model: Option<&str>,
+    entry: &ContourEntry,
+) -> Vec<wxdata::gis::GisFeature> {
+    use serde_json::{Map, Value};
+    let time = |t: Option<DateTime<Utc>>| t.map_or(Value::Null, |t| Value::from(t.to_rfc3339()));
+    entry
+        .lines
+        .iter()
+        .filter(|l| l.pts.len() >= 2)
+        .map(|l| {
+            let mut p = Map::new();
+            p.insert("hookecho".into(), "contour".into());
+            p.insert("field".into(), field.into());
+            p.insert(
+                "level".into(),
+                serde_json::Number::from_f64(f64::from(l.level)).map_or(Value::Null, Value::Number),
+            );
+            p.insert("unit".into(), unit.map_or(Value::Null, Value::from));
+            p.insert("model".into(), model.map_or(Value::Null, Value::from));
+            p.insert("run".into(), time(entry.run));
+            p.insert("valid".into(), time(entry.valid));
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::LineString(
+                    l.pts.iter().map(|&(lon, lat)| [lon, lat]).collect(),
+                ),
+                properties: p,
+            }
+        })
+        .collect()
+}
+
 impl HookEchoApp {
+    /// Every active contour layer's lines, for the map's GeoJSON export.
+    pub(crate) fn contour_features(&self) -> Vec<wxdata::gis::GisFeature> {
+        let temp = self.settings.temp_unit;
+        let mut out = Vec::new();
+        // In the layers' own order, so the same map writes the same file.
+        for kind in &self.active_contours {
+            let Some(entry) = self.contours.get(kind) else {
+                continue;
+            };
+            let model = entry.fetched_key.map(|(m, _)| m.label());
+            out.extend(contour_features(
+                kind.label(),
+                kind.unit(temp),
+                model,
+                entry,
+            ));
+        }
+        out
+    }
+
     /// A contour fetch landed. Kept only if its kind is still active (it may have been turned
     /// off while the fetch was in flight), with its run and the time it arrived for the probe.
     pub(crate) fn contours_arrived(
@@ -304,6 +361,44 @@ pub(crate) fn contour_stamp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contour_lines_export_with_field_level_unit_and_times() {
+        let t = |h: u32| chrono::DateTime::from_timestamp(1_700_000_000 + i64::from(h) * 3600, 0);
+        let entry = ContourEntry {
+            lines: vec![
+                wxdata::contour::ContourLine {
+                    level: 1008.0,
+                    pts: vec![(-97.0, 35.0), (-96.5, 35.2)],
+                    bbox: (-97.0, 35.0, -96.5, 35.2),
+                },
+                wxdata::contour::ContourLine {
+                    level: 1012.0,
+                    pts: vec![(-97.0, 36.0)],
+                    bbox: (-97.0, 36.0, -97.0, 36.0),
+                },
+            ],
+            valid: t(1),
+            run: t(0),
+            received: None,
+            grid: None,
+            last_fetch: None,
+            fetched_key: None,
+        };
+        let f = contour_features("MSLP", Some("hPa"), Some("HRRR"), &entry);
+        assert_eq!(f.len(), 1, "a one-point line is left out");
+        let p = &f[0].properties;
+        assert_eq!(p["field"], "MSLP");
+        assert_eq!(p["level"], 1008.0);
+        assert_eq!(p["unit"], "hPa");
+        assert_eq!(p["model"], "HRRR");
+        assert_eq!(p["valid"], t(1).unwrap().to_rfc3339());
+        let none = contour_features("STP", None, None, &entry);
+        assert!(
+            none[0].properties["unit"].is_null(),
+            "no unit is said, not guessed"
+        );
+    }
 
     #[test]
     fn a_contour_is_stamped_once_its_grid_has_arrived() {
