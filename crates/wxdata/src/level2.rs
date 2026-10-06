@@ -1591,6 +1591,70 @@ pub fn newest_moment_sweep(scan: &Scan, elevation_deg: f32, moment: Moment) -> O
         .map(|(_, s)| s)
 }
 
+/// Every sweep at `tilt` that carries `moment`, oldest first, with when it finished (its latest
+/// radial's collection time, ms since the epoch; 0 for a source without timestamps). One for an
+/// ordinary tilt. Under SAILS or MRLE the lowest tilt is revisited partway through the volume, a
+/// median 1.8 minutes apart in the backtest's volumes, and each revisit is a pass of its own;
+/// [`bin_scan`] reads the newest, the last here.
+pub fn moment_cuts(scan: &Scan, moment: Moment, tilt: usize) -> Vec<(usize, i64)> {
+    let Some(&target) = elevation_angles(scan).get(tilt) else {
+        return Vec::new();
+    };
+    let mut cuts: Vec<(usize, i64)> = scan
+        .sweeps()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            s.elevation_angle_degrees()
+                .is_some_and(|e| (e - target).abs() < 0.15)
+                && sweep_carries_moment(s, moment)
+        })
+        .map(|(i, s)| {
+            let done = s
+                .radials()
+                .iter()
+                .filter(|r| moment.select(r).is_some())
+                .map(|r| r.collection_timestamp())
+                .max()
+                .unwrap_or(0);
+            (i, done)
+        })
+        .collect();
+    // Ties the way `newest_moment_sweep` breaks them, so the last pass is the one it reads.
+    cuts.sort_by_key(|&(i, done)| (done, std::cmp::Reverse(i)));
+    cuts
+}
+
+/// The pass of `moment` at `tilt` that finished nearest `ms` ([`moment_cuts`]): the reflectivity
+/// to read beside one velocity pass.
+pub fn nearest_cut(scan: &Scan, moment: Moment, tilt: usize, ms: i64) -> Option<usize> {
+    moment_cuts(scan, moment, tilt)
+        .into_iter()
+        .min_by_key(|&(_, done)| (done - ms).abs())
+        .map(|(i, _)| i)
+}
+
+/// Bin `scan.sweeps()[index]` for `moment`, as [`bin_scan_opts`] bins a tilt's newest pass: one
+/// pass of a repeated low cut ([`moment_cuts`]).
+pub fn bin_sweep_index(
+    scan: &Scan,
+    moment: Moment,
+    index: usize,
+    dealias: bool,
+) -> anyhow::Result<BinnedSweep> {
+    crate::stats::bump(crate::stats::Counter::SweepsBinned);
+    let sweep = scan
+        .sweeps()
+        .get(index)
+        .filter(|s| sweep_carries_moment(s, moment))
+        .ok_or_else(|| anyhow::anyhow!("sweep {index} carries no {}", moment.short_name()))?;
+    let (lat, lon) = scan
+        .site()
+        .map(|s| (s.latitude(), s.longitude()))
+        .ok_or_else(|| anyhow::anyhow!("scan has no site metadata"))?;
+    bin_sweep_opts_inner(sweep, moment, lat, lon, dealias, false, false)
+}
+
 /// Bin the lowest-elevation sweep of `scan` for `moment`.
 pub fn bin_lowest_sweep(scan: &Scan, moment: Moment) -> anyhow::Result<BinnedSweep> {
     bin_scan(scan, moment, 0)
@@ -2772,6 +2836,45 @@ mod tests {
             .expect("both sweeps carry reflectivity at 0.5 deg");
         assert_eq!(start.timestamp_millis(), 1_000);
         assert_eq!(end.timestamp_millis(), 2_010);
+    }
+
+    /// Each pass of a repeated low cut is listed oldest first, and the last is the one `bin_scan`
+    /// reads; a pass is found by time.
+    #[test]
+    fn a_repeated_low_cut_lists_each_pass_in_time_order() {
+        let refl_at = |ts: i64| {
+            let data = MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![106u8]);
+            Radial::new(
+                ts,
+                0,
+                0.0,
+                0.5,
+                nexrad_model::data::RadialStatus::ScanStart,
+                1,
+                0.5,
+                Some(data),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        // The SAILS revisit is stored first here, to show the order is by time, not by place.
+        let sails_cut = Sweep::new(1, vec![refl_at(90_000), refl_at(90_500)]);
+        let first_cut = Sweep::new(1, vec![refl_at(1_000), refl_at(1_500)]);
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        let scan = Scan::with_site(site, minimal_vcp(), vec![sails_cut, first_cut]);
+        let cuts = moment_cuts(&scan, Moment::Reflectivity, 0);
+        assert_eq!(cuts, vec![(1, 1_500), (0, 90_500)]);
+        let newest = newest_moment_sweep(&scan, 0.5, Moment::Reflectivity).unwrap();
+        assert!(std::ptr::eq(newest, &scan.sweeps()[cuts[1].0]));
+        assert_eq!(nearest_cut(&scan, Moment::Reflectivity, 0, 2_000), Some(1));
+        assert_eq!(nearest_cut(&scan, Moment::Reflectivity, 0, 80_000), Some(0));
+        assert!(moment_cuts(&scan, Moment::Velocity, 0).is_empty());
+        assert!(moment_cuts(&scan, Moment::Reflectivity, 5).is_empty());
+        assert!(bin_sweep_index(&scan, Moment::Velocity, 0, false).is_err());
     }
 
     /// Asking for a moment nothing at that elevation carries (velocity, on an all-reflectivity

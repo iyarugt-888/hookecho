@@ -42,14 +42,24 @@ def matched(r):
 
 
 def rates(name, rows, hours, truths, likely):
-    """False per radar-hour and truths found, at every row and at Likely and up."""
+    """False per radar-hour and truths found, at every row and at Likely and up. Where the rows
+    carry their track (`track_id`, markers since the SAILS steps), also false episodes: tracks
+    none of whose markers matched a truth, which do not multiply when the markers are drawn at
+    every low-level pass rather than once a volume."""
     for label, keep in (("all", lambda r: True), ("Likely+", likely)):
         kept = [r for r in rows if keep(r)]
         false = sum(1 for r in kept if not r["matched_truths"])
         found = {t for r in kept for t in matched(r)} & truths
+        episodes = ""
+        if kept and all(r.get("track_id") for r in kept):
+            tracks = collections.defaultdict(bool)
+            for r in kept:
+                tracks[(r["event"], r["track_id"])] |= bool(r["matched_truths"])
+            fe = sum(1 for v in tracks.values() if not v)
+            episodes = f"  false episodes {fe:4d} ({fe / hours:4.2f}/h)"
         print(f"  {name:9} {label:8} markers {len(kept):5d}  false {false:5d} "
               f"({false / hours:5.2f}/h)  found {len(found):4d} of {len(truths)} "
-              f"(POD {len(found) / max(len(truths), 1):.2f})")
+              f"(POD {len(found) / max(len(truths), 1):.2f}){episodes}")
 
 
 def f(r, k):

@@ -1278,18 +1278,13 @@ pub struct HookEchoApp {
         Vec<wxdata::llsd_analyst::Analysed>,
         Option<wxdata::level2::temporal::TemporalCoverage>,
     )>,
-    llsd_tracker: Option<(String, wxdata::rotation_tracks::Tracker)>,
+    /// The fused pipeline's tracking on the active site, fed once per low-level pass.
+    llsd_tracker: Option<detectors::LlsdTracking>,
     /// The HRRR hour beside the active volume, for the Tornado ID's environment gate.
     near_storm: near_storm::NearStormFeed,
     /// The background job computing one volume's columns (see `compute_llsd`).
     #[allow(clippy::type_complexity)]
-    llsd_job: Option<(
-        (usize, String, usize),
-        std::sync::mpsc::Receiver<(
-            Vec<wxdata::rotation_columns::RotationColumn>,
-            Option<wxdata::level2::temporal::TemporalCoverage>,
-        )>,
-    )>,
+    llsd_job: Option<((usize, String, usize), std::sync::mpsc::Receiver<detectors::LlsdJob>)>,
     /// When the sweeps behind `couplet_cache`'s couplets were scanned (`detection_lineage`).
     #[allow(clippy::type_complexity)]
     pub(crate) couplet_inputs: Option<(

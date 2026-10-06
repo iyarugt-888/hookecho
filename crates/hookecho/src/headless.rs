@@ -6010,6 +6010,14 @@ fn backtest_event(
         // on the markers, and each row's inflow STP. Off by default: it fetches from the HRRR
         // archive (cropped to this radar and cached with the volumes, so only once).
         let use_env = std::env::var("HOOKECHO_BACKTEST_HRRR").is_ok_and(|v| v == "1");
+        // Every low-level pass, as the app draws markers (`HOOKECHO_BACKTEST_SAILS=1`): under
+        // SAILS or MRLE the lowest tilt is revisited partway through the volume, and each earlier
+        // pass becomes a step of its own (tracked, and its markers drawn at its own time) before
+        // the volume's last pass, which every run reads; and a marker reads *likely* or stronger
+        // only from its track's second pass at that tier (`llsd_analyst::LikelyConfirmation`).
+        // Off, the volume's last pass alone, unconfirmed: the app as it was.
+        let use_sails = std::env::var("HOOKECHO_BACKTEST_SAILS").is_ok_and(|v| v == "1");
+        let mut likely = wxdata::llsd_analyst::LikelyConfirmation::default();
         let http = reqwest::Client::new();
         let mut env_hours: std::collections::HashMap<i64, Option<wxdata::near_storm::EnvHour>> =
             std::collections::HashMap::new();
@@ -6024,20 +6032,25 @@ fn backtest_event(
             let mut pairs = Vec::new();
             let mut vel_pairs = Vec::new();
             let mut zdr_sweeps = Vec::new();
+            // Whether the lowest tilt is the first of `pairs` / `vel_pairs` / `zdr_sweeps`.
+            let (mut low_dp, mut low_vel, mut low_zdr) = (false, false, false);
             for tilt in 0..4 {
                 let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
                 let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
                 let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
                 if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
+                    low_zdr |= tilt == 0;
                     zdr_sweeps.push(zd);
                 }
                 if let Ok(z) = &z {
                     radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
                 }
                 if let (Ok(z), Ok(cc)) = (&z, cc) {
+                    low_dp |= tilt == 0;
                     pairs.push((z.clone(), cc));
                 }
                 if let (Ok(z), Ok(vel)) = (z, vel) {
+                    low_vel |= tilt == 0;
                     vel_pairs.push((vel, z));
                 }
             }
@@ -6054,8 +6067,49 @@ fn backtest_event(
             // the same 15-150 km the couplets are looked for in.
             // Tracked at every range, so a circulation crossing 150 km keeps its track; only the
             // export is limited to the couplets' range.
+            // The lowest tilt's velocity passes (`wxdata::low_passes`), oldest first; the volume's
+            // own step reads the last (`bin_scan` takes the newest), and is stamped with when that
+            // pass finished, not when the volume began: up to ~4 minutes later under SAILS, which a
+            // lead time must not be credited with.
+            let passes = wxdata::low_passes::passes(&scan, t);
+            let last_pass = passes.last().map_or(t, |p| p.time);
+            // The steps whose markers are drawn: each earlier pass (with `use_sails`), then the
+            // volume's own, below. Each is its time, its tracked columns and its debris signatures.
+            let mut steps: Vec<(
+                chrono::DateTime<chrono::Utc>,
+                Vec<wxdata::rotation_tracks::Tracked>,
+                Vec<wxdata::tds::TdsHit>,
+            )> = Vec::new();
+            if use_sails {
+                let lowest = wxdata::low_passes::Lowest {
+                    velocity: low_vel,
+                    dual_pol: low_dp,
+                    zdr: low_zdr,
+                };
+                for pass in passes.iter().filter(|p| p.time < last_pass) {
+                    let Some(inputs) = wxdata::low_passes::at_pass(
+                        &scan,
+                        pass,
+                        &vel_pairs,
+                        &pairs,
+                        &zdr_sweeps,
+                        lowest,
+                    ) else {
+                        continue;
+                    };
+                    let mut pass_hits =
+                        wxdata::tds::detect_volume(&inputs.dual_pol, 0.80, 40.0, 150.0, 4);
+                    wxdata::tds::apply_zdr(&mut pass_hits, &inputs.zdr);
+                    let columns = wxdata::rotation_columns::from_sweeps_with(
+                        &inputs.velocity,
+                        &backtest_llsd_params(),
+                    );
+                    let tracked = llsd_tracker.update(pass.time.timestamp(), columns);
+                    steps.push((pass.time, tracked, pass_hits));
+                }
+            }
             let llsd_all: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker.update(
-                t.timestamp(),
+                last_pass.timestamp(),
                 wxdata::rotation_columns::from_sweeps_with(&vel_pairs, &backtest_llsd_params()),
             );
             let llsd_columns: Vec<&wxdata::rotation_tracks::Tracked> = llsd_all
@@ -6418,14 +6472,22 @@ fn backtest_event(
             // `circulations_with` call, radar evidence only, so the backtest verifies the rules
             // (core, rotation-only bar from 40 km, wind-turbine mask, one per tornado) in code
             // rather than re-deriving them from the fused rows.
-            if let Some((rlon, rlat)) = radar_pos {
+            steps.push((last_pass, llsd_all.clone(), raw_hits.clone()));
+            for (at, tracked, step_hits) in steps {
                 use chrono::Datelike;
-                let analysed = wxdata::llsd_analyst::analyse(llsd_all.clone(), &raw_hits, &[]);
+                let Some((rlon, rlat)) = radar_pos else {
+                    continue;
+                };
+                let analysed = wxdata::llsd_analyst::analyse(tracked, &step_hits, &[]);
+                let bar = Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE);
+                if use_sails {
+                    likely.record(&analysed, bar);
+                }
                 // The environment gate, as the app draws it, when the run has HRRR hours. The
                 // hour is cropped to 250 km of the radar, past the farthest marker.
-                let valid = t.timestamp().div_euclid(3600) * 3600;
+                let valid = at.timestamp().div_euclid(3600) * 3600;
                 if use_env && !env_hours.contains_key(&valid) {
-                    let when = chrono::DateTime::from_timestamp(valid, 0).unwrap_or(t);
+                    let when = chrono::DateTime::from_timestamp(valid, 0).unwrap_or(at);
                     let hour = wxdata::near_storm::fetch_hour_near(
                         &http,
                         when,
@@ -6442,23 +6504,34 @@ fn backtest_event(
                     env_hours.insert(valid, hour);
                 }
                 let options = wxdata::llsd_analyst::VerdictOptions {
-                    rotation_only_possible: Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE),
-                    turbines_in_year: Some(t.year()),
+                    rotation_only_possible: bar,
+                    turbines_in_year: Some(at.year()),
                     environment: env_hours.get(&valid).and_then(Option::as_ref),
                 };
-                for c in wxdata::llsd_analyst::circulations_with(
+                let mut circulations = wxdata::llsd_analyst::circulations_with(
                     &analysed,
                     &[],
                     &[],
                     |_, _| Default::default(),
                     options,
-                ) {
+                );
+                if use_sails {
+                    likely.apply(&analysed, circulations.iter_mut().map(|c| &mut c.id));
+                }
+                for c in circulations {
                     let id = &c.id;
                     let range = crate::geo::great_circle([rlon, rlat], [id.lon, id.lat]).0 as f32;
+                    // The track of the column that leads it, so markers count as episodes.
+                    let track = analysed
+                        .iter()
+                        .find(|a| a.tracked.column.lon == id.lon && a.tracked.column.lat == id.lat)
+                        .map(|a| a.tracked.track_id);
                     candidates.push(Candidate {
+                        minute: minute_of(at),
                         vrot_ms: id.vrot_ms,
                         min_cc: id.min_cc,
                         tier: Some(id.tier.label().to_string()),
+                        track_id: track,
                         ..base(K::TornadoMarker, id.lon, id.lat, range, id.score, id.score)
                     });
                 }

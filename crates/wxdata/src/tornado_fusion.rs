@@ -61,10 +61,11 @@ pub struct Features {
     pub rooted: f32,
     /// 1 when it turns the way this hemisphere's tornadoes do.
     pub cyclonic: f32,
-    /// 1 once the track has been seen in 2 or more volumes, and (`persisted_3`) in 3 or more: the
-    /// plan's step shape, "1 volume neutral, 2 meaningful, 3+ strong", rather than a straight
-    /// line. A new circulation loses nothing here: strong shear and debris beside it can carry
-    /// the score alone (the plan's escape path for a rapidly developing tornado).
+    /// 1 once the track has been followed for about a volume interval ([`PERSISTED_2_S`]), and
+    /// (`persisted_3`) about two ([`PERSISTED_3_S`]): the plan's step shape, "1 volume neutral,
+    /// 2 meaningful, 3+ strong", rather than a straight line. A new circulation loses nothing
+    /// here: strong shear and debris beside it can carry the score alone (the plan's escape path
+    /// for a rapidly developing tornado).
     pub persisted_2: f32,
     pub persisted_3: f32,
     /// Peak AzShear trend, 0.01 s⁻¹ per 10 minutes, clamped to ±3 (0 for a new track).
@@ -78,7 +79,7 @@ pub struct Features {
     pub range_100km: f32,
     /// 1 when the column reaches the lowest tilt only through an object found in weak echo.
     pub weak_echo_root: f32,
-    /// 1 when the track has been seen in 3 or more volumes and moves under
+    /// 1 when the track has been followed for about two volume intervals and moves under
     /// [`STATIONARY_MS`]: fixed clutter. On the backtest, wind-farm tracks around Dodge City
     /// moved a median 1.9 m/s (90% under 3); verified tornadic tracks 13.4 m/s (5% under 3).
     pub stationary: f32,
@@ -108,8 +109,17 @@ pub struct Features {
     pub depth_trend: f32,
 }
 
-/// Slower than this (m/s) over 3 or more volumes is [`Features::stationary`].
+/// Slower than this (m/s) over about two volume intervals ([`PERSISTED_3_S`]) is
+/// [`Features::stationary`].
 pub const STATIONARY_MS: f32 = 3.0;
+
+/// How long (s) a track must have been followed to count as seen in a second volume
+/// ([`Features::persisted_2`]), and in a third ([`Features::persisted_3`]): a volume every 4-6
+/// minutes in severe weather, so one interval and two, less a margin. By time rather than by how
+/// many times the tracker was updated, so a tracker updated at every low-level pass (SAILS, a
+/// median 1.8 minutes apart) means what one updated once a volume does.
+pub const PERSISTED_2_S: i64 = 210;
+pub const PERSISTED_3_S: i64 = 450;
 
 impl Features {
     /// The features of a tracked column, given the volume's classified debris signatures.
@@ -134,8 +144,8 @@ impl Features {
             tilts: c.tilts() as f32,
             rooted: flag(c.rooted),
             cyclonic: flag(c.sense == Sense::Cyclonic),
-            persisted_2: flag(t.age_volumes >= 2),
-            persisted_3: flag(t.age_volumes >= 3),
+            persisted_2: flag(t.age_seconds >= PERSISTED_2_S),
+            persisted_3: flag(t.age_seconds >= PERSISTED_3_S),
             shear_trend: t
                 .azshear_trend
                 .map_or(0.0, |s| (s * 100.0).clamp(-3.0, 3.0)),
@@ -143,7 +153,8 @@ impl Features {
             debris_hail: flag(near.is_some_and(|(_, a)| !a.hail_signs.is_empty())),
             range_100km: range_km / 100.0,
             stationary: flag(
-                t.age_volumes >= 3 && t.motion_ms.is_some_and(|(u, v)| u.hypot(v) < STATIONARY_MS),
+                t.age_seconds >= PERSISTED_3_S
+                    && t.motion_ms.is_some_and(|(u, v)| u.hypot(v) < STATIONARY_MS),
             ),
             weak_echo_root: flag(
                 c.rooted

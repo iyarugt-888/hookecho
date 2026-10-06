@@ -261,6 +261,64 @@ pub fn circulations_with(
         .collect()
 }
 
+/// How many low-level passes a column's track must read *likely* or stronger on, by radar
+/// evidence alone, before a verdict of that tier is shown so and alerts ([`LikelyConfirmation`]).
+/// With markers drawn at every pass ([`crate::low_passes`]), one pass's *likely* doubled the false
+/// alerts on four random tornado samples (0.16-0.24 to 0.19-0.47 per radar-hour); a second pass
+/// took them below what one verdict a volume gave (0.07-0.13), with about the same POD at that
+/// tier (detectionplan.md, "Every low-level pass").
+pub const LIKELY_PASSES: u32 = 2;
+
+/// The passes on which each track has read *likely* or stronger ([`LIKELY_PASSES`]). Recorded
+/// once a pass ([`Self::record`]), applied to the verdicts drawn from it ([`Self::apply`]); a new
+/// tracker starts a new one.
+#[derive(Debug, Clone, Default)]
+pub struct LikelyConfirmation {
+    passes: std::collections::HashMap<u64, u32>,
+}
+
+impl LikelyConfirmation {
+    /// Count this pass's columns that read *likely* or stronger on radar evidence alone (no
+    /// report or warning), with the rotation-only bar `rotation_only_possible`. Once per pass.
+    pub fn record(&mut self, analysed: &[Analysed], rotation_only_possible: Option<f32>) {
+        let none = Confirmation::default();
+        for a in analysed {
+            if a.tornado_id_with(&none, rotation_only_possible)
+                .is_some_and(|id| id.tier >= Tier::Likely)
+            {
+                *self.passes.entry(a.tracked.track_id).or_default() += 1;
+            }
+        }
+    }
+
+    /// Whether `track` has read *likely* or stronger on [`LIKELY_PASSES`] passes.
+    pub fn confirmed(&self, track: u64) -> bool {
+        self.passes.get(&track).copied().unwrap_or(0) >= LIKELY_PASSES
+    }
+
+    /// Hold every *likely* or *debris* verdict among `ids` whose column's track is not yet
+    /// [`Self::confirmed`] at *possible*. A *confirmed* one (a report or an observed warning)
+    /// stands: people saw it.
+    pub fn apply<'a>(
+        &self,
+        analysed: &[Analysed],
+        ids: impl IntoIterator<Item = &'a mut TornadoId>,
+    ) {
+        for id in ids {
+            if !matches!(id.tier, Tier::Likely | Tier::Debris) {
+                continue;
+            }
+            let track = analysed
+                .iter()
+                .find(|a| a.tracked.column.lon == id.lon && a.tracked.column.lat == id.lat)
+                .map(|a| a.tracked.track_id);
+            if !track.is_some_and(|t| self.confirmed(t)) {
+                id.tier = Tier::Possible;
+            }
+        }
+    }
+}
+
 /// Whether a column sits in a convective core: a >= 40 dBZ object within 5 km (`column.echo`)
 /// that is more than a single gate. A lone gate is a speck of clutter, bright band or a hail
 /// shaft's edge, not a core; it measures a length of 0 to a few hundredths of a km (the variance
@@ -859,6 +917,36 @@ mod tests {
             identify_with(&weak, report, in_air(&quiet))[0].tier,
             Tier::Confirmed
         );
+    }
+
+    #[test]
+    fn likely_needs_a_second_pass_but_a_report_does_not() {
+        // A deep column with debris beside it: *likely* or stronger on radar evidence alone.
+        let mut ball = debris_ball(0.0, 0.5);
+        let strong = tracked(3);
+        (ball.lon, ball.lat) = (strong.column.lon, strong.column.lat);
+        let a = analyse(vec![strong], &[ball], &[]);
+        let none = Confirmation::default();
+        let shown = |c: &LikelyConfirmation| {
+            let mut ids = identify_with(&a, |_, _| none, VerdictOptions::default());
+            c.apply(&a, ids.iter_mut());
+            ids[0].tier
+        };
+        let mut c = LikelyConfirmation::default();
+        let read = identify_with(&a, |_, _| none, VerdictOptions::default())[0].tier;
+        assert!(read >= Tier::Likely, "{read:?}");
+        c.record(&a, None);
+        assert_eq!(shown(&c), Tier::Possible, "one pass: held at possible");
+        c.record(&a, None);
+        assert_eq!(shown(&c), read, "two passes: shown as read");
+        // A tornado report confirms at once, without waiting for the second pass.
+        let report = |_: f64, _: f64| Confirmation {
+            observed_warning: false,
+            report: Some((2.0, 3)),
+        };
+        let mut ids = identify_with(&a, report, VerdictOptions::default());
+        LikelyConfirmation::default().apply(&a, ids.iter_mut());
+        assert_eq!(ids[0].tier, Tier::Confirmed);
     }
 
     #[test]

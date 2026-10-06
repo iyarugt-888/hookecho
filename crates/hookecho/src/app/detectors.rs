@@ -299,17 +299,21 @@ impl HookEchoApp {
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
                 let options = self.verdict_options(idx, environment.as_deref());
+                let likely = self.llsd_tracker.as_ref().map(|t| &t.likely);
                 if merged {
-                    let c = wxdata::llsd_analyst::circulations_with(
+                    let mut c = wxdata::llsd_analyst::circulations_with(
                         &analysed, couplets, tds, confirm, options,
                     );
+                    if let Some(l) = likely {
+                        l.apply(&analysed, c.iter_mut().map(|c| &mut c.id));
+                    }
                     (Vec::new(), c, lineage)
                 } else {
-                    (
-                        wxdata::llsd_analyst::identify_with(&analysed, confirm, options),
-                        Vec::new(),
-                        lineage,
-                    )
+                    let mut ids = wxdata::llsd_analyst::identify_with(&analysed, confirm, options);
+                    if let Some(l) = likely {
+                        l.apply(&analysed, ids.iter_mut());
+                    }
+                    (ids, Vec::new(), lineage)
                 }
             }
         }
@@ -334,13 +338,17 @@ impl HookEchoApp {
                         .volume
                         .as_ref()
                         .and_then(|v| self.near_storm.hour(near_storm::valid_hour(v.time)));
-                    return wxdata::llsd_analyst::circulations_with(
+                    let mut c = wxdata::llsd_analyst::circulations_with(
                         analysed,
                         couplets,
                         tds,
                         |lon, lat| wxdata::confirm::confirm(lon, lat, minute, &evidence),
                         self.verdict_options(idx, environment.as_deref()),
                     );
+                    if let Some(t) = &self.llsd_tracker {
+                        t.likely.apply(analysed, c.iter_mut().map(|c| &mut c.id));
+                    }
+                    return c;
                 }
             }
         }
@@ -352,19 +360,29 @@ impl HookEchoApp {
     /// tilts the couplet detector reads, tracked from the previous volume, with the volume's debris
     /// signatures classified beside them and every column fused. Cached per volume.
     ///
-    /// The columns cost about a third of a second a volume (four LLSD fields and their objects;
+    /// The tracker is fed once per low-level pass ([`wxdata::low_passes`]): under SAILS or MRLE
+    /// the lowest tilt is revisited partway through the volume, and each pass is tracked at its
+    /// own time, under the volume's upper tilts, so a live tornado is marked at the pass that
+    /// shows it rather than when the volume ends. Each pass also counts toward the two passes at
+    /// *likely* a verdict needs before it is shown so ([`LlsdTracking::likely`]). A volume's first
+    /// pass waits for the four lowest velocity tilts; a pass already fed is not fed again, so the
+    /// sweeps of a live volume arriving one by one re-analyse the last pass (its debris and other
+    /// tilts) without moving the tracker.
+    ///
+    /// The columns cost about a third of a second a pass (four LLSD fields and their objects;
     /// the legacy couplets take about 12 ms), so off the browser build they are computed on a
     /// background thread: the first call for a volume starts it and returns `None`, and when it
     /// is done it asks `ctx` for a repaint and the next call tracks, classifies and fuses (well
     /// under a millisecond). Only the newest volume's job is kept. A light loop frame carries one
     /// tilt, and the fusion's evidence is a column through several, so it is not computed for one
-    /// (`None`). The tracker starts over when the site changes or the volume is not newer than the
-    /// last one it saw (stepping back through a loop), so a track is only built forward in time.
+    /// (`None`). The tracker starts over when the site changes or a volume comes before the passes
+    /// it has seen (stepping back through a loop), so a track is only built forward in time.
     pub(crate) fn compute_llsd(
         &mut self,
         idx: usize,
         ctx: &egui::Context,
     ) -> Option<Vec<wxdata::llsd_analyst::Analysed>> {
+        const TILTS: usize = 4;
         let key = self.volume_key(idx);
         if let Some((k, v, _)) = &self.llsd_cache {
             if *k == key {
@@ -374,70 +392,139 @@ impl HookEchoApp {
         if self.views[idx].volume.as_ref().is_none_or(|v| v.light) {
             return None;
         }
-        let (columns, inputs) = match self.llsd_job.take() {
-            Some((k, rx)) if k == key => match rx.try_recv() {
-                Ok(done) => done,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    self.llsd_job = Some((k, rx));
-                    return None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
-            },
-            // A job for another volume (or none): this one is what is wanted now.
-            _ => {
-                const TILTS: usize = 4;
-                let vol = self.views[idx].volume.as_mut()?;
-                let pairs: Vec<_> = vol
-                    .velocity_tilts_dealiased()
-                    .into_iter()
-                    .zip(vol.moment_tilts(Moment::Reflectivity))
-                    .take(TILTS)
-                    .collect();
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let ctx = ctx.clone();
-                    std::thread::spawn(move || {
-                        let _ = tx.send(columns_and_inputs(pairs));
-                        ctx.request_repaint();
-                    });
-                    self.llsd_job = Some((key, rx));
-                    return None;
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let _ = ctx;
-                    columns_and_inputs(pairs)
-                }
-            }
-        };
         let site = self.views[idx].site.clone().unwrap_or_default();
-        let time = self.views[idx].volume.as_ref()?.time.timestamp();
-        let fresh = match &self.llsd_tracker {
-            Some((s, t)) => {
-                *s != site
-                    || t.tracks
-                        .iter()
-                        .filter_map(|tr| tr.history.last())
-                        .any(|p| p.time >= time)
-            }
-            None => true,
+        let (scan, name, time) = {
+            let v = self.views[idx].volume.as_ref()?;
+            (v.scan.clone(), v.name.clone(), v.time)
         };
-        if fresh {
-            self.llsd_tracker = Some((
-                site,
-                wxdata::rotation_tracks::Tracker::new(
-                    wxdata::rotation_tracks::TrackParams::default(),
-                ),
-            ));
+        // The passes to feed: those after the last one fed, or all of them on a new track.
+        let mut passes = wxdata::low_passes::passes(&scan, time);
+        if passes.is_empty() {
+            // No velocity timestamps: the volume is one step, at its own time.
+            passes.push(wxdata::low_passes::Pass {
+                sweep: usize::MAX,
+                time,
+            });
         }
-        let tracked = self
-            .llsd_tracker
-            .as_mut()
-            .map(|(_, t)| t.update(time, columns))
-            .unwrap_or_default();
+        let newest = passes.last().map(|p| p.time).unwrap_or(time);
+        let tracking = self.llsd_tracker.as_ref().filter(|t| t.site == site);
+        let fed = tracking.and_then(|t| t.fed.clone());
+        let restart = match &fed {
+            None => true,
+            // Stepping back: a different volume that begins before the passes already tracked.
+            Some((v, at)) => *v != name && passes[0].time.timestamp() <= *at,
+        };
+        let after = if restart {
+            i64::MIN
+        } else {
+            fed.map_or(i64::MIN, |(_, at)| at)
+        };
+        let todo: Vec<wxdata::low_passes::Pass> = passes
+            .iter()
+            .copied()
+            .filter(|p| p.time.timestamp() > after)
+            .collect();
+
+        let results: Option<LlsdJob> = if todo.is_empty() {
+            None
+        } else {
+            match self.llsd_job.take() {
+                Some((k, rx)) if k == key => match rx.try_recv() {
+                    Ok(done) => Some(done),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        self.llsd_job = Some((k, rx));
+                        return None;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
+                },
+                // A job for another volume (or none): this one is what is wanted now.
+                _ => {
+                    let vol = self.views[idx].volume.as_mut()?;
+                    let low = vol.elevations.first().copied();
+                    let is_low = |s: &wxdata::level2::BinnedSweep| {
+                        low.is_some_and(|e| (s.elevation_deg - e).abs() < 0.15)
+                    };
+                    let velocity: Vec<_> = vol
+                        .velocity_tilts_dealiased()
+                        .into_iter()
+                        .zip(vol.moment_tilts(Moment::Reflectivity))
+                        .take(TILTS)
+                        .collect();
+                    // A volume's first pass waits for the upper tilts its columns are built from;
+                    // until they arrive the last pass fed stands, the newest look at low levels.
+                    if velocity.len() < TILTS {
+                        None
+                    } else {
+                        // Earlier passes read their own debris; the volume's newest pass reads the
+                        // app's (`tds_quiet`), as it always has.
+                        let earlier = todo.iter().any(|p| p.time < newest);
+                        let (dual_pol, zdr) = if earlier {
+                            (
+                                vol.moment_tilts(Moment::Reflectivity)
+                                    .into_iter()
+                                    .zip(vol.moment_tilts(Moment::CorrelationCoefficient))
+                                    .take(TILTS)
+                                    .collect::<Vec<_>>(),
+                                vol.moment_tilts(Moment::DifferentialReflectivity)
+                                    .into_iter()
+                                    .take(TILTS)
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            (Vec::new(), Vec::new())
+                        };
+                        let lowest = wxdata::low_passes::Lowest {
+                            velocity: velocity.first().is_some_and(|(v, _)| is_low(v)),
+                            dual_pol: dual_pol.first().is_some_and(|(z, _)| is_low(z)),
+                            zdr: zdr.first().is_some_and(is_low),
+                        };
+                        let job = move || {
+                            pass_columns(scan, todo, newest, velocity, dual_pol, zdr, lowest)
+                        };
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            let ctx = ctx.clone();
+                            std::thread::spawn(move || {
+                                let _ = tx.send(job());
+                                ctx.request_repaint();
+                            });
+                            self.llsd_job = Some((key, rx));
+                            return None;
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = ctx;
+                            Some(job())
+                        }
+                    }
+                }
+            }
+        };
+
         let debris = self.tds_quiet(idx);
-        let out = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
+        let bar = self.settings.detectors.rotation_only_possible;
+        if restart && results.is_some() {
+            self.llsd_tracker = Some(LlsdTracking::new(site.clone()));
+        }
+        let tracking = self.llsd_tracker.as_mut().filter(|t| t.site == site)?;
+        let mut inputs = self.llsd_cache.as_ref().and_then(|(_, _, i)| i.clone());
+        if let Some((steps, coverage)) = results {
+            inputs = coverage;
+            for step in steps {
+                let tracked = tracking.tracker.update(step.time, step.columns);
+                let analysed = wxdata::llsd_analyst::analyse(
+                    tracked.clone(),
+                    step.debris.as_deref().unwrap_or(&debris),
+                    &[],
+                );
+                tracking.likely.record(&analysed, bar);
+                tracking.fed = Some((name.clone(), step.time));
+                tracking.last = tracked;
+            }
+        }
+        // The last pass fed, re-analysed with the debris this volume has now.
+        let out = wxdata::llsd_analyst::analyse(tracking.last.clone(), &debris, &[]);
         self.llsd_cache = Some((key, out.clone(), inputs));
         Some(out)
     }
@@ -783,15 +870,81 @@ impl HookEchoApp {
 /// One volume's rotation columns and, from the same sweeps once the columns are done, when those
 /// sweeps were scanned (the fused Tornado ID's input clocks).
 #[allow(clippy::type_complexity)]
-fn columns_and_inputs(
-    pairs: Vec<(wxdata::level2::BinnedSweep, wxdata::level2::BinnedSweep)>,
-) -> (
-    Vec<wxdata::rotation_columns::RotationColumn>,
+/// The fused pipeline's tracking on one site ([`HookEchoApp::compute_llsd`]).
+pub(crate) struct LlsdTracking {
+    site: String,
+    tracker: wxdata::rotation_tracks::Tracker,
+    /// The volume and the low-level pass (seconds since the epoch) last fed to the tracker.
+    fed: Option<(String, i64)>,
+    /// What the tracker made of that pass, re-analysed as the volume's other sweeps arrive.
+    last: Vec<wxdata::rotation_tracks::Tracked>,
+    /// The passes each track has read *likely* or stronger on.
+    pub(crate) likely: wxdata::llsd_analyst::LikelyConfirmation,
+}
+
+impl LlsdTracking {
+    fn new(site: String) -> Self {
+        LlsdTracking {
+            site,
+            tracker: wxdata::rotation_tracks::Tracker::new(
+                wxdata::rotation_tracks::TrackParams::default(),
+            ),
+            fed: None,
+            last: Vec::new(),
+            likely: Default::default(),
+        }
+    }
+}
+
+/// One low-level pass's columns, oldest first, from the background job: when (seconds since the
+/// epoch), the columns, and, for a pass before the volume's newest, its own debris signatures.
+pub(crate) struct PassColumns {
+    time: i64,
+    columns: Vec<wxdata::rotation_columns::RotationColumn>,
+    debris: Option<Vec<wxdata::tds::TdsHit>>,
+}
+
+/// What [`HookEchoApp::compute_llsd`]'s job hands back: each pass's columns, and when the sweeps
+/// behind the newest were scanned.
+pub(crate) type LlsdJob = (
+    Vec<PassColumns>,
     Option<wxdata::level2::temporal::TemporalCoverage>,
-) {
-    let columns = wxdata::rotation_columns::from_sweeps(&pairs);
-    let sweeps = pairs.into_iter().flat_map(|(v, z)| [v, z]).collect();
-    (columns, wxdata::detection_lineage::input_coverage(sweeps))
+);
+
+/// The columns of each pass in `todo`: the newest from the volume's own sweeps (`velocity`, its
+/// newest cuts), each earlier one from its own lowest-tilt sweeps under them
+/// ([`wxdata::low_passes::at_pass`]), with its own debris signatures.
+fn pass_columns(
+    scan: std::sync::Arc<wxdata::level2::Scan>,
+    todo: Vec<wxdata::low_passes::Pass>,
+    newest: chrono::DateTime<chrono::Utc>,
+    velocity: Vec<(wxdata::level2::BinnedSweep, wxdata::level2::BinnedSweep)>,
+    dual_pol: Vec<(wxdata::level2::BinnedSweep, wxdata::level2::BinnedSweep)>,
+    zdr: Vec<wxdata::level2::BinnedSweep>,
+    lowest: wxdata::low_passes::Lowest,
+) -> LlsdJob {
+    let mut steps = Vec::new();
+    for pass in todo.iter().filter(|p| p.time < newest) {
+        let Some(inputs) =
+            wxdata::low_passes::at_pass(&scan, pass, &velocity, &dual_pol, &zdr, lowest)
+        else {
+            continue;
+        };
+        let mut debris = wxdata::tds::detect_volume(&inputs.dual_pol, 0.80, 40.0, 150.0, 4);
+        wxdata::tds::apply_zdr(&mut debris, &inputs.zdr);
+        steps.push(PassColumns {
+            time: pass.time.timestamp(),
+            columns: wxdata::rotation_columns::from_sweeps(&inputs.velocity),
+            debris: Some(debris),
+        });
+    }
+    steps.push(PassColumns {
+        time: newest.timestamp(),
+        columns: wxdata::rotation_columns::from_sweeps(&velocity),
+        debris: None,
+    });
+    let sweeps = velocity.into_iter().flat_map(|(v, z)| [v, z]).collect();
+    (steps, wxdata::detection_lineage::input_coverage(sweeps))
 }
 
 impl HookEchoApp {
