@@ -35,6 +35,14 @@ is true for are drawn, clickable, labelled, exported and used as impact targets.
 doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
 the previous one in force and says what is wrong.
 
+### Fixed: storm identities in busy, fast-moving storm fields
+
+On a day with dozens of fast-moving storms, a storm could be handed to a neighbouring cell that
+happened to be nearer, and a new fast storm was lost after one scan, so storm histories, trends and
+follows broke apart. A storm now keeps the cell SCIT says is its own when that cell is within how
+far a storm can move, and a new storm is followed using the motion SCIT gives it. Checked on two
+recorded days of real storms.
+
 ### Added: a feature table for each imported layer
 
 The Layer Manager opens a table of the features an imported layer is showing, one column per

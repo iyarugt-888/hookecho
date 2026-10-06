@@ -247,6 +247,15 @@ fn all_keys(xml: &str) -> Vec<String> {
         .collect()
 }
 
+/// One NST (storm tracking) product's cells and its data time, from its raw bytes — what the
+/// archive's history and a pinned fixture are read with.
+pub fn decode_nst(bytes: &[u8]) -> anyhow::Result<(chrono::DateTime<chrono::Utc>, Vec<Cell>)> {
+    let p = decode(bytes)?;
+    let time =
+        product_data_time(&p).ok_or_else(|| anyhow::anyhow!("the NST product has no data time"))?;
+    Ok((time, nst_cells(&p, Some(time))))
+}
+
 /// The storm cells of the last `n` NST products for `site` (yesterday's and today's, UTC), oldest
 /// first, each with its product time: what SCIT said about each earlier volume, so a cell's
 /// trend starts with history instead of filling one volume at a time. Only NST is kept in the
