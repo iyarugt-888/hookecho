@@ -12,6 +12,8 @@
 //!   Conformal Conic, two parallels), 15,909 bytes, SHA-256 `2950ea15…82ea`
 //! - `ok_counties_5070.zip` — NAD83 / CONUS Albers Equal Area, 15,942 bytes, SHA-256
 //!   `0e3c2c5f…67c7`
+//! - `ok_counties_3857.zip` — WGS 84 / Pseudo-Mercator, 15,294 bytes, SHA-256 `8dcb8e3a…0f81`
+//!   (PROJ takes NAD83 to WGS 84 as the null transformation here, as this app does)
 //!
 //! `ogr2ogr` transforms coordinates one for one, so each county's vertices after this app's
 //! inverse projection should land on the reference vertices. The check is the largest distance
@@ -69,6 +71,10 @@ fn projected_counties_land_on_the_geographic_ones_proj_made_them_from() {
         (
             "CONUS Albers",
             &include_bytes!("data/gis/ok_counties_5070.zip")[..],
+        ),
+        (
+            "Web Mercator",
+            &include_bytes!("data/gis/ok_counties_3857.zip")[..],
         ),
     ] {
         let got = by_geoid(zip);
