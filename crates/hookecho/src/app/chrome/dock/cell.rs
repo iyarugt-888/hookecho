@@ -249,6 +249,16 @@ impl HookEchoApp {
             .iter()
             .map(|c| c.id.clone())
             .collect();
+        // A new table: each open storm is carried to its cell in it, by the storm history.
+        let scan = self.dock.storm_ids.fed_scan();
+        if scan != self.dock.cells_open_scan {
+            let then = self.dock.cells_open_scan;
+            let open = std::mem::take(&mut self.dock.cells_open);
+            self.dock.cells_open = self.dock.storm_ids.carry_ids(&open, then, &live);
+            let last: Vec<String> = self.dock.cell_last_sel.take().into_iter().collect();
+            self.dock.cell_last_sel = self.dock.storm_ids.carry_ids(&last, then, &live).pop();
+            self.dock.cells_open_scan = scan;
+        }
         self.dock.cells_open.retain(|id| live.contains(id));
         let sel = self
             .selected_storm()

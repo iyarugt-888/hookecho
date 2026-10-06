@@ -377,6 +377,34 @@ impl StormIdentity {
         }
     }
 
+    /// The time of the SCIT table last fed.
+    pub(crate) fn fed_scan(&self) -> Option<i64> {
+        self.fed
+    }
+
+    /// Carry SCIT cell IDs from the table at `scan` to the current one, by storm: a renamed
+    /// storm's ID becomes its new one, a storm no longer in the table is dropped, and an ID the
+    /// history has no record of stays only if the current table still has it (`live`).
+    pub(crate) fn carry_ids(
+        &self,
+        ids: &[String],
+        scan: Option<i64>,
+        live: &[String],
+    ) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for id in ids {
+            let now = match self.resolve(id, scan) {
+                Resolved::Current(c) => Some(c),
+                Resolved::Gone(_) => None,
+                Resolved::Unknown => live.contains(id).then(|| id.clone()),
+            };
+            if let Some(n) = now.filter(|n| !out.contains(n)) {
+                out.push(n);
+            }
+        }
+        out
+    }
+
     /// The storm a SCIT cell of the current table belongs to.
     pub(crate) fn storm_of(&self, cell_id: &str) -> Option<&wxdata::storm_history::Storm> {
         let id = self.current.iter().find(|(c, ..)| c == cell_id)?.1;
@@ -1341,6 +1369,29 @@ mod tests {
             note.starts_with("merged into storm #") && note.ends_with("(now cell C3)"),
             "{note}"
         );
+    }
+
+    #[test]
+    fn an_open_set_of_storms_carries_through_a_rename_and_drops_a_recycled_id() {
+        use wxdata::level3::Cell;
+        let at = |id: &str, lon: f64, min: i64| Cell {
+            id: id.into(),
+            lon,
+            lat: 35.3,
+            time: chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0),
+            ..Default::default()
+        };
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("O7", -97.5, 0), at("Q2", -96.5, 0)]);
+        let then = ids.fed_scan();
+        // O7 is renamed K3 and its old ID goes to a new storm far away; Q2 vanishes.
+        ids.feed(Some("KTLX"), &[at("K3", -97.47, 5), at("O7", -95.0, 5)]);
+        let live: Vec<String> = ["K3", "O7"].map(String::from).to_vec();
+        let open = ["O7", "Q2"].map(String::from);
+        assert_eq!(ids.carry_ids(&open, then, &live), ["K3"]);
+        // Without a record (another radar's history), only what is still there stays.
+        let fresh = super::StormIdentity::default();
+        assert_eq!(fresh.carry_ids(&open, then, &live), ["O7"]);
     }
 
     #[test]

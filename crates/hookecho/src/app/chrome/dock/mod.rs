@@ -475,6 +475,9 @@ pub(crate) struct DockState {
     pub bulletin_seen: Option<String>,
     /// The storms open in the Cell window, oldest first (at most [`cell::MAX_OPEN`]).
     pub cells_open: Vec<String>,
+    /// The SCIT table `cells_open` (and `cell_last_sel`) were written against, so a new table
+    /// carries them through the storm history instead of matching recycled IDs.
+    cells_open_scan: Option<i64>,
     /// The Cell window shows its open storms side by side.
     pub cell_compare: bool,
     /// The storm selected last frame, so a newly selected one joins the Cell window once.
@@ -541,6 +544,7 @@ impl Default for DockState {
             rects: [None; 3],
             bulletin_seen: None,
             cells_open: Vec::new(),
+            cells_open_scan: None,
             cell_compare: false,
             cell_last_sel: None,
             phone: false,
