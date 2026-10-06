@@ -714,6 +714,17 @@ impl HookEchoApp {
         let cell_explanations =
             wxdata::cellscore::score_all_explained(cells, &self.probsevere, couplets);
         let cell_scores: Vec<u8> = cell_explanations.iter().map(|e| e.score).collect();
+        // Each row's trend is its storm's, not its (recycled) SCIT ID's; built only while the
+        // table is open.
+        let storm_trends: std::collections::HashMap<String, Vec<ui::cell_window::CellSample>> =
+            if self.cells_window.open {
+                cells
+                    .iter()
+                    .map(|c| (c.id.clone(), self.storm_trend(&c.id)))
+                    .collect()
+            } else {
+                Default::default()
+            };
         if let Some(id) = ui::cells_window::show(
             &mut self.cells_window,
             ctx,
@@ -721,7 +732,7 @@ impl HookEchoApp {
             &cell_scores,
             &cell_explanations,
             &zdr_cells,
-            &self.cell_trends,
+            &storm_trends,
             crate::theme::accent(self.settings.theme),
             &mut self.drawer,
         ) {
@@ -745,11 +756,13 @@ impl HookEchoApp {
         let dock_3d = std::mem::take(&mut self.cell_view3d);
         let show_details = !workstation || dock_follow || dock_3d;
         if let Some(cell) = self.cell_popup.as_ref().filter(|_| show_details) {
-            let trend = self
-                .cell_trends
-                .get(&cell.id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+            // The storm's trend while it is in the table; a storm that has left it has none to
+            // add to, and its old ID may be another storm's.
+            let trend_owned = match self.selected_storm_live() {
+                Some((live, true)) => self.storm_trend(&live.id),
+                _ => Vec::new(),
+            };
+            let trend = trend_owned.as_slice();
             let following = self
                 .follow_cell
                 .as_ref()

@@ -90,6 +90,18 @@ pub(crate) struct StormIdentity {
     evidence_key: Option<EvidenceKey>,
 }
 
+/// Where a picked storm is in the current SCIT table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Resolved {
+    /// In it, as this cell (which may carry a different SCIT ID than when it was picked).
+    Current(String),
+    /// Known, but not in the current table (missed, or no longer tracked): the cell that has its
+    /// old ID now is another storm.
+    Gone(wxdata::storm_history::StormId),
+    /// The history has no record of the pick (another radar, an archive, a restarted history).
+    Unknown,
+}
+
 /// What a scan's evidence depends on, cheaply: a change re-records that scan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EvidenceKey {
@@ -280,6 +292,70 @@ impl StormIdentity {
             .collect()
     }
 
+    /// Where a storm picked from an earlier table (by its SCIT ID then, at that table's time) is
+    /// now. SCIT recycles IDs and changes them, so the ID alone cannot say: the history can.
+    pub(crate) fn resolve(&self, cell_id: &str, time: Option<i64>) -> Resolved {
+        let Some(time) = time.filter(|_| !cell_id.is_empty()) else {
+            return Resolved::Unknown;
+        };
+        let picked = self.history.storms().iter().find(|s| {
+            s.observations
+                .iter()
+                .rev()
+                .any(|o| o.time == time && o.provider_id.as_deref() == Some(cell_id))
+        });
+        let Some(storm) = picked else {
+            return Resolved::Unknown;
+        };
+        match self.current.iter().find(|(_, s, _)| *s == storm.id) {
+            Some((id, ..)) => Resolved::Current(id.clone()),
+            None => Resolved::Gone(storm.id),
+        }
+    }
+
+    /// A current cell's trend, as its storm's: the sample each of the storm's observations
+    /// recorded under the SCIT ID it had then, so a storm keeps its trend through an ID change and
+    /// a recycled ID does not splice another storm's samples into it. Samples from before the
+    /// history began (an earlier scan's backfill) are taken from its current ID, as before, since
+    /// nothing says otherwise; a cell with no storm gets its ID's samples.
+    pub(crate) fn trend(
+        &self,
+        cell_id: &str,
+        samples: &std::collections::HashMap<String, Vec<crate::ui::cell_window::CellSample>>,
+    ) -> Vec<crate::ui::cell_window::CellSample> {
+        let own = samples.get(cell_id).map(Vec::as_slice).unwrap_or(&[]);
+        let Some(storm) = self.storm_of(cell_id) else {
+            return own.to_vec();
+        };
+        // Before the history began, nothing says which storm an ID was; after, the history does.
+        let first = self
+            .history
+            .storms()
+            .iter()
+            .filter_map(|s| s.observations.first().map(|o| o.time))
+            .min();
+        let secs = |s: &crate::ui::cell_window::CellSample| s.time.map(|t| t.timestamp());
+        let mut out: Vec<crate::ui::cell_window::CellSample> = own
+            .iter()
+            .filter(|s| secs(s).zip(first).is_some_and(|(t, f)| t < f))
+            .cloned()
+            .collect();
+        for o in &storm.observations {
+            let Some(p) = o.provider_id.as_deref() else {
+                continue;
+            };
+            if let Some(s) = samples
+                .get(p)
+                .and_then(|v| v.iter().find(|s| secs(s) == Some(o.time)))
+            {
+                out.push(*s);
+            }
+        }
+        out.sort_by_key(|s| s.time);
+        out.dedup_by_key(|s| s.time);
+        out
+    }
+
     /// The storm a SCIT cell of the current table belongs to.
     pub(crate) fn storm_of(&self, cell_id: &str) -> Option<&wxdata::storm_history::Storm> {
         let id = self.current.iter().find(|(c, ..)| c == cell_id)?.1;
@@ -343,6 +419,124 @@ fn scit_motion_ms(c: &wxdata::level3::Cell) -> Option<(f64, f64)> {
 }
 
 impl HookEchoApp {
+    /// The selected storm, current: `cell_popup` is a copy taken at the click, so the newest
+    /// SCIT update of the same storm replaces it, keeping its position and attributes live.
+    /// `None` when nothing is selected; the click-time copy when the storm has left the product.
+    ///
+    /// "The same storm" is the storm history's (ROADMAP_PARITY M2.2): SCIT recycles cell IDs and
+    /// changes them, so a storm that took a new ID stays selected, and a different storm that took
+    /// its old ID does not inherit the selection. Only when the history has no record of the pick
+    /// is the ID matched as is.
+    pub(crate) fn selected_storm(&self) -> Option<Cell> {
+        self.selected_storm_live().map(|(c, _)| c)
+    }
+
+    /// [`Self::selected_storm`], and whether it is in the current SCIT table (`false`: the
+    /// click-time copy).
+    pub(crate) fn selected_storm_live(&self) -> Option<(Cell, bool)> {
+        let picked = self.cell_popup.as_ref()?;
+        let cells = self.active_storm_cells();
+        let by_id = |id: &str| cells.iter().find(|c| !id.is_empty() && c.id == id);
+        let resolved = self
+            .dock
+            .storm_ids
+            .resolve(&picked.id, picked.time.map(|t| t.timestamp()));
+        let live = match resolved {
+            Resolved::Current(id) => by_id(&id),
+            Resolved::Gone(_) => None,
+            Resolved::Unknown => by_id(&picked.id),
+        };
+        Some(match live {
+            Some(c) => (c.clone(), true),
+            None => (picked.clone(), false),
+        })
+    }
+
+    /// Storm-follow camera: re-lock onto the tracked cell in the freshly-applied volume and recenter
+    /// the active pane on it. Called from the `Cells` apply arm, after the storm history has been
+    /// fed the new table.
+    ///
+    /// The history decides which cell is the followed storm now (ROADMAP_PARITY M2.2): through a
+    /// SCIT renumbering it follows the storm, a different storm that took its old ID is not
+    /// adopted, a storm missing from one scan is held where it was, and a storm the history has
+    /// closed ends the follow. Only when the history
+    /// has no record (another radar's table, no times) is the SCIT ID matched, and failing that
+    /// the nearest cell to where its last motion puts it.
+    pub(crate) fn update_follow(&mut self) {
+        let Some((fsite, last, since)) = self.follow_cell.take() else {
+            return;
+        };
+        // Active site changed out from under the follow (site switch) → stop silently.
+        if self.cells_site.as_deref() != Some(fsite.as_str()) {
+            return;
+        }
+        let resolved = self
+            .dock
+            .storm_ids
+            .resolve(&last.id, last.time.map(|t| t.timestamp()));
+        let by_id = |id: &str| {
+            self.storm_cells
+                .iter()
+                .find(|c| !c.id.is_empty() && c.id == id)
+                .cloned()
+        };
+        let found = match &resolved {
+            Resolved::Current(id) => by_id(id),
+            Resolved::Gone(_) => None,
+            Resolved::Unknown => by_id(&last.id),
+        };
+        if let Some(c) = found {
+            self.recenter_follow(&c);
+            self.follow_cell = Some((fsite, c, Instant::now()));
+            return;
+        }
+        if let Resolved::Gone(storm) = resolved {
+            // Missed this scan but still tracked (within the history's gap limit): hold where it
+            // was rather than jump to whichever cell is near.
+            let open = self
+                .dock
+                .storm_ids
+                .history
+                .storm(storm)
+                .is_some_and(|s| !s.closed);
+            if open {
+                self.follow_notice = Some((
+                    format!("{} not in this scan — holding", last.id),
+                    Instant::now(),
+                ));
+                self.follow_cell = Some((fsite, last, since));
+            } else {
+                self.follow_notice =
+                    Some((format!("Lost {} — follow ended", last.id), Instant::now()));
+            }
+            return;
+        }
+        // Renumber/miss: predict where the cell drifted and adopt the nearest new cell within 15 km.
+        let elapsed_h = since.elapsed().as_secs_f64() / 3600.0;
+        let pred = match (last.mvt_deg, last.mvt_kt) {
+            (Some(dir), Some(kt)) if kt > 0.0 => crate::geo::destination_point(
+                [last.lon, last.lat],
+                dir as f64,
+                kt as f64 * 1.852 * elapsed_h,
+            ),
+            _ => [last.lon, last.lat],
+        };
+        if let Some(c) =
+            crate::app::nearest_cell(&self.storm_cells, pred[0], pred[1], 15.0).cloned()
+        {
+            self.recenter_follow(&c);
+            self.follow_cell = Some((fsite, c, Instant::now()));
+        } else {
+            self.follow_notice = Some((format!("Lost {} — follow ended", last.id), Instant::now()));
+            // follow_cell already taken → stays None.
+        }
+    }
+
+    /// [`StormIdentity::trend`] for a cell of the current table.
+    pub(crate) fn storm_trend(&self, cell_id: &str) -> Vec<crate::ui::cell_window::CellSample> {
+        self.dock.storm_ids.trend(cell_id, &self.cell_trends)
+    }
+
     /// Record what the active radar's storms are linked to at the current SCIT scan, when an
     /// input changed since it was last recorded (a detector finishing, a warning issued).
     fn record_storm_evidence(&mut self) {
@@ -425,7 +619,12 @@ impl HookEchoApp {
             .collect();
         let (sort, desc) = (self.dock.storm_sort, self.dock.storm_desc);
         let mut query = self.dock.storm_query.clone();
-        let selected = self.cell_popup.as_ref().map(|c| c.id.clone());
+        // The row of the selected storm, when it is in this table: not whichever cell has the ID
+        // it was picked by, which SCIT may have given to another storm since.
+        let selected = self
+            .selected_storm_live()
+            .filter(|(_, live)| *live)
+            .map(|(c, _)| c.id);
         let title = if cells.is_empty() {
             "Storms".to_string()
         } else {
@@ -979,6 +1178,87 @@ mod tests {
             feed(&mut ids, cells, p);
         }
         assert_eq!(ids.evidence_lines("K3", fmt), before);
+    }
+
+    #[test]
+    fn a_pick_follows_its_storm_not_the_scit_id_it_was_picked_by() {
+        use wxdata::level3::Cell;
+        let at = |id: &str, lon: f64, min: i64| Cell {
+            id: id.into(),
+            lon,
+            lat: 35.3,
+            time: chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0),
+            ..Default::default()
+        };
+        let t0 = Some(1_700_000_000);
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("O7", -97.5, 0)]);
+        assert_eq!(ids.resolve("O7", t0), Resolved::Current("O7".into()));
+        // SCIT renames the storm and gives its old ID to a new storm 150 km east.
+        ids.feed(Some("KTLX"), &[at("K3", -97.47, 5), at("O7", -95.8, 5)]);
+        assert_eq!(
+            ids.resolve("O7", t0),
+            Resolved::Current("K3".into()),
+            "the pick stays on its storm, not on the cell that now has its ID"
+        );
+        // The storm drops out; the recycled O7 is still there and still not it.
+        ids.feed(Some("KTLX"), &[at("O7", -95.75, 10)]);
+        let Resolved::Gone(storm) = ids.resolve("O7", t0) else {
+            panic!("{:?}", ids.resolve("O7", t0));
+        };
+        assert!(
+            !ids.history.storm(storm).unwrap().closed,
+            "one missed scan holds a follow rather than ending it"
+        );
+        // A pick the history never saw (another time, another radar) is unknown.
+        assert_eq!(ids.resolve("O7", Some(1)), Resolved::Unknown);
+        assert_eq!(ids.resolve("O7", None), Resolved::Unknown);
+    }
+
+    #[test]
+    fn a_trend_is_its_storms_through_a_rename_and_never_a_recycled_ids() {
+        use crate::ui::cell_window::CellSample;
+        use wxdata::level3::Cell;
+        let t = |min: i64| chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0);
+        let at = |id: &str, lon: f64, min: i64| Cell {
+            id: id.into(),
+            lon,
+            lat: 35.3,
+            time: t(min),
+            ..Default::default()
+        };
+        let sample = |min: i64, dbz: f32| CellSample {
+            vil: None,
+            top: None,
+            dbz: Some(dbz),
+            severity: None,
+            time: t(min),
+            dbz_hgt: None,
+        };
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("O7", -97.5, 0)]);
+        ids.feed(Some("KTLX"), &[at("O7", -97.47, 5)]);
+        ids.feed(Some("KTLX"), &[at("K3", -97.44, 10), at("O7", -95.8, 10)]);
+        // The samples as they are kept, by SCIT ID: O7 holds both storms', the backfill included.
+        let samples: std::collections::HashMap<String, Vec<CellSample>> = [
+            (
+                "O7".to_string(),
+                vec![sample(0, 50.0), sample(5, 55.0), sample(10, 20.0)],
+            ),
+            ("K3".to_string(), vec![sample(-5, 44.0), sample(10, 60.0)]),
+        ]
+        .into();
+        let dbz = |v: Vec<CellSample>| v.iter().map(|s| s.dbz.unwrap()).collect::<Vec<_>>();
+        assert_eq!(
+            dbz(ids.trend("K3", &samples)),
+            [44.0, 50.0, 55.0, 60.0],
+            "its backfill, its samples as O7, then as K3"
+        );
+        assert_eq!(
+            dbz(ids.trend("O7", &samples)),
+            [20.0],
+            "the new O7 is its own storm, with none of the old O7's samples"
+        );
     }
 
     #[test]

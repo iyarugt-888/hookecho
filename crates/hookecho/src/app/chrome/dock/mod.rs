@@ -35,6 +35,7 @@ mod sounding;
 mod sources;
 mod storm_associations;
 mod storms;
+pub(crate) use storms::Resolved;
 mod timeline;
 mod view3d;
 mod volume;

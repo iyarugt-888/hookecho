@@ -3753,20 +3753,6 @@ impl HookEchoApp {
         model_diff_upload(grid, self.diff_field, self.diff_mode)
     }
 
-    /// The selected storm, current: `cell_popup` is a copy taken at the click, so the newest
-    /// SCIT update of the same cell (by id) replaces it, keeping its position and attributes live.
-    /// `None` when nothing is selected; the click-time copy when the cell has left the product.
-    pub(crate) fn selected_storm(&self) -> Option<Cell> {
-        let picked = self.cell_popup.as_ref()?;
-        Some(
-            self.active_storm_cells()
-                .iter()
-                .find(|c| !picked.id.is_empty() && c.id == picked.id)
-                .cloned()
-                .unwrap_or_else(|| picked.clone()),
-        )
-    }
-
     /// ROADMAP_NEW J2: mark the selected storm — a ring and its id — in the active pane, and in
     /// every pane while `link_storm` is on. Geographic, so a pane on another radar or zoom marks
     /// the same storm.
@@ -4738,47 +4724,6 @@ impl HookEchoApp {
                     OverlaySource::Contours(kind, self.contour_model, self.settings.temp_unit),
                 );
             }
-        }
-    }
-
-    /// Storm-follow camera: re-lock onto the tracked cell in the freshly-applied volume and recenter
-    /// the active pane on it. Called from the `Cells` apply arm. Reacquires across SCIT renumbering
-    /// by predicting the cell's position from its last motion and adopting the nearest new cell.
-    fn update_follow(&mut self) {
-        let Some((fsite, last, since)) = self.follow_cell.take() else {
-            return;
-        };
-        // Active site changed out from under the follow (site switch) → stop silently.
-        if self.cells_site.as_deref() != Some(fsite.as_str()) {
-            return;
-        }
-        // Same SCIT id in the new volume → the easy case.
-        if let Some(c) = self
-            .storm_cells
-            .iter()
-            .find(|c| !c.id.is_empty() && c.id == last.id)
-            .cloned()
-        {
-            self.recenter_follow(&c);
-            self.follow_cell = Some((fsite, c, Instant::now()));
-            return;
-        }
-        // Renumber/miss: predict where the cell drifted and adopt the nearest new cell within 15 km.
-        let elapsed_h = since.elapsed().as_secs_f64() / 3600.0;
-        let pred = match (last.mvt_deg, last.mvt_kt) {
-            (Some(dir), Some(kt)) if kt > 0.0 => crate::geo::destination_point(
-                [last.lon, last.lat],
-                dir as f64,
-                kt as f64 * 1.852 * elapsed_h,
-            ),
-            _ => [last.lon, last.lat],
-        };
-        if let Some(c) = nearest_cell(&self.storm_cells, pred[0], pred[1], 15.0).cloned() {
-            self.recenter_follow(&c);
-            self.follow_cell = Some((fsite, c, Instant::now()));
-        } else {
-            self.follow_notice = Some((format!("Lost {} — follow ended", last.id), Instant::now()));
-            // follow_cell already taken → stays None.
         }
     }
 

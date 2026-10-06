@@ -308,19 +308,41 @@ impl HookEchoApp {
             .collect();
         let sweeps = self.core_sweeps(self.active);
         let core = core_at(&sweeps, c.lon, c.lat);
-        let trends: Vec<Vec<crate::ui::cell_window::CellSample>> = open
-            .iter()
-            .map(|(o, _)| self.cell_trends.get(&o.id).cloned().unwrap_or_default())
-            .collect();
-        let trend = self.cell_trends.get(&c.id).cloned().unwrap_or_default();
+        let trends: Vec<Vec<crate::ui::cell_window::CellSample>> =
+            open.iter().map(|(o, _)| self.storm_trend(&o.id)).collect();
+        let trend = self.storm_trend(&c.id);
         // Its persistent identity across scans (ROADMAP_PARITY M2.1).
-        let identity = self.dock.storm_ids.describe(&c.id);
-        // What it has been linked to over those scans, each by the rule that linked it.
-        let evidence = self.dock.storm_ids.evidence_lines(&c.id, |s| {
-            chrono::DateTime::from_timestamp(s, 0)
-                .map(|d| crate::timefmt::fmt_clock(d, tz, false))
-                .unwrap_or_default()
+        let in_table = self.selected_storm_live().is_some_and(|(_, live)| live);
+        let gone = self.cell_popup.as_ref().is_some_and(|p| {
+            matches!(
+                self.dock
+                    .storm_ids
+                    .resolve(&p.id, p.time.map(|t| t.timestamp())),
+                super::Resolved::Gone(_)
+            )
         });
+        // A storm SCIT no longer reports is shown as it was, and says so; its old ID may be
+        // another storm's now, so nothing is looked up by it.
+        let identity = if gone {
+            Some(format!(
+                "not in the latest SCIT table — shown as of {}",
+                c.time
+                    .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                    .unwrap_or_else(|| "its selection".into())
+            ))
+        } else {
+            self.dock.storm_ids.describe(&c.id)
+        };
+        // What it has been linked to over those scans, each by the rule that linked it.
+        let evidence = if !in_table {
+            Vec::new()
+        } else {
+            self.dock.storm_ids.evidence_lines(&c.id, |s| {
+                chrono::DateTime::from_timestamp(s, 0)
+                    .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                    .unwrap_or_default()
+            })
+        };
         let explained = wxdata::cellscore::score_all_explained(
             std::slice::from_ref(&c),
             &self.probsevere,

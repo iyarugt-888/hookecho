@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: a selected or followed storm stays the same storm when SCIT renumbers it
+
+SCIT reuses and changes its cell IDs. A selected storm whose ID changed used to drop out of the
+selection, and a different storm that was later given the old ID took over the selection, the
+follow and the trend chart. Selection, follow and trends now go by the storm history: a renamed
+storm keeps its selection, follow and whole trend; a storm that leaves the table is shown as of
+its last scan and says so; a followed storm missing from one scan is held in place rather than
+swapped for whatever cell is nearby.
+
 ### Added: what each storm has been linked to, over time
 
 The Cell window's Storm section now lists, under the storm's History line, every warning,
