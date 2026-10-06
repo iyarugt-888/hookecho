@@ -605,6 +605,9 @@ impl HookEchoApp {
                 .iter()
                 .flat_map(crate::app::storm_track::ManualTrack::to_features)
                 .collect::<Vec<_>>(),
+            routes: &self.route_window.routes,
+            route_selected: self.route_window.selected,
+            route_engine: self.settings.route_engine.label(),
         })
     }
 

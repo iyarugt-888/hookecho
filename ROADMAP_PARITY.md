@@ -1007,6 +1007,8 @@ Remaining open:
 
 **Evidence ledger — 2026-10-06, increment 3 (manual tracks in the map export):** the map's GeoJSON export now carries every manual storm-motion track as true projected geometry (`ManualTrack::to_features`): the path of the storm (or a line's middle) every 5 minutes over the hour, and the closed uncertainty-swath polygon the map draws, each with `t0` (the analysis time it projects from), horizon, bearing, speed (km/h), both widths, cone, the source SCIT cell and scan, and whether it is a historical estimate. Coordinates are WGS84 `[lon, lat]`. Test: `a_track_exports_its_path_and_swath_with_its_motion_and_time` (60 km due east over the hour, closed ring, metadata, read back through the importer); full workspace 2,385 passed, Clippy `-D warnings`, the WASM library check. Open: route geometry and threshold/contour vectors, QGIS reader reports.
 
+**Evidence ledger — 2026-10-06, increment 4 (routes in the map export):** the map's GeoJSON export carries the planned routes as the routing provider returned them — its road geometry, distance (m) and duration (s) at full precision, its summary, the engine (OSRM/Valhalla) and which route was chosen — using the existing route data, not a new engine. A route with fewer than two points is left out. Test: `routes_export_with_their_distance_time_and_choice`; full workspace 2,386 passed, Clippy `-D warnings`, the WASM library check. Open: threshold/contour vectors with source/time/unit, QGIS reader reports.
+
 ### M5 — Synchronized weather context and presentation
 
 #### M5.1 — Support independent link groups and source contexts

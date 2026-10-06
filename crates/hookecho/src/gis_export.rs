@@ -34,6 +34,11 @@ pub(crate) struct MapContents<'a> {
     /// Manual storm-motion tracks as written by `ManualTrack::to_features`: each projected path
     /// and its uncertainty swath, with the motion, time and source they were drawn from.
     pub tracks: &'a [GisFeature],
+    /// The planned routes (ROADMAP_NEW L), the chosen one first in the file's eyes by its
+    /// `selected` property, with the engine that computed them.
+    pub routes: &'a [wxdata::route::Route],
+    pub route_selected: usize,
+    pub route_engine: &'a str,
 }
 
 fn props(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String, Value> {
@@ -46,6 +51,10 @@ fn props(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String, 
 
 fn text(s: impl Into<String>) -> Value {
     Value::String(s.into())
+}
+
+fn number64(v: f64) -> Value {
+    serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number)
 }
 
 fn number(v: Option<f32>) -> Value {
@@ -138,6 +147,24 @@ pub(crate) fn to_features(map: &MapContents<'_>) -> Vec<GisFeature> {
     out.extend(map.imported.iter().cloned());
     out.extend(map.tracks.iter().cloned());
 
+    // Routes as the provider returned them: its road geometry, distance and time, unchanged.
+    for (i, r) in map.routes.iter().enumerate() {
+        if r.coords.len() < 2 {
+            continue;
+        }
+        out.push(GisFeature {
+            geometry: Geometry::LineString(r.coords.clone()),
+            properties: props([
+                ("hookecho", text("route")),
+                ("selected", Value::Bool(i == map.route_selected)),
+                ("engine", text(map.route_engine)),
+                ("summary", text(r.summary.clone())),
+                ("distance_m", number64(r.distance_m)),
+                ("duration_s", number64(r.duration_s)),
+            ]),
+        });
+    }
+
     for feature in map.overlays {
         if feature.rings.is_empty() {
             continue;
@@ -178,6 +205,9 @@ mod tests {
             overlays: &[],
             imported: &[],
             tracks: &[],
+            routes: &[],
+            route_selected: 0,
+            route_engine: "",
         }
     }
 
@@ -380,5 +410,38 @@ mod tests {
         }
         assert!(matches!(back.features[0].geometry, Geometry::Point(_)));
         assert!(matches!(back.features[1].geometry, Geometry::LineString(_)));
+    }
+
+    /// Planned routes leave as the provider's own road geometry with its distance and time, and
+    /// which one was chosen; a degenerate route is left out.
+    #[test]
+    fn routes_export_with_their_distance_time_and_choice() {
+        let routes = vec![
+            wxdata::route::Route {
+                coords: vec![[-97.5, 35.4], [-97.3, 35.5]],
+                distance_m: 21_500.0,
+                duration_s: 1_260.0,
+                summary: "I-40 E".into(),
+            },
+            wxdata::route::Route {
+                coords: vec![[-97.5, 35.4]],
+                distance_m: 0.0,
+                duration_s: 0.0,
+                summary: String::new(),
+            },
+        ];
+        let out = to_features(&MapContents {
+            routes: &routes,
+            route_selected: 0,
+            route_engine: "OSRM",
+            ..empty()
+        });
+        assert_eq!(out.len(), 1);
+        let p = &out[0].properties;
+        assert_eq!(p["hookecho"], "route");
+        assert_eq!(p["selected"], true);
+        assert_eq!(p["engine"], "OSRM");
+        assert_eq!(p["distance_m"], 21_500.0);
+        assert_eq!(p["summary"], "I-40 E");
     }
 }

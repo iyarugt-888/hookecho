@@ -22,6 +22,9 @@ output says so instead of switching to another pane.
 "Export map as GeoJSON" now includes your manual storm tracks: each one's projected path and its
 uncertainty swath, with the motion, the time it projects from and the storm it was started from.
 
+The export also includes planned routes, with each one's road geometry, distance, driving time,
+routing service and which one you chose.
+
 ### Added: filter an imported layer by its attributes
 
 Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it
