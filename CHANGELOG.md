@@ -17,6 +17,12 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: cases keep your manual storm tracks
+
+Saving a case now keeps your manual storm-motion tracks, with the time each was set for and the
+storm it came from. Opening the case brings them back faded and marked as from the case; they are
+not used for a storm's arrival times until you press Reactivate.
+
 ### Added: towns in a storm's path
 
 The storm's Threat section has a "Towns in its path" button: it asks the Census Bureau which towns

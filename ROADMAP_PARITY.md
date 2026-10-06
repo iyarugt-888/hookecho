@@ -779,6 +779,8 @@ Remaining open:
 
 **Agent prompt:** `Implement M2.4 using section 6. Close touch/pen editing gaps and save historical manual work in cases without silently reactivating stale motion.`
 
+**Evidence ledger — 2026-10-06, increment 1 (manual tracks in cases, reopened as historical):** saved cases now keep every manual storm-motion track ([`CaseTrack`](crates/hookecho/src/case.rs)): origin, motion, both uncertainty widths and cone, mark spacing, a line's edge, the analysis time it was set for, and the SCIT cell, table time and SCIT motion it was started from. The field is additive (`manual_tracks`, omitted when empty), so the case format number is unchanged and a build without it opens the rest of the case. Opening a case adds its tracks (one already here with the same origin, motion and time is not added twice) as **historical**: drawn faded, labelled "from a case, set for …" in the motion card, and left out of every storm's manual-motion line and arrivals until **Reactivate**, which makes it a current estimate that still projects from the time it was set for. Values a hand-edited file could make nonsensical (non-finite speed, out-of-range heading or cone) are brought into the editor's ranges. Test: `a_saved_track_reopens_as_it_was_and_historical` (full round trip including the source storm, historical on reopening, sanitised values, an older case with no tracks); full workspace 2,380 passed, Clippy `-D warnings`, the WASM library check. Open: storm annotations in cases, touch/pen edit certification and cancellation paths on physical Android hardware, the five-second creation acceptance.
+
 ### M3 — Radar-analysis depth
 
 #### M3.1 — Expose authoritative gate metadata

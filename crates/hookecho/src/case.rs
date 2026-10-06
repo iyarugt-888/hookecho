@@ -55,9 +55,41 @@ pub struct CaseManifest {
     pub strokes: Vec<CaseStroke>,
     #[serde(default)]
     pub udp_products: Vec<wxdata::udp::ProductDef>,
+    /// Manual storm-motion tracks (ROADMAP_PARITY M2.4), each with the analysis time it was set
+    /// for and the storm it was started from. Additive: a build that does not know them opens
+    /// the rest of the case. They reopen as historical, never as a live estimate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_tracks: Vec<CaseTrack>,
     /// Free text for whoever opens it next.
     #[serde(default)]
     pub notes: String,
+}
+
+/// A manual storm-motion track as a case keeps it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaseTrack {
+    /// Where the storm (or a line's middle) was at `t0`, `[lon, lat]`.
+    pub origin: [f64; 2],
+    /// Toward, degrees clockwise from north.
+    pub bearing_deg: f64,
+    pub speed_kmh: f64,
+    /// The analysis time the motion was set for.
+    pub t0: DateTime<Utc>,
+    pub left_width_km: f64,
+    pub right_width_km: f64,
+    pub cone_deg: f64,
+    #[serde(default)]
+    pub mark_interval_min: u32,
+    /// A line track's edge at `t0`; empty for a single storm.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edge: Vec<[f64; 2]>,
+    /// The SCIT cell it was started from, that table's time, and SCIT's motion then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_cell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_scan: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scit_motion: Option<(f64, f64)>,
 }
 
 impl CaseManifest {
@@ -166,6 +198,7 @@ mod tests {
                 rgba: [255, 80, 80, 255],
             }],
             udp_products: Vec::new(),
+            manual_tracks: Vec::new(),
             notes: "Moore, EF5".into(),
         }
     }
