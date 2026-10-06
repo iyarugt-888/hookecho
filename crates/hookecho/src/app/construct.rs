@@ -440,6 +440,7 @@ impl HookEchoApp {
             follow_notice: None,
             warning_popup: None,
             impacts: Default::default(),
+            towns: Default::default(),
             detail_impact: None,
             error_chip: None,
             storm_cells: Vec::new(),

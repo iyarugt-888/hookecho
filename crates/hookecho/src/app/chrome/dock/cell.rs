@@ -51,6 +51,8 @@ enum CellAct {
     Compare,
     /// Close this storm from the window.
     Close(String),
+    /// Look up the Census towns in its projected path.
+    FindTowns,
 }
 
 /// One row of the core-statistics table: the label, the value, and whether it is notable.
@@ -283,6 +285,10 @@ impl HookEchoApp {
     }
 
     pub(super) fn dock_cell(&mut self, host: Host<'_>) {
+        let ctx = match &host {
+            Host::Docked(ui) => ui.ctx().clone(),
+            Host::Floating(c) => (*c).clone(),
+        };
         if !self.dock.cell.open || !self.dock.cell_available {
             return;
         }
@@ -400,6 +406,25 @@ impl HookEchoApp {
                     .unwrap_or_default(),
             )
         };
+        // Towns in its path (M2.3), searched along the manual motion when one is set, else SCIT's.
+        let search = {
+            let vol = self.views[self.active].volume.as_ref();
+            let t0 = c
+                .time
+                .or_else(|| vol.map(|v| v.time))
+                .unwrap_or_else(chrono::Utc::now);
+            self.manual_tracks_for(&c)
+                .first()
+                .map(|t| (*t).clone())
+                .or_else(|| crate::app::storm_track::ManualTrack::from_cell(&c, t0))
+        };
+        let (town_targets, towns) = match &search {
+            Some(track) => {
+                let (t, state) = self.town_targets(track);
+                (t, Some(state.cloned()))
+            }
+            None => (Vec::new(), None),
+        };
         let threat = {
             let vol = self.views[self.active].volume.as_ref();
             let name = vol.map(|v| v.name.clone()).unwrap_or_default();
@@ -418,7 +443,8 @@ impl HookEchoApp {
                 .cloned()
                 .unwrap_or_default();
             let circulations = self.cached_circulations(&name, &rot, &tds);
-            let (targets, targets_dropped) = self.impact_targets();
+            let (mut targets, targets_dropped) = self.impact_targets();
+            targets.extend(town_targets);
             let markers: Vec<(String, [f64; 2])> = self
                 .settings
                 .markers
@@ -601,6 +627,36 @@ impl HookEchoApp {
                                 if let Some(n) = &threat.target_note {
                                     ui.label(ws::text(n, 10.5, t.text_faint));
                                 }
+                                {
+                                    use crate::app::community_targets::TownsState;
+                                    match &towns {
+                                        None => {}
+                                        Some(None) => {
+                                            if ws::button(ui, &t, "Towns in its path", 0.0)
+                                                .named("Look up the Census 2020 towns its projected path touches (asks the Census Bureau's service)")
+                                                .clicked()
+                                            {
+                                                act = Some(CellAct::FindTowns);
+                                            }
+                                        }
+                                        Some(Some(TownsState::Pending)) => {
+                                            ui.label(ws::text("Looking up towns in its path\u{2026}", 10.5, t.text_faint));
+                                        }
+                                        Some(Some(TownsState::Ready(p))) if p.is_empty() => {
+                                            ui.label(ws::text("No Census places touch its projected path", 10.5, t.text_faint));
+                                        }
+                                        Some(Some(TownsState::Ready(_))) => {
+                                            ui.label(ws::text(
+                                                "Towns: Census 2020 places its 1-hour path touches; times are to each town's centre point, and its edge can be reached sooner",
+                                                10.5,
+                                                t.text_faint,
+                                            ));
+                                        }
+                                        Some(Some(TownsState::Failed(e))) => {
+                                            ui.label(ws::text(format!("Town lookup failed: {e}"), 10.5, t.text_faint));
+                                        }
+                                    }
+                                }
                                 if let Some(m) = &threat.manual_motion {
                                     for (name, when, hot) in &threat.manual_target_etas {
                                         ws::kv(ui, &t, name, when, hot.then_some(t.warn));
@@ -765,6 +821,11 @@ impl HookEchoApp {
             Some(CellAct::View3d) => self.cell_view3d = true,
             Some(CellAct::TrackManually) => {
                 self.track_cell_manually(&c);
+            }
+            Some(CellAct::FindTowns) => {
+                if let Some(track) = &search {
+                    self.request_towns(track, &ctx);
+                }
             }
             Some(CellAct::Center) => {
                 let cam = &mut self.views[self.active].camera;

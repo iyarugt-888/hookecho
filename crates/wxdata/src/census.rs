@@ -120,6 +120,77 @@ pub fn parse_places(v: &serde_json::Value) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// A Census 2020 place (incorporated place or census-designated place) as a storm target: its
+/// name, its whole-place population, and its internal point — the Census's representative point,
+/// inside the place, which is not the place's area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    pub geoid: String,
+    pub name: String,
+    pub population: u64,
+    pub lon: f64,
+    pub lat: f64,
+}
+
+/// Parse a places reply with internal points. A place without a readable point is left out
+/// rather than placed somewhere.
+pub fn parse_place_points(v: &serde_json::Value) -> Vec<Place> {
+    let coord = |a: &serde_json::Value, k: &str| -> Option<f64> {
+        match a.get(k)? {
+            serde_json::Value::String(s) => s.trim().parse().ok(),
+            serde_json::Value::Number(n) => n.as_f64(),
+            _ => None,
+        }
+        .filter(|x: &f64| x.is_finite())
+    };
+    attrs(v)
+        .filter_map(|a| {
+            Some(Place {
+                geoid: a
+                    .get("GEOID")
+                    .and_then(|g| g.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                name: a.get("NAME")?.as_str()?.to_string(),
+                population: a.get("POP100")?.as_f64()?.max(0.0) as u64,
+                lat: coord(a, "INTPTLAT").filter(|l| l.abs() <= 90.0)?,
+                lon: coord(a, "INTPTLON").filter(|l| l.abs() <= 180.0)?,
+            })
+        })
+        .collect()
+}
+
+/// The places and census-designated places touching `rings`, largest first, at most `max`.
+pub async fn places_in(
+    client: &reqwest::Client,
+    rings: &[Vec<[f64; 2]>],
+    max: usize,
+) -> anyhow::Result<Vec<Place>> {
+    let geometry = esri_polygon(rings);
+    if geometry.contains("\"rings\":[]") {
+        anyhow::bail!("no area");
+    }
+    let top = max.to_string();
+    let args = [
+        ("outFields", "GEOID,NAME,POP100,INTPTLAT,INTPTLON"),
+        ("orderByFields", "POP100 DESC"),
+        ("resultRecordCount", top.as_str()),
+    ];
+    let (places, cdps) = futures_util::try_join!(
+        query(client, PLACES, &geometry, &args),
+        query(client, CDPS, &geometry, &args),
+    )?;
+    let mut all = parse_place_points(&places);
+    all.extend(parse_place_points(&cdps));
+    all.sort_by(|a, b| {
+        b.population
+            .cmp(&a.population)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    all.truncate(max);
+    Ok(all)
+}
+
 /// The population, housing units and largest places inside `rings`.
 pub async fn impact(client: &reqwest::Client, rings: &[Vec<[f64; 2]>]) -> anyhow::Result<Impact> {
     let geometry = esri_polygon(rings);
@@ -189,6 +260,28 @@ mod tests {
         assert_eq!(parse_totals(&serde_json::json!({})), (0, 0));
     }
 
+    /// A real TIGERweb reply (Census 2020 incorporated places touching central Oklahoma City,
+    /// fetched 2026-10-06; 1,199 bytes, SHA-256 1a670eb4…4ece6), read for names, whole-place
+    /// populations and internal points, against the values the service published.
+    #[test]
+    fn place_points_read_from_a_real_reply() {
+        let v: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/data/census/tigerweb_places_okc.json"
+        ))
+        .unwrap();
+        let p = parse_place_points(&v);
+        assert_eq!(p.len(), 5);
+        assert_eq!(p[0].geoid, "4055000");
+        assert_eq!(p[0].name, "Oklahoma City city");
+        assert_eq!(p[0].population, 681_054);
+        assert!((p[0].lat - 35.467_079_5).abs() < 1e-9 && (p[0].lon + 97.513_656_5).abs() < 1e-9);
+        assert_eq!(p[2].name, "Del City city");
+        // A point that cannot be read is not invented.
+        let bad = serde_json::json!({"features":[{"attributes":
+            {"NAME":"X","POP100":5,"INTPTLAT":"","INTPTLON":"-97"}}]});
+        assert!(parse_place_points(&bad).is_empty());
+    }
+
     /// Central Oklahoma City, live.
     /// `cargo test -p wxdata census_live -- --ignored --nocapture`
     #[tokio::test]
@@ -204,5 +297,19 @@ mod tests {
         println!("{i:?}");
         assert!(i.population > 200_000 && i.housing_units > 100_000);
         assert_eq!(i.places[0].0, "Oklahoma City city");
+    }
+
+    /// Towns with centre points along a strip east of Oklahoma City, live.
+    /// `cargo test -p wxdata places_in_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn places_in_live() {
+        let ring = vec![[-97.6, 35.4], [-97.2, 35.4], [-97.2, 35.5], [-97.6, 35.5]];
+        let p = places_in(&reqwest::Client::new(), &[ring], 10)
+            .await
+            .unwrap();
+        println!("{p:#?}");
+        assert!(p.iter().any(|x| x.name == "Oklahoma City city"));
+        assert!(p.windows(2).all(|w| w[0].population >= w[1].population));
     }
 }

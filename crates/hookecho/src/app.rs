@@ -84,6 +84,7 @@ mod self_update_ui;
 mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
+mod community_targets;
 mod detector_markers;
 mod gis_layers;
 mod loop_capture;
@@ -104,6 +105,7 @@ mod radar_probe;
 mod radar_products;
 mod rules;
 mod scenes;
+mod settings_bundle;
 mod sharing;
 mod standalone_volume;
 mod surface_feeds;
@@ -1560,6 +1562,8 @@ pub struct HookEchoApp {
     warning_popup: Option<ui::warning_window::WarningPopup>,
     /// People, homes and towns inside open alerts (Census), by alert id.
     impacts: impact::ImpactBook,
+    /// Towns in storms' projected paths, looked up on request (M2.3).
+    towns: community_targets::TownsBook,
     /// The impact the open feature details show (a discussion's or a watch's), by its key in
     /// `impacts`; `None` for features that have no people count.
     detail_impact: Option<String>,
@@ -7166,33 +7170,6 @@ impl HookEchoApp {
                 self.toast(ToastKind::Error, format!("GeoJSON export failed: {e}"));
             }
             crate::dialog::Saved::Cancelled => {}
-        }
-    }
-
-    /// Import a settings bundle (rfd open dialog). The next-frame dirty-diff reloads palettes
-    /// and persists, and the UI (theme, layers, markers…) updates live from the new settings.
-    fn import_settings_bundle(&mut self) {
-        crate::dialog::request_open(crate::dialog::ImportKind::SettingsBundle, "");
-    }
-
-    /// Apply a settings bundle the user picked.
-    fn apply_settings_bundle(&mut self, import: &crate::dialog::Import) {
-        match import
-            .text()
-            .and_then(|s| crate::settings::Settings::import_bundle(&s))
-        {
-            Ok(mut settings) => {
-                // A bundle written before M4.1 carries the one layer the old way.
-                settings.migrate_imported_gis();
-                self.settings = settings;
-                // The layers are reloaded from the bundle's own list (`sync_gis_layers`).
-                self.gis.clear();
-                self.toast(ToastKind::Success, "Settings imported");
-            }
-            Err(e) => {
-                log::warn!("settings import failed: {e}");
-                self.toast(ToastKind::Error, format!("Settings import failed: {e}"));
-            }
         }
     }
 

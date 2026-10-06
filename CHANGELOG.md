@@ -17,6 +17,12 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: towns in a storm's path
+
+The storm's Threat section has a "Towns in its path" button: it asks the Census Bureau which towns
+the storm's projected one-hour path touches and lists each with its 2020 population and when the
+storm reaches the town's centre. Its edge can be reached sooner, and the card says so.
+
 ### Added: imported layers as impact targets
 
 Mark an imported GIS layer as "Impact targets" in the Layer Manager and the storm's Threat section

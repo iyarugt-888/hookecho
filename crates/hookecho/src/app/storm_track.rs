@@ -204,7 +204,7 @@ impl ManualTrack {
     }
 
     /// The swath's outline to the horizon, left edge out and right edge back.
-    fn swath(&self) -> Vec<[f64; 2]> {
+    pub(crate) fn swath(&self) -> Vec<[f64; 2]> {
         const STEPS: usize = 12;
         let km = self.speed_kmh * HORIZON_MIN / 60.0;
         let edge = |i: usize, side: f64| {
