@@ -313,25 +313,26 @@ impl HookEchoApp {
         let trend = self.storm_trend(&c.id);
         // Its persistent identity across scans (ROADMAP_PARITY M2.1).
         let in_table = self.selected_storm_live().is_some_and(|(_, live)| live);
-        let gone = self.cell_popup.as_ref().is_some_and(|p| {
-            matches!(
-                self.dock
-                    .storm_ids
-                    .resolve(&p.id, p.time.map(|t| t.timestamp())),
-                super::Resolved::Gone(_)
-            )
+        let gone = self.cell_popup.as_ref().and_then(|p| {
+            match self
+                .dock
+                .storm_ids
+                .resolve(&p.id, p.time.map(|t| t.timestamp()))
+            {
+                super::Resolved::Gone(storm) => Some(self.dock.storm_ids.gone_note(storm)),
+                _ => None,
+            }
         });
-        // A storm SCIT no longer reports is shown as it was, and says so; its old ID may be
+        // A storm SCIT no longer reports is shown as it was, and says why; its old ID may be
         // another storm's now, so nothing is looked up by it.
-        let identity = if gone {
-            Some(format!(
-                "not in the latest SCIT table — shown as of {}",
+        let identity = match &gone {
+            Some(why) => Some(format!(
+                "not in the latest SCIT table ({why}) — shown as of {}",
                 c.time
                     .map(|d| crate::timefmt::fmt_clock(d, tz, false))
                     .unwrap_or_else(|| "its selection".into())
-            ))
-        } else {
-            self.dock.storm_ids.describe(&c.id)
+            )),
+            None => self.dock.storm_ids.describe(&c.id),
         };
         // What it has been linked to over those scans, each by the rule that linked it.
         let evidence = if !in_table {

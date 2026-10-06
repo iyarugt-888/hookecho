@@ -356,6 +356,27 @@ impl StormIdentity {
         out
     }
 
+    /// Why a known storm is not in the current table, for a reader: merged into another (and
+    /// which cell that is now), no longer tracked, or missed this scan.
+    pub(crate) fn gone_note(&self, storm: wxdata::storm_history::StormId) -> String {
+        use wxdata::storm_history::Lineage;
+        let Some(s) = self.history.storm(storm) else {
+            return "no longer tracked".into();
+        };
+        let merged = s.lineage.iter().rev().find_map(|l| match l {
+            Lineage::MergedInto(x) => Some(*x),
+            _ => None,
+        });
+        match merged {
+            Some(x) => match self.current.iter().find(|(_, id, _)| *id == x) {
+                Some((cell, ..)) => format!("merged into storm #{} (now cell {cell})", x.0),
+                None => format!("merged into storm #{}", x.0),
+            },
+            None if s.closed => "no longer tracked".into(),
+            None => "missed this scan".into(),
+        }
+    }
+
     /// The storm a SCIT cell of the current table belongs to.
     pub(crate) fn storm_of(&self, cell_id: &str) -> Option<&wxdata::storm_history::Storm> {
         let id = self.current.iter().find(|(c, ..)| c == cell_id)?.1;
@@ -399,6 +420,29 @@ impl StormIdentity {
             if let Lineage::SplitFrom(p) = l {
                 line.push_str(&format!(" · split from #{}", p.0));
             }
+        }
+        // What other storms' lineage says about this one: storms it absorbed, storms split off it.
+        let related = |want: fn(&Lineage) -> Option<wxdata::storm_history::StormId>| {
+            self.history
+                .storms()
+                .iter()
+                .filter(|o| o.lineage.iter().any(|l| want(l) == Some(s.id)))
+                .map(|o| format!("#{}", o.id.0))
+                .collect::<Vec<_>>()
+        };
+        let absorbed = related(|l| match l {
+            Lineage::MergedInto(x) => Some(*x),
+            _ => None,
+        });
+        if !absorbed.is_empty() {
+            line.push_str(&format!(" · absorbed {}", absorbed.join(", ")));
+        }
+        let children = related(|l| match l {
+            Lineage::SplitFrom(x) => Some(*x),
+            _ => None,
+        });
+        if !children.is_empty() {
+            line.push_str(&format!(" · split off {}", children.join(", ")));
         }
         if s.associations
             .last()
@@ -1258,6 +1302,44 @@ mod tests {
             dbz(ids.trend("O7", &samples)),
             [20.0],
             "the new O7 is its own storm, with none of the old O7's samples"
+        );
+    }
+
+    #[test]
+    fn a_split_and_merge_read_on_both_storms_and_a_merged_pick_says_where_it_went() {
+        use wxdata::level3::Cell;
+        let at = |id: &str, lat: f64, min: i64| Cell {
+            id: id.into(),
+            lon: -97.5,
+            lat,
+            time: chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0),
+            ..Default::default()
+        };
+        let t1 = Some(1_700_000_000 + 5 * 60);
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("A1", 35.3, 0)]);
+        // It splits: a second cell 3 km south.
+        ids.feed(Some("KTLX"), &[at("A1", 35.3045, 5), at("B2", 35.273, 5)]);
+        let parent = ids.describe("A1").unwrap();
+        assert!(parent.contains("split off #2"), "{parent}");
+        assert!(ids.describe("B2").unwrap().contains("split from #1"));
+        // They merge back into one cell between them.
+        ids.feed(Some("KTLX"), &[at("C3", 35.3, 10)]);
+        let survivor = ids.describe("C3").unwrap();
+        let (kept, gone) = match (ids.resolve("A1", t1), ids.resolve("B2", t1)) {
+            (Resolved::Current(c), Resolved::Gone(g))
+            | (Resolved::Gone(g), Resolved::Current(c)) => (c, g),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(kept, "C3");
+        assert!(
+            survivor.contains(&format!("absorbed #{}", gone.0)),
+            "{survivor}"
+        );
+        let note = ids.gone_note(gone);
+        assert!(
+            note.starts_with("merged into storm #") && note.ends_with("(now cell C3)"),
+            "{note}"
         );
     }
 
