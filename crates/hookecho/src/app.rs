@@ -109,6 +109,7 @@ mod settings_bundle;
 mod sharing;
 mod standalone_volume;
 mod surface_feeds;
+mod terrain_cache;
 mod time_layers;
 mod touch_hover;
 mod view3d_state;
@@ -208,20 +209,6 @@ const MAX_COUPLET_MARKERS: usize = 40;
 /// The ring and badge colour of a detection confirmed by a report or an observed warning: distinct
 /// from the detector colours, because it is a different kind of evidence.
 const CONFIRMED_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 215, 64);
-
-fn point_in_ring_ll(ring: &[[f64; 2]], lon: f64, lat: f64) -> bool {
-    wxdata::overlay::rings_intersect(
-        ring,
-        // A tiny square around the click: reuses the one geometry primitive rather than adding a
-        // second point-in-polygon implementation here.
-        &[
-            [lon - 1e-6, lat - 1e-6],
-            [lon + 1e-6, lat - 1e-6],
-            [lon + 1e-6, lat + 1e-6],
-            [lon - 1e-6, lat + 1e-6],
-        ],
-    )
-}
 
 /// The first `http(s)://` URL in a free-text line, if there is one. Spotter reports and chase
 /// partners paste stream links into their status text; this is how we find them.
@@ -1564,6 +1551,7 @@ pub struct HookEchoApp {
     impacts: impact::ImpactBook,
     /// Towns in storms' projected paths, looked up on request (M2.3).
     towns: community_targets::TownsBook,
+    terrain: terrain_cache::TerrainCache,
     /// The impact the open feature details show (a discussion's or a watch's), by its key in
     /// `impacts`; `None` for features that have no people count.
     detail_impact: Option<String>,
@@ -1974,10 +1962,11 @@ pub struct HookEchoApp {
     show_imported_gis: bool,
     /// What was read from each imported GIS layer's file (ROADMAP_PARITY M4.1), by layer ID.
     gis: Vec<gis_layers::LoadedGis>,
-    /// Per `overlays` entry, the imported layer it came from (`None`: an official product).
-    overlay_layer: Vec<Option<u64>>,
-    /// The layer the Layer Manager is editing.
+    /// Per `overlays` entry, its imported layer and source feature (`None`: official product).
+    overlay_layer: Vec<Option<(u64, usize)>>,
+    /// The layer the Layer Manager is editing, and the open feature table.
     gis_selected: Option<u64>,
+    gis_table: Option<gis_layers::GisTable>,
     /// The layer settings the overlays were last assembled for, hashed.
     gis_settings_key: u64,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
@@ -4882,16 +4871,6 @@ impl HookEchoApp {
         Some((table, name.clone(), units))
     }
 
-    /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
-    /// `// ponytail: coarse mercator estimate; fine for zoom-gating, not for measuring.`
-    fn view_range_nmi(&self) -> f32 {
-        let cam = &self.views[self.active].camera;
-        let world_h = self.last_viewport.1 as f64 * cam.world_per_pixel();
-        let s = (cam.center.1 * 2.0 - 1.0) * std::f64::consts::PI;
-        let coslat = (1.0 / s.cosh()).max(0.05); // cos(lat) = sech(mercator y)
-        (world_h * 40075.017 * coslat / 1.852) as f32
-    }
-
     /// Placefile items currently visible (enabled, zoom threshold met, within time range), as
     /// `(item, opacity, loaded-placefile index)`. Iterated in `settings.placefiles` order, which
     /// is the paint order the Layer Manager reorders.
@@ -6648,6 +6627,7 @@ impl HookEchoApp {
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
         self.paint_gis_marks(&painter, prect, cam, vp);
+        self.paint_gis_selection(&painter, prect, cam, vp);
         // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
         // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
         // file reads as a scatter of names rather than an unreadable smear, and more appear as

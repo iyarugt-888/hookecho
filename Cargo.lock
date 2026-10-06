@@ -7523,6 +7523,7 @@ dependencies = [
  "nexrad-level3",
  "nexrad-model",
  "percent-encoding",
+ "png 0.17.16",
  "postcard",
  "rayon",
  "reqwest 0.12.28",

@@ -134,7 +134,7 @@ impl LoadedGis {
     }
 
     /// The polygons to draw for `config`: time-filtered, coloured and styled.
-    fn styled_shapes(&self, config: &crate::settings::GisLayerConfig) -> Vec<GeoFeature> {
+    fn styled_shapes(&self, config: &crate::settings::GisLayerConfig) -> Vec<(GeoFeature, usize)> {
         let colors = self.colors.as_ref().map(|(_, c, _)| c);
         let src = &self.marks.shape_src;
         self.shapes
@@ -148,7 +148,7 @@ impl LoadedGis {
                     style.color = c;
                 }
                 crate::gis_import::apply_style(&mut feature, style);
-                feature
+                (feature, src.get(i).copied().unwrap_or(i))
             })
             .collect()
     }
@@ -234,6 +234,126 @@ pub(crate) fn layer_features(
         }
     }
     out
+}
+
+/// One row of a layer's feature table: the source feature, and its value for each column (empty
+/// where it has none).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TableRow {
+    pub src: usize,
+    pub values: Vec<String>,
+}
+
+fn cell_text(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None | Some(serde_json::Value::Null) => String::new(),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// A layer's feature table (ROADMAP_PARITY M4.3): every source feature the layer shows (its
+/// filter and time window applied, so the table and the map agree), one column per attribute in
+/// `keys`, rows whose values contain `query` (any column, ignoring case), sorted by column `sort`
+/// — numerically when both values are numbers, as text otherwise, empty values last — or in file
+/// order.
+pub(crate) fn feature_table(
+    layer: &LoadedGis,
+    keys: &[String],
+    query: &str,
+    sort: Option<(usize, bool)>,
+) -> Vec<TableRow> {
+    let q = query.trim().to_lowercase();
+    let mut rows: Vec<TableRow> = layer
+        .marks
+        .props
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| layer.valid(Some(i)))
+        .map(|(src, props)| TableRow {
+            src,
+            values: keys.iter().map(|k| cell_text(props.get(k))).collect(),
+        })
+        .filter(|r| q.is_empty() || r.values.iter().any(|v| v.to_lowercase().contains(&q)))
+        .collect();
+    if let Some((col, descending)) = sort {
+        rows.sort_by(|a, b| {
+            let (x, y) = (&a.values[col], &b.values[col]);
+            let ord = match (x.is_empty(), y.is_empty()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => return std::cmp::Ordering::Greater,
+                (false, true) => return std::cmp::Ordering::Less,
+                _ => match (x.parse::<f64>(), y.parse::<f64>()) {
+                    (Ok(p), Ok(q)) => p.total_cmp(&q),
+                    _ => x.to_lowercase().cmp(&y.to_lowercase()),
+                },
+            };
+            let ord = if descending { ord.reverse() } else { ord };
+            ord.then(a.src.cmp(&b.src))
+        });
+    }
+    rows
+}
+
+/// The box around every part of source feature `src`: its polygons, lines and points.
+pub(crate) fn feature_bounds(layer: &LoadedGis, src: usize) -> Option<(f64, f64, f64, f64)> {
+    let m = &layer.marks;
+    let mut acc: Option<(f64, f64, f64, f64)> = None;
+    let mut add = |p: [f64; 2]| {
+        acc = Some(match acc {
+            None => (p[0], p[1], p[0], p[1]),
+            Some((w, s, e, n)) => (w.min(p[0]), s.min(p[1]), e.max(p[0]), n.max(p[1])),
+        });
+    };
+    for (i, f) in layer.shapes.iter().enumerate() {
+        if m.shape_src.get(i) == Some(&src) {
+            f.rings.iter().flatten().for_each(|p| add(*p));
+        }
+    }
+    for (i, l) in m.lines.iter().enumerate() {
+        if m.line_src.get(i) == Some(&src) {
+            l.iter().for_each(|p| add(*p));
+        }
+    }
+    for (i, p) in m.points.iter().enumerate() {
+        if m.point_src.get(i) == Some(&src) {
+            add(*p);
+        }
+    }
+    acc
+}
+
+/// What the table's Copy puts on the clipboard for a feature: every attribute, `name: value`,
+/// one per line, sorted by name.
+pub(crate) fn feature_text(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut lines: Vec<String> = props
+        .iter()
+        .map(|(k, v)| format!("{k}: {}", cell_text(Some(v))))
+        .collect();
+    lines.sort();
+    lines.join("\n")
+}
+
+/// Most rows the feature table lists at once; a search narrows the rest.
+const MAX_TABLE_ROWS: usize = 500;
+
+/// The open feature table: which layer, its sort and search, and the feature picked in it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct GisTable {
+    pub layer: u64,
+    sort: Option<(usize, bool)>,
+    query: String,
+    /// The source feature picked (zoomed to or copied), outlined on the map.
+    pub selected: Option<usize>,
+}
+
+impl GisTable {
+    pub(crate) fn of(layer: u64) -> Self {
+        GisTable {
+            layer,
+            ..Default::default()
+        }
+    }
 }
 
 /// The paint order of the layers' polygons around the official products: `(below, above)`, each
@@ -431,15 +551,19 @@ impl HookEchoApp {
     }
 
     /// The layers' polygons in paint order, each with its layer: `(below, above)`.
-    pub(crate) fn gis_overlay_parts(&self) -> [Vec<(GeoFeature, u64)>; 2] {
+    pub(crate) fn gis_overlay_parts(&self) -> [Vec<(GeoFeature, (u64, usize))>; 2] {
         if !self.show_imported_gis {
             return [Vec::new(), Vec::new()];
         }
         let (below, above) = paint_order(&self.settings);
-        let part = |ids: Vec<u64>| -> Vec<(GeoFeature, u64)> {
+        let part = |ids: Vec<u64>| -> Vec<(GeoFeature, (u64, usize))> {
             ids.into_iter()
                 .filter_map(|id| Some((id, self.settings.gis_layer(id)?, self.gis_loaded(id)?)))
-                .flat_map(|(id, c, l)| l.styled_shapes(c).into_iter().map(move |f| (f, id)))
+                .flat_map(|(id, c, l)| {
+                    l.styled_shapes(c)
+                        .into_iter()
+                        .map(move |(f, src)| (f, (id, src)))
+                })
                 .collect()
         };
         [part(below), part(above)]
@@ -452,7 +576,7 @@ impl HookEchoApp {
         self.overlay_layer
             .iter()
             .map(|l| {
-                let c = self.settings.gis_layer((*l)?)?;
+                let c = self.settings.gis_layer((*l)?.0)?;
                 c.style
                     .visible_at(zoom)
                     .then(|| c.style.rendered_stroke_width())
@@ -485,7 +609,7 @@ impl HookEchoApp {
                     .get(*i)
                     .copied()
                     .flatten()
-                    .is_none_or(|id| {
+                    .is_none_or(|(id, _)| {
                         self.settings
                             .gis_layer(id)
                             .is_some_and(|c| c.style.visible_at(zoom))
@@ -495,6 +619,22 @@ impl HookEchoApp {
             .collect();
         hits.sort_by_key(|f| std::cmp::Reverse(f.kind.z()));
         hits
+    }
+
+    /// The imported layer and source feature of the overlay feature a click on `(lon, lat)`
+    /// opens (the first of [`Self::overlay_hits`]), when it is an imported one.
+    pub(crate) fn overlay_hit_source(&self, lon: f64, lat: f64, zoom: f64) -> Option<(u64, usize)> {
+        let top = *self.overlay_hits(lon, lat, zoom).first()?;
+        let i = self.overlays.iter().position(|f| std::ptr::eq(f, top))?;
+        self.overlay_layer.get(i).copied().flatten()
+    }
+
+    /// A feature picked on the map becomes the picked row of its layer's open feature table, so
+    /// the table and the map point at the same source feature.
+    pub(crate) fn note_gis_pick(&mut self, layer: u64, src: usize) {
+        if let Some(t) = self.gis_table.as_mut().filter(|t| t.layer == layer) {
+            t.selected = Some(src);
+        }
     }
 
     /// Frame the active pane on one layer, or on every layer with `None`. A file covering
@@ -516,6 +656,11 @@ impl HookEchoApp {
             );
             return;
         };
+        self.fit_view((west, south, east, north));
+    }
+
+    /// Frame the active pane on a `(west, south, east, north)` box.
+    pub(crate) fn fit_view(&mut self, (west, south, east, north): (f64, f64, f64, f64)) {
         let view = &mut self.views[self.active];
         let (center_lon, center_lat) = ((west + east) / 2.0, (south + north) / 2.0);
         // Span in world units rather than degrees: latitude degrees do not have a constant world
@@ -559,7 +704,7 @@ impl HookEchoApp {
         lat: f64,
         cam: &crate::render::mercator::Camera,
         touch: bool,
-    ) -> Option<Detail> {
+    ) -> Option<(Detail, u64, usize)> {
         let at = crate::render::mercator::lonlat_to_world(lon, lat);
         let slack = if touch { 12.0 } else { 4.0 };
         let px = cam.world_per_pixel();
@@ -574,17 +719,21 @@ impl HookEchoApp {
             };
             let props = layer.marks.props.get(src)?;
             let c = config.style.stroke_rgba();
-            return Some(Detail {
-                title: crate::gis_import::props_title(props, kind),
-                body: format!(
-                    "{}\n\nLayer: {}",
-                    crate::gis_import::props_detail(props),
-                    config.name
-                ),
-                color: c,
-                image: None,
-                link: None,
-            });
+            return Some((
+                Detail {
+                    title: crate::gis_import::props_title(props, kind),
+                    body: format!(
+                        "{}\n\nLayer: {}",
+                        crate::gis_import::props_detail(props),
+                        config.name
+                    ),
+                    color: c,
+                    image: None,
+                    link: None,
+                },
+                config.id,
+                src,
+            ));
         }
         None
     }
@@ -599,6 +748,16 @@ impl HookEchoApp {
             cells: self.active_storm_cells(),
             overlays: &self.official_overlays(),
             imported: &self.gis_export_features(),
+            tracks: &self
+                .storm_tracks
+                .tracks
+                .iter()
+                .flat_map(crate::app::storm_track::ManualTrack::to_features)
+                .collect::<Vec<_>>(),
+            routes: &self.route_window.routes,
+            route_selected: self.route_window.selected,
+            route_engine: self.settings.route_engine.label(),
+            contours: &self.contour_features(),
         })
     }
 
@@ -714,6 +873,169 @@ impl HookEchoApp {
                 self.toast(ToastKind::Error, format!("Layer export failed: {e}"))
             }
             crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
+    /// The feature table window (ROADMAP_PARITY M4.3), while one is open: the layer's shown
+    /// features, a column per attribute, sortable by any, searchable, each with Zoom and Copy.
+    /// Buttons rather than row clicks, which a touch screen does not deliver in a scrolled table.
+    pub(crate) fn gis_table_window(&mut self, ctx: &egui::Context) {
+        let Some(mut st) = self.gis_table.take() else {
+            return;
+        };
+        let (Some(config), Some(layer)) =
+            (self.settings.gis_layer(st.layer), self.gis_loaded(st.layer))
+        else {
+            return;
+        };
+        let name = config.name.clone();
+        let keys = crate::gis_import::label_keys(&layer.marks);
+        let total = (0..layer.marks.props.len())
+            .filter(|i| layer.valid(Some(i)))
+            .count();
+        let rows = feature_table(layer, &keys, &st.query, st.sort);
+        let mut open = true;
+        let (mut zoom, mut copy) = (None, None);
+        egui::Window::new(format!("{name} \u{2014} features"))
+            .id(egui::Id::new("gis_feature_table"))
+            .open(&mut open)
+            .default_size([560.0, 360.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Search");
+                    ui.add(egui::TextEdit::singleline(&mut st.query).desired_width(180.0));
+                    ui.weak(format!(
+                        "{} of {total} shown features (filter and time applied)",
+                        rows.len()
+                    ));
+                });
+                egui::ScrollArea::both().show(ui, |ui| {
+                    egui::Grid::new("gis_feature_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label("");
+                            for (c, k) in keys.iter().enumerate() {
+                                let arrow = match st.sort {
+                                    Some((sc, false)) if sc == c => " \u{25b2}",
+                                    Some((sc, true)) if sc == c => " \u{25bc}",
+                                    _ => "",
+                                };
+                                if ui
+                                    .small_button(format!("{k}{arrow}"))
+                                    .on_hover_text("Sort by this attribute; again to reverse")
+                                    .clicked()
+                                {
+                                    st.sort = match st.sort {
+                                        Some((sc, false)) if sc == c => Some((c, true)),
+                                        Some((sc, true)) if sc == c => None,
+                                        _ => Some((c, false)),
+                                    };
+                                }
+                            }
+                            ui.end_row();
+                            for r in rows.iter().take(MAX_TABLE_ROWS) {
+                                ui.horizontal(|ui| {
+                                    let picked = st.selected == Some(r.src);
+                                    if ui
+                                        .selectable_label(picked, "\u{2316}")
+                                        .on_hover_text("Zoom to this feature and outline it")
+                                        .clicked()
+                                    {
+                                        zoom = Some(r.src);
+                                    }
+                                    if ui
+                                        .small_button("\u{29c9}")
+                                        .on_hover_text("Copy its attributes")
+                                        .clicked()
+                                    {
+                                        copy = Some(r.src);
+                                    }
+                                });
+                                for v in &r.values {
+                                    let short: String = v.chars().take(40).collect();
+                                    let cell = ui.label(&short);
+                                    if short.len() < v.len() {
+                                        cell.on_hover_text(v);
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    if rows.len() > MAX_TABLE_ROWS {
+                        ui.weak(format!(
+                            "The first {MAX_TABLE_ROWS} of {} rows; search to narrow them",
+                            rows.len()
+                        ));
+                    }
+                });
+            });
+        if let Some(src) = copy {
+            if let Some(props) = self
+                .gis_loaded(st.layer)
+                .and_then(|l| l.marks.props.get(src))
+            {
+                ctx.copy_text(feature_text(props));
+            }
+            st.selected = Some(src);
+        }
+        if let Some(src) = zoom {
+            if let Some(b) = self
+                .gis_loaded(st.layer)
+                .and_then(|l| feature_bounds(l, src))
+            {
+                self.fit_view(b);
+            }
+            st.selected = Some(src);
+        }
+        if open {
+            self.gis_table = Some(st);
+        }
+    }
+
+    /// The feature picked in the table, outlined over everything so it can be found.
+    pub(crate) fn paint_gis_selection(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+    ) {
+        let Some((layer, src)) = self
+            .gis_table
+            .as_ref()
+            .and_then(|t| Some((self.gis_loaded(t.layer)?, t.selected?)))
+        else {
+            return;
+        };
+        let screen = |ll: &[f64; 2]| {
+            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+            let (sx, sy) = cam.world_to_screen(w, vp);
+            egui::pos2(prect.left() + sx, prect.top() + sy)
+        };
+        let halo = egui::Stroke::new(5.0, egui::Color32::from_black_alpha(200));
+        let mark = egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 230, 60));
+        let m = &layer.marks;
+        let mut lines: Vec<Vec<egui::Pos2>> = Vec::new();
+        for (i, f) in layer.shapes.iter().enumerate() {
+            if m.shape_src.get(i) == Some(&src) {
+                lines.extend(f.rings.iter().map(|r| r.iter().map(screen).collect()));
+            }
+        }
+        for (i, l) in m.lines.iter().enumerate() {
+            if m.line_src.get(i) == Some(&src) {
+                lines.push(l.iter().map(screen).collect());
+            }
+        }
+        for pts in lines {
+            painter.add(egui::Shape::line(pts.clone(), halo));
+            painter.add(egui::Shape::line(pts, mark));
+        }
+        for (i, p) in m.points.iter().enumerate() {
+            if m.point_src.get(i) == Some(&src) {
+                let at = screen(p);
+                painter.circle_stroke(at, 9.0, halo);
+                painter.circle_stroke(at, 9.0, mark);
+            }
         }
     }
 
@@ -1010,5 +1332,200 @@ mod tests {
             .collect();
         assert_eq!(names, ["big early", "big late"]);
         assert_eq!(out[0].properties["hookecho"], "imported");
+    }
+
+    /// The table lists what the layer shows, searches any column, sorts numbers as numbers and
+    /// puts missing values last; a feature's box covers all of its parts.
+    #[test]
+    fn the_feature_table_lists_what_the_map_shows_sorted_and_searched() {
+        let f = |name: &str, pop: Option<i64>, kind: &str| {
+            let mut p = serde_json::json!({ "NAME": name, "KIND": kind });
+            if let Some(v) = pop {
+                p["POP"] = v.into();
+            }
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::MultiPoint(vec![[-97.0, 35.0], [-96.0, 36.0]]),
+                properties: p.as_object().unwrap().clone(),
+            }
+        };
+        let mut layer = LoadedGis::new(
+            1,
+            vec![
+                f("Alpha", Some(900), "school"),
+                f("Bravo", Some(10_000), "fire"),
+                f("Charlie", None, "school"),
+                f("Delta", Some(95), "school"),
+            ],
+        );
+        let keys = crate::gis_import::label_keys(&layer.marks);
+        assert_eq!(keys, ["KIND", "NAME", "POP"]);
+        let names =
+            |rows: &[TableRow]| rows.iter().map(|r| r.values[1].clone()).collect::<Vec<_>>();
+        let pop = 2;
+        // Numbers as numbers (95 < 900 < 10000), the missing one last either way.
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", Some((pop, false)))),
+            ["Delta", "Alpha", "Bravo", "Charlie"]
+        );
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", Some((pop, true)))),
+            ["Bravo", "Alpha", "Delta", "Charlie"]
+        );
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "SCHOOL", None)),
+            ["Alpha", "Charlie", "Delta"]
+        );
+        // The layer's filter applies to the table too.
+        let config = crate::settings::GisLayerConfig {
+            id: 1,
+            filter: "KIND = 'school'".into(),
+            ..Default::default()
+        };
+        layer.sync(&config, Utc::now());
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", None)),
+            ["Alpha", "Charlie", "Delta"]
+        );
+        assert_eq!(feature_bounds(&layer, 1), Some((-97.0, 35.0, -96.0, 36.0)));
+        assert_eq!(
+            feature_text(&layer.marks.props[0]),
+            "KIND: school\nNAME: Alpha\nPOP: 900"
+        );
+    }
+
+    /// Every drawn polygon carries the source feature it came from — both parts of a
+    /// multipolygon the same one, a filtered-out feature none — so a click on the map lands on
+    /// the table row of the same feature.
+    #[test]
+    fn drawn_polygons_name_their_source_feature() {
+        let square = |x: f64| vec![vec![[x, 35.0], [x + 0.1, 35.0], [x + 0.1, 35.1], [x, 35.0]]];
+        let layer_features = vec![
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(square(-97.0)),
+                properties: serde_json::json!({"KEEP": true})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::MultiPolygon(vec![square(-96.0), square(-95.0)]),
+                properties: serde_json::json!({"KEEP": true})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(square(-94.0)),
+                properties: serde_json::json!({"KEEP": false})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+        ];
+        let mut layer = LoadedGis::new(1, layer_features);
+        let config = crate::settings::GisLayerConfig {
+            id: 1,
+            filter: "KEEP = true".into(),
+            ..Default::default()
+        };
+        layer.sync(&config, Utc::now());
+        let srcs: Vec<usize> = layer
+            .styled_shapes(&config)
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect();
+        assert_eq!(srcs, [0, 1, 1]);
+    }
+
+    /// Writes one GeoJSON with every kind of feature the map export carries, to the path in
+    /// `HOOKECHO_EXPORT_SAMPLE`, for reading back with an independent GIS reader (GDAL/OGR):
+    /// `HOOKECHO_EXPORT_SAMPLE=/tmp/x.geojson cargo test -p hookecho --lib write_export_sample -- --ignored`
+    #[test]
+    #[ignore = "writes a file for an external reader"]
+    fn write_export_sample() {
+        let Ok(path) = std::env::var("HOOKECHO_EXPORT_SAMPLE") else {
+            return;
+        };
+        let t0 = chrono::DateTime::parse_from_rfc3339("2026-05-06T21:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let attrs = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let imported = vec![
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Point([-97.4, 35.2]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "Siren 12", "POP": 5000, "hookecho": "imported", "layer": "Sirens"}),
+                ),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::LineString(vec![[-97.5, 35.1], [-97.3, 35.3]]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "Route 9", "hookecho": "imported", "layer": "Roads"}),
+                ),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(vec![vec![
+                    [-97.6, 35.0],
+                    [-97.2, 35.0],
+                    [-97.2, 35.4],
+                    [-97.6, 35.4],
+                    [-97.6, 35.0],
+                ]]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "District", "hookecho": "imported", "layer": "Districts"}),
+                ),
+            },
+        ];
+        let cell = wxdata::level3::Cell {
+            id: "O7".into(),
+            lon: -97.5,
+            lat: 35.3,
+            time: Some(t0),
+            mvt_deg: Some(70.0),
+            mvt_kt: Some(30.0),
+            max_dbz: Some(64.0),
+            ..Default::default()
+        };
+        let tracks = crate::app::storm_track::ManualTrack::from_cell(&cell, t0)
+            .unwrap()
+            .to_features();
+        let routes = vec![wxdata::route::Route {
+            coords: vec![[-97.52, 35.47], [-97.40, 35.50], [-97.30, 35.52]],
+            distance_m: 21_500.0,
+            duration_s: 1_260.0,
+            summary: "I-40 E".into(),
+        }];
+        let contours = crate::app::contours::contour_features(
+            "MSLP",
+            Some("hPa"),
+            Some("HRRR"),
+            &crate::app::contours::ContourEntry {
+                lines: vec![wxdata::contour::ContourLine {
+                    level: 1008.0,
+                    pts: vec![(-98.0, 35.0), (-97.0, 35.1), (-96.0, 35.0)],
+                    bbox: (-98.0, 35.0, -96.0, 35.1),
+                }],
+                valid: Some(t0),
+                run: Some(t0 - chrono::Duration::hours(1)),
+                received: None,
+                grid: None,
+                last_fetch: None,
+                fetched_key: None,
+            },
+        );
+        let features = crate::gis_export::to_features(&crate::gis_export::MapContents {
+            strokes: &[],
+            markers: &[],
+            zones: &[],
+            cells: std::slice::from_ref(&cell),
+            overlays: &[],
+            imported: &imported,
+            tracks: &tracks,
+            routes: &routes,
+            route_selected: 0,
+            route_engine: "OSRM",
+            contours: &contours,
+        });
+        std::fs::write(path, wxdata::gis::to_geojson(&features)).unwrap();
     }
 }

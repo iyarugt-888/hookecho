@@ -466,10 +466,15 @@ fn track_km(point: (f64, f64), line: &[[f64; 2]]) -> f64 {
 }
 
 /// Iowa's December 2021 QLCS: independently analyzed NWS paths, not sparse LSR
-/// point locations. Knierim must retain a Likely-or-higher detection; Somers is a
-/// distinct Possible candidate in this algorithm baseline. Its stronger-tier
-/// detection remains an open science gap. Path vertices have no individual clocks,
-/// so this is proximity to an active damage path, not exact tornado localization.
+/// point locations. Knierim must retain a Likely-or-higher detection, and no single
+/// detection may stand in for both tornadoes. Somers has no candidate in this baseline,
+/// which is an open science gap. Its earlier Possible candidate (score 0.59, 7.87 km from
+/// the path) stood on mis-unfolded velocity: within 10 km of it, 3–21% of the 0.5–1.8°
+/// gates sat a fold away from Py-ART 2.3.0's `dealias_region_based`, showing inbound
+/// values down to −27 m/s where Py-ART has −12 to −15. The current dealiaser agrees with
+/// Py-ART on every one of those gates, and the shear the candidate scored on is gone
+/// (ROADMAP_PARITY M3.1). Path vertices have no individual clocks, so this is proximity to
+/// an active damage path, not exact tornado localization.
 #[tokio::test]
 #[ignore = "large cached fixture or pinned archive download"]
 async fn iowa_qlcs_2021_retains_distinct_track_candidates() {
@@ -514,14 +519,18 @@ async fn iowa_qlcs_2021_retains_distinct_track_candidates() {
             assigned[nearest.0].push(z);
         }
     }
-    for (i, (track, _)) in tracks.iter().enumerate() {
-        assert_eq!(
-            assigned[i].len(),
-            1,
-            "{}: one distinct candidate",
-            track.event_name
-        );
-    }
+    let [knierim, somers] = &assigned;
+    assert_eq!(
+        knierim.len(),
+        1,
+        "{}: one distinct candidate",
+        tracks[0].0.event_name
+    );
+    assert!(
+        somers.len() <= 1,
+        "{}: at most one distinct candidate",
+        tracks[1].0.event_name
+    );
     assert!(
         assigned[0][0].id.tier >= Tier::Likely,
         "Knierim lost its stronger detection"

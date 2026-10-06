@@ -158,11 +158,15 @@ pub struct BinnedSweep {
     /// confused with newly scanned data; this is that mask, compressed to the one contiguous
     /// wedge a mechanically rotating antenna can actually leave behind.
     pub stale_arc_deg: Option<(f32, f32)>,
-    /// The Nyquist velocity (m/s) the raw radials were folded at, estimated as the largest raw |v|.
-    /// Set on a velocity sweep that was dealiased (dealiasing is where the raw field is at hand);
-    /// `0` means unknown. A dealiased field can hold values past it, so the sweep's own value range
-    /// cannot say. Detectors use it to tell a real shear from a fold that dealiasing left behind.
+    /// The Nyquist velocity (m/s) the raw radials were folded at and dealiasing unfolded with:
+    /// decoded from the radial blocks when they carry a usable value, else the largest raw |v|
+    /// ([`crate::dealias::sweep_nyquist`]); [`Self::nyquist_source`] says which. Set on a velocity
+    /// sweep that was dealiased (dealiasing is where the raw field is at hand); `0` means unknown.
+    /// A dealiased field can hold values past it, so the sweep's own value range cannot say.
+    /// Detectors use it to tell a real shear from a fold that dealiasing left behind.
     pub nyquist_ms: f32,
+    /// Where [`Self::nyquist_ms`] came from.
+    pub nyquist_source: crate::dealias::NyquistSource,
     /// Per azimuth row, the Nyquist velocity (m/s) and unambiguous range (km) decoded from the
     /// Message 31 radial block of the radial that wrote that row — the same writer as
     /// `source_radials`. NaN where that radial carried none (a legacy Message 1, a synthesized
@@ -190,6 +194,7 @@ impl Default for BinnedSweep {
             source_radials: None,
             stale_arc_deg: None,
             nyquist_ms: 0.0,
+            nyquist_source: crate::dealias::NyquistSource::Unknown,
             row_nyquist_mps: Vec::new(),
             row_unambiguous_km: Vec::new(),
         }
@@ -1512,7 +1517,7 @@ pub fn bin_scan_opts(
     tilt: usize,
     dealias: bool,
 ) -> anyhow::Result<BinnedSweep> {
-    bin_scan_opts_inner(scan, moment, tilt, dealias, false)
+    bin_scan_opts_inner(scan, moment, tilt, dealias, false, false)
 }
 
 /// Display/product binning with exact plain-moment row identity; gates and clocks are unchanged.
@@ -1522,7 +1527,15 @@ pub fn bin_scan_opts_recorded(
     tilt: usize,
     dealias: bool,
 ) -> anyhow::Result<BinnedSweep> {
-    bin_scan_opts_inner(scan, moment, tilt, dealias, true)
+    bin_scan_opts_inner(scan, moment, tilt, dealias, true, false)
+}
+
+/// Dealiased velocity at `tilt` unfolded at the largest raw |v| even where the radials carry a
+/// decoded Nyquist: the behaviour before [`crate::dealias::sweep_nyquist`], kept only so the
+/// backtest can compare the two on the same raw field. Not for display.
+#[doc(hidden)]
+pub fn bin_scan_dealiased_by_estimate(scan: &Scan, tilt: usize) -> anyhow::Result<BinnedSweep> {
+    bin_scan_opts_inner(scan, Moment::Velocity, tilt, true, false, true)
 }
 
 fn bin_scan_opts_inner(
@@ -1531,6 +1544,7 @@ fn bin_scan_opts_inner(
     tilt: usize,
     dealias: bool,
     record: bool,
+    estimate_only: bool,
 ) -> anyhow::Result<BinnedSweep> {
     crate::stats::bump(crate::stats::Counter::SweepsBinned);
     let target = *elevation_angles(scan)
@@ -1549,7 +1563,7 @@ fn bin_scan_opts_inner(
         .map(|s| (s.latitude(), s.longitude()))
         .ok_or_else(|| anyhow::anyhow!("scan has no site metadata"))?;
 
-    bin_sweep_opts_inner(sweep, moment, lat, lon, dealias, record)
+    bin_sweep_opts_inner(sweep, moment, lat, lon, dealias, record, estimate_only)
 }
 
 /// Select a repeated cut by acquisition time, preserving the first match for sources without
@@ -1625,6 +1639,85 @@ fn put_dealias_reference(key: DealiasKey, at: i64, field: DealiasField) {
     }
 }
 
+/// The azimuth bins (of `az_bins`, each `bin_deg` wide, bin 0 starting at north) a radial centred
+/// at `az_deg` and `spacing_deg` wide fills: the bins whose centres lie inside its beam,
+/// `(az − spacing/2, az + spacing/2]`, so neighbouring radials tile the circle with no bin written
+/// twice and none skipped. At least the bin under the centre, whatever the spacing says. (A
+/// one-bin beam centred exactly on a bin edge lands in the bin that starts there.)
+///
+/// Anchoring on the bin under the centre and reaching back instead skipped or doubled a bin
+/// wherever a real 1-degree radial's centre wandered across the half-degree line, as WSR-88D upper
+/// tilts' do (279.506°, 280.495°, 281.486°, …): 82–89 of 720 rows stayed empty on every 1-degree
+/// tilt of the cached corpus, drawn as transparent stripes, and the empty rows cut the field into
+/// wedges no dealiasing region could cross.
+pub(crate) fn beam_bins(
+    az_deg: f32,
+    spacing_deg: f32,
+    bin_deg: f32,
+    az_bins: usize,
+) -> impl Iterator<Item = usize> {
+    let az = f64::from(az_deg).rem_euclid(360.0);
+    let bin = f64::from(bin_deg);
+    let half = f64::from(spacing_deg).max(0.0) / 2.0;
+    // Bin k's centre is (k + ½)·bin; the beam holds it when az − half < (k + ½)·bin ≤ az + half.
+    let first = ((az - half) / bin - 0.5).floor() as i64 + 1;
+    let end = ((az + half) / bin - 0.5).floor() as i64 + 1;
+    let (first, end) = if end > first {
+        (first, end)
+    } else {
+        let under = (az / bin).floor() as i64;
+        (under, under + 1)
+    };
+    let n = az_bins as i64;
+    (first..end.min(first + n)).map(move |k| k.rem_euclid(n) as usize)
+}
+
+/// The bins (of `az_bins`, each `bin_deg` wide) that no beam in `beams` (`(azimuth, spacing)`,
+/// degrees) covers by [`beam_bins`] but that lie *between* two radials — one on each side, each
+/// within its own spacing of the bin's centre — each with the index of the nearer of the two.
+///
+/// Radials are not perfectly regular: KLZK's 0.5° cut of 28 April 2014 has two radials 0.766°
+/// apart, and the bin between them is in neither nominal beam although the ~0.9° antenna beam
+/// saw it. That bin takes the nearer radial. A bin with a radial on one side only — the edge of a
+/// sector the radar did not scan, or the end of a partial live pass — stays empty.
+pub(crate) fn orphan_bins(
+    beams: &[(f32, f32)],
+    bin_deg: f32,
+    az_bins: usize,
+) -> Vec<(usize, usize)> {
+    if beams.is_empty() {
+        return Vec::new();
+    }
+    let mut covered = vec![false; az_bins];
+    for &(az, spacing) in beams {
+        for bin in beam_bins(az, spacing, bin_deg, az_bins) {
+            covered[bin] = true;
+        }
+    }
+    let mut out = Vec::new();
+    for bin in (0..az_bins).filter(|&b| !covered[b]) {
+        let centre = (bin as f64 + 0.5) * f64::from(bin_deg);
+        // Nearest radial counter-clockwise and clockwise of the centre, each within its spacing.
+        // (distance, beam index)
+        let mut before: Option<(f64, usize)> = None;
+        let mut after: Option<(f64, usize)> = None;
+        for (i, &(az, spacing)) in beams.iter().enumerate() {
+            let delta = (f64::from(az) - centre + 180.0).rem_euclid(360.0) - 180.0;
+            if delta.abs() >= f64::from(spacing) {
+                continue;
+            }
+            let side = if delta < 0.0 { &mut before } else { &mut after };
+            if side.is_none_or(|(d, _)| delta.abs() < d) {
+                *side = Some((delta.abs(), i));
+            }
+        }
+        if let (Some(b), Some(a)) = (before, after) {
+            out.push((bin, if a.0 < b.0 { a.1 } else { b.1 }));
+        }
+    }
+    out
+}
+
 /// Bin one sweep's `moment` into a fixed azimuth grid.
 pub fn bin_sweep(
     sweep: &Sweep,
@@ -1656,6 +1749,7 @@ pub fn update_binned_sweep_live(
     let span = (binned.value_max - binned.value_min).max(f32::EPSILON);
     let normalize = |v: f32| 2 + (((v - binned.value_min) / span).clamp(0.0, 1.0) * 253.0) as u8;
     let mut changed = vec![false; binned.az_bins];
+    let mut carrying = Vec::new();
     for radial in sweep.radials() {
         let Some(moment) = binned.moment.select(radial) else {
             continue;
@@ -1666,12 +1760,29 @@ pub fn update_binned_sweep_live(
         {
             anyhow::bail!("live radial geometry changed");
         }
-        let bin = ((radial.azimuth_angle_degrees().rem_euclid(360.0) / bin_deg) as usize)
-            % binned.az_bins;
-        let bins = ((radial.azimuth_spacing_degrees() / bin_deg).round() as usize).max(1);
+        carrying.push((radial, moment));
+    }
+    // The same rows a full re-bin gives each radial: its beam's, then the bins no beam covers.
+    let mut writes: Vec<(usize, usize)> = Vec::new();
+    for (i, (radial, _)) in carrying.iter().enumerate() {
+        for row_index in beam_bins(
+            radial.azimuth_angle_degrees(),
+            radial.azimuth_spacing_degrees(),
+            bin_deg,
+            binned.az_bins,
+        ) {
+            writes.push((row_index, i));
+        }
+    }
+    let beams: Vec<(f32, f32)> = carrying
+        .iter()
+        .map(|(r, _)| (r.azimuth_angle_degrees(), r.azimuth_spacing_degrees()))
+        .collect();
+    writes.extend(orphan_bins(&beams, bin_deg, binned.az_bins));
+    for (row_index, i) in writes {
+        let (radial, moment) = &carrying[i];
         let timestamp = radial.collection_timestamp();
-        for offset in 0..bins {
-            let row_index = (bin + binned.az_bins - offset) % binned.az_bins;
+        {
             if timestamp <= binned.bin_time_ms[row_index] {
                 continue;
             }
@@ -1727,7 +1838,7 @@ pub fn bin_sweep_opts(
     radar_lon: f32,
     dealias: bool,
 ) -> anyhow::Result<BinnedSweep> {
-    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, false)
+    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, false, false)
 }
 
 /// Record exact plain-moment writers; derived KDP and dealiased velocity remain unavailable.
@@ -1738,7 +1849,7 @@ pub fn bin_sweep_opts_recorded(
     radar_lon: f32,
     dealias: bool,
 ) -> anyhow::Result<BinnedSweep> {
-    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, true)
+    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, true, false)
 }
 
 fn bin_sweep_opts_inner(
@@ -1748,6 +1859,7 @@ fn bin_sweep_opts_inner(
     radar_lon: f32,
     dealias: bool,
     record: bool,
+    estimate_only: bool,
 ) -> anyhow::Result<BinnedSweep> {
     let radials = sweep.radials();
     // Azimuth resolution: 0.5-degree (720 bins) covers both super-res and legacy;
@@ -1778,6 +1890,7 @@ fn bin_sweep_opts_inner(
     // ponytail: cache-miss fill now N-cores faster, but it still runs on the UI thread; async
     // fill via task::blocking is the upgrade path if hitches persist.
     let mut by_bin: Vec<Vec<&_>> = vec![Vec::new(); AZ_BINS];
+    let mut binned_radials = Vec::new();
     for radial in radials {
         let Some(m) = moment.select(radial) else {
             continue;
@@ -1786,20 +1899,24 @@ fn bin_sweep_opts_inner(
         if m.gate_count() as usize != gate_count {
             continue;
         }
-        // A radial covers its azimuth spacing, not a point. At 720 bins a 0.5-degree super-res
-        // radial lands in one bin, but a 1-degree legacy or ODIM radial spans two — filling only
-        // the bin under its centre leaves every other row transparent, which draws a sweep of
-        // stripes rather than a field.
-        let az = radial.azimuth_angle_degrees().rem_euclid(360.0);
-        // Divide by the bin width rather than scaling by 720/360: BIN_DEG is a power of two, so
-        // this is exact, and a centre landing a bit-width short of its own bin was leaving gaps.
-        let bin = ((az / BIN_DEG) as usize) % AZ_BINS;
-        // The bins below `bin` are the rest of the beam: an azimuth is the radial's centre, so a
-        // 1-degree radial reaches back half a degree into the preceding bin.
-        let bins = ((radial.azimuth_spacing_degrees() / BIN_DEG).round() as usize).max(1);
-        for k in 0..bins {
-            by_bin[(bin + AZ_BINS - k) % AZ_BINS].push(radial);
+        // A radial covers its azimuth spacing, not a point: at 720 bins a 0.5-degree super-res
+        // radial lands in one bin, a 1-degree legacy, ODIM or upper-tilt WSR-88D radial in two.
+        for bin in beam_bins(
+            radial.azimuth_angle_degrees(),
+            radial.azimuth_spacing_degrees(),
+            BIN_DEG,
+            AZ_BINS,
+        ) {
+            by_bin[bin].push(radial);
         }
+        binned_radials.push(radial);
+    }
+    let beams: Vec<(f32, f32)> = binned_radials
+        .iter()
+        .map(|r| (r.azimuth_angle_degrees(), r.azimuth_spacing_degrees()))
+        .collect();
+    for (bin, i) in orphan_bins(&beams, BIN_DEG, AZ_BINS) {
+        by_bin[bin].push(binned_radials[i]);
     }
 
     // Gather one radial's worth of raw f32 values into `row`. Below-threshold and range-folded
@@ -1817,8 +1934,26 @@ fn bin_sweep_opts_inner(
         }
     };
 
+    // The decoded Doppler metadata of each row's writer (the bucket's last radial, the same one
+    // `fill_row` lets win and `source_radials` records).
+    use nexrad_model::data::Radial;
+    let row_meta = |f: fn(&Radial) -> Option<f32>| -> Vec<f32> {
+        let rows: Vec<f32> = by_bin
+            .iter()
+            .map(|bucket| bucket.last().and_then(|r| f(r)).unwrap_or(f32::NAN))
+            .collect();
+        if rows.iter().all(|v| v.is_nan()) {
+            Vec::new()
+        } else {
+            rows
+        }
+    };
+    let row_nyquist_mps = row_meta(Radial::nyquist_velocity_mps);
+    let row_unambiguous_km = row_meta(Radial::unambiguous_range_km);
+
     let mut data = vec![0u8; AZ_BINS * gate_count];
     let mut nyquist_ms = 0.0f32;
+    let mut nyquist_source = crate::dealias::NyquistSource::Unknown;
     if moment == Moment::SpecificDifferentialPhase {
         // KDP is the range derivative of ΦDP, so it has to be taken on the physical field:
         // the u8 band quantizes 0..360 deg into 253 steps (~1.4 deg), which is the same order
@@ -1857,8 +1992,11 @@ fn bin_sweep_opts_inner(
         for (bin, row) in vel.chunks_mut(gate_count).enumerate() {
             gather_row(bin, row, &by_bin);
         }
-        let nyq = crate::dealias::estimate_nyquist(&vel);
+        // The decoded Nyquist when the radials carry a usable one, the largest |v| otherwise.
+        let decoded: &[f32] = if estimate_only { &[] } else { &row_nyquist_mps };
+        let (nyq, source) = crate::dealias::sweep_nyquist(decoded, &vel);
         nyquist_ms = nyq;
+        nyquist_source = source;
         // Continuity: hand the previous pass over this same tilt to the dealiaser, so a storm
         // whose fastest air genuinely sits past the Nyquist velocity stays unfolded from volume
         // to volume instead of snapping to zero whenever the fast region becomes the biggest one.
@@ -1960,22 +2098,6 @@ fn bin_sweep_opts_inner(
                 .into()
         });
 
-    // The decoded Doppler metadata of each row's writer (the bucket's last radial, as above).
-    use nexrad_model::data::Radial;
-    let row_meta = |f: fn(&Radial) -> Option<f32>| -> Vec<f32> {
-        let rows: Vec<f32> = by_bin
-            .iter()
-            .map(|bucket| bucket.last().and_then(|r| f(r)).unwrap_or(f32::NAN))
-            .collect();
-        if rows.iter().all(|v| v.is_nan()) {
-            Vec::new()
-        } else {
-            rows
-        }
-    };
-    let row_nyquist_mps = row_meta(Radial::nyquist_velocity_mps);
-    let row_unambiguous_km = row_meta(Radial::unambiguous_range_km);
-
     Ok(BinnedSweep {
         moment,
         az_bins: AZ_BINS,
@@ -1992,6 +2114,7 @@ fn bin_sweep_opts_inner(
         source_radials,
         stale_arc_deg,
         nyquist_ms,
+        nyquist_source,
         row_nyquist_mps,
         row_unambiguous_km,
     })
@@ -2789,6 +2912,183 @@ mod tests {
         assert_eq!(binned.gate_count, 1);
         let empty = binned.data.iter().filter(|&&c| c == 0).count();
         assert_eq!(empty, 0, "every azimuth bin should carry the 20 dBZ value");
+    }
+
+    /// Real 1-degree centres wander across the half-degree line (these are KTLX's 8.0° tilt of
+    /// 31 May 2013). Each 0.5° row must be written by the radial whose beam covers its centre,
+    /// with no row left empty and none written by a neighbour.
+    #[test]
+    fn jittered_one_degree_radials_tile_the_rows_their_beams_cover() {
+        let centres = [
+            278.503_4_f32,
+            279.505_9,
+            280.494_7,
+            281.486_2,
+            282.505_2,
+            283.494,
+            284.518_4,
+            285.499,
+            286.504_2,
+            287.495_7,
+        ];
+        let radials = centres
+            .iter()
+            .enumerate()
+            .map(|(i, &az)| {
+                // A distinct value per radial, so the row says which radial wrote it.
+                let data = MomentData::from_fixed_point(
+                    1,
+                    2125,
+                    250,
+                    8,
+                    2.0,
+                    66.0,
+                    vec![100 + i as u8 * 10],
+                );
+                Radial::new(
+                    0,
+                    i as u16,
+                    az,
+                    1.0,
+                    nexrad_model::data::RadialStatus::IntermediateRadialData,
+                    1,
+                    8.0,
+                    Some(data),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        let b = bin_sweep(&Sweep::new(1, radials), Moment::Reflectivity, 35.33, -97.28).unwrap();
+        let row = |bin: usize| b.data[bin];
+        // Bins 556..=575 span 278.0°..288.0°; each radial owns the two whose centres it covers.
+        for (i, &az) in centres.iter().enumerate() {
+            let owned: Vec<usize> = (0..720)
+                .filter(|&k| {
+                    let c = (k as f32 + 0.5) * 0.5;
+                    c > az - 0.5 && c <= az + 0.5
+                })
+                .collect();
+            assert_eq!(owned.len(), 2, "radial at {az}°");
+            let mine = row(owned[0]);
+            assert!(mine >= 2, "radial at {az}° left bin {} empty", owned[0]);
+            assert_eq!(
+                row(owned[1]),
+                mine,
+                "radial at {az}° split across a neighbour"
+            );
+            if i > 0 {
+                let before = (0..720)
+                    .filter(|&k| {
+                        let c = (k as f32 + 0.5) * 0.5;
+                        c > centres[i - 1] - 0.5 && c <= centres[i - 1] + 0.5
+                    })
+                    .max()
+                    .unwrap();
+                assert_eq!(
+                    before + 1,
+                    owned[0],
+                    "a row between {}° and {az}°",
+                    centres[i - 1]
+                );
+                assert_ne!(row(before), mine, "rows written by the wrong radial");
+            }
+        }
+        assert_eq!(
+            (556..=575).filter(|&k| row(k) == 0).count(),
+            0,
+            "no row inside the run is empty"
+        );
+    }
+
+    /// KLZK's 0.5° cut of 28 April 2014 leaves the bin centred on 29.75° between two radials
+    /// 0.766° apart; it takes the nearer one, on a full bin and a live update alike. The edges of
+    /// a sector with no radials stay empty.
+    #[test]
+    fn a_bin_between_two_irregular_radials_takes_the_nearer() {
+        let radial = |i: u16, az: f32, t: i64| {
+            let data =
+                MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![100 + i as u8]);
+            Radial::new(
+                t,
+                i,
+                az,
+                0.5,
+                nexrad_model::data::RadialStatus::IntermediateRadialData,
+                1,
+                0.5,
+                Some(data),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        let radials = vec![
+            radial(0, 28.753, 1_000),
+            radial(1, 29.254, 1_001),
+            radial(2, 30.020, 1_002),
+            radial(3, 30.512, 1_003),
+        ];
+        let full = bin_sweep(
+            &Sweep::new(1, radials.clone()),
+            Moment::Reflectivity,
+            34.8,
+            -92.26,
+        )
+        .unwrap();
+        // Bins 57 (28.75°), 58 (29.25°), 59 (29.75°, the gap), 60 (30.25°), 61 (30.75°); each
+        // radial's own value and clock say which wrote a row.
+        assert_eq!(
+            full.bin_time_ms[57..62],
+            [1_000, 1_001, 1_002, 1_002, 1_003]
+        );
+        assert_eq!(
+            full.data[59], full.data[60],
+            "the gap takes the radial 0.27° away"
+        );
+        assert_ne!(full.data[59], full.data[58], "not the one 0.50° away");
+        // Nothing past the last radial or before the first is invented.
+        assert_eq!((full.data[56], full.bin_time_ms[56]), (0, 0));
+        assert_eq!((full.data[62], full.bin_time_ms[62]), (0, 0));
+
+        let mut live = BinnedSweep {
+            data: vec![0; full.data.len()],
+            bin_time_ms: vec![0; full.az_bins],
+            source_radials: None,
+            ..full.clone()
+        };
+        update_binned_sweep_live(&mut live, &Sweep::new(1, radials)).unwrap();
+        assert_eq!(
+            live.data, full.data,
+            "live and full binning fill the same rows"
+        );
+        assert_eq!(live.bin_time_ms, full.bin_time_ms);
+    }
+
+    #[test]
+    fn a_beam_fills_the_bins_whose_centres_it_covers() {
+        let bins = |az: f32, w: f32| beam_bins(az, w, 0.5, 720).collect::<Vec<_>>();
+        assert_eq!(bins(280.25, 0.5), vec![560]);
+        // Centred on an edge, a one-bin beam takes the bin that starts there.
+        assert_eq!(bins(280.0, 0.5), vec![560]);
+        assert_eq!(bins(280.5, 1.0), vec![560, 561]);
+        assert_eq!(bins(280.49, 1.0), vec![560, 561]);
+        assert_eq!(bins(279.51, 1.0), vec![558, 559]);
+        // Across north, both ways.
+        assert_eq!(bins(0.1, 1.0), vec![719, 0]);
+        assert_eq!(bins(359.9, 1.0), vec![719, 0]);
+        // An unknown or zero spacing still lands the radial in the bin under its centre.
+        assert_eq!(bins(280.3, 0.0), vec![560]);
+        assert_eq!(bins(-0.2, 0.0), vec![719]);
+        // A spacing past the whole circle cannot write a bin twice.
+        assert_eq!(bins(10.0, 400.0).len(), 720);
     }
 
     // A radial carrying only the given moment (others None).

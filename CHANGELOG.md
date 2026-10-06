@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: velocity dealiasing and 1-degree tilts
+
+Upper tilts no longer draw with thin transparent stripes. About one row in eight was being left
+empty on every 1-degree tilt, because real radials don't sit exactly on the half-degree grid.
+Dealiasing is rebuilt on Py-ART's region method, and on 12 real storm volumes it now lands on the
+same unfolding as Py-ART for 99.6% of gates, up from 92%. Previously, fast fields on upper tilts
+were often left folded. Sweeps are unfolded at the Nyquist velocity the radar recorded wherever it
+gives one value for the sweep. The inspector shows the value used and whether it was decoded or
+estimated.
+
 ### Changed: Tornado detection reads the air around the storm
 
 A *possible* Tornado detection marker is no longer drawn where the air feeding the storm cannot
@@ -44,12 +54,44 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: manual storm tracks in the map export
+
+"Export map as GeoJSON" now includes your manual storm tracks: each one's projected path and its
+uncertainty swath, with the motion, the time it projects from and the storm it was started from.
+
+The export also includes planned routes, with each one's road geometry, distance, driving time,
+routing service and which one you chose.
+
+Model contour lines on the map are exported too, each with its field, level, unit, model run and
+valid time.
+
 ### Added: filter an imported layer by its attributes
 
 Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it
 is true for are drawn, clickable, labelled, exported and used as impact targets. A feature that
 doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
 the previous one in force and says what is wrong.
+
+### Fixed: storm identities in busy, fast-moving storm fields
+
+On a day with dozens of fast-moving storms, a storm could be handed to a neighbouring cell that
+happened to be nearer, and a new fast storm was lost after one scan, so storm histories, trends and
+follows broke apart. A storm now keeps the cell SCIT says is its own when that cell is within how
+far a storm can move, and a new storm is followed using the motion SCIT gives it. Checked on two
+recorded days of real storms.
+
+### Added: a feature table for each imported layer
+
+The Layer Manager opens a table of the features an imported layer is showing, one column per
+attribute. Sort by any column, search them all, zoom to a feature (it is outlined on the map) or
+copy its attributes.
+
+### Added: beam height above the ground
+
+The measure tool and the cross-section ruler now give the beam's height above the ground as well
+as above the radar and above sea level, using public terrain data fetched for the points you
+measure. The cross-section also draws the ground wherever it rises above the radar, so you can see
+where low beams may be blocked.
 
 ### Added: cases keep your manual storm tracks
 
@@ -95,6 +137,13 @@ motion and how much of it falls along that radial.
 
 Output window → "Hold the program view" keeps the output's own camera: panning or zooming the
 program pane no longer moves what is on air, and taking a scene moves only the output.
+
+### Fixed: KMZ files whose main file links to layers inside them
+
+A KMZ written by GDAL/QGIS (and other tools that put each layer in its own file inside the KMZ)
+imported with no shapes, because only its main file was read. Layer files inside the same KMZ that
+the main file links to are now read too. Links to anything outside the KMZ are still never
+fetched.
 
 ### Added: workspaces and scenes remember your GIS layers
 

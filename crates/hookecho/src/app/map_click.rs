@@ -221,6 +221,10 @@ impl HookEchoApp {
                         self.measure.clear();
                     }
                     self.measure.push([lon, lat]);
+                    if self.measure.len() == 2 {
+                        // The ground under the far end, for the beam's height above it.
+                        self.request_ground(lon, lat, ctx);
+                    }
                 }
                 MapTool::Marker => {
                     let n = self.settings.markers.len() + 1;
@@ -549,7 +553,8 @@ impl HookEchoApp {
                                 } else {
                                     None
                                 };
-                                if let Some(detail) = mark {
+                                if let Some((detail, layer, src)) = mark {
+                                    self.note_gis_pick(layer, src);
                                     self.warning_popup = None;
                                     self.gate_popup = None;
                                     self.detail_impact = None;
@@ -565,6 +570,12 @@ impl HookEchoApp {
                                         at: self.alerts_at(),
                                     });
                                 } else if let Some(f) = hits.first().map(|f| (*f).clone()) {
+                                    let zoom = self.views[self.active].camera.zoom;
+                                    if let Some((layer, src)) =
+                                        self.overlay_hit_source(lon, lat, zoom)
+                                    {
+                                        self.note_gis_pick(layer, src);
+                                    }
                                     self.warning_popup = None;
                                     self.gate_popup = None;
                                     // Discussions and watches get the same people count as
@@ -604,4 +615,18 @@ impl HookEchoApp {
         }
         false
     }
+}
+
+fn point_in_ring_ll(ring: &[[f64; 2]], lon: f64, lat: f64) -> bool {
+    wxdata::overlay::rings_intersect(
+        ring,
+        // A tiny square around the click: reuses the one geometry primitive rather than adding a
+        // second point-in-polygon implementation here.
+        &[
+            [lon - 1e-6, lat - 1e-6],
+            [lon + 1e-6, lat - 1e-6],
+            [lon + 1e-6, lat + 1e-6],
+            [lon - 1e-6, lat + 1e-6],
+        ],
+    )
 }

@@ -40,6 +40,9 @@ sha2 = "0.10"
 # `radar-ingest` server and any `Level2LiveProvider` client of it — base64 for block payload
 # bytes. Already resolved in the lockfile via `reqwest`'s wasm transport chain.
 base64 = "0.22"
+# Terrain tiles (`terrain.rs`) are PNGs; the decoder is already in the lockfile through
+# gribberish's PNG packing, so this adds no new crate.
+png = "0.17"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio.workspace = true

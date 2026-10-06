@@ -184,9 +184,10 @@ impl HookEchoApp {
         // first is underneath, and a layer set to draw under the official products goes first.
         let [below, above] = self.gis_overlay_parts();
         let official = v.len();
-        let mut layer_of: Vec<Option<u64>> = below.iter().map(|(_, id)| Some(*id)).collect();
+        let mut layer_of: Vec<Option<(u64, usize)>> =
+            below.iter().map(|(_, at)| Some(*at)).collect();
         layer_of.extend(std::iter::repeat_n(None, official));
-        layer_of.extend(above.iter().map(|(_, id)| Some(*id)));
+        layer_of.extend(above.iter().map(|(_, at)| Some(*at)));
         v.splice(0..0, below.into_iter().map(|(f, _)| f));
         v.extend(above.into_iter().map(|(f, _)| f));
         self.overlay_layer = layer_of;

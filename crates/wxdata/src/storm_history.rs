@@ -21,11 +21,12 @@
 //!   distance, then storm ID, then source order. An update older than the history (a backward
 //!   archive seek) restarts it, so seeking back and replaying forward rebuilds the same storms.
 //!
-//! The limits ([`AssociationParams`]) are a first guess for 5-minute radar volumes, versioned by
-//! [`ASSOCIATION_VERSION`]; calibrating them on pinned fixtures is a later increment.
+//! The limits ([`AssociationParams`]) are versioned by [`ASSOCIATION_VERSION`] and replayed on two
+//! pinned real days of SCIT in `tests/scit_history.rs`, which records how often the history keeps
+//! SCIT's own continued cells together and whether it ever makes two of SCIT's cells one storm.
 
 /// Version of the association rules and limits, recorded with anything derived from them.
-pub const ASSOCIATION_VERSION: &str = "storm-history-1";
+pub const ASSOCIATION_VERSION: &str = "storm-history-2";
 
 /// Where a storm observation came from.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -165,6 +166,9 @@ pub struct AssociationParams {
     pub ambiguity_km: f64,
     /// A gap (s) past which a link is only tentative.
     pub tentative_gap_s: i64,
+    /// The fastest a storm is taken to move (m/s): how far a provider may say its cell went and
+    /// still be believed that it is the same cell, whatever this history predicted.
+    pub provider_speed_ms: f64,
 }
 
 impl Default for AssociationParams {
@@ -175,6 +179,7 @@ impl Default for AssociationParams {
             max_gap_s: 15 * 60,
             ambiguity_km: 2.0,
             tentative_gap_s: 10 * 60,
+            provider_speed_ms: 40.0,
         }
     }
 }
@@ -182,6 +187,11 @@ impl Default for AssociationParams {
 impl AssociationParams {
     fn reach_km(&self, gap_s: i64) -> f64 {
         self.base_km + self.deviation_ms * gap_s.max(0) as f64 / 1000.0
+    }
+
+    /// How far from its last position a storm's own provider ID may reappear and still be it.
+    fn provider_reach_km(&self, gap_s: i64) -> f64 {
+        self.base_km + self.provider_speed_ms * gap_s.max(0) as f64 / 1000.0
     }
 }
 
@@ -259,13 +269,27 @@ impl StormHistory {
             })
             .collect();
 
-        // Every observation-storm pair within reach.
+        // Every observation-storm pair within reach. The distance is from the storm's prediction;
+        // for a storm with no motion of its own yet, also from the observation carried back along
+        // the motion its provider now declares for it, whichever is nearer — a new cell moving at
+        // 25 m/s is otherwise out of reach of its own first position by the next volume.
         let mut pairs: Vec<(f64, StormId, usize, usize)> = Vec::new();
         for (o, obs) in observations.iter().enumerate() {
             for (k, &i) in open.iter().enumerate() {
                 let s = &self.storms[i];
-                let gap = time - s.last().time;
-                let d = ground_km(predicted[k].0, (obs.lon, obs.lat));
+                let last = s.last();
+                let gap = time - last.time;
+                let mut d = ground_km(predicted[k].0, (obs.lon, obs.lat));
+                if predicted[k].1 == MotionSource::Stationary {
+                    if let Some((u, v)) = obs.provider_motion_ms {
+                        let lat_rad = obs.lat.to_radians();
+                        let back = (
+                            obs.lon - u * gap as f64 / 1000.0 / (111.32 * lat_rad.cos()),
+                            obs.lat - v * gap as f64 / 1000.0 / 110.57,
+                        );
+                        d = d.min(ground_km((last.lon, last.lat), back));
+                    }
+                }
                 if d <= p.reach_km(gap) {
                     pairs.push((d, s.id, k, o));
                 }
@@ -284,6 +308,41 @@ impl StormHistory {
         let mut taken_obs = vec![false; observations.len()];
         let mut taken_storm = vec![false; open.len()];
         let mut links: Vec<(usize, usize, f64)> = Vec::new();
+        // The provider's own continuity first: an observation carrying the ID its storm last
+        // had, from the same source and site, is that storm while it is no farther from the
+        // storm's last position than the fastest storm moves in the gap — the provider tracked
+        // it with more than positions. Only then are the rest linked nearest first, so a dense
+        // field does not hand a storm to a neighbour that happened to land closer to its
+        // prediction. An ID beyond that is refused as recycled, below.
+        let mut continued: Vec<(f64, usize, usize)> = Vec::new();
+        for (o, obs) in observations.iter().enumerate() {
+            let Some(pid) = obs.provider_id.as_ref() else {
+                continue;
+            };
+            for (k, &i) in open.iter().enumerate() {
+                let last = self.storms[i].last();
+                if last.provider_id.as_ref() != Some(pid)
+                    || last.source != obs.source
+                    || last.site != obs.site
+                {
+                    continue;
+                }
+                let moved = ground_km((last.lon, last.lat), (obs.lon, obs.lat));
+                if moved <= p.provider_reach_km(time - last.time) {
+                    let d = ground_km(predicted[k].0, (obs.lon, obs.lat));
+                    continued.push((d, k, o));
+                }
+            }
+        }
+        continued.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        for &(d, k, o) in &continued {
+            if taken_obs[o] || taken_storm[k] {
+                continue;
+            }
+            taken_obs[o] = true;
+            taken_storm[k] = true;
+            links.push((k, o, d));
+        }
         for &(d, _, k, o) in &pairs {
             if taken_obs[o] || taken_storm[k] {
                 continue;
@@ -533,6 +592,47 @@ mod tests {
             "{:?}",
             recycled.notes
         );
+    }
+
+    /// In a dense field a neighbour can land nearer a storm's prediction than the storm's own
+    /// cell; the provider's continuity (the same ID, within how far a storm can move) decides.
+    #[test]
+    fn a_storms_own_provider_id_wins_over_a_nearer_neighbour() {
+        let mut h = StormHistory::default();
+        let r0 = h.update(
+            T0,
+            &[obs(0.0, 0.0, T0, Some("A1")), obs(0.0, 6.0, T0, Some("B2"))],
+        );
+        // Next volume: A1 moved 3 km south, B2 moved 5 km south — to 1 km, nearer A1's
+        // (stationary) prediction than A1 itself is.
+        let t1 = T0 + VOL;
+        let r1 = h.update(
+            t1,
+            &[
+                obs(0.0, -3.0, t1, Some("A1")),
+                obs(0.0, 1.0, t1, Some("B2")),
+            ],
+        );
+        assert_eq!(r1.storms, r0.storms, "each storm keeps its own cell");
+    }
+
+    /// A new cell moving fast has no track of its own yet; the motion its provider now declares
+    /// carries it back to where it was, so it is not lost after one volume.
+    #[test]
+    fn a_fast_new_cell_is_found_by_its_declared_motion() {
+        let mut h = StormHistory::default();
+        let r0 = h.update(T0, &[obs(0.0, 0.0, T0, None)]);
+        // 25 m/s east for a 7-minute gap: 10.5 km, past the stationary reach.
+        let t1 = T0 + 420;
+        let mut moved = obs(10.5, 0.0, t1, None);
+        moved.provider_motion_ms = Some((25.0, 0.0));
+        let r1 = h.update(t1, &[moved.clone()]);
+        assert_eq!(r1.storms, r0.storms);
+        // Without the declared motion it would have been a new storm.
+        let mut h2 = StormHistory::default();
+        h2.update(T0, &[obs(0.0, 0.0, T0, None)]);
+        moved.provider_motion_ms = None;
+        assert_ne!(h2.update(t1, &[moved]).storms, r0.storms);
     }
 
     #[test]

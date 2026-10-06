@@ -77,6 +77,7 @@ impl HookEchoApp {
     pub(crate) fn sync_impacts(&mut self, ctx: &egui::Context) {
         self.impacts.take_arrivals();
         self.sync_towns();
+        self.terrain.take_arrivals();
         let Some(ids) = self.warning_popup.as_ref().map(|p| {
             p.cards
                 .iter()
