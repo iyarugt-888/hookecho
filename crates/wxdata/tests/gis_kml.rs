@@ -1,9 +1,12 @@
-//! KML and KMZ written by an independent implementation (ROADMAP_PARITY M4.2): GDAL 3.8.4's KML
+//! KML, KMZ and GeoJSON written by an independent implementation (ROADMAP_PARITY M4.2): GDAL 3.8.4's KML
 //! and LIBKML drivers (`ogr2ogr -f KML … -dsco NameField=NAME`, `ogr2ogr -f LIBKML`) wrote the 77
 //! Oklahoma counties of the pinned Census 2023 boundaries, 2026-10-06:
 //!
 //! - `ok_counties_gdal.kml`, 94,702 bytes
 //! - `ok_counties_gdal.kmz`, 15,003 bytes
+//! - `ok_counties_gdal_4269.geojson` (`-f GeoJSON`: a legacy `crs` member naming NAD83),
+//!   `ok_counties_gdal_rfc7946.geojson` (`-lco RFC7946=YES`: no `crs`, WGS 84) and
+//!   `ok_counties_gdal_3857.geojson` (from the Web Mercator shapefile: `crs` EPSG:3857, metres)
 //!
 //! Each county, found by the GEOID GDAL wrote into its `ExtendedData`, must import with that
 //! attribute, its name, and every vertex where the reference NAD83 shapefile has it.
@@ -57,5 +60,50 @@ fn gdal_kml_and_kmz_import_with_their_attributes_and_vertices() {
         }
         eprintln!("{what}: worst vertex {worst:e} degrees from the shapefile's");
         assert!(worst < 1e-9, "{what}: {worst}");
+    }
+}
+
+#[test]
+fn gdal_geojson_in_three_conventions_lands_on_the_shapefile() {
+    let shp = wxdata::shapefile::parse_zip(include_bytes!("data/gis/ok_counties_nad83.zip"))
+        .expect("reference");
+    let reference = by_geoid(&shp[0].features);
+    for (what, text, tolerance_deg) in [
+        (
+            "NAD83 crs",
+            include_str!("data/gis/ok_counties_gdal_4269.geojson"),
+            1e-9,
+        ),
+        // RFC 7946 output is rounded to 7 decimals.
+        (
+            "RFC 7946",
+            include_str!("data/gis/ok_counties_gdal_rfc7946.geojson"),
+            1e-7,
+        ),
+        (
+            "EPSG:3857 crs",
+            include_str!("data/gis/ok_counties_gdal_3857.geojson"),
+            1e-7,
+        ),
+    ] {
+        let got = by_geoid(&wxdata::gis::parse_geojson(text).expect(what));
+        assert_eq!(got.len(), 77, "{what}");
+        let mut worst = 0.0_f64;
+        for (geoid, (name, want)) in &reference {
+            let (got_name, have) = &got[geoid];
+            assert_eq!(got_name, name, "{what} {geoid}");
+            assert_eq!(have.len(), want.len(), "{what} {geoid}");
+            // RFC 7946 output rewinds rings counter-clockwise, so the same vertices come in another
+            // order: each must lie on one of the county's own, whichever.
+            for a in have {
+                let nearest = want
+                    .iter()
+                    .map(|b| (a[0] - b[0]).abs().max((a[1] - b[1]).abs()))
+                    .fold(f64::INFINITY, f64::min);
+                worst = worst.max(nearest);
+            }
+        }
+        eprintln!("{what}: worst vertex {worst:e} degrees from the shapefile's");
+        assert!(worst < tolerance_deg, "{what}: {worst}");
     }
 }
