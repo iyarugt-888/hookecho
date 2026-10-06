@@ -313,7 +313,9 @@ impl HookEchoApp {
                     };
                     self.gate_popup = self.inspect_gate(ctx, idx, gate_lon, gate_lat, tilt);
                     // The same point across the loop this pane holds (ROADMAP_NEW C4).
+                    let display = self.map_display(idx);
                     if let Some(p) = self.gate_popup.as_mut() {
+                        p.display = display;
                         p.series = self.views[idx].point_series(
                             p.moment,
                             p.inspection.elevation_deg,

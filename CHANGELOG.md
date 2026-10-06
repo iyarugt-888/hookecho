@@ -17,6 +17,12 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: the gate inspector says what the map is showing
+
+For velocity, the gate inspector now has a "Map shows" row: the value the map colours at that gate
+and how it was made — the raw or dealiased velocity, or storm-relative velocity with the storm
+motion and how much of it falls along that radial.
+
 ### Added: hold the program view
 
 Output window → "Hold the program view" keeps the output's own camera: panning or zooming the

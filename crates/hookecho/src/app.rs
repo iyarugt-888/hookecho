@@ -3570,9 +3570,9 @@ impl HookEchoApp {
             gate_inputs,
             column_inputs,
             environment,
-            // Filled on a click only (below): the cursor-probe table calls this on every hover
-            // and keeps just the value, and the series reads every volume the pane holds.
+            // Filled on a click only (map_click): the hover probe keeps just the value.
             series: Vec::new(),
+            display: Default::default(),
         })
     }
 

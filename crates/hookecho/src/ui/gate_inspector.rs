@@ -32,6 +32,51 @@ pub struct GateInspectorPopup {
     /// `moment` at this point in every volume the pane holds, oldest first — the loop being
     /// played, at the nearest tilt in each (see `MapView::point_series`).
     pub series: Vec<(chrono::DateTime<chrono::Utc>, Option<f32>)>,
+    /// How the map draws this gate, so the inspector can say what the colour on screen is.
+    pub display: MapDisplay,
+}
+
+/// How the map draws a radar gate (ROADMAP_PARITY M3.1): which value it reads and what it does
+/// to it before colouring.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MapDisplay {
+    /// The map reads the dealiased velocity (velocity with dealiasing on; not a TDWR).
+    pub dealiased: bool,
+    /// The storm motion SRV subtracts, as set: toward degrees and knots.
+    pub storm_motion: Option<(f32, f32)>,
+}
+
+/// What the map shows at this gate, for velocity: which value it is, how it was derived, and the
+/// value itself (m/s), or `None` when the input it needs is missing here — never another value in
+/// its place. `None` for any other moment, which the map draws as the raw value.
+pub(crate) fn map_shows(popup: &GateInspectorPopup) -> Option<(String, Option<f32>)> {
+    if popup.moment != Moment::Velocity {
+        return None;
+    }
+    let i = &popup.inspection;
+    let (base_name, base) = if popup.display.dealiased {
+        ("dealiased", i.dealiased_value)
+    } else {
+        ("raw", i.sample.value)
+    };
+    let base = base.filter(|v| v.is_finite());
+    Some(match popup.display.storm_motion {
+        Some((dir, kt)) => {
+            // The same radial projection the radar shader subtracts.
+            let ms = kt / 1.943_844;
+            let (east, north) = (ms * dir.to_radians().sin(), ms * dir.to_radians().cos());
+            let az = i.sample.azimuth_deg.to_radians();
+            let toward = east * az.sin() + north * az.cos();
+            (
+                format!(
+                    "SRV: {base_name} velocity − storm motion {dir:03.0}° at {kt:.0} kt \
+                     (−{toward:.1} m/s along this radial)"
+                ),
+                base.map(|v| v - toward),
+            )
+        }
+        None => (format!("{base_name} velocity"), base),
+    })
 }
 
 pub fn show(
@@ -201,6 +246,15 @@ pub(crate) fn attributes(
                 ));
                 if i.nyquist_decoded_mps.is_none() {
                     rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+                }
+                if let Some((how, v)) = map_shows(popup) {
+                    rows.push((
+                        "Map shows",
+                        match v {
+                            Some(v) => format!("{v:.1} m/s — {how}"),
+                            None => format!("no value here — {how} needs a value this gate lacks"),
+                        },
+                    ));
                 }
             }
             rows
@@ -535,7 +589,38 @@ mod tests {
             column_inputs: Vec::new(),
             environment: None,
             series: Vec::new(),
+            display: MapDisplay::default(),
         }
+    }
+
+    /// The inspector says what colour the map put on this gate and how it was made: the raw or
+    /// dealiased velocity, or SRV from either with the storm motion along this radial taken off;
+    /// a missing input leaves the map value missing, not the other value in its place.
+    #[test]
+    fn the_map_value_names_its_derivation() {
+        let mut p = sample_popup(Moment::Velocity, true, Some(-4.0));
+        p.inspection.sample.azimuth_deg = 90.0;
+        let (how, v) = map_shows(&p).unwrap();
+        assert_eq!((how.as_str(), v), ("raw velocity", Some(-4.0)));
+        p.display.dealiased = true;
+        assert_eq!(map_shows(&p).unwrap().1, Some(28.0));
+        // 10 m/s toward the east, on a radial pointing east: all of it comes off.
+        p.display.storm_motion = Some((90.0, 19.438_44));
+        let (how, v) = map_shows(&p).unwrap();
+        assert!((v.unwrap() - 18.0).abs() < 1e-3, "{v:?}");
+        assert!(
+            how.starts_with("SRV: dealiased velocity − storm motion 090° at 19 kt"),
+            "{how}"
+        );
+        assert!(how.contains("−10.0 m/s along this radial"), "{how}");
+        // At right angles to the motion, none of it does.
+        p.inspection.sample.azimuth_deg = 0.0;
+        assert!((map_shows(&p).unwrap().1.unwrap() - 28.0).abs() < 1e-3);
+        // No dealiased value at this gate: SRV has nothing to start from, and says so.
+        p.inspection.dealiased_value = None;
+        assert_eq!(map_shows(&p).unwrap().1, None);
+        // Reflectivity is drawn as it is.
+        assert!(map_shows(&sample_popup(Moment::Reflectivity, false, Some(40.0))).is_none());
     }
 
     #[test]

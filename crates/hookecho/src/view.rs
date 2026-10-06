@@ -1174,6 +1174,12 @@ impl MapView {
         }
     }
 
+    /// The SRV storm motion as set: toward degrees and knots, when SRV is on for velocity.
+    pub fn storm_motion_set(&self) -> Option<(f32, f32)> {
+        self.storm_motion_uv()
+            .map(|_| (self.storm_dir_deg, self.storm_speed_kt))
+    }
+
     /// Storm motion as (east, north) components in m/s, from the toolbox dir/speed (knots).
     /// `None` unless SRV is on and the velocity moment is active (SRV is velocity-only).
     pub fn storm_motion_uv(&self) -> Option<(f32, f32)> {

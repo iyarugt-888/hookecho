@@ -798,6 +798,8 @@ Remaining open:
 - *Limitations / open:* the dealiaser and detectors still use the estimate (`BinnedSweep::nyquist_ms`); switching them changes validated detection inputs and needs its own backtest. Moment scale/offset and per-gate quality flags are not yet surfaced; the gate popup does not yet show storm-relative velocity or pass attribution (the dock already shows pass rows). Relay/live wire formats carry the new fields only where they serialize the model `Scan`.
 - *Next:* surface storm-relative and pass attribution in the gate popup; then the dealias/detector switch behind a backtest.
 
+**Evidence ledger — 2026-10-06, gate inspector names the map value:** with SRV or dealiasing on, the gate inspector listed the raw and dealiased velocities but not the value the map coloured, nor how it was made. A "Map shows" row now gives that value and its derivation — raw or dealiased velocity, or `SRV: dealiased velocity − storm motion 090° at 19 kt (−10.0 m/s along this radial)` — computed with the radar shader's radial projection, and says when the input it needs is missing at this gate rather than showing the other value. Which value the map reads is one answer (`map_display`) shared by the map's probe and the inspector. Test: `the_map_value_names_its_derivation` (raw, dealiased, SRV along and across the motion, missing dealiased value, reflectivity untouched); full workspace 2,367 passed, Clippy `-D warnings`, the WASM library check.
+
 #### M3.2 — Complete portable, validated product definitions
 
 **Priority:** P1. **Depends on:** M1.4, M3.1. **Original references:** ROADMAP_NEW §C1; ROADMAP_2 §§9, 15.2.
