@@ -4,9 +4,9 @@
 
 mod broadcast;
 mod chips;
-mod model_timeline;
 mod dock;
-pub(crate) use dock::{DockState, DockWin, Sheet};
+mod model_timeline;
+pub(crate) use dock::{DockState, DockWin, Resolved, Sheet};
 mod overlay;
 mod permalink;
 mod phone_rail;

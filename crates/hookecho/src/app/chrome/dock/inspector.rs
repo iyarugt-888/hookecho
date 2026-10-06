@@ -269,7 +269,7 @@ impl HookEchoApp {
         let mut step_model = None;
         // The selected storm (a click on a SCIT cell), current as of the newest update.
         let storm = self.selected_storm();
-        let storm_rows = storm.as_ref().map(|c| storm_rows(c, metric));
+        let storm_rows = storm.as_ref().map(|c| self.storm_card_rows(c, metric));
         let link_storm = self.link_storm;
         let mut storm_act = None;
         let mut body = |ui: &mut egui::Ui| {
@@ -656,6 +656,27 @@ enum StormAct {
 /// The selected storm's rows: strength, height, water aloft, hail, rotation and motion — what
 /// an analyst reads off a SCIT cell first. `true` marks a value worth a second look (a TVS or
 /// meso, a 50 %+ chance of severe hail). Unknown values are left out rather than shown as dashes.
+impl HookEchoApp {
+    /// [`storm_rows`], and a manual motion set for this storm on its own line beside SCIT's
+    /// (ROADMAP_PARITY M2.1), never in place of it. The Inspector and the Cell window show the
+    /// same rows.
+    pub(super) fn storm_card_rows(
+        &self,
+        c: &wxdata::level3::Cell,
+        metric: bool,
+    ) -> Vec<(&'static str, String, bool)> {
+        let mut rows = storm_rows(c, metric);
+        if let Some(track) = self.manual_tracks_for(c).first() {
+            let tz = self.active_tz();
+            let line = crate::app::storm_track::manual_motion_line(track, c.time, metric, |d| {
+                crate::timefmt::fmt_clock(d, tz, false)
+            });
+            rows.push(("Manual motion", line, false));
+        }
+        rows
+    }
+}
+
 pub(super) fn storm_rows(
     c: &wxdata::level3::Cell,
     metric: bool,

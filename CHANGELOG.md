@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a storm's manual motion shows beside SCIT's
+
+A manual track started from a storm now stays attached to that storm, even when SCIT renumbers
+it. The Inspector and Cell window show it on its own "Manual motion" line next to SCIT's motion:
+the motion you set, the time it was set for, how old it is relative to the scan on screen, and
+whether it is SCIT's motion unchanged or adjusted from it. Tracks drawn freehand are not attached
+to any storm.
+
 ### Fixed: a selected or followed storm stays the same storm when SCIT renumbers it
 
 SCIT reuses and changes its cell IDs. A selected storm whose ID changed used to drop out of the

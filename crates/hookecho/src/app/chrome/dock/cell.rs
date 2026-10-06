@@ -371,7 +371,7 @@ impl HookEchoApp {
             .follow_cell
             .as_ref()
             .is_some_and(|(_, f, _)| f.id == c.id);
-        let rows = super::inspector::storm_rows(&c, metric);
+        let rows = self.storm_card_rows(&c, metric);
         // Whether the tornado detectors ran on this volume at all: "no detection" means nothing
         // only if they did.
         let (detectors_ran, tornado_lineage) = {

@@ -59,6 +59,21 @@ pub(crate) struct ManualTrack {
     /// A line track's storm edge at `t0` (a QLCS, a gust front), moving as one with the
     /// motion; empty for a single storm. The origin is its middle.
     pub edge: Vec<[f64; 2]>,
+    /// The storm it was started from, when it was (ROADMAP_PARITY M2.1: manual objects may stay
+    /// unassociated). Kept as the source reference, never updated: the storm history says which
+    /// storm that is now.
+    pub source: Option<TrackSource>,
+}
+
+/// Where a manual track was seeded from.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TrackSource {
+    /// The SCIT cell ID at seeding, and the time of that table.
+    pub cell_id: String,
+    pub scan: Option<DateTime<Utc>>,
+    /// SCIT's motion then, toward degrees and km/h, so an adjustment can be read against it.
+    pub scit_bearing_deg: f64,
+    pub scit_speed_kmh: f64,
 }
 
 impl ManualTrack {
@@ -73,6 +88,7 @@ impl ManualTrack {
             cone_deg: 10.0,
             mark_interval_min: DEFAULT_MARK_INTERVAL_MIN,
             edge: Vec::new(),
+            source: None,
         }
     }
 
@@ -131,6 +147,12 @@ impl ManualTrack {
         let mut t = Self::new([cell.lon, cell.lat], t0);
         t.bearing_deg = f64::from(cell.mvt_deg?).rem_euclid(360.0);
         t.speed_kmh = f64::from(cell.mvt_kt?) * KMH_PER_KT;
+        t.source = Some(TrackSource {
+            cell_id: cell.id.clone(),
+            scan: cell.time,
+            scit_bearing_deg: t.bearing_deg,
+            scit_speed_kmh: t.speed_kmh,
+        });
         Some(t)
     }
 
@@ -655,10 +677,81 @@ fn width_control(ui: &mut egui::Ui, label: &str, width_km: &mut f64, metric: boo
     changed
 }
 
+/// One line on a storm's manual motion for the storm's own card: the motion, when it was set, and
+/// how it compares with the SCIT motion it was started from.
+pub(crate) fn manual_motion_line(
+    track: &ManualTrack,
+    now: Option<DateTime<Utc>>,
+    metric: bool,
+    fmt_time: impl Fn(DateTime<Utc>) -> String,
+) -> String {
+    let speed = |kmh: f64| {
+        if metric {
+            format!("{kmh:.0} km/h")
+        } else {
+            format!("{:.0} mph", kmh / 1.609_344)
+        }
+    };
+    let mut line = format!(
+        "{} at {} ({:03.0}°), set for {}",
+        compass(track.bearing_deg),
+        speed(track.speed_kmh),
+        track.bearing_deg,
+        fmt_time(track.t0)
+    );
+    if let Some(age) = now.map(|n| (n - track.t0).num_minutes()).filter(|m| *m > 0) {
+        line.push_str(&format!(", {age} min before this scan"));
+    }
+    if let Some(src) = &track.source {
+        let turned = (track.bearing_deg - src.scit_bearing_deg + 540.0).rem_euclid(360.0) - 180.0;
+        let faster = track.speed_kmh - src.scit_speed_kmh;
+        if turned.abs() < 0.5 && faster.abs() < 0.5 {
+            line.push_str(&format!(
+                "; SCIT's motion for cell {}, unadjusted",
+                src.cell_id
+            ));
+        } else {
+            line.push_str(&format!(
+                "; adjusted from SCIT's {} at {} for cell {}",
+                compass(src.scit_bearing_deg),
+                speed(src.scit_speed_kmh),
+                src.cell_id
+            ));
+        }
+    }
+    line
+}
+
 impl HookEchoApp {
     pub(crate) fn storm_track_keys(&mut self, ctx: &egui::Context) {
         self.storm_tracks
             .keys(ctx, self.tool == MapTool::StormTrack, self.capture_key);
+    }
+
+    /// The manual tracks started from `cell`'s storm, newest first: the storm history decides
+    /// which storm a track's seeding cell was, so a track follows its storm through a SCIT
+    /// renumbering and is never shown for another storm that took the old ID.
+    pub(crate) fn manual_tracks_for(&self, cell: &wxdata::level3::Cell) -> Vec<&ManualTrack> {
+        use super::chrome::Resolved;
+        self.storm_tracks
+            .tracks
+            .iter()
+            .rev()
+            .filter(|t| {
+                let Some(src) = &t.source else {
+                    return false;
+                };
+                match self
+                    .dock
+                    .storm_ids
+                    .resolve(&src.cell_id, src.scan.map(|s| s.timestamp()))
+                {
+                    Resolved::Current(id) => id == cell.id,
+                    Resolved::Gone(_) => false,
+                    Resolved::Unknown => !cell.id.is_empty() && src.cell_id == cell.id,
+                }
+            })
+            .collect()
     }
 
     /// Seed the manual tool from the same SCIT motion and source time in every storm UI.
@@ -1661,6 +1754,40 @@ mod tests {
         );
         assert_eq!(t.bearing_deg, 95.0);
         assert!((t.speed_kmh - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_manual_motion_reads_against_the_scit_motion_it_started_from() {
+        let t0 = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let cell = wxdata::level3::Cell {
+            id: "O7".into(),
+            lon: -97.0,
+            lat: 35.0,
+            time: Some(t0),
+            mvt_deg: Some(240.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let mut t = ManualTrack::from_cell(&cell, t0).unwrap();
+        let src = t.source.clone().unwrap();
+        assert_eq!((src.cell_id.as_str(), src.scan), ("O7", Some(t0)));
+        let fmt = |d: DateTime<Utc>| format!("t{}", d.timestamp() - 1_700_000_000);
+        assert_eq!(
+            manual_motion_line(&t, Some(t0), true, fmt),
+            "WSW at 56 km/h (240°), set for t0; SCIT's motion for cell O7, unadjusted"
+        );
+        t.bearing_deg = 260.0;
+        t.speed_kmh = 40.0;
+        let later = t0 + chrono::Duration::minutes(10);
+        assert_eq!(
+            manual_motion_line(&t, Some(later), false, fmt),
+            "W at 25 mph (260°), set for t0, 10 min before this scan; adjusted from SCIT's WSW \
+             at 35 mph for cell O7"
+        );
+        // A track drawn by hand belongs to no storm and says nothing about SCIT.
+        let free = ManualTrack::new([-97.0, 35.0], t0);
+        assert!(free.source.is_none());
+        assert!(!manual_motion_line(&free, None, true, fmt).contains("SCIT"));
     }
 
     fn track() -> ManualTrack {
