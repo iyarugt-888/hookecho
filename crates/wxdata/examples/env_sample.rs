@@ -8,10 +8,12 @@
 //! hour they fall in, fetches the [`wxdata::near_storm::HRRR_SPECS`] fields of the run an hour
 //! before that hour at F+1 (valid on the hour, as old as the newest run a live app would have),
 //! then writes one line per distinct candidate point: `minute,lon,lat` exactly as the export wrote
-//! them, then the [`wxdata::near_storm::EnvSample`]. An hour whose fields cannot be had (before the
-//! archive begins on 2014-07-30, or a field the run lacks) is written as `#missing`. Lines are
-//! appended an hour at a time, and a rerun skips the hours already in OUT, so a stopped run
-//! resumes. `--dry-run` only counts hours and points.
+//! them, then the [`wxdata::near_storm::EnvSample`]. A run missing from the archive is stood in for
+//! by the on-hour analysis, then the run two hours before (`run` says which was used). An hour whose
+//! fields cannot be had at all (before the archive begins on 2014-07-30, or no source) is written
+//! as `#missing`. Lines are appended an hour at a time, and a rerun skips the hours already sampled
+//! (and those before the archive), so a stopped run resumes and a failed hour is tried again.
+//! `--dry-run` only counts hours and points.
 //!
 //! The GRIB itself goes through the HRRR cache, which is capped (`objcache::GRIB_HRRR`): a long
 //! run leaves only OUT behind.
@@ -28,6 +30,11 @@ const ARCHIVE_START: i64 = 1_406_678_400; // 2014-07-30 00:00Z
 /// Hours fetched at once; each is nine field requests.
 const HOURS_AT_ONCE: usize = 3;
 const DETECTORS: [&str; 3] = ["tornado_fusion", "tornado_marker", "tornado_id"];
+const BEFORE_ARCHIVE: &str = "before the HRRR archive";
+/// Where an hour's fields are taken from, in order: (hours before the valid hour the run began,
+/// forecast hour). The run an hour before at F+1 is what a live app has; a few runs are missing
+/// from the archive, and then the on-hour analysis or the run two hours before stands in.
+const SOURCES: [(i64, u8); 3] = [(1, 1), (0, 0), (2, 2)];
 
 /// One candidate point: the export's own text for its minute, longitude and latitude.
 type Point = (i64, String, String);
@@ -74,14 +81,16 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Hours already in OUT (a resumed run).
+    // Hours already in OUT (a resumed run): sampled ones, and those before the archive. Other
+    // missing hours are tried again.
     let mut done = BTreeSet::new();
     if let Ok(text) = std::fs::read_to_string(&out) {
         for line in text.lines() {
             let mut f = line.split(',');
             let first = f.next().unwrap_or_default();
             let valid = if first == "#missing" {
-                f.next()
+                let v = f.next();
+                v.filter(|_| line.contains(BEFORE_ARCHIVE))
             } else {
                 f.nth(2)
             };
@@ -156,15 +165,38 @@ async fn sample_hour(
     hour: i64,
     pts: &BTreeSet<Point>,
 ) -> anyhow::Result<Vec<String>> {
-    anyhow::ensure!(hour * 60 >= ARCHIVE_START, "before the HRRR archive");
-    let run: DateTime<Utc> = DateTime::from_timestamp((hour - 60) * 60, 0)
-        .ok_or_else(|| anyhow::anyhow!("bad hour {hour}"))?;
-    let fields = futures_util::future::try_join_all(HRRR_SPECS.iter().map(|(var, level, mv)| {
-        wxdata::hrrr::fetch_field_at_run(http, wxdata::hrrr::Model::Hrrr, run, var, level, 1, *mv)
-    }))
-    .await?;
+    anyhow::ensure!(hour * 60 >= ARCHIVE_START, "{BEFORE_ARCHIVE}");
+    let mut found = None;
+    let mut last_err = None;
+    for (back, fh) in SOURCES {
+        let run_min = hour - 60 * back;
+        let run: DateTime<Utc> = DateTime::from_timestamp(run_min * 60, 0)
+            .ok_or_else(|| anyhow::anyhow!("bad hour {hour}"))?;
+        let fields =
+            futures_util::future::try_join_all(HRRR_SPECS.iter().map(|(var, level, mv)| {
+                wxdata::hrrr::fetch_field_at_run(
+                    http,
+                    wxdata::hrrr::Model::Hrrr,
+                    run,
+                    var,
+                    level,
+                    fh,
+                    *mv,
+                )
+            }))
+            .await;
+        match fields {
+            Ok(f) => {
+                found = Some((run_min, f));
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let Some((run_min, fields)) = found else {
+        return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no source")));
+    };
     let env = EnvHour::new(fields.into_iter().map(|f| f.field).collect())?;
-    let run_min = hour - 60;
     Ok(pts
         .iter()
         .map(|(m, lon, lat)| {
