@@ -206,16 +206,14 @@ pub fn build_shells(
             }
             let az = x.atan2(y).to_degrees().rem_euclid(360.0);
             for s in sweeps {
+                // The gate under this ground point by the one 4/3-earth nearest-gate rule every
+                // vertical profile in this crate uses (`xsection::gate_over_ground`), so a voxel,
+                // the cross-section and the derived grids read the same gate for the same point.
                 let e = s.elevation_deg as f64;
-                let slant = crate::xsection::slant_from_ground_km(ground, e);
-                let gate = ((slant - s.first_gate_km as f64)
-                    / s.gate_interval_km.max(f32::EPSILON) as f64)
-                    .round();
-                if gate < 0.0 || gate as usize >= s.gate_count {
+                let Some((cell, slant)) = crate::xsection::gate_over_ground(s, ground, az) else {
                     continue;
-                }
-                let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
-                let idx = s.data[bin * s.gate_count + gate as usize];
+                };
+                let idx = s.data[cell];
                 if idx < 2 {
                     continue;
                 }
@@ -274,16 +272,14 @@ pub fn build(
             // Vertical profile of (beam_height, dBZ) from every tilt at this ground range/azimuth.
             let mut samples: Vec<(f64, f32)> = Vec::with_capacity(sweeps.len());
             for s in sweeps {
+                // The gate under this ground point by the one 4/3-earth nearest-gate rule every
+                // vertical profile in this crate uses (`xsection::gate_over_ground`), so a voxel,
+                // the cross-section and the derived grids read the same gate for the same point.
                 let e = s.elevation_deg as f64;
-                let slant = ground / e.to_radians().cos();
-                let gate = ((slant - s.first_gate_km as f64)
-                    / s.gate_interval_km.max(f32::EPSILON) as f64)
-                    .round();
-                if gate < 0.0 || gate as usize >= s.gate_count {
+                let Some((cell, slant)) = crate::xsection::gate_over_ground(s, ground, az) else {
                     continue;
-                }
-                let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
-                let idx = s.data[bin * s.gate_count + gate as usize];
+                };
+                let idx = s.data[cell];
                 if idx < 2 {
                     continue;
                 }
@@ -452,16 +448,14 @@ pub fn cappi(sweeps: &[BinnedSweep], alt_km: f32, n: usize, half_km: f32) -> Opt
             let az = x.atan2(y).to_degrees().rem_euclid(360.0);
             let mut samples: Vec<(f64, f32)> = Vec::with_capacity(sweeps.len());
             for s in sweeps {
+                // The gate under this ground point by the one 4/3-earth nearest-gate rule every
+                // vertical profile in this crate uses (`xsection::gate_over_ground`), so a voxel,
+                // the cross-section and the derived grids read the same gate for the same point.
                 let e = s.elevation_deg as f64;
-                let slant = ground / e.to_radians().cos();
-                let gate = ((slant - s.first_gate_km as f64)
-                    / s.gate_interval_km.max(f32::EPSILON) as f64)
-                    .round();
-                if gate < 0.0 || gate as usize >= s.gate_count {
+                let Some((cell, slant)) = crate::xsection::gate_over_ground(s, ground, az) else {
                     continue;
-                }
-                let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
-                let idx = s.data[bin * s.gate_count + gate as usize];
+                };
+                let idx = s.data[cell];
                 if idx < 2 {
                     continue;
                 }
@@ -551,6 +545,70 @@ mod tests {
         let strongest = *v3.data.iter().max().unwrap();
         let v = speed_value(strongest, v3.value_max);
         assert!((v + 35.0).abs() < 1.5, "the inbound 35 m/s wins, got {v}");
+    }
+
+    /// Every voxel column reads exactly the gates the cross-section reads at the same ground
+    /// point, out to long range where a flat-earth slant lands on the neighbouring gate.
+    #[test]
+    fn a_voxel_column_reads_the_cross_sections_gates() {
+        let (az_bins, gate_count) = (360usize, 1400usize);
+        // A different value on every gate, so a one-gate shift is a different value.
+        let sweeps: Vec<BinnedSweep> = [0.5f32, 1.5, 3.0, 6.0]
+            .iter()
+            .map(|&e| {
+                let mut data = vec![0u8; az_bins * gate_count];
+                for b in 0..az_bins {
+                    for g in 0..gate_count {
+                        data[b * gate_count + g] = 2 + ((g * 7 + b) % 250) as u8;
+                    }
+                }
+                BinnedSweep {
+                    moment: Moment::Reflectivity,
+                    az_bins,
+                    gate_count,
+                    data,
+                    first_gate_km: 2.0,
+                    gate_interval_km: 0.25,
+                    radar_lat: 35.0,
+                    radar_lon: -97.0,
+                    elevation_deg: e,
+                    value_min: -32.0,
+                    value_max: 95.0,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        let (n, nz, half_km, top_km) = (121usize, 40usize, 330.0f32, 18.0f32);
+        let v3 = build(&sweeps, n, nz, half_km, top_km).unwrap();
+        let span = v3.value_max - v3.value_min;
+        let mut samples = Vec::new();
+        let mut checked = 0;
+        for j in (0..n).step_by(9) {
+            for i in (0..n).step_by(7) {
+                let x = -half_km as f64 + 2.0 * half_km as f64 * i as f64 / (n - 1) as f64;
+                let y = -half_km as f64 + 2.0 * half_km as f64 * j as f64 / (n - 1) as f64;
+                let ground = (x * x + y * y).sqrt();
+                if ground < 0.5 {
+                    continue;
+                }
+                let az = x.atan2(y).to_degrees().rem_euclid(360.0);
+                crate::xsection::column_samples(&sweeps, ground, az, &mut samples);
+                for k in 0..nz {
+                    let z = top_km as f64 * k as f64 / (nz - 1) as f64;
+                    let want = match sample_profile(&samples, z).0 {
+                        Some(v) => 2 + (((v - v3.value_min) / span).clamp(0.0, 1.0) * 253.0) as u8,
+                        None => 0,
+                    };
+                    assert_eq!(
+                        v3.data[i + n * j + n * n * k],
+                        want,
+                        "voxel {i},{j},{k} at {ground:.0} km"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 5_000, "{checked}");
     }
 
     #[test]

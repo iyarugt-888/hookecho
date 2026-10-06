@@ -17,6 +17,10 @@ pub(crate) mod ui;
 #[path = "headless_corpus.rs"]
 mod corpus;
 
+#[cfg(test)]
+#[path = "headless_volume.rs"]
+mod volume;
+
 /// Output edge length in pixels, and the zoom override, if either was asked for.
 ///
 /// Process-global rather than threaded through the dozen render entry points, because every

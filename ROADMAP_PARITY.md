@@ -902,6 +902,13 @@ Remaining open:
 - *Known limitations:* one section at a time, sampled on the UI thread (300×120 nearest-gate grid; cheap, but unprofiled on Android); no 3D in-view section panel or ruler yet; no storm-follow mode; the radial snap swings about the middle rather than also centring on a storm.
 - *Next ready increment:* M3.1 decoded Nyquist/metadata at the Level II boundary; then M3.6 rulers and storm-centred ROI.
 
+**Evidence ledger — 2026-10-06, increment 2 (3D sampling agreement and mode regressions, gap 4):**
+
+- *Fixed:* the smooth volume and CAPPI builders mapped ground range to slant range with the flat-earth `ground / cos(elev)`, while the cross-section, derived grids and column products use the 4/3-earth form; beyond ~250 km a voxel read the neighbouring gate. All three volume samplers (shells, smooth volume, CAPPI) now go through `xsection::gate_over_ground`, so one point reads one gate in every view. `volume3d::tests::a_voxel_column_reads_the_cross_sections_gates` checks every sampled voxel against `xsection::column_samples` + `sample_profile` out to 345 km (it fails on the old code at 345 km: code 38 vs 45).
+- *Regressions added ([`headless_volume.rs`](crates/hookecho/src/headless_volume.rs)), on a synthetic storm with closed-form geometry:* the 45 dBZ isosurface's low vertices lie 15 ± 3.5 km from the core and every vertex sits in ≥35 dBZ air, the 30 dBZ skin reaching further (CPU, every PR). `gpu_volume_modes_draw_where_the_storm_is` (GPU suite): the smooth MIP draws east of centre where the core is and replays byte-identically; a 70 dBZ floor draws nothing; a 45 dBZ floor draws a core of the expected area ratio; a half-space keeping the east keeps the storm and one keeping the west draws nothing; a thin slab through the core draws a band, one 60 km west draws nothing, and the same slab from the side draws the vertical section. llvmpipe counts: smooth 7,033, floor-45 756, east 7,033, slab 1,168, side 850.
+- *Commands:* clippy `-D warnings` clean; `cargo test --workspace --no-fail-fast` 2,344 passed, 0 failed; GPU suite 38 passed; wasm32 check passes.
+- *Open:* no GPU regression yet for the observed-gates (instanced) representation or the map-pitched smooth path (these cover the orbit raymarch); no real-volume 3D reference; camera/orbit, ROI, ruler and direct-sampling interaction work remains.
+
 ### M4 — Operational GIS
 
 #### M4.1 — Introduce independent GIS layers and groups

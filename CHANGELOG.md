@@ -67,6 +67,12 @@ The Log shows, beside the time from receiving a live radar update to queueing it
 time until the GPU actually finished drawing it, with medians, 95th percentiles and how many
 updates could not be observed. Screen presentation is not included and the label says so.
 
+### Fixed: the 3D volume reads the same gates as the cross-section
+
+The smooth 3D volume and CAPPI used a flat-earth range conversion, so far from the radar a
+voxel could show the neighbouring gate's value from what the cross-section and derived grids
+show at the same spot. All of them now sample through one rule.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at
