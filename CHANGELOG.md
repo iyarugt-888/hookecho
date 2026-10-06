@@ -35,6 +35,12 @@ is true for are drawn, clickable, labelled, exported and used as impact targets.
 doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
 the previous one in force and says what is wrong.
 
+### Added: a feature table for each imported layer
+
+The Layer Manager opens a table of the features an imported layer is showing, one column per
+attribute. Sort by any column, search them all, zoom to a feature (it is outlined on the map) or
+copy its attributes.
+
 ### Added: beam height above the ground
 
 The measure tool and the cross-section ruler now give the beam's height above the ground as well

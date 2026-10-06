@@ -236,6 +236,126 @@ pub(crate) fn layer_features(
     out
 }
 
+/// One row of a layer's feature table: the source feature, and its value for each column (empty
+/// where it has none).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TableRow {
+    pub src: usize,
+    pub values: Vec<String>,
+}
+
+fn cell_text(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None | Some(serde_json::Value::Null) => String::new(),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// A layer's feature table (ROADMAP_PARITY M4.3): every source feature the layer shows (its
+/// filter and time window applied, so the table and the map agree), one column per attribute in
+/// `keys`, rows whose values contain `query` (any column, ignoring case), sorted by column `sort`
+/// — numerically when both values are numbers, as text otherwise, empty values last — or in file
+/// order.
+pub(crate) fn feature_table(
+    layer: &LoadedGis,
+    keys: &[String],
+    query: &str,
+    sort: Option<(usize, bool)>,
+) -> Vec<TableRow> {
+    let q = query.trim().to_lowercase();
+    let mut rows: Vec<TableRow> = layer
+        .marks
+        .props
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| layer.valid(Some(i)))
+        .map(|(src, props)| TableRow {
+            src,
+            values: keys.iter().map(|k| cell_text(props.get(k))).collect(),
+        })
+        .filter(|r| q.is_empty() || r.values.iter().any(|v| v.to_lowercase().contains(&q)))
+        .collect();
+    if let Some((col, descending)) = sort {
+        rows.sort_by(|a, b| {
+            let (x, y) = (&a.values[col], &b.values[col]);
+            let ord = match (x.is_empty(), y.is_empty()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => return std::cmp::Ordering::Greater,
+                (false, true) => return std::cmp::Ordering::Less,
+                _ => match (x.parse::<f64>(), y.parse::<f64>()) {
+                    (Ok(p), Ok(q)) => p.total_cmp(&q),
+                    _ => x.to_lowercase().cmp(&y.to_lowercase()),
+                },
+            };
+            let ord = if descending { ord.reverse() } else { ord };
+            ord.then(a.src.cmp(&b.src))
+        });
+    }
+    rows
+}
+
+/// The box around every part of source feature `src`: its polygons, lines and points.
+pub(crate) fn feature_bounds(layer: &LoadedGis, src: usize) -> Option<(f64, f64, f64, f64)> {
+    let m = &layer.marks;
+    let mut acc: Option<(f64, f64, f64, f64)> = None;
+    let mut add = |p: [f64; 2]| {
+        acc = Some(match acc {
+            None => (p[0], p[1], p[0], p[1]),
+            Some((w, s, e, n)) => (w.min(p[0]), s.min(p[1]), e.max(p[0]), n.max(p[1])),
+        });
+    };
+    for (i, f) in layer.shapes.iter().enumerate() {
+        if m.shape_src.get(i) == Some(&src) {
+            f.rings.iter().flatten().for_each(|p| add(*p));
+        }
+    }
+    for (i, l) in m.lines.iter().enumerate() {
+        if m.line_src.get(i) == Some(&src) {
+            l.iter().for_each(|p| add(*p));
+        }
+    }
+    for (i, p) in m.points.iter().enumerate() {
+        if m.point_src.get(i) == Some(&src) {
+            add(*p);
+        }
+    }
+    acc
+}
+
+/// What the table's Copy puts on the clipboard for a feature: every attribute, `name: value`,
+/// one per line, sorted by name.
+pub(crate) fn feature_text(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut lines: Vec<String> = props
+        .iter()
+        .map(|(k, v)| format!("{k}: {}", cell_text(Some(v))))
+        .collect();
+    lines.sort();
+    lines.join("\n")
+}
+
+/// Most rows the feature table lists at once; a search narrows the rest.
+const MAX_TABLE_ROWS: usize = 500;
+
+/// The open feature table: which layer, its sort and search, and the feature picked in it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct GisTable {
+    pub layer: u64,
+    sort: Option<(usize, bool)>,
+    query: String,
+    /// The source feature picked (zoomed to or copied), outlined on the map.
+    pub selected: Option<usize>,
+}
+
+impl GisTable {
+    pub(crate) fn of(layer: u64) -> Self {
+        GisTable {
+            layer,
+            ..Default::default()
+        }
+    }
+}
+
 /// The paint order of the layers' polygons around the official products: `(below, above)`, each
 /// in `settings.gis_layers` order, first underneath.
 pub(crate) fn paint_order(settings: &crate::settings::Settings) -> (Vec<u64>, Vec<u64>) {
@@ -516,6 +636,11 @@ impl HookEchoApp {
             );
             return;
         };
+        self.fit_view((west, south, east, north));
+    }
+
+    /// Frame the active pane on a `(west, south, east, north)` box.
+    pub(crate) fn fit_view(&mut self, (west, south, east, north): (f64, f64, f64, f64)) {
         let view = &mut self.views[self.active];
         let (center_lon, center_lat) = ((west + east) / 2.0, (south + north) / 2.0);
         // Span in world units rather than degrees: latitude degrees do not have a constant world
@@ -724,6 +849,169 @@ impl HookEchoApp {
                 self.toast(ToastKind::Error, format!("Layer export failed: {e}"))
             }
             crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
+    /// The feature table window (ROADMAP_PARITY M4.3), while one is open: the layer's shown
+    /// features, a column per attribute, sortable by any, searchable, each with Zoom and Copy.
+    /// Buttons rather than row clicks, which a touch screen does not deliver in a scrolled table.
+    pub(crate) fn gis_table_window(&mut self, ctx: &egui::Context) {
+        let Some(mut st) = self.gis_table.take() else {
+            return;
+        };
+        let (Some(config), Some(layer)) =
+            (self.settings.gis_layer(st.layer), self.gis_loaded(st.layer))
+        else {
+            return;
+        };
+        let name = config.name.clone();
+        let keys = crate::gis_import::label_keys(&layer.marks);
+        let total = (0..layer.marks.props.len())
+            .filter(|i| layer.valid(Some(i)))
+            .count();
+        let rows = feature_table(layer, &keys, &st.query, st.sort);
+        let mut open = true;
+        let (mut zoom, mut copy) = (None, None);
+        egui::Window::new(format!("{name} \u{2014} features"))
+            .id(egui::Id::new("gis_feature_table"))
+            .open(&mut open)
+            .default_size([560.0, 360.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Search");
+                    ui.add(egui::TextEdit::singleline(&mut st.query).desired_width(180.0));
+                    ui.weak(format!(
+                        "{} of {total} shown features (filter and time applied)",
+                        rows.len()
+                    ));
+                });
+                egui::ScrollArea::both().show(ui, |ui| {
+                    egui::Grid::new("gis_feature_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label("");
+                            for (c, k) in keys.iter().enumerate() {
+                                let arrow = match st.sort {
+                                    Some((sc, false)) if sc == c => " \u{25b2}",
+                                    Some((sc, true)) if sc == c => " \u{25bc}",
+                                    _ => "",
+                                };
+                                if ui
+                                    .small_button(format!("{k}{arrow}"))
+                                    .on_hover_text("Sort by this attribute; again to reverse")
+                                    .clicked()
+                                {
+                                    st.sort = match st.sort {
+                                        Some((sc, false)) if sc == c => Some((c, true)),
+                                        Some((sc, true)) if sc == c => None,
+                                        _ => Some((c, false)),
+                                    };
+                                }
+                            }
+                            ui.end_row();
+                            for r in rows.iter().take(MAX_TABLE_ROWS) {
+                                ui.horizontal(|ui| {
+                                    let picked = st.selected == Some(r.src);
+                                    if ui
+                                        .selectable_label(picked, "\u{2316}")
+                                        .on_hover_text("Zoom to this feature and outline it")
+                                        .clicked()
+                                    {
+                                        zoom = Some(r.src);
+                                    }
+                                    if ui
+                                        .small_button("\u{29c9}")
+                                        .on_hover_text("Copy its attributes")
+                                        .clicked()
+                                    {
+                                        copy = Some(r.src);
+                                    }
+                                });
+                                for v in &r.values {
+                                    let short: String = v.chars().take(40).collect();
+                                    let cell = ui.label(&short);
+                                    if short.len() < v.len() {
+                                        cell.on_hover_text(v);
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    if rows.len() > MAX_TABLE_ROWS {
+                        ui.weak(format!(
+                            "The first {MAX_TABLE_ROWS} of {} rows; search to narrow them",
+                            rows.len()
+                        ));
+                    }
+                });
+            });
+        if let Some(src) = copy {
+            if let Some(props) = self
+                .gis_loaded(st.layer)
+                .and_then(|l| l.marks.props.get(src))
+            {
+                ctx.copy_text(feature_text(props));
+            }
+            st.selected = Some(src);
+        }
+        if let Some(src) = zoom {
+            if let Some(b) = self
+                .gis_loaded(st.layer)
+                .and_then(|l| feature_bounds(l, src))
+            {
+                self.fit_view(b);
+            }
+            st.selected = Some(src);
+        }
+        if open {
+            self.gis_table = Some(st);
+        }
+    }
+
+    /// The feature picked in the table, outlined over everything so it can be found.
+    pub(crate) fn paint_gis_selection(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+    ) {
+        let Some((layer, src)) = self
+            .gis_table
+            .as_ref()
+            .and_then(|t| Some((self.gis_loaded(t.layer)?, t.selected?)))
+        else {
+            return;
+        };
+        let screen = |ll: &[f64; 2]| {
+            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+            let (sx, sy) = cam.world_to_screen(w, vp);
+            egui::pos2(prect.left() + sx, prect.top() + sy)
+        };
+        let halo = egui::Stroke::new(5.0, egui::Color32::from_black_alpha(200));
+        let mark = egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 230, 60));
+        let m = &layer.marks;
+        let mut lines: Vec<Vec<egui::Pos2>> = Vec::new();
+        for (i, f) in layer.shapes.iter().enumerate() {
+            if m.shape_src.get(i) == Some(&src) {
+                lines.extend(f.rings.iter().map(|r| r.iter().map(screen).collect()));
+            }
+        }
+        for (i, l) in m.lines.iter().enumerate() {
+            if m.line_src.get(i) == Some(&src) {
+                lines.push(l.iter().map(screen).collect());
+            }
+        }
+        for pts in lines {
+            painter.add(egui::Shape::line(pts.clone(), halo));
+            painter.add(egui::Shape::line(pts, mark));
+        }
+        for (i, p) in m.points.iter().enumerate() {
+            if m.point_src.get(i) == Some(&src) {
+                let at = screen(p);
+                painter.circle_stroke(at, 9.0, halo);
+                painter.circle_stroke(at, 9.0, mark);
+            }
         }
     }
 
@@ -1020,6 +1308,65 @@ mod tests {
             .collect();
         assert_eq!(names, ["big early", "big late"]);
         assert_eq!(out[0].properties["hookecho"], "imported");
+    }
+
+    /// The table lists what the layer shows, searches any column, sorts numbers as numbers and
+    /// puts missing values last; a feature's box covers all of its parts.
+    #[test]
+    fn the_feature_table_lists_what_the_map_shows_sorted_and_searched() {
+        let f = |name: &str, pop: Option<i64>, kind: &str| {
+            let mut p = serde_json::json!({ "NAME": name, "KIND": kind });
+            if let Some(v) = pop {
+                p["POP"] = v.into();
+            }
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::MultiPoint(vec![[-97.0, 35.0], [-96.0, 36.0]]),
+                properties: p.as_object().unwrap().clone(),
+            }
+        };
+        let mut layer = LoadedGis::new(
+            1,
+            vec![
+                f("Alpha", Some(900), "school"),
+                f("Bravo", Some(10_000), "fire"),
+                f("Charlie", None, "school"),
+                f("Delta", Some(95), "school"),
+            ],
+        );
+        let keys = crate::gis_import::label_keys(&layer.marks);
+        assert_eq!(keys, ["KIND", "NAME", "POP"]);
+        let names =
+            |rows: &[TableRow]| rows.iter().map(|r| r.values[1].clone()).collect::<Vec<_>>();
+        let pop = 2;
+        // Numbers as numbers (95 < 900 < 10000), the missing one last either way.
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", Some((pop, false)))),
+            ["Delta", "Alpha", "Bravo", "Charlie"]
+        );
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", Some((pop, true)))),
+            ["Bravo", "Alpha", "Delta", "Charlie"]
+        );
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "SCHOOL", None)),
+            ["Alpha", "Charlie", "Delta"]
+        );
+        // The layer's filter applies to the table too.
+        let config = crate::settings::GisLayerConfig {
+            id: 1,
+            filter: "KIND = 'school'".into(),
+            ..Default::default()
+        };
+        layer.sync(&config, Utc::now());
+        assert_eq!(
+            names(&feature_table(&layer, &keys, "", None)),
+            ["Alpha", "Charlie", "Delta"]
+        );
+        assert_eq!(feature_bounds(&layer, 1), Some((-97.0, 35.0, -96.0, 36.0)));
+        assert_eq!(
+            feature_text(&layer.marks.props[0]),
+            "KIND: school\nNAME: Alpha\nPOP: 900"
+        );
     }
 
     /// Writes one GeoJSON with every kind of feature the map export carries, to the path in

@@ -71,6 +71,8 @@ pub(crate) struct Outcome {
     pub zoom: Option<u64>,
     /// Write this imported layer's shown features out as GeoJSON.
     pub export: Option<u64>,
+    /// Open this imported layer's feature table.
+    pub table: Option<u64>,
 }
 
 /// Show the window. `active` is the field layers currently painting, with their display names
@@ -240,6 +242,13 @@ fn gis_layers(
                     .clicked()
                 {
                     out.zoom = Some(id);
+                }
+                if ui
+                    .small_button("\u{25a6}")
+                    .on_hover_text("The features this layer shows, as a table")
+                    .clicked()
+                {
+                    out.table = Some(id);
                 }
                 if ui
                     .small_button("⤓")

@@ -664,6 +664,7 @@ impl HookEchoApp {
             gis: Vec::new(),
             overlay_layer: Vec::new(),
             gis_selected: None,
+            gis_table: None,
             gis_settings_key: 0,
             show_aqi: false,
             aqi: Vec::new(),

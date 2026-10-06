@@ -609,3 +609,17 @@ impl HookEchoApp {
         false
     }
 }
+
+fn point_in_ring_ll(ring: &[[f64; 2]], lon: f64, lat: f64) -> bool {
+    wxdata::overlay::rings_intersect(
+        ring,
+        // A tiny square around the click: reuses the one geometry primitive rather than adding a
+        // second point-in-polygon implementation here.
+        &[
+            [lon - 1e-6, lat - 1e-6],
+            [lon + 1e-6, lat - 1e-6],
+            [lon + 1e-6, lat + 1e-6],
+            [lon - 1e-6, lat + 1e-6],
+        ],
+    )
+}

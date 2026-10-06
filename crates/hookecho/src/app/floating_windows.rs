@@ -142,6 +142,10 @@ impl HookEchoApp {
         if let Some(id) = outcome.export {
             self.export_gis_layer(id);
         }
+        if let Some(id) = outcome.table {
+            self.gis_table = Some(gis_layers::GisTable::of(id));
+        }
+        self.gis_table_window(ctx);
         if outcome.changed {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
             // edits need a rebuild; placefile/field opacity changes also remain safely covered.

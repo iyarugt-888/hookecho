@@ -210,20 +210,6 @@ const MAX_COUPLET_MARKERS: usize = 40;
 /// from the detector colours, because it is a different kind of evidence.
 const CONFIRMED_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 215, 64);
 
-fn point_in_ring_ll(ring: &[[f64; 2]], lon: f64, lat: f64) -> bool {
-    wxdata::overlay::rings_intersect(
-        ring,
-        // A tiny square around the click: reuses the one geometry primitive rather than adding a
-        // second point-in-polygon implementation here.
-        &[
-            [lon - 1e-6, lat - 1e-6],
-            [lon + 1e-6, lat - 1e-6],
-            [lon + 1e-6, lat + 1e-6],
-            [lon - 1e-6, lat + 1e-6],
-        ],
-    )
-}
-
 /// The first `http(s)://` URL in a free-text line, if there is one. Spotter reports and chase
 /// partners paste stream links into their status text; this is how we find them.
 fn first_url(text: &str) -> Option<String> {
@@ -1978,8 +1964,9 @@ pub struct HookEchoApp {
     gis: Vec<gis_layers::LoadedGis>,
     /// Per `overlays` entry, the imported layer it came from (`None`: an official product).
     overlay_layer: Vec<Option<u64>>,
-    /// The layer the Layer Manager is editing.
+    /// The layer the Layer Manager is editing, and the open feature table.
     gis_selected: Option<u64>,
+    gis_table: Option<gis_layers::GisTable>,
     /// The layer settings the overlays were last assembled for, hashed.
     gis_settings_key: u64,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
@@ -6640,6 +6627,7 @@ impl HookEchoApp {
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
         self.paint_gis_marks(&painter, prect, cam, vp);
+        self.paint_gis_selection(&painter, prect, cam, vp);
         // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
         // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
         // file reads as a scatter of names rather than an unreadable smear, and more appear as
