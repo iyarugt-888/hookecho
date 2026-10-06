@@ -18,18 +18,26 @@ const RETRY_S: f64 = 600.0;
 /// The HRRR hour the active volume's verdicts read.
 #[derive(Default)]
 pub(crate) struct NearStormFeed {
-    /// The valid hour (seconds since the epoch) last fetched, what came of it (`None`: could not
-    /// be had), and when (egui time, s).
-    have: Option<(i64, Option<Arc<EnvHour>>, f64)>,
+    /// The valid hour (seconds since the epoch) last fetched, what came of it (the run it came
+    /// from and the hour; `None`: could not be had), and when (egui time, s).
+    have: Option<(i64, Option<Source>, f64)>,
     /// The fetch in flight, for its valid hour.
-    pending: Option<(i64, mpsc::Receiver<Option<EnvHour>>)>,
+    pending: Option<(i64, mpsc::Receiver<Option<Source>>)>,
 }
+
+/// An HRRR hour and the run it came from.
+type Source = (chrono::DateTime<chrono::Utc>, Arc<EnvHour>);
 
 impl NearStormFeed {
     /// The hour valid at `valid`, if it is the one held.
     pub(crate) fn hour(&self, valid: i64) -> Option<Arc<EnvHour>> {
+        self.source(valid).map(|(_, h)| h)
+    }
+
+    /// [`Self::hour`], with the run it came from.
+    pub(crate) fn source(&self, valid: i64) -> Option<Source> {
         match &self.have {
-            Some((v, Some(h), _)) if *v == valid => Some(h.clone()),
+            Some((v, Some(s), _)) if *v == valid => Some(s.clone()),
             _ => None,
         }
     }
@@ -53,8 +61,8 @@ impl HookEchoApp {
         let feed = &mut self.near_storm;
         if let Some((v, rx)) = &feed.pending {
             match rx.try_recv() {
-                Ok(hour) => {
-                    feed.have = Some((*v, hour.map(Arc::new), now));
+                Ok(source) => {
+                    feed.have = Some((*v, source, now));
                     feed.pending = None;
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -62,7 +70,7 @@ impl HookEchoApp {
             }
         }
         match &feed.have {
-            Some((v, Some(h), _)) if *v == valid => return Some(h.clone()),
+            Some((v, Some((_, h)), _)) if *v == valid => return Some(h.clone()),
             Some((v, None, at)) if *v == valid && now - at < RETRY_S => return None,
             _ => {}
         }
@@ -75,7 +83,7 @@ impl HookEchoApp {
         let ctx = ctx.clone();
         self.spawner.spawn(async move {
             let hour = match wxdata::near_storm::fetch_hour(&http, when).await {
-                Ok((_, hour)) => Some(hour),
+                Ok((run, hour)) => Some((run, Arc::new(hour))),
                 Err(e) => {
                     log::debug!("near-storm environment for {when}: {e:#}");
                     None

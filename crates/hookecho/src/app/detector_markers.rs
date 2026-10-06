@@ -433,9 +433,19 @@ impl HookEchoApp {
                     )
                 }
             };
+            // The HRRR hour the verdicts read (the environment gate), for each card's air.
+            let environment = self.views[idx].volume.as_ref().and_then(|v| {
+                let valid = near_storm::valid_hour(v.time);
+                self.near_storm
+                    .source(valid)
+                    .map(|(run, hour)| (run, hour, (valid - run.timestamp()) / 3600))
+            });
             for (ci, c) in circulations.iter().enumerate() {
                 let t = &c.id;
                 let p = to_screen(t.lon, t.lat);
+                let air = environment
+                    .as_ref()
+                    .and_then(|(run, hour, lead)| Some((run, hour.sample(t.lon, t.lat)?, lead)));
                 if !prect.contains(p) {
                     continue;
                 }
@@ -637,6 +647,9 @@ impl HookEchoApp {
                         for r in &t.reasons {
                             ui.label(r);
                         }
+                        if let Some((_, s, _)) = &air {
+                            ui.label(format!("Environment: STP {:.1}", s.stp));
+                        }
                         ui.weak(format!(
                             "{} detections tied together. Click or tap to open the web.",
                             c.members.len()
@@ -720,6 +733,30 @@ impl HookEchoApp {
                                                 );
                                             }
                                         });
+                                    }
+                                    // The air feeding it, from the HRRR hour the gate read.
+                                    if let Some((run, s, lead)) = &air {
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "Environment \u{b7} HRRR {}Z +{lead} h",
+                                                run.format("%H")
+                                            ))
+                                            .weak()
+                                            .size(body - 1.0),
+                                        );
+                                        ui.label(egui::RichText::new(s.summary()).size(body - 0.5));
+                                        if s.stp < wxdata::near_storm::GATE_STP {
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "The model's air here cannot support a \
+                                                     tornado (STP under 0.25): shown on its \
+                                                     radar evidence alone.",
+                                                )
+                                                .weak()
+                                                .size(body - 1.5),
+                                            );
+                                        }
                                     }
                                     ui.add_space(6.0);
                                     ui.label(

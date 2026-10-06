@@ -104,6 +104,18 @@ pub struct EnvSample {
     pub cells: usize,
 }
 
+impl EnvSample {
+    /// The environment in one line, for a detection's card: what STP is made of, in the units the
+    /// rest of the card uses.
+    pub fn summary(&self) -> String {
+        format!(
+            "STP {:.1} \u{b7} 0\u{2013}1 km helicity {:.0} m\u{b2}/s\u{b2} \u{b7} CAPE {:.0} J/kg \u{b7} \
+             cloud base {:.0} m \u{b7} 0\u{2013}6 km shear {:.0} m/s",
+            self.stp, self.srh1, self.sbcape, self.lcl_m, self.shear6
+        )
+    }
+}
+
 impl EnvHour {
     /// The ingredients of one hour, in [`HRRR_SPECS`] order. Every grid must match the first.
     pub fn new(fields: Vec<MrmsField>) -> anyhow::Result<Self> {
@@ -549,6 +561,16 @@ mod tests {
         assert!(!is_missing(&e(
             "HTTP status server error (503 Service Unavailable)"
         )));
+    }
+
+    #[test]
+    fn a_sample_reads_as_one_line() {
+        let s = hour(MOIST).sample(-98.0, 35.5).unwrap();
+        assert_eq!(
+            s.summary(),
+            "STP 4.0 \u{b7} 0\u{2013}1 km helicity 300 m\u{b2}/s\u{b2} \u{b7} CAPE 3000 J/kg \u{b7} \
+             cloud base 900 m \u{b7} 0\u{2013}6 km shear 30 m/s"
+        );
     }
 
     #[test]
