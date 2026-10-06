@@ -1962,8 +1962,8 @@ pub struct HookEchoApp {
     show_imported_gis: bool,
     /// What was read from each imported GIS layer's file (ROADMAP_PARITY M4.1), by layer ID.
     gis: Vec<gis_layers::LoadedGis>,
-    /// Per `overlays` entry, the imported layer it came from (`None`: an official product).
-    overlay_layer: Vec<Option<u64>>,
+    /// Per `overlays` entry, its imported layer and source feature (`None`: official product).
+    overlay_layer: Vec<Option<(u64, usize)>>,
     /// The layer the Layer Manager is editing, and the open feature table.
     gis_selected: Option<u64>,
     gis_table: Option<gis_layers::GisTable>,

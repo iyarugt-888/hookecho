@@ -134,7 +134,7 @@ impl LoadedGis {
     }
 
     /// The polygons to draw for `config`: time-filtered, coloured and styled.
-    fn styled_shapes(&self, config: &crate::settings::GisLayerConfig) -> Vec<GeoFeature> {
+    fn styled_shapes(&self, config: &crate::settings::GisLayerConfig) -> Vec<(GeoFeature, usize)> {
         let colors = self.colors.as_ref().map(|(_, c, _)| c);
         let src = &self.marks.shape_src;
         self.shapes
@@ -148,7 +148,7 @@ impl LoadedGis {
                     style.color = c;
                 }
                 crate::gis_import::apply_style(&mut feature, style);
-                feature
+                (feature, src.get(i).copied().unwrap_or(i))
             })
             .collect()
     }
@@ -551,15 +551,19 @@ impl HookEchoApp {
     }
 
     /// The layers' polygons in paint order, each with its layer: `(below, above)`.
-    pub(crate) fn gis_overlay_parts(&self) -> [Vec<(GeoFeature, u64)>; 2] {
+    pub(crate) fn gis_overlay_parts(&self) -> [Vec<(GeoFeature, (u64, usize))>; 2] {
         if !self.show_imported_gis {
             return [Vec::new(), Vec::new()];
         }
         let (below, above) = paint_order(&self.settings);
-        let part = |ids: Vec<u64>| -> Vec<(GeoFeature, u64)> {
+        let part = |ids: Vec<u64>| -> Vec<(GeoFeature, (u64, usize))> {
             ids.into_iter()
                 .filter_map(|id| Some((id, self.settings.gis_layer(id)?, self.gis_loaded(id)?)))
-                .flat_map(|(id, c, l)| l.styled_shapes(c).into_iter().map(move |f| (f, id)))
+                .flat_map(|(id, c, l)| {
+                    l.styled_shapes(c)
+                        .into_iter()
+                        .map(move |(f, src)| (f, (id, src)))
+                })
                 .collect()
         };
         [part(below), part(above)]
@@ -572,7 +576,7 @@ impl HookEchoApp {
         self.overlay_layer
             .iter()
             .map(|l| {
-                let c = self.settings.gis_layer((*l)?)?;
+                let c = self.settings.gis_layer((*l)?.0)?;
                 c.style
                     .visible_at(zoom)
                     .then(|| c.style.rendered_stroke_width())
@@ -605,7 +609,7 @@ impl HookEchoApp {
                     .get(*i)
                     .copied()
                     .flatten()
-                    .is_none_or(|id| {
+                    .is_none_or(|(id, _)| {
                         self.settings
                             .gis_layer(id)
                             .is_some_and(|c| c.style.visible_at(zoom))
@@ -615,6 +619,22 @@ impl HookEchoApp {
             .collect();
         hits.sort_by_key(|f| std::cmp::Reverse(f.kind.z()));
         hits
+    }
+
+    /// The imported layer and source feature of the overlay feature a click on `(lon, lat)`
+    /// opens (the first of [`Self::overlay_hits`]), when it is an imported one.
+    pub(crate) fn overlay_hit_source(&self, lon: f64, lat: f64, zoom: f64) -> Option<(u64, usize)> {
+        let top = *self.overlay_hits(lon, lat, zoom).first()?;
+        let i = self.overlays.iter().position(|f| std::ptr::eq(f, top))?;
+        self.overlay_layer.get(i).copied().flatten()
+    }
+
+    /// A feature picked on the map becomes the picked row of its layer's open feature table, so
+    /// the table and the map point at the same source feature.
+    pub(crate) fn note_gis_pick(&mut self, layer: u64, src: usize) {
+        if let Some(t) = self.gis_table.as_mut().filter(|t| t.layer == layer) {
+            t.selected = Some(src);
+        }
     }
 
     /// Frame the active pane on one layer, or on every layer with `None`. A file covering
@@ -684,7 +704,7 @@ impl HookEchoApp {
         lat: f64,
         cam: &crate::render::mercator::Camera,
         touch: bool,
-    ) -> Option<Detail> {
+    ) -> Option<(Detail, u64, usize)> {
         let at = crate::render::mercator::lonlat_to_world(lon, lat);
         let slack = if touch { 12.0 } else { 4.0 };
         let px = cam.world_per_pixel();
@@ -699,17 +719,21 @@ impl HookEchoApp {
             };
             let props = layer.marks.props.get(src)?;
             let c = config.style.stroke_rgba();
-            return Some(Detail {
-                title: crate::gis_import::props_title(props, kind),
-                body: format!(
-                    "{}\n\nLayer: {}",
-                    crate::gis_import::props_detail(props),
-                    config.name
-                ),
-                color: c,
-                image: None,
-                link: None,
-            });
+            return Some((
+                Detail {
+                    title: crate::gis_import::props_title(props, kind),
+                    body: format!(
+                        "{}\n\nLayer: {}",
+                        crate::gis_import::props_detail(props),
+                        config.name
+                    ),
+                    color: c,
+                    image: None,
+                    link: None,
+                },
+                config.id,
+                src,
+            ));
         }
         None
     }
@@ -1367,6 +1391,50 @@ mod tests {
             feature_text(&layer.marks.props[0]),
             "KIND: school\nNAME: Alpha\nPOP: 900"
         );
+    }
+
+    /// Every drawn polygon carries the source feature it came from — both parts of a
+    /// multipolygon the same one, a filtered-out feature none — so a click on the map lands on
+    /// the table row of the same feature.
+    #[test]
+    fn drawn_polygons_name_their_source_feature() {
+        let square = |x: f64| vec![vec![[x, 35.0], [x + 0.1, 35.0], [x + 0.1, 35.1], [x, 35.0]]];
+        let layer_features = vec![
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(square(-97.0)),
+                properties: serde_json::json!({"KEEP": true})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::MultiPolygon(vec![square(-96.0), square(-95.0)]),
+                properties: serde_json::json!({"KEEP": true})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(square(-94.0)),
+                properties: serde_json::json!({"KEEP": false})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+        ];
+        let mut layer = LoadedGis::new(1, layer_features);
+        let config = crate::settings::GisLayerConfig {
+            id: 1,
+            filter: "KEEP = true".into(),
+            ..Default::default()
+        };
+        layer.sync(&config, Utc::now());
+        let srcs: Vec<usize> = layer
+            .styled_shapes(&config)
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect();
+        assert_eq!(srcs, [0, 1, 1]);
     }
 
     /// Writes one GeoJSON with every kind of feature the map export carries, to the path in

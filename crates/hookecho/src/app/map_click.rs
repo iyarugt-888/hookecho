@@ -553,7 +553,8 @@ impl HookEchoApp {
                                 } else {
                                     None
                                 };
-                                if let Some(detail) = mark {
+                                if let Some((detail, layer, src)) = mark {
+                                    self.note_gis_pick(layer, src);
                                     self.warning_popup = None;
                                     self.gate_popup = None;
                                     self.detail_impact = None;
@@ -569,6 +570,12 @@ impl HookEchoApp {
                                         at: self.alerts_at(),
                                     });
                                 } else if let Some(f) = hits.first().map(|f| (*f).clone()) {
+                                    let zoom = self.views[self.active].camera.zoom;
+                                    if let Some((layer, src)) =
+                                        self.overlay_hit_source(lon, lat, zoom)
+                                    {
+                                        self.note_gis_pick(layer, src);
+                                    }
                                     self.warning_popup = None;
                                     self.gate_popup = None;
                                     // Discussions and watches get the same people count as
