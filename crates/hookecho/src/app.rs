@@ -89,6 +89,7 @@ mod gis_layers;
 mod loop_capture;
 mod map_click;
 mod map_volume;
+mod measure;
 mod pane_3d_overlays;
 mod pane_feeds;
 mod pane_layout;
@@ -2641,20 +2642,6 @@ impl HookEchoApp {
         let (u, v) = (u / n as f32, v / n as f32);
         let dir = u.atan2(v).to_degrees().rem_euclid(360.0);
         Some((dir, (u * u + v * v).sqrt()))
-    }
-
-    /// Height of pane `idx`'s beam centre above the radar, in feet, over the point `ll`
-    /// (`[lon, lat]`). `None` when the pane has no site or no loaded tilt.
-    ///
-    /// Ground range is close enough to slant range for the shallow tilts this is read at, and the
-    /// 4/3-earth model is the same one the cross-section draws with
-    /// ([`wxdata::xsection::beam_height_km`]), so the two agree.
-    fn beam_height_ft(&self, idx: usize, ll: [f64; 2]) -> Option<f64> {
-        let v = &self.views[idx];
-        let site = wxdata::sites::site_by_id(v.site.as_deref()?)?;
-        let elev = *v.volume.as_ref()?.elevations.get(v.tilt)? as f64;
-        let (km, _) = crate::geo::great_circle([site.longitude as f64, site.latitude as f64], ll);
-        Some(wxdata::xsection::beam_height_km(km, elev) * 3280.84)
     }
 
     /// Chime when a new volume lands on the live pane you are watching — the "look up" cue for
@@ -6737,40 +6724,7 @@ impl HookEchoApp {
         }
 
         // Measure tool.
-        if !self.measure.is_empty() {
-            let col = egui::Color32::from_rgb(255, 210, 80);
-            let screen = |ll: [f64; 2]| {
-                let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                egui::pos2(prect.left() + sx, prect.top() + sy)
-            };
-            for &pt in &self.measure {
-                painter.circle_filled(screen(pt), 3.5, col);
-            }
-            if self.measure.len() == 2 {
-                let (a, b) = (screen(self.measure[0]), screen(self.measure[1]));
-                painter.line_segment([a, b], egui::Stroke::new(2.0, col));
-                let (km, brg) = crate::geo::great_circle(self.measure[0], self.measure[1]);
-                let mut txt = format!(
-                    "{}  @ {brg:.0}°",
-                    crate::geo::fmt_distance(km, self.metric_in(idx), 1)
-                );
-                // How high the beam is over the far end of the line. The number that decides
-                // whether "there's nothing on radar there" means the storm is weak or means the
-                // scan is looking over its head, and until now it lived only in the cross-section.
-                if let Some(h) = self.beam_height_ft(idx, self.measure[1]) {
-                    txt.push_str(&format!("  ·  beam {h:.0} ft"));
-                }
-                let mid = a + (b - a) * 0.5;
-                painter.text(
-                    mid + egui::vec2(0.0, -10.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    txt,
-                    egui::FontId::proportional(12.0),
-                    col,
-                );
-            }
-        }
+        self.paint_measure(&painter, prect, cam, vp, idx);
 
         self.region.paint(&painter, |ll| {
             let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
