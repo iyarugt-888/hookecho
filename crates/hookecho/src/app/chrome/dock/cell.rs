@@ -424,6 +424,7 @@ impl HookEchoApp {
                 &markers,
                 t0,
                 metric,
+                self.manual_tracks_for(&c).first().copied(),
             )
         };
         let mut header = ws::HeaderAction::None;
@@ -579,6 +580,15 @@ impl HookEchoApp {
                                     ws::kv(ui, &t, name, when, hot.then_some(t.warn));
                                 }
                                 if let Some(m) = &threat.motion {
+                                    ui.label(ws::text(m, 10.5, t.text_faint));
+                                }
+                                if let Some(m) = &threat.manual_motion {
+                                    if threat.manual_etas.is_empty() {
+                                        ws::kv(ui, &t, "Manual", "no saved place ahead within 2 h", None);
+                                    }
+                                    for (name, when, hot) in &threat.manual_etas {
+                                        ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                    }
                                     ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
                             });
@@ -915,6 +925,51 @@ struct Threat {
     etas: Vec<(String, String, bool)>,
     /// Where the arrival times come from, said plainly; `None` without a motion.
     motion: Option<String>,
+    /// The same from a manual motion set for this storm, beside SCIT's, never merged with it.
+    manual_etas: Vec<(String, String, bool)>,
+    manual_motion: Option<String>,
+}
+
+/// Arrival at each saved place from `track`, soonest in-path first: `(minutes after the scan,
+/// place, "~21:15Z (+23 min) · passes 2 mi N", in the path)`. Times are from the track's own
+/// analysis time, stated against the scan on screen.
+fn arrivals(
+    track: &crate::app::storm_track::ManualTrack,
+    markers: &[(String, [f64; 2])],
+    scan: chrono::DateTime<chrono::Utc>,
+    metric: bool,
+) -> Vec<(f64, String, String, bool)> {
+    use crate::app::storm_track::{compass, distance};
+    let mut out: Vec<(f64, String, String, bool)> = markers
+        .iter()
+        .filter_map(|(name, p)| {
+            let e = track.eta(*p)?;
+            let when = track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+            let rel = (when - scan).num_seconds() as f64 / 60.0;
+            let pass = if e.closest_km < 0.5 {
+                "direct hit".to_string()
+            } else {
+                format!(
+                    "passes {} {}",
+                    distance(e.closest_km, metric),
+                    compass(track.bearing_deg + if e.right { -90.0 } else { 90.0 })
+                )
+            };
+            let rel_text = if rel >= 0.0 {
+                format!("+{rel:.0} min")
+            } else {
+                format!("{:.0} min before this scan", -rel)
+            };
+            Some((
+                rel,
+                name.clone(),
+                format!("~{} ({rel_text}) \u{b7} {pass}", when.format("%H:%MZ")),
+                e.in_path,
+            ))
+        })
+        .collect();
+    out.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    out
 }
 
 impl Threat {
@@ -929,6 +984,7 @@ fn threat_for(
     markers: &[(String, [f64; 2])],
     t0: chrono::DateTime<chrono::Utc>,
     metric: bool,
+    manual: Option<&crate::app::storm_track::ManualTrack>,
 ) -> Threat {
     use crate::app::storm_track::{compass, distance, ManualTrack};
     let at = [c.lon, c.lat];
@@ -984,48 +1040,37 @@ fn threat_for(
             t.speed_kmh / 1.852
         )
     });
-    let mut etas: Vec<(f64, String, String, bool)> = track
-        .map(|t| {
-            markers
-                .iter()
-                .filter_map(|(name, p)| {
-                    let e = t.eta(*p)?;
-                    let when = t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
-                    let pass = if e.closest_km < 0.5 {
-                        "direct hit".to_string()
-                    } else {
-                        format!(
-                            "passes {} {}",
-                            distance(e.closest_km, metric),
-                            compass(t.bearing_deg + if e.right { -90.0 } else { 90.0 })
-                        )
-                    };
-                    Some((
-                        e.minutes,
-                        name.clone(),
-                        format!(
-                            "~{} (+{:.0} min) \u{b7} {pass}",
-                            when.format("%H:%MZ"),
-                            e.minutes
-                        ),
-                        e.in_path,
-                    ))
-                })
-                .collect()
-        })
+    let etas = track
+        .as_ref()
+        .map(|t| arrivals(t, markers, t0, metric))
         .unwrap_or_default();
-    etas.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    let manual_motion = manual.map(|m| {
+        format!(
+            "Arrivals from your manual motion, {:03.0}\u{b0} at {:.0} kt set for {}, rounded to the \
+             minute",
+            m.bearing_deg,
+            m.speed_kmh / 1.852,
+            m.t0.format("%H:%MZ")
+        )
+    });
+    let manual_etas = manual
+        .map(|m| arrivals(m, markers, t0, metric))
+        .unwrap_or_default();
+    let five = |v: Vec<(f64, String, String, bool)>| -> Vec<(String, String, bool)> {
+        v.into_iter()
+            .take(5)
+            .map(|(_, n, w, h)| (n, w, h))
+            .collect()
+    };
     Threat {
         probsevere,
         ambiguous: associations.ambiguous,
         tornado,
         warnings,
-        etas: etas
-            .into_iter()
-            .take(5)
-            .map(|(_, n, w, h)| (n, w, h))
-            .collect(),
+        etas: five(etas),
         motion,
+        manual_etas: five(manual_etas),
+        manual_motion,
     }
 }
 
@@ -1095,6 +1140,7 @@ mod threat_tests {
             &[("Home".into(), ahead), ("Work".into(), behind)],
             t0,
             false,
+            None,
         );
         assert_eq!(th.tornado, None);
         assert_eq!(th.warnings, ["Tornado Warning (tornado observed)"]);
@@ -1124,8 +1170,55 @@ mod threat_tests {
             &[("Home".into(), [-96.8, 35.0])],
             chrono::Utc::now(),
             true,
+            None,
         );
         assert!(th.motion.is_none() && th.etas.is_empty());
+        assert!(th.manual_motion.is_none() && th.manual_etas.is_empty());
+    }
+
+    #[test]
+    fn a_manual_motion_gives_its_own_arrivals_from_its_own_time() {
+        use crate::app::storm_track::ManualTrack;
+        use chrono::TimeZone;
+        let scan = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let c = Cell {
+            time: Some(scan),
+            ..cell()
+        };
+        // Set ten minutes before the scan, due east at 60 km/h from where the storm was then.
+        let set = scan - chrono::Duration::minutes(10);
+        let mut m = ManualTrack::from_cell(&c, set).unwrap();
+        m.bearing_deg = 90.0;
+        m.speed_kmh = 60.0;
+        let home = crate::geo::destination_point([c.lon, c.lat], 90.0, 30.0);
+        let th = threat_for(
+            &c,
+            &super::super::storm_associations::Evidence {
+                cells: std::slice::from_ref(&c),
+                circulations: &[],
+                warnings: &[],
+                probsevere: &[],
+            },
+            &[("Home".into(), home)],
+            scan,
+            true,
+            Some(&m),
+        );
+        // 30 km at 60 km/h is 30 min after it was set: 20 min after the scan.
+        assert_eq!(th.manual_etas.len(), 1, "{:?}", th.manual_etas);
+        assert!(
+            th.manual_etas[0].1.contains("(+20 min)"),
+            "{}",
+            th.manual_etas[0].1
+        );
+        let line = th.manual_motion.unwrap();
+        assert!(
+            line.contains("manual motion, 090\u{b0} at 32 kt set for"),
+            "{line}"
+        );
+        // SCIT's arrivals stand on their own beside it.
+        assert_eq!(th.etas.len(), 1);
+        assert_ne!(th.etas[0].1, th.manual_etas[0].1);
     }
 }
 

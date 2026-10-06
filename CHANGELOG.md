@@ -16,6 +16,10 @@ the motion you set, the time it was set for, how old it is relative to the scan 
 whether it is SCIT's motion unchanged or adjusted from it. Tracks drawn freehand are not attached
 to any storm.
 
+The Cell window's Threat section also lists arrival times at your saved places from that manual
+motion, beside SCIT's own list, each timed from when the motion was set and stated against the scan
+on screen.
+
 ### Fixed: a selected or followed storm stays the same storm when SCIT renumbers it
 
 SCIT reuses and changes its cell IDs. A selected storm whose ID changed used to drop out of the
