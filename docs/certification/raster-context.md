@@ -58,6 +58,11 @@ camera and visible count remain unchanged, exercising the production draw-list r
 
 ## Remaining M5.1 work
 
+Follow-up: the [MRMS pane increment](mrms-panes.md) now gives catalog fields, precipitation tint,
+requests, health, probes/exports and renderer resources per-pane analysis ownership. The remaining
+shared-driver scope below applies to GOES and independent analysis-time groups; this earlier
+manifest remains the evidence for raster identity itself.
+
 Analysis clocks, satellite catalogs and active driver selection still use the existing shared
 controls. Independent analysis-time memberships must change those drivers and MRMS/GOES decoded
 field ownership, request lanes, per-pane probe/export/health contexts and render resources together.

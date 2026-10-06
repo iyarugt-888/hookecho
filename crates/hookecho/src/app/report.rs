@@ -110,7 +110,7 @@ impl HookEchoApp {
         use crate::render::FieldLayer as FL;
         let view = &self.views[self.active];
         FL::DRAW_ORDER.iter().rev().find_map(|layer| {
-            if !view.fields_on.contains(layer) || !self.model_field_ready(*layer) {
+            if !view.fields_on.contains(layer) || !self.mrms_ready(*layer) {
                 return None;
             }
             let state = self.field_state_for(self.active, *layer)?;

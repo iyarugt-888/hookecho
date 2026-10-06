@@ -289,12 +289,12 @@ fn source_row(
     ui.painter()
         .galley(egui::pos2(x, y - galley.size().y / 2.0), galley, t.text);
     let mut detail = format!(
-        "{}: {word}\n{}\nNewest data: {}\nLast success: {} ({} cadence)\nCache: {}",
+        "{}: {word}\n{}\nNewest data: {}\nLast success: {} ({})\nCache: {}",
         h.source,
         h.endpoint_family.label(),
         valid_time_line_at(h.latest_valid_time, now),
         age_line(h.last_success),
-        compact_age(h.cadence),
+        h.cadence_label(),
         h.cache_state.label(),
     );
     if let Some(p) = crate::ui::source_health_window::provider(h) {
@@ -773,6 +773,56 @@ mod tests {
                                 "{case}: horizontal overflow"
                             );
                             assert!(ui.min_rect().bottom() <= 760.0, "{case}: vertical overflow");
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: captures pane MRMS analysis identity and loaded/error disclosure"]
+    fn gpu_mrms_pane_sources_snapshots() {
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for MRMS Sources review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/mrms-panes/sources");
+        std::fs::create_dir_all(&destination).unwrap();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for case in ["loaded", "fetching", "failed", "cached"] {
+            let health = crate::app::mrms_context::tests::review_health(case);
+            std::fs::write(
+                destination.join(format!("{case}.json")),
+                serde_json::to_vec_pretty(&crate::app::DiagnosticsSourceHealth::from(&health))
+                    .unwrap(),
+            )
+            .unwrap();
+            for width in [240, 400] {
+                gpu.save(
+                    &destination.join(format!("{case}-{width}.png")),
+                    width,
+                    900,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::PULSE, "Sources", None, None);
+                            source_row(
+                                ui,
+                                &t,
+                                &health,
+                                now,
+                                egui::Id::new("mrms_pane_source"),
+                                true,
+                            );
+                            assert!(
+                                ui.min_rect().right() <= width as f32 + 0.5,
+                                "{case}: horizontal overflow"
+                            );
+                            assert!(ui.min_rect().bottom() <= 900.0, "{case}: vertical overflow");
                         });
                     },
                 )

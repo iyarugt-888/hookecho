@@ -1033,11 +1033,40 @@ replace the shared satellite catalog, change archive no-match policies, or make 
 fields independent. Transport jobs retain their existing concurrency/deadline bounds; retiring
 a scope rejects delivery without aborting the underlying HTTP job. Parent acceptance stays open.
 
-**M5.1 remains partial:** independent analysis-time groups and their MRMS/GOES field/tile ownership,
-source driver selection, comparison/ensemble/contour ownership, and full application multi-group
-live/archive operator evidence remain. Global selected-storm linking also remains. The next time
-increment must change clocks and source ownership together and verify archive misses/outside-
-tolerance policies. Tornado detection remains with Claude.
+**MRMS analysis increment — 2026-10-05 (partial):** every MRMS catalog layer now resolves its
+pane's own archive cursor, or the retained global analysis clock when linked. Complete identity
+includes layer, resolved product/window path, exact UTC target and archive tolerance. Matching
+requests share one cancellable download, display slot and texture; independent analyses retain
+separate generations, clocks, failures and provenance. Deferred archive seeks retain their target
+while radar listings load. Empty unlinked archive selections wait instead of requesting latest.
+
+Sources/diagnostics enumerate all requested MRMS contexts and pane owners, including implicit
+precipitation-tint owners. Loaded times come from accepted provider stamps; missing or rejected
+fields cannot show another request's cache/clock. Rendering, probes, grid exports, 3D surfaces and
+route exposure use the selected pane's context. Radar tint carries both context and generation,
+so switching between cached analyses rebuilds it even if their generation numbers match.
+
+Accepted archives are reused without periodic refetch; missing/failed archives retry at the
+existing bounded field cadence and latest requests continue refreshing. Sources/diagnostics
+disclose retained-archive policy without a false retry countdown or a stale-feed warning based
+solely on time in cache. Last-owner retirement
+aborts transport without source-failure credit. A bounded entry cache protects all visible fields,
+retains recently hidden contexts and retires their GPU keys without reusing identities.
+See [behavior, controls and remaining acceptance](docs/certification/mrms-panes.md).
+
+Verification: 2,302 shared-workspace tests passed across 29 suites (151 ignored), strict
+workspace/all-target Clippy and WASM compilation passed, and four explicit GPU controls passed.
+Seven new ordinary controls and two new GPU controls are included. The manifest pins 29 owned
+Rust source hashes, 28 reviewed PNGs and four Sources diagnostics snapshots; checked code had
+no final source-guard changes. Claude-owned calculation work remains excluded from this increment.
+
+**M5.1 remains partial:** independent analysis-time groups, GOES decoded field/sector/catalog and
+tile-driver ownership, source driver selection, comparison/ensemble/contour ownership, and full
+application multi-group live/archive operator evidence remain. MRMS product-window settings,
+current-only local mosaic/snow-band drivers and selected-storm linking remain shared. The next
+time increment must migrate GOES clocks, sector footprints and source ownership together, then
+add independent analysis-time memberships and verify operator archive-miss behavior. Tornado
+detection remains with Claude.
 
 #### M5.2 — Add satellite-native one-minute playback
 

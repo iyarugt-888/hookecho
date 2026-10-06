@@ -76,34 +76,9 @@ impl HookEchoApp {
         {
             self.fetch_overlays(ctx);
         }
-        // MRMS national mosaic: fetch when enabled, refresh at the ~2-min product cadence.
-        // National field layers: fetch each enabled layer at its product cadence.
+        // MRMS catalog fields have pane-specific product/time owners and shared exact requests.
         use crate::render::FieldLayer as FL;
-        for layer in FL::DRAW_ORDER {
-            // Layers with a fetch block of their own answer `None` and are skipped here.
-            let Some(request) = self.mrms_request(layer) else {
-                continue;
-            };
-            // The reflectivity tint reads the precipitation-type grid whether or not that
-            // layer is being drawn, so wanting the tint counts as wanting the layer's data.
-            let wanted =
-                self.field_wanted(layer) || (layer == FL::PrecipType && self.settings.precip_tint);
-            let now = Instant::now();
-            let state = self.fields.entry(layer).or_default();
-            if state.mrms_due(
-                &request,
-                wanted,
-                std::time::Duration::from_secs(field_refresh_secs(layer)),
-                now,
-            ) {
-                let selection_changed = state.begin_mrms(request.clone(), now);
-                if selection_changed && layer == FL::PrecipType {
-                    self.precip_flag_grid = None;
-                    self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
-                }
-                self.spawn_overlay(ctx, OverlaySource::Field(layer, request));
-            }
-        }
+        self.schedule_mrms_fields(ctx);
         // Snow bands: the mosaic and the precipitation-type grid, cut to the banded snow.
         {
             let layer = FL::SnowBands;

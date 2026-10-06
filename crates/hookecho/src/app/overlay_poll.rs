@@ -15,8 +15,14 @@ impl HookEchoApp {
                     lane,
                     generation,
                     model_request,
+                    mrms_context,
                     mut result,
                 } => {
+                    if matches!(&lane, RequestLane::Mrms(context) if Some(*context) != mrms_context)
+                    {
+                        self.acquisition.discard(&lane, generation);
+                        continue;
+                    }
                     if let Some(request) = model_request {
                         if lane != RequestLane::Model(request)
                             || !self.wanted_model_requests().contains(&request)
@@ -35,6 +41,21 @@ impl HookEchoApp {
                             result = Err("Model reply does not match its requested source, product, run and lead".into());
                         }
                         model_context = Some(request);
+                    }
+                    if let Some(context) = mrms_context {
+                        if lane != RequestLane::Mrms(context)
+                            || !self.wanted_mrms_contexts().contains(&context)
+                            || self.mrms_fields.get(&context).is_none()
+                        {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                        if result
+                            .as_ref()
+                            .is_ok_and(|msg| !context.accepts_message(msg))
+                        {
+                            result = Err("MRMS reply does not match its product, selected analysis or tolerance".into());
+                        }
                     }
                     if let Ok(OverlayMsg::DerivedFields(delivery)) = &result {
                         if !self.derived_key_current(&delivery.key) {
@@ -256,13 +277,13 @@ impl HookEchoApp {
                 }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
-                    if self.mrms_request(layer).as_ref() == Some(&request)
-                        && request.accepts(&field.stamp)
+                    // The field's original request resolves to a currently wanted immutable slot.
+                    if let Some(context) = self
+                        .wanted_mrms_contexts()
+                        .into_iter()
+                        .find(|context| context.layer == layer && context.request() == request)
                     {
-                        self.accept_field(layer, field.data, Some(field.stamp));
-                        if let Some(state) = self.fields.get_mut(&layer) {
-                            state.mrms_delivered(request, Instant::now());
-                        }
+                        self.accept_mrms_field(context, field);
                     }
                 }
                 OverlayMsg::ModelDiff(kind, fh, field, pct, valid)

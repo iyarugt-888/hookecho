@@ -357,6 +357,7 @@ pub(crate) enum OverlayDelivery {
         lane: RequestLane,
         generation: u64,
         model_request: Option<ModelRequest>,
+        mrms_context: Option<MrmsContext>,
         result: Result<OverlayMsg, String>,
     },
 }

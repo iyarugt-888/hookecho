@@ -473,7 +473,11 @@ impl HookEchoApp {
             raob_rx: None,
             route_window: Default::default(),
             route_rx: None,
-            route_exposure: ((u64::MAX, u64::MAX, 0, 0, 0), Vec::new(), Vec::new()),
+            route_exposure: (
+                (u64::MAX, u64::MAX, 0, 0, 0, Default::default()),
+                Vec::new(),
+                Vec::new(),
+            ),
             previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,
@@ -541,6 +545,9 @@ impl HookEchoApp {
             model_fields: model_cache::ModelFieldCache::default(),
             model_palette_gen: 0,
             model_drop_textures: Vec::new(),
+            mrms_fields: mrms_cache::MrmsFieldCache::default(),
+            mrms_palette_gen: 0,
+            mrms_drop_textures: Vec::new(),
             fields: crate::render::FieldLayer::DRAW_ORDER
                 .iter()
                 .map(|&l| (l, FieldState::default()))
@@ -586,8 +593,6 @@ impl HookEchoApp {
             show_aviation: false,
             aviation_features: Vec::new(),
             aviation_last_fetch: None,
-            precip_flag_grid: None,
-            precip_flag_gen: 0,
             show_tfr: false,
             boundaries: Default::default(),
             tfr_features: std::collections::HashMap::new(),

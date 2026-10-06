@@ -278,7 +278,7 @@ const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
 };
 
 impl HookEchoApp {
-    /// Sources and diagnostics enumerate every visible model context, even outside focus.
+    /// Sources and diagnostics enumerate every visible model/MRMS context, even outside focus.
     pub(crate) fn source_entries(&mut self) -> Vec<PaletteEntry> {
         let mut entries = self.palette_entries().to_vec();
         for entry in &mut entries {
@@ -287,7 +287,9 @@ impl HookEchoApp {
                 PaletteAction::ToggleModelProduct(product) => Some(product.layer()),
                 _ => None,
             };
-            if layer.is_some_and(|layer| model_context::MODEL_LAYERS.contains(&layer)) {
+            if layer.is_some_and(|layer| {
+                model_context::MODEL_LAYERS.contains(&layer) || mrms_context::is_mrms(layer)
+            }) {
                 entry.health = None;
             }
         }
@@ -344,11 +346,36 @@ impl HookEchoApp {
                 health: Some(health),
             });
         }
+        let mut mrms: Vec<_> = self.wanted_mrms_contexts().into_iter().collect();
+        mrms.sort_by_key(|request| request.description());
+        for request in mrms {
+            let panes = (0..self.views.len())
+                .filter(|idx| self.mrms_context_wanted_by(*idx, request))
+                .map(|idx| (idx + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut health = self.mrms_context_health(request);
+            health.source = format!("Pane {panes} · {}", request.description());
+            health.details.push(("Pane ownership", format!("Panes {panes}; identical requests share this download and field. Includes precipitation-tint owners when enabled.")));
+            entries.push(PaletteEntry {
+                label: health.source.clone(),
+                category: "Weather",
+                action: PaletteAction::ToggleField(request.layer),
+                on: Some(true),
+                desc: "Pane MRMS analysis request",
+                common: false,
+                key: None,
+                health: Some(health),
+            });
+        }
         entries
     }
 
     pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
         if let RequestLane::Field(layer) = &lane {
+            if let Some(context) = self.selected_mrms_context_for(self.active, *layer) {
+                return self.mrms_context_health(context);
+            }
             if let Some(request) = self.selected_model_request(*layer) {
                 let state = self.model_fields.get(&request).map(|slot| &slot.state);
                 let mut health = model_context::model_health(
@@ -377,6 +404,9 @@ impl HookEchoApp {
                 }
                 return health;
             }
+        }
+        if let RequestLane::Mrms(context) = lane {
+            return self.mrms_context_health(context);
         }
         if let RequestLane::Model(request) = lane {
             return model_context::model_health(
@@ -452,6 +482,7 @@ impl HookEchoApp {
             // Shared with the scrubber's own Live/Stale badge (`radar_fresh_secs`) so the two
             // can never disagree about what counts as fresh — see that constant's doc comment.
             cadence: std::time::Duration::from_secs(self.radar_fresh_secs() as u64),
+            selection_only: false,
             // Radar's health is built from `MapView` fields directly, not `RequestBook`, so
             // there is no rolling outcome history to report here — see `recent_outcomes`'s own
             // doc comment.

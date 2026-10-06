@@ -17,6 +17,7 @@ pub(super) struct OverlayAcquisition {
     sender: Sender<OverlayDelivery>,
     requests: Mutex<RequestBook>,
     model_jobs: Mutex<std::collections::HashMap<super::ModelRequest, (u64, AbortHandle)>>,
+    mrms_jobs: Mutex<std::collections::HashMap<super::MrmsContext, (u64, AbortHandle)>>,
 }
 
 impl OverlayAcquisition {
@@ -31,6 +32,7 @@ impl OverlayAcquisition {
             sender,
             requests: Mutex::new(RequestBook::default()),
             model_jobs: Mutex::new(Default::default()),
+            mrms_jobs: Mutex::new(Default::default()),
         }
     }
 
@@ -61,6 +63,15 @@ impl OverlayAcquisition {
                 jobs.remove(request);
             }
         }
+        if let RequestLane::Mrms(request) = lane {
+            let mut jobs = self
+                .mrms_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if jobs.get(request).is_some_and(|(g, _)| *g == generation) {
+                jobs.remove(request);
+            }
+        }
         self.requests().finish(lane, generation, error, valid_time)
     }
 
@@ -76,6 +87,16 @@ impl OverlayAcquisition {
         if let RequestLane::Model(request) = lane {
             if let Some((_, handle)) = self
                 .model_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(request)
+            {
+                handle.abort();
+            }
+        }
+        if let RequestLane::Mrms(request) = lane {
+            if let Some((_, handle)) = self
+                .mrms_jobs
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(request)
@@ -110,6 +131,30 @@ impl OverlayAcquisition {
         retired
     }
 
+    /// Retiring the last subscriber cancels transport work without inventing a source failure.
+    pub(super) fn cancel_unwanted_mrms(
+        &self,
+        wanted: &std::collections::HashSet<super::MrmsContext>,
+    ) -> Vec<super::MrmsContext> {
+        let mut jobs = self
+            .mrms_jobs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let retired: Vec<_> = jobs
+            .keys()
+            .filter(|request| !wanted.contains(request))
+            .copied()
+            .collect();
+        for request in &retired {
+            if let Some((generation, handle)) = jobs.remove(request) {
+                handle.abort();
+                self.requests()
+                    .discard(&RequestLane::Mrms(*request), generation);
+            }
+        }
+        retired
+    }
+
     pub(super) fn set_cache_resident(&self, lane: &RequestLane, resident: bool) {
         self.requests().set_cache_resident(lane, resident);
     }
@@ -126,6 +171,9 @@ impl OverlayAcquisition {
     ) {
         self.spawn_lane(ctx, request.source(), cap, RequestLane::Model(request));
     }
+    pub(super) fn spawn_mrms(&self, ctx: &egui::Context, request: super::MrmsContext, cap: usize) {
+        self.spawn_lane(ctx, request.source(), cap, RequestLane::Mrms(request));
+    }
     fn spawn_lane(
         &self,
         ctx: &egui::Context,
@@ -135,6 +183,10 @@ impl OverlayAcquisition {
     ) {
         let generation = self.start(lane.clone());
         let model_request = super::ModelRequest::from_source(&source);
+        let mrms_context = match lane {
+            RequestLane::Mrms(context) => Some(context),
+            _ => None,
+        };
         let registration = if let Some(request) = model_request {
             let (handle, registration) = AbortHandle::new_pair();
             if let Some((_, old)) = self
@@ -142,6 +194,17 @@ impl OverlayAcquisition {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .insert(request, (generation, handle))
+            {
+                old.abort();
+            }
+            Some(registration)
+        } else if let Some(context) = mrms_context {
+            let (handle, registration) = AbortHandle::new_pair();
+            if let Some((_, old)) = self
+                .mrms_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(context, (generation, handle))
             {
                 old.abort();
             }
@@ -175,6 +238,7 @@ impl OverlayAcquisition {
                 lane,
                 generation,
                 model_request,
+                mrms_context,
                 result,
             });
             ctx.request_repaint();
@@ -207,6 +271,52 @@ mod cancellation_tests {
     use super::*;
     use crate::render::FieldLayer;
     use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn mrms_jobs_cancel_only_after_the_last_owner_leaves_and_preserve_other_lanes() {
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let acquisition = OverlayAcquisition::new(
+            reqwest::Client::new(),
+            Spawner::new(tokio::runtime::Handle::current()),
+            sender,
+        );
+        let a = super::super::MrmsContext::resolve(FieldLayer::Mesh, 30, 5, 60, None, 2).unwrap();
+        let b = super::super::MrmsContext {
+            archive: Some((Utc::now(), 2)),
+            ..a
+        };
+        let lane = RequestLane::Mrms(a);
+        let first = acquisition.start(lane.clone());
+        assert!(acquisition.finish(&lane, first, None, None));
+        let generation = acquisition.start(lane.clone());
+        let (handle, registration) = AbortHandle::new_pair();
+        acquisition
+            .mrms_jobs
+            .lock()
+            .unwrap()
+            .insert(a, (generation, handle));
+        let other = acquisition.start(RequestLane::Mrms(b));
+        assert!(acquisition
+            .cancel_unwanted_mrms(&HashSet::from([a, b]))
+            .is_empty());
+        assert!(acquisition.health(&lane).fetching);
+        assert_eq!(acquisition.cancel_unwanted_mrms(&HashSet::from([b])), [a]);
+        assert!(Abortable::new(std::future::pending::<()>(), registration)
+            .await
+            .is_err());
+        assert!(!acquisition.finish(&lane, generation, Some("obsolete failure"), None));
+        let health = acquisition.health(&lane);
+        assert!(!health.fetching);
+        assert!(health.error.is_none());
+        assert!(health.last_failure.is_none());
+        assert_eq!(health.recent_outcomes, Some((1, 0)));
+        assert!(acquisition.health(&RequestLane::Mrms(b)).fetching);
+        assert!(acquisition.finish(&RequestLane::Mrms(b), other, Some("archive missing"), None));
+        assert!(acquisition.health(&lane).error.is_none());
+        let retry = acquisition.start(lane.clone());
+        assert!(acquisition.finish(&lane, retry, None, None));
+        assert!(acquisition.mrms_jobs.lock().unwrap().is_empty());
+    }
 
     #[tokio::test]
     async fn model_jobs_cancel_only_after_the_last_subscriber_leaves_without_health_credit() {

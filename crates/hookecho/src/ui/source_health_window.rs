@@ -48,6 +48,9 @@ pub(crate) fn retry_line(h: &SourceHealth) -> String {
     if h.fetching {
         return "In flight".into();
     }
+    if h.selection_only {
+        return "On selection change".into();
+    }
     match h.next_retry() {
         Some(d) if d.is_zero() => "Due now".into(),
         Some(d) => format!("in {}", compact_age(d)),
@@ -142,7 +145,7 @@ pub(crate) fn show(
                         );
                         ui.vertical(|ui| {
                             ui.label(age_line(h.last_success));
-                            ui.weak(format!("{} cadence", compact_age(h.cadence)));
+                            ui.weak(h.cadence_label());
                         });
                         ui.label(retry_line(h)).on_hover_text(h.recovery());
                         ui.label(h.cache_state.label());
@@ -258,6 +261,7 @@ mod tests {
                 error: matches!(state, HealthState::Failed | HealthState::Cached)
                     .then(|| "boom".to_string()),
                 cadence: std::time::Duration::from_secs(120),
+                selection_only: false,
                 recent_outcomes: None,
                 details: Vec::new(),
                 severity: Default::default(),

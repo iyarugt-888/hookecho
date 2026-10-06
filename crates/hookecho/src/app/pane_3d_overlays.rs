@@ -24,11 +24,14 @@ impl HookEchoApp {
                 FL::MrmsEchoTop60,
             ]
             .into_iter()
-            .find(|l| v.fields_on.contains(l) && self.mrms_ready(*l));
+            .find(|l| v.fields_on.contains(l) && self.mrms_ready_for(idx, *l));
             if let (Some(layer), Some(ramp)) =
                 (layer, layer.and_then(crate::render::field_ramps::ramp_for))
             {
-                if let Some(grid) = self.fields.get(&layer).and_then(|f| f.grid.as_ref()) {
+                if let Some(grid) = self
+                    .field_state_for(idx, layer)
+                    .and_then(|f| f.grid.as_ref())
+                {
                     // The lon/lat box the view covers, from its corners, capped at a regional size.
                     let corners = [
                         (0.0, 0.0),

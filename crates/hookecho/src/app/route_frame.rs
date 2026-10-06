@@ -56,6 +56,26 @@ impl HookEchoApp {
             self.active_storm_cells().len(),
             // Lightning and the fields refresh by the minute.
             Utc::now().timestamp() / 60,
+            (
+                self.active,
+                self.model_target_time(self.active),
+                [
+                    crate::render::FieldLayer::ReflLowestAlt,
+                    crate::render::FieldLayer::Mesh,
+                    crate::render::FieldLayer::Qpe1h,
+                    crate::render::FieldLayer::FlashFlood,
+                ]
+                .into_iter()
+                .filter_map(|layer| {
+                    let context = self.selected_mrms_context_for(self.active, layer)?;
+                    let generation = self
+                        .mrms_fields
+                        .get(&context)
+                        .map_or(0, |slot| slot.generation);
+                    Some((context, generation))
+                })
+                .collect(),
+            ),
         );
         if self.route_exposure.0 != key {
             // Warnings and watches in effect now: every overlay polygon that carries an alert.
@@ -83,7 +103,7 @@ impl HookEchoApp {
                 use crate::render::FieldLayer as FL;
                 let grid = [FL::Mosaic, FL::ReflLowestAlt].into_iter().find_map(|l| {
                     self.mrms_ready(l)
-                        .then(|| self.fields.get(&l)?.grid.as_ref())
+                        .then(|| self.field_state_for(self.active, l)?.grid.as_ref())
                         .flatten()
                 });
                 if let Some(g) = grid {
@@ -109,7 +129,7 @@ impl HookEchoApp {
                 ] {
                     let Some(g) = self
                         .mrms_ready(layer)
-                        .then(|| self.fields.get(&layer)?.grid.as_ref())
+                        .then(|| self.field_state_for(self.active, layer)?.grid.as_ref())
                         .flatten()
                     else {
                         continue;

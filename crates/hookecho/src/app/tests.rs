@@ -40,6 +40,7 @@ fn a_source_says_how_it_recovers() {
         last_failure: None,
         error: None,
         cadence: std::time::Duration::from_secs(120),
+        selection_only: false,
         recent_outcomes: None,
         details: Vec::new(),
         severity: crate::source_health::FeedSource::WeatherAlerts.severity(),

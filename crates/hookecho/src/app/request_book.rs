@@ -16,6 +16,7 @@ use wxdata::clock::Instant;
 pub(crate) enum RequestLane {
     Field(crate::render::FieldLayer),
     Model(super::ModelRequest),
+    Mrms(super::MrmsContext),
     Placefile(String),
     Feed(FeedSource),
 }
@@ -24,6 +25,7 @@ impl RequestLane {
     pub(crate) fn label(&self) -> String {
         match self {
             Self::Model(request) => request.description(),
+            Self::Mrms(request) => request.description(),
             Self::Field(layer) => format!("field {}", layer.slug()),
             Self::Placefile(source) => format!("Placefile {source}"),
             Self::Feed(source) => source.label().into(),
@@ -34,6 +36,7 @@ impl RequestLane {
         let secs = match self {
             Self::Field(layer) => field_refresh_secs(*layer),
             Self::Model(request) => field_refresh_secs(request.layer()),
+            Self::Mrms(request) => field_refresh_secs(request.layer),
             Self::Placefile(_) => 120,
             Self::Feed(source) => source.cadence_secs(),
         };
@@ -43,7 +46,7 @@ impl RequestLane {
     pub(crate) fn severity(&self) -> crate::source_health::Severity {
         match self {
             Self::Feed(source) => source.severity(),
-            Self::Field(_) | Self::Model(_) | Self::Placefile(_) => {
+            Self::Field(_) | Self::Model(_) | Self::Mrms(_) | Self::Placefile(_) => {
                 crate::source_health::Severity::Routine
             }
         }
@@ -53,6 +56,7 @@ impl RequestLane {
         match self {
             Self::Field(layer) => crate::source_health::field_endpoint_family(*layer),
             Self::Model(request) => crate::source_health::field_endpoint_family(request.layer()),
+            Self::Mrms(request) => crate::source_health::field_endpoint_family(request.layer),
             Self::Placefile(_) => crate::source_health::EndpointFamily::UserConfigured,
             Self::Feed(source) => source.endpoint_family(),
         }
@@ -123,6 +127,9 @@ pub(crate) struct SourceHealth {
     pub last_failure: Option<std::time::Duration>,
     pub error: Option<String>,
     pub cadence: std::time::Duration,
+    /// An accepted immutable archive selection is retained without periodic requests. Missing
+    /// archives leave this false and retry at the normal cadence.
+    pub selection_only: bool,
     /// ROADMAP_NEW N1's "rolling success/failure count": `(successes, failures)` over the last
     /// `RequestBook::OUTCOME_WINDOW` finished requests. `None` for a source with no rolling
     /// tally to report — radar's own health is built from `MapView` fields directly (see
@@ -157,7 +164,9 @@ impl SourceHealth {
             } else {
                 HealthState::Failed
             }
-        } else if self.last_success.is_some_and(|age| age <= self.cadence) {
+        } else if (self.selection_only && self.cache_state == CacheState::Memory)
+            || self.last_success.is_some_and(|age| age <= self.cadence)
+        {
             HealthState::Fresh
         } else if self
             .last_success
@@ -175,6 +184,9 @@ impl SourceHealth {
     /// it reads as delayed and stale, and what happens to its last good data meanwhile.
     pub(crate) fn recovery(&self) -> String {
         use crate::ui::layers_panel::compact_age;
+        if self.selection_only {
+            return "Archived analysis retained in memory. No periodic refresh; changing the selection resolves its own request.".into();
+        }
         let retention = match self.cache_state {
             CacheState::Memory => "If a refresh fails, the resident data remain available, marked Cached, until a refresh succeeds.",
             CacheState::Empty => "No usable data are resident for this request. Its value remains unavailable until delivery.",
@@ -189,8 +201,21 @@ impl SourceHealth {
     }
 
     pub(crate) fn next_retry(&self) -> Option<std::time::Duration> {
+        if self.selection_only {
+            return None;
+        }
         self.last_attempt
             .map(|age| self.cadence.saturating_sub(age))
+    }
+    pub(crate) fn cadence_label(&self) -> String {
+        if self.selection_only {
+            "retained analysis".into()
+        } else {
+            format!(
+                "{} cadence",
+                crate::ui::layers_panel::compact_age(self.cadence)
+            )
+        }
     }
 }
 
@@ -208,6 +233,7 @@ pub(crate) struct DiagnosticsSourceHealth {
     pub(crate) status: &'static str,
     pub(crate) last_success_secs: Option<u64>,
     pub(crate) cadence_secs: u64,
+    pub(crate) selection_only: bool,
     /// ROADMAP_NEW N1's rolling success/failure count, `None` for a source that doesn't track
     /// one — see `SourceHealth.recent_outcomes`'s own doc comment.
     pub(crate) recent_successes: Option<u32>,
@@ -232,6 +258,7 @@ impl From<&SourceHealth> for DiagnosticsSourceHealth {
             status: crate::ui::layers_panel::health_look(h.state()).0,
             last_success_secs: h.last_success.map(|d| d.as_secs()),
             cadence_secs: h.cadence.as_secs(),
+            selection_only: h.selection_only,
             recent_successes: h.recent_outcomes.map(|(s, _)| s),
             recent_failures: h.recent_outcomes.map(|(_, f)| f),
             error: h.error.clone(),
@@ -390,6 +417,7 @@ impl RequestBook {
                 last_failure: None,
                 error: None,
                 cadence: lane.cadence(),
+                selection_only: false,
                 recent_outcomes: None,
                 details: Vec::new(),
                 severity: lane.severity(),
@@ -418,6 +446,7 @@ impl RequestBook {
                 .map(|(t, _)| now.saturating_duration_since(*t)),
             error: s.last_failure.as_ref().map(|(_, e)| e.clone()),
             cadence: s.cadence,
+            selection_only: false,
             recent_outcomes,
             details: Vec::new(),
             severity: lane.severity(),
@@ -585,6 +614,7 @@ mod request_book_tests {
             last_failure: failure.map(std::time::Duration::from_secs),
             error,
             cadence,
+            selection_only: false,
             recent_outcomes: None,
             details: Vec::new(),
             severity: Default::default(),

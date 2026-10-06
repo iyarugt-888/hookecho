@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: pane-owned MRMS analyses and precipitation tint
+
+MRMS catalog fields now follow each pane's archive cursor when analysis time is unlinked, and
+the retained analysis clock when it is linked. Product windows, exact requested UTC time and
+archive tolerance travel with downloads, cache entries, source health and GPU textures.
+Identical requests share their field; different analyses stay separate through focus changes.
+Pending archive seeks retain their requested time while the radar listing loads.
+
+Precipitation tint reads its pane's precipitation-type analysis even when that layer is hidden.
+Switching to a cached analysis rebuilds the radar tint immediately. Probes, grid exports, 3D
+MRMS surfaces and route exposure also read the selected pane's field. Sources and diagnostics
+list all requested analyses and pane owners, including implicit tint requests, with separate
+requested and loaded times. Late replies and archive misses cannot credit another analysis.
+
+Accepted archived fields are reused; missing archives retry at a bounded cadence, while live
+fields keep refreshing. Sources labels accepted archives as retained analyses, without a retry
+countdown or a stale-feed warning caused solely by time in cache. Retiring the last owner cancels
+pending transport without recording a source failure. Visible fields are protected from eviction
+and recent hidden contexts expire.
+GOES ownership and independent analysis-time groups remain in progress; MRMS product-window
+settings retain their existing shared controls.
+
 ### Fixed: satellite raster tiles retain their selected frame
 
 Timed raster replies, GPU textures and zoom fallbacks now keep the exact selected UTC second

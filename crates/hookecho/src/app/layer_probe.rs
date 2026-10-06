@@ -245,7 +245,7 @@ impl HookEchoApp {
             );
             line.stamp = self
                 .field_state_for(idx, layer)
-                .filter(|_| self.model_field_ready_for(idx, layer))
+                .filter(|_| self.mrms_ready_for(idx, layer))
                 .and_then(|state| state.stamp.clone());
             line.field = Some(layer);
             out.push(line);
@@ -623,7 +623,7 @@ impl HookEchoApp {
 
         let state = self
             .field_state_for(idx, layer)
-            .filter(|_| self.model_field_ready_for(idx, layer));
+            .filter(|_| self.mrms_ready_for(idx, layer));
         let grid = state.and_then(|field| field.grid.as_ref());
         crate::ui::cursor_probe::ProbeRow {
             pane: idx,
@@ -632,6 +632,10 @@ impl HookEchoApp {
                 .map(|stamp| stamp.source_id.clone())
                 .or_else(|| {
                     self.selected_model_request_for(idx, layer)
+                        .map(|request| request.description())
+                })
+                .or_else(|| {
+                    self.selected_mrms_context_for(idx, layer)
                         .map(|request| request.description())
                 })
                 .unwrap_or_else(|| self.probe_field_source(layer, state)),

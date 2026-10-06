@@ -854,6 +854,10 @@ fn swipe_scissors(info: &egui::PaintCallbackInfo, fraction: f32) -> SwipeScissor
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModelTextureKey(pub(crate) u64);
 
+/// MRMS textures have a separate namespace from model and legacy layer textures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MrmsTextureKey(pub(crate) u64);
+
 /// Per-frame draw instructions handed to the render callback.
 pub struct MapCallback {
     /// Which pane this callback draws (indexes into `RenderResources.panes`).
@@ -893,6 +897,9 @@ pub struct MapCallback {
     pub model_uploads: Vec<(ModelTextureKey, MrmsUpload)>,
     pub model_fields: Vec<(FieldLayer, ModelTextureKey)>,
     pub drop_model_fields: Vec<ModelTextureKey>,
+    pub mrms_uploads: Vec<(MrmsTextureKey, MrmsUpload)>,
+    pub mrms_fields: Vec<(FieldLayer, MrmsTextureKey)>,
+    pub drop_mrms_fields: Vec<MrmsTextureKey>,
     /// Which field layers to paint this frame, with their opacity (0..1).
     pub field_draws: Vec<(FieldLayer, f32)>,
     /// Optional left/right split for two of `field_draws`.
@@ -1159,6 +1166,7 @@ struct PaneGpu {
     /// at two fields at once.
     field_draws: Vec<FieldLayer>,
     model_fields: HashMap<FieldLayer, ModelTextureKey>,
+    mrms_fields: HashMap<FieldLayer, MrmsTextureKey>,
     field_swipe: Option<FieldSwipe>,
 }
 
@@ -1187,6 +1195,7 @@ pub struct RenderResources {
     overlay: Option<OverlayGpu>,
     fields: HashMap<FieldLayer, MrmsGpu>,
     model_fields: HashMap<ModelTextureKey, MrmsGpu>,
+    mrms_fields: HashMap<MrmsTextureKey, MrmsGpu>,
     // One entry per live pane.
     panes: HashMap<u32, PaneGpu>,
     /// Bumped whenever the shared tile cache gains or loses a texture, so a pane can tell that
@@ -1579,6 +1588,7 @@ impl RenderResources {
             overlay: None,
             fields: HashMap::new(),
             model_fields: HashMap::new(),
+            mrms_fields: HashMap::new(),
             panes: HashMap::new(),
             tiles_gen: 0,
             wind: None,
@@ -1632,6 +1642,7 @@ impl RenderResources {
                 frame_draw_overlay: false,
                 field_draws: Vec::new(),
                 model_fields: HashMap::new(),
+                mrms_fields: HashMap::new(),
                 field_swipe: None,
             }
         })
@@ -2211,6 +2222,13 @@ impl RenderResources {
             let gpu = self.build_field_layer(device, queue, up);
             self.model_fields.insert(*key, gpu);
         }
+        for key in &cb.drop_mrms_fields {
+            self.mrms_fields.remove(key);
+        }
+        for (key, up) in &cb.mrms_uploads {
+            let gpu = self.build_field_layer(device, queue, up);
+            self.mrms_fields.insert(*key, gpu);
+        }
         for (layer, up) in &cb.field_uploads {
             let gpu = self.build_field_layer(device, queue, up);
             self.fields.insert(*layer, gpu);
@@ -2223,7 +2241,10 @@ impl RenderResources {
         for (layer, opacity) in &cb.field_draws {
             if let Some(f) = match cb.model_fields.iter().find(|(field, _)| field == layer) {
                 Some((_, key)) => self.model_fields.get_mut(key),
-                None => self.fields.get_mut(layer),
+                None => match cb.mrms_fields.iter().find(|(field, _)| field == layer) {
+                    Some((_, key)) => self.mrms_fields.get_mut(key),
+                    None => self.fields.get_mut(layer),
+                },
             } {
                 let mut uniform = f.uniform;
                 uniform[6] = *opacity;
@@ -2344,6 +2365,7 @@ impl RenderResources {
         pane.frame_draw_overlay = cb.draw_overlay && overlay_present;
         pane.field_draws = field_draws;
         pane.model_fields = cb.model_fields.iter().copied().collect();
+        pane.mrms_fields = cb.mrms_fields.iter().copied().collect();
         pane.field_swipe = cb.field_swipe;
     }
 
@@ -2491,7 +2513,10 @@ impl RenderResources {
         let cam = &pane.camera_bg;
         if let Some(f) = match pane.model_fields.get(&layer) {
             Some(key) => self.model_fields.get(key),
-            None => self.fields.get(&layer),
+            None => match pane.mrms_fields.get(&layer) {
+                Some(key) => self.mrms_fields.get(key),
+                None => self.fields.get(&layer),
+            },
         } {
             let Some(draw) = f.pane_draws.get(&id) else {
                 return;

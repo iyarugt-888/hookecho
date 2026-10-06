@@ -16,13 +16,7 @@ impl HookEchoApp {
     /// instant, or the active pane's scan when its timeline is scrubbed back or playing rather
     /// than following live; `None` for live.
     pub(crate) fn view_target_time(&self) -> Option<DateTime<Utc>> {
-        self.linked_archive_time().or_else(|| {
-            let tl = &self.views[self.active].timeline;
-            if tl.following || tl.forecast_hour().is_some() {
-                return None;
-            }
-            tl.current().and_then(|id| id.date_time())
-        })
+        self.model_target_time(self.active)
     }
 
     /// Whether a GOES layer's grid matches the time the view shows (see [`goes_frame_ready`]).
@@ -89,32 +83,15 @@ impl HookEchoApp {
         })
     }
 
-    /// Resolve existing layer IDs through the MRMS catalog; other sources have their own fetches.
-    pub(crate) fn mrms_product(&self, layer: crate::render::FieldLayer) -> Option<String> {
-        let product = wxdata::mrms::catalog::find(layer.slug())?;
-        Some(
-            product
-                .path(
-                    self.rotation_minutes,
-                    self.settings.lightning_minutes,
-                    self.hail_minutes,
-                )
-                .to_string(),
-        )
-    }
-
-    pub(crate) fn mrms_request(&self, layer: crate::render::FieldLayer) -> Option<MrmsRequest> {
-        Some(MrmsRequest {
-            product: self.mrms_product(layer)?,
-            archive: self
-                .view_target_time()
-                .map(|target| (target, self.settings.time_mismatch_minutes)),
-        })
-    }
-
     pub(crate) fn mrms_ready(&self, layer: crate::render::FieldLayer) -> bool {
-        if !self.model_field_ready(layer) || !self.radar_field_ready(self.active, layer) {
+        self.mrms_ready_for(self.active, layer)
+    }
+    pub(crate) fn mrms_ready_for(&self, idx: usize, layer: crate::render::FieldLayer) -> bool {
+        if !self.model_field_ready_for(idx, layer) || !self.radar_field_ready(idx, layer) {
             return false;
+        }
+        if mrms_context::is_mrms(layer) {
+            return self.mrms_context_ready_for(idx, layer);
         }
         // GOES layers follow the view's time the same way (ROADMAP_NEW A2/E7).
         if !self.goes_ready(layer) {
@@ -122,7 +99,7 @@ impl HookEchoApp {
         }
         // These two current-only composites do not have archive selection yet. A previous live
         // texture must not be painted over an archive scan.
-        if self.view_target_time().is_some()
+        if self.model_target_time(idx).is_some()
             && matches!(
                 layer,
                 crate::render::FieldLayer::Mosaic | crate::render::FieldLayer::SnowBands
@@ -130,11 +107,6 @@ impl HookEchoApp {
         {
             return false;
         }
-        let Some(request) = self.mrms_request(layer) else {
-            return true;
-        };
-        self.fields
-            .get(&layer)
-            .is_some_and(|state| state.mrms_ready(&request))
+        true
     }
 }

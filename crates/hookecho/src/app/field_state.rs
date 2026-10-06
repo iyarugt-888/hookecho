@@ -1,5 +1,5 @@
 //! Field delivery state, shared by pane rendering and the provenance inspector.
-use super::{HookEchoApp, PrecipGrid};
+use super::HookEchoApp;
 use crate::render::{FieldLayer, MrmsUpload};
 use wxdata::clock::Instant;
 use wxdata::time_align::TimeOffset;
@@ -239,11 +239,6 @@ impl HookEchoApp {
     ) {
         if layer == FieldLayer::Lightning {
             self.check_lightning_proximity(&field);
-        }
-        // Keep precipitation categories for the radar tint as well as their own layer.
-        if layer == FieldLayer::PrecipType {
-            self.precip_flag_grid = Some(std::sync::Arc::new(PrecipGrid::new(&field)));
-            self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
         }
         let upload = self.field_upload(layer, &field);
         if let Some(state) = self.fields.get_mut(&layer) {

@@ -1,0 +1,807 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-06T00:39:06.482609+00:00",
+  "scope": "M5.1 per-pane MRMS catalog analysis, health, cache, rendering, precipitation tint, probes and exports; parent partial",
+  "source_snapshot": {
+    "recorded_utc": "2026-10-06T00:20:40.979490+00:00",
+    "shared_head": "82f5bfdc294616f63165dbeedc3de79b533524da",
+    "owned_sources": {
+      "crates/hookecho/src/app.rs": "41844645f1fc93b9f2ed420e68f8eff913758f3c1771dce6653a53ebe152842d",
+      "crates/hookecho/src/app/acquisition.rs": "dc606f8e4a0aa2adc193ee613e9cc000ee1a85413e98aab28109b70a1bfb8fbd",
+      "crates/hookecho/src/app/chrome/dock/sources.rs": "8dceaa1e1db4f0edeac222e596a1f1a1522919eb2861fbe73f3e615db042e687",
+      "crates/hookecho/src/app/chrome/registry.rs": "164226302dd689d64efff472a4b099798e95bd22a8e275700f650f0dd6810079",
+      "crates/hookecho/src/app/construct.rs": "0706dee3be5e57fb549f47ee907dbd9237f62408a8a7e158157f2abf864f653a",
+      "crates/hookecho/src/app/fetch_schedule.rs": "71b83501852c2377b83abe21db92952e38dd0aa69c984f5dbeed858cbc6d2d0e",
+      "crates/hookecho/src/app/field_state.rs": "00ccbbffb9b81eefd9a9c018391b136b34431fe076b2fe350cde5815ef923715",
+      "crates/hookecho/src/app/layer_probe.rs": "2f16abcb2feebb224738d68b5a65dddc4ba8174b7af23c76ab2545a06611441e",
+      "crates/hookecho/src/app/model_context.rs": "d7790e72345a38d436e76169c8b292329f1907f90175ff8193b76266c47369d4",
+      "crates/hookecho/src/app/mrms_cache.rs": "4cd5e53aeaec67144bb4a72812b9c5d4627e74e64e8ca52e077cdfdcd425a180",
+      "crates/hookecho/src/app/mrms_context.rs": "f341dcc59b6a79c5bc8473619fc2374feb19c0822368f4c0da2394f0cc755828",
+      "crates/hookecho/src/app/overlay_fetch.rs": "a58595dd51ebfe6c36443f9e60612b5ce8f40ed6c2fe2ec027170ec820d3db2c",
+      "crates/hookecho/src/app/overlay_poll.rs": "e57bc67a83bef853f33d5443695242eacc91c7ff1411603d51a97aa8eb3795a3",
+      "crates/hookecho/src/app/pane_3d_overlays.rs": "6fd138586af80379f37b9881956aa7383b8aaa98806057bd0decf5d39f367b9b",
+      "crates/hookecho/src/app/pane_gpu.rs": "2f30b32813606631f745b3307d90b439d22448b1155af4ca033665da8982678f",
+      "crates/hookecho/src/app/pane_upload.rs": "7fc4df8ab0a29e1c76749fcc2c8c81fe0b59d3e70ecf1d80043dc9aed5522140",
+      "crates/hookecho/src/app/rebuild.rs": "d8e99df414e0ea4d2138855c60c2867c3095dc8e1a058f24d62cb83a81a9feed",
+      "crates/hookecho/src/app/report.rs": "04ee166871fe36452710a1c5aae3ad7482510566b94c417debab65319682fbf6",
+      "crates/hookecho/src/app/request_book.rs": "1e0c29fe5ab203a1ee1cd03de1310fab11daa1dc23b0f75255260ffe1c51f262",
+      "crates/hookecho/src/app/route_frame.rs": "cccc27e4167e63866522e8cbb1d008277eb25e1bf5fc12ec959cd75acc00e4b8",
+      "crates/hookecho/src/app/tests.rs": "3e74fc9923ef37f80329d2428435a51e0f054008a6c88636831c00c9dc0be3a6",
+      "crates/hookecho/src/app/time_layers.rs": "3f36a6aeb7e7b34577f843d978b4812f99cdbc158d29622cbc3c9a1914ffb6a8",
+      "crates/hookecho/src/headless.rs": "a3780588327a9bcc61546b141f1488f6831c0b2c78da2b34c22794b95d45f96f",
+      "crates/hookecho/src/headless_corpus.rs": "27e2d613e7c81d82ece0604fe624a1c5c2debac96f0da82ab60c07816817bff9",
+      "crates/hookecho/src/headless_model_panes.rs": "df1431d9bf7fc6c93e353d71dbf8aee4131654053afb59af02961a2463b7c234",
+      "crates/hookecho/src/headless_mrms_panes.rs": "b3e603b78b2f716c022d0171793a404c7266d221900c33c7e10c44c555757e95",
+      "crates/hookecho/src/headless_tile_context.rs": "93245b9f3ecc7145431acf8608bfe24cdf21a9885bf4cbea3f1d0b32d123469e",
+      "crates/hookecho/src/render/mod.rs": "688f81e33285dfbbd80f5736d8469ad62e9d4d95766f6e186bfc198ac6de1167",
+      "crates/hookecho/src/ui/source_health_window.rs": "fad9c3bb2a6184fb7d5444f4bf27909d43174e591e775e5534865a19bf9c5bc2"
+    },
+    "peer_sources": {
+      "crates/wxdata/examples/env_sample.rs": "e1122a6f27aa656cb88a273ae52c420efd87a59d021f11df3bfad2192894c69a",
+      "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+      "crates/wxdata/src/near_storm.rs": "e5d6e454faef0ae2486272030c6cd978dc12b7e46b8789658737bfbf4f0d3d0e",
+      "scripts/fusion/environment.py": "29eab075e80b16c49fd5d1fabd23e3ca44a0df8f6621f8f176b9d58136b5181f"
+    },
+    "final_revision_utc": "2026-10-06T00:33:37.563049+00:00",
+    "reason": "Visual review corrected retained-archive health and retry disclosure.",
+    "fixture_format_restoration": {
+      "path": "crates/hookecho/src/app/tests.rs",
+      "reason": "Restore the existing detection-test formatting; only the SourceHealth fixture addition belongs to this increment.",
+      "recorded_utc": "2026-10-06T00:35:01.929474+00:00",
+      "behavior_changed": false
+    }
+  },
+  "owned_source_guard_changed": [],
+  "shared_head_after": "2472cf33299edf6db68fa2293f6ef360711edc1c",
+  "peer_sources_after": {
+    "crates/wxdata/examples/env_sample.rs": "e1122a6f27aa656cb88a273ae52c420efd87a59d021f11df3bfad2192894c69a",
+    "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+    "crates/wxdata/src/near_storm.rs": "e5d6e454faef0ae2486272030c6cd978dc12b7e46b8789658737bfbf4f0d3d0e",
+    "scripts/fusion/environment.py": "e9e9deb93e0c3b2cd2d2963868b28af42c03715d36cabdd5e41080770bc2e919"
+  },
+  "checks": {
+    "workspace-v5": {
+      "command": "cargo test --workspace",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/workspace-v5.log",
+      "log_sha256": "5bea80650ca352e966b3a32d6c513fccebaf84eaec1522c2e6a01e734e845b1d",
+      "totals": {
+        "passed": 2302,
+        "failed": 0,
+        "ignored": 151,
+        "suites": 29
+      },
+      "finished_seconds": [
+        0.0,
+        0.07,
+        0.05,
+        10.92,
+        0.32,
+        0.43,
+        0.22,
+        0.0,
+        0.01,
+        0.0,
+        0.54,
+        0.17,
+        0.05,
+        0.0,
+        42.01,
+        0.23,
+        69.18,
+        1.61,
+        0.37,
+        0.0,
+        14.24,
+        1.07,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "clippy-v2": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/clippy-v2.log",
+      "log_sha256": "69c17cdb5cb98e206beb5ab4421e844d23d104692ecb4b804f295dd69481f761",
+      "finished_seconds": []
+    },
+    "wasm-v2": {
+      "command": "cargo check -p hookecho --lib --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/wasm-v2.log",
+      "log_sha256": "85b9b7814b44d20da3be7dfccdd2c97bb76dc9ab713ca4db5b3868b9cb2bc3d0",
+      "finished_seconds": []
+    },
+    "gpu-v2": {
+      "command": "cargo test -p hookecho --lib gpu_mrms_ -- --ignored --nocapture --test-threads=1",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/gpu-v2.log",
+      "log_sha256": "24a870d558cdb8eeac88b2e1e3e35ddc2c6c742a4a343161b88fbe2b52c89bd4",
+      "totals": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      },
+      "finished_seconds": [
+        8.24
+      ]
+    },
+    "gpu-model-regression-v2": {
+      "command": "cargo test -p hookecho --lib gpu_model_pane_context_isolation -- --ignored --nocapture",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/gpu-model-regression-v2.log",
+      "log_sha256": "35d75a8e69883a2a37fafa2cc9db60f828f370149409912b11e90f534ea365d2",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      },
+      "finished_seconds": [
+        1.14
+      ]
+    },
+    "gpu-raster-regression-v2": {
+      "command": "cargo test -p hookecho --lib gpu_raster_frame_context_isolation -- --ignored --nocapture",
+      "exit_code": 0,
+      "log_path": "target/parity-review/mrms-panes/final/gpu-raster-regression-v2.log",
+      "log_sha256": "67f81255b2587576b809981008898b05838c360bb705bbe01ea3939e86db5ff8",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      },
+      "finished_seconds": [
+        1.2
+      ]
+    }
+  },
+  "artifacts": [
+    {
+      "path": "target/parity-review/mrms-panes/gpu/cached-analysis-return.png",
+      "sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/cached-analysis-switch.png",
+      "sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/different-analysis-pane-a.png",
+      "sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/different-analysis-pane-b.png",
+      "sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/focus-change-a.png",
+      "sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/focus-change-b.png",
+      "sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/missing-context.png",
+      "sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/model-same-numeric-key.png",
+      "sha256": "94acc08947b6dc4891326b4773222c3fb578de5fb4aa7dae3cfaa694948a8e04"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/mrms-after-model-upload.png",
+      "sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/precip-cached-context-return.png",
+      "sha256": "37de5cf07cab57023163430219801474e2e11e94b5756ba3c1c36482e94c6014"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/precip-cached-context-switch.png",
+      "sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/precip-mix-pane-b.png",
+      "sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/precip-other-pane-retained.png",
+      "sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/precip-snow-pane-a.png",
+      "sha256": "37de5cf07cab57023163430219801474e2e11e94b5756ba3c1c36482e94c6014"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/replacement-context.png",
+      "sha256": "b8e92703a4afd498d596a1b7e889a36069145440f2bddeeddb63213131da731c"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/retired-context.png",
+      "sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/shared-full-opacity.png",
+      "sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/shared-quarter-opacity.png",
+      "sha256": "0e8e2d48f34d354bd50937bc2614954842f7ba5139f0f13633fb76c93b220d13"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/surviving-after-replacement.png",
+      "sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/surviving-context.png",
+      "sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/gpu/verification.json",
+      "sha256": "8b9c2fc4d7452ca4b817d864b15f65fc5bfcef8f568da697262006e6dfeba4f7"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/cached-240.png",
+      "sha256": "2aaf52c717de16a3f1d278670914689e1abc66c0dd70d546b9cad1ae5af32886"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/cached-400.png",
+      "sha256": "01b7c299453f412f9bd14fc32fe28029ceb358b396a46a36433eabb886779dda"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/cached.json",
+      "sha256": "16a851fa1ec6ebfb043f39c77618841adee00428515f677333aaace565374b65"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/failed-240.png",
+      "sha256": "e10d5dbab1dc7aa0ad32596596849905b35ec29ebfdb074f960f687b4e932ff7"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/failed-400.png",
+      "sha256": "023cab5e6c59328224f4e798a55eff9791bd4c10bdee393eb857ba2b719fa32d"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/failed.json",
+      "sha256": "4d335b9e57986bd5c9e9f711fa260b15469ec4d9145c6295690f5e9b1227d865"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/fetching-240.png",
+      "sha256": "8f75fae663132c1f18ea31f9b018cc7bf23294a420dbe10e3b531e5304d12acb"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/fetching-400.png",
+      "sha256": "c2e5010162399b0bae99bd6980aa203490f0324aff0dfe6ec4c95c7e6f3d7700"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/fetching.json",
+      "sha256": "f4e31f6ed601ab5a6e97ee1042d567aaf718446acb4f5e69842d1e140fe4d977"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/loaded-240.png",
+      "sha256": "6ce46ecf869ca2f7961c682ed1c8c04ede5cc043c4b916847f623918c89d0102"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/loaded-400.png",
+      "sha256": "6eff84f9e4804cca497bfd6afc4977b20c74e69838690069ac63479a27fbe867"
+    },
+    {
+      "path": "target/parity-review/mrms-panes/sources/loaded.json",
+      "sha256": "2a3e0c40581fb1a405b7a72a9d24d005bee493669ee328283c91f47f6e56f56f"
+    }
+  ],
+  "gpu_evidence": {
+    "adapter": "NVIDIA GeForce RTX 2060",
+    "captures": [
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "different-analysis-pane-a",
+        "pane": 0,
+        "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "different-analysis-pane-b",
+        "pane": 1,
+        "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          255,
+          255
+        ],
+        "name": "model-same-numeric-key",
+        "pane": 1,
+        "sha256": "eb42645a4c2f2cbc140cb34f03ec5a118b374e66eda5e30172b8e7de83fd72f1"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "mrms-after-model-upload",
+        "pane": 0,
+        "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "focus-change-a",
+        "pane": 0,
+        "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "focus-change-b",
+        "pane": 1,
+        "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "cached-analysis-switch",
+        "pane": 0,
+        "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "cached-analysis-return",
+        "pane": 0,
+        "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          137,
+          0,
+          0,
+          255
+        ],
+        "name": "shared-quarter-opacity",
+        "pane": 0,
+        "sha256": "64f4cec87068dbfe9606d6749cd79c9c8c0adc52dd7ed5f4ef2fb1caff748863"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "shared-full-opacity",
+        "pane": 1,
+        "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "name": "missing-context",
+        "pane": 0,
+        "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "name": "retired-context",
+        "pane": 0,
+        "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "surviving-context",
+        "pane": 1,
+        "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          255,
+          255,
+          0,
+          255
+        ],
+        "name": "replacement-context",
+        "pane": 0,
+        "sha256": "78e2d3b65db3551d91e5cc2074311b421e1d20478911deb7247ba3d9bf24906b"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "surviving-after-replacement",
+        "pane": 1,
+        "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          152,
+          184,
+          237,
+          255
+        ],
+        "name": "precip-snow-pane-a",
+        "pane": 0,
+        "sha256": "de3dc9d1b212efc86cd6e2f3afbe2ce8f9d46e0e631fb02da1c118a54e1aa760"
+      },
+      {
+        "center_rgba": [
+          221,
+          143,
+          204,
+          255
+        ],
+        "name": "precip-mix-pane-b",
+        "pane": 1,
+        "sha256": "d159b6c295e15f235b6418502fe6d9e42789e9a11d01170942a95d25aefc9218"
+      },
+      {
+        "center_rgba": [
+          221,
+          143,
+          204,
+          255
+        ],
+        "name": "precip-cached-context-switch",
+        "pane": 0,
+        "sha256": "d159b6c295e15f235b6418502fe6d9e42789e9a11d01170942a95d25aefc9218"
+      },
+      {
+        "center_rgba": [
+          152,
+          184,
+          237,
+          255
+        ],
+        "name": "precip-cached-context-return",
+        "pane": 0,
+        "sha256": "de3dc9d1b212efc86cd6e2f3afbe2ce8f9d46e0e631fb02da1c118a54e1aa760"
+      },
+      {
+        "center_rgba": [
+          221,
+          143,
+          204,
+          255
+        ],
+        "name": "precip-other-pane-retained",
+        "pane": 1,
+        "sha256": "d159b6c295e15f235b6418502fe6d9e42789e9a11d01170942a95d25aefc9218"
+      }
+    ]
+  },
+  "visual_review": {
+    "recorded_utc": "2026-10-06T00:38:30.960226+00:00",
+    "reviewed_pngs": 28,
+    "gpu_full_pane_uniform_rgba": 20,
+    "sources_rows": 8,
+    "observations": [
+      "Twenty full-pane GPU captures show separate analyses, cached switches, missing/retired black contexts, retained survivors, opacity, namespace isolation and pane precipitation tints.",
+      "Sources rows at 240-pixel touch and 400-pixel desktop widths wrap expanded details within their bounds; truncated row titles have full expanded disclosure.",
+      "Accepted archived fields show retained analysis and On selection change; missing analyses keep the periodic retry policy.",
+      "Requested, loaded and owner metadata remain distinct; failed/fetching rows show no loaded stamp."
+    ],
+    "inventory": [
+      {
+        "path": "target/parity-review/mrms-panes/gpu/cached-analysis-return.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/cached-analysis-switch.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/different-analysis-pane-a.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/different-analysis-pane-b.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/focus-change-a.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/focus-change-b.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/missing-context.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/model-same-numeric-key.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "94acc08947b6dc4891326b4773222c3fb578de5fb4aa7dae3cfaa694948a8e04"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/mrms-after-model-upload.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/precip-cached-context-return.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "37de5cf07cab57023163430219801474e2e11e94b5756ba3c1c36482e94c6014"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/precip-cached-context-switch.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/precip-mix-pane-b.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/precip-other-pane-retained.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "0d3a28055f08d38dd138e93b2cf58228ae9fad1dbf283005a17e116c7a4e5616"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/precip-snow-pane-a.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "37de5cf07cab57023163430219801474e2e11e94b5756ba3c1c36482e94c6014"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/replacement-context.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "b8e92703a4afd498d596a1b7e889a36069145440f2bddeeddb63213131da731c"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/retired-context.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/shared-full-opacity.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/shared-quarter-opacity.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "0e8e2d48f34d354bd50937bc2614954842f7ba5139f0f13633fb76c93b220d13"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/surviving-after-replacement.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/gpu/surviving-context.png",
+        "dimensions": [
+          200,
+          200
+        ],
+        "distinct_rgba": 1,
+        "file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/cached-240.png",
+        "dimensions": [
+          240,
+          900
+        ],
+        "distinct_rgba": 497,
+        "file_sha256": "2aaf52c717de16a3f1d278670914689e1abc66c0dd70d546b9cad1ae5af32886"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/cached-400.png",
+        "dimensions": [
+          400,
+          900
+        ],
+        "distinct_rgba": 508,
+        "file_sha256": "01b7c299453f412f9bd14fc32fe28029ceb358b396a46a36433eabb886779dda"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/failed-240.png",
+        "dimensions": [
+          240,
+          900
+        ],
+        "distinct_rgba": 446,
+        "file_sha256": "e10d5dbab1dc7aa0ad32596596849905b35ec29ebfdb074f960f687b4e932ff7"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/failed-400.png",
+        "dimensions": [
+          400,
+          900
+        ],
+        "distinct_rgba": 455,
+        "file_sha256": "023cab5e6c59328224f4e798a55eff9791bd4c10bdee393eb857ba2b719fa32d"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/fetching-240.png",
+        "dimensions": [
+          240,
+          900
+        ],
+        "distinct_rgba": 459,
+        "file_sha256": "8f75fae663132c1f18ea31f9b018cc7bf23294a420dbe10e3b531e5304d12acb"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/fetching-400.png",
+        "dimensions": [
+          400,
+          900
+        ],
+        "distinct_rgba": 468,
+        "file_sha256": "c2e5010162399b0bae99bd6980aa203490f0324aff0dfe6ec4c95c7e6f3d7700"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/loaded-240.png",
+        "dimensions": [
+          240,
+          900
+        ],
+        "distinct_rgba": 490,
+        "file_sha256": "6ce46ecf869ca2f7961c682ed1c8c04ede5cc043c4b916847f623918c89d0102"
+      },
+      {
+        "path": "target/parity-review/mrms-panes/sources/loaded-400.png",
+        "dimensions": [
+          400,
+          900
+        ],
+        "distinct_rgba": 501,
+        "file_sha256": "6eff84f9e4804cca497bfd6afc4977b20c74e69838690069ac63479a27fbe867"
+      }
+    ]
+  },
+  "limitations": [
+    "No live-provider or full-application operator certification",
+    "Independent analysis-time groups and GOES ownership remain open",
+    "MRMS window controls remain shared",
+    "Claude calculation work is not part of this increment"
+  ],
+  "shared_head_at_commit_preparation": "2472cf33299edf6db68fa2293f6ef360711edc1c",
+  "peer_sources_at_commit_preparation": {
+    "crates/wxdata/examples/env_sample.rs": "e1122a6f27aa656cb88a273ae52c420efd87a59d021f11df3bfad2192894c69a",
+    "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+    "crates/wxdata/src/near_storm.rs": "e5d6e454faef0ae2486272030c6cd978dc12b7e46b8789658737bfbf4f0d3d0e",
+    "scripts/fusion/environment.py": "e9e9deb93e0c3b2cd2d2963868b28af42c03715d36cabdd5e41080770bc2e919"
+  },
+  "peer_changes_during_validation": [
+    "scripts/fusion/environment.py"
+  ]
+}

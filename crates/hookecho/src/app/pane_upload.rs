@@ -121,6 +121,7 @@ impl HookEchoApp {
                 .site
                 .as_deref()
                 .is_some_and(wxdata::tdwr::is_tdwr);
+        let precip_context = self.precip_for_pane(idx);
         let key: ShownKey = (
             name,
             moment,
@@ -129,7 +130,7 @@ impl HookEchoApp {
             smooth,
             uv_key,
             dealias,
-            self.settings.precip_tint.then_some(self.precip_flag_gen),
+            precip_context.as_ref().map(|(key, _)| *key),
             strict_current,
         );
         // Flash a range: on its bright half-beats the band is painted white. Only the colour table
@@ -164,10 +165,7 @@ impl HookEchoApp {
         }
         let table = &table_owned;
         // Cheap handle taken before the volume is borrowed mutably below.
-        let precip = (self.settings.precip_tint
-            && self.mrms_ready(crate::render::FieldLayer::PrecipType))
-        .then(|| self.precip_flag_grid.clone())
-        .flatten();
+        let precip = precip_context.map(|(_, grid)| grid);
         let trail_acc = trail_tag
             .as_ref()
             .and(self.trail.as_ref())

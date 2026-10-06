@@ -110,9 +110,12 @@ mod yall_mode;
 use acquisition::OverlayAcquisition;
 mod model_cache;
 mod model_context;
+mod mrms_cache;
+mod mrms_context;
 pub(crate) use field_state::{FieldState, MrmsRequest};
 use goes_timeline::nearest_goes;
 pub(crate) use model_context::ModelRequest;
+pub(crate) use mrms_context::MrmsContext;
 mod mobile;
 
 use crate::colormap::{ColorTable, Palettes};
@@ -1048,9 +1051,9 @@ type ShownKey = (
     bool,
     Option<(u32, u32)>,
     bool,
-    // Precipitation-tint generation: `None` when the tint is off, else the grid revision, so a
-    // new precipitation-type grid or toggling the tint rebuilds the image.
-    Option<u32>,
+    // Precipitation-tint context and generation: changing time, refreshing the grid or toggling
+    // tint rebuilds the image, including a switch to a previously cached context.
+    Option<(crate::render::MrmsTextureKey, u64)>,
     // A mode switch must upload the newly masked/unmasked sweep, not only its palette.
     bool,
 );
@@ -1754,6 +1757,9 @@ pub struct HookEchoApp {
     model_fields: model_cache::ModelFieldCache,
     model_palette_gen: u64,
     model_drop_textures: Vec<crate::render::ModelTextureKey>,
+    mrms_fields: mrms_cache::MrmsFieldCache,
+    mrms_palette_gen: u64,
+    mrms_drop_textures: Vec<crate::render::MrmsTextureKey>,
     /// Selected rotation-track accumulation window (minutes): 30, 60, or 120.
     rotation_minutes: u16,
     /// Selected hail-swath accumulation window (minutes); see [`wxdata::mrms::hail_swath`].
@@ -1834,12 +1840,6 @@ pub struct HookEchoApp {
     aviation_last_fetch: Option<Instant>,
     /// FAA Temporary Flight Restrictions: toggle, shapes by NOTAM id, refresh clock, and how
     /// many shapes are still unfetched (the first load comes in batches).
-    /// MRMS surface precipitation classes for the reflectivity tint, kept whether or not the
-    /// precipitation-type layer itself is shown. Behind an `Arc` so a pane can take a cheap
-    /// handle to it while the volume it is drawing is mutably borrowed.
-    precip_flag_grid: Option<std::sync::Arc<PrecipGrid>>,
-    /// Bumped whenever `precip_flag_grid` is replaced, so a pane knows its upload is stale.
-    precip_flag_gen: u32,
     show_tfr: bool,
     /// Forecast-zone and CWA reference layers.
     boundaries: boundaries::BoundaryState,
@@ -3575,7 +3575,7 @@ impl HookEchoApp {
                         FL::Ensemble => self.ensemble_grid.is_some(),
                         FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
                         _ => {
-                            self.model_field_ready_for(idx, *layer)
+                            self.mrms_ready_for(idx, *layer)
                                 && self
                                     .field_state_for(idx, *layer)
                                     .is_some_and(|state| state.grid.is_some())
@@ -7957,10 +7957,14 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
 
 /// Exposure along the chosen route and what it was computed for: (route generation, overlay
 /// generation, progress in 100 m steps) and `(alert kind, km ahead, seconds ahead)` lines.
-type RouteExposure = (
-    (u64, u64, i64, usize, i64),
-    Vec<(String, f64, f64, bool)>,
-    Vec<String>,
+type RouteExposure = (RouteExposureKey, Vec<(String, f64, f64, bool)>, Vec<String>);
+type RouteExposureKey = (
+    u64,
+    u64,
+    i64,
+    usize,
+    i64,
+    (usize, Option<DateTime<Utc>>, Vec<(MrmsContext, u64)>),
 );
 
 /// Eight-point compass name for a bearing.

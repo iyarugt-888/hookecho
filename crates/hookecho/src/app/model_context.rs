@@ -451,21 +451,18 @@ impl HookEchoApp {
     ) -> Option<&FieldState> {
         if let Some(request) = self.selected_model_request_for(idx, layer) {
             self.model_fields.get(&request).map(|slot| &slot.state)
+        } else if let Some(request) = self.selected_mrms_context_for(idx, layer) {
+            self.mrms_fields.get(&request).map(|slot| &slot.state)
+        } else if mrms_context::is_mrms(layer) {
+            None
         } else {
             self.fields.get(&layer)
         }
     }
-    fn model_target_time(&self, idx: usize) -> Option<DateTime<Utc>> {
+    pub(super) fn model_target_time(&self, idx: usize) -> Option<DateTime<Utc>> {
         // Retain the existing linked analysis clock; independent radar time drivers are M5.1's
         // next integration. A pane outside that global link resolves its own archive playhead.
-        self.linked_archive_time().or_else(|| {
-            let timeline = &self.views.get(idx)?.timeline;
-            if timeline.following || timeline.forecast_hour().is_some() {
-                None
-            } else {
-                timeline.current().and_then(|id| id.date_time())
-            }
-        })
+        analysis_target_time(&self.views.get(idx)?.timeline, self.linked_archive_time())
     }
     pub(super) fn wanted_model_requests(&self) -> std::collections::HashSet<ModelRequest> {
         self.views
@@ -508,6 +505,23 @@ impl HookEchoApp {
             self.model_drop_textures.push(texture);
         }
     }
+}
+
+/// Preserve a deferred archive seek while its radar listing loads. A missing listing must not
+/// silently redirect analysis fields to latest.
+pub(super) fn analysis_target_time(
+    timeline: &crate::timeline::Timeline,
+    linked: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    linked.or_else(|| {
+        if timeline.following || timeline.forecast_hour().is_some() {
+            None
+        } else {
+            timeline
+                .seek_target
+                .or_else(|| timeline.current().and_then(|id| id.date_time()))
+        }
+    })
 }
 
 #[cfg(test)]
