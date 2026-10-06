@@ -8,8 +8,9 @@
 //! holes), however deeply a `MultiGeometry` or `Folder` nests them — plus its `name`,
 //! `description` and `ExtendedData` (`Data`/`value` pairs and schema `SimpleData`) as attributes.
 //! Namespace prefixes (`kml:Placemark`), comments, CDATA sections and the five predefined
-//! entities are handled. Styles, overlays, network links, tours and `gx:` tracks are not read:
-//! they are display hints and remote content, not shapes. KML coordinates are WGS 84 by
+//! entities are handled. Styles, overlays, tours and `gx:` tracks are not read: they are display
+//! hints, not shapes. Network links are never fetched; inside a KMZ, a link to another KML of the
+//! same archive is read as part of it (see [`parse_kmz`]). KML coordinates are WGS 84 by
 //! definition, so there is nothing to reproject.
 //!
 //! A KMZ is a zip archive holding a KML (conventionally `doc.kml`) and its icons. [`parse_kmz`]
@@ -48,9 +49,70 @@ pub fn parse(kml: &str) -> anyhow::Result<Vec<GisFeature>> {
     Ok(out)
 }
 
-/// Every placemark shape in a KMZ archive's KML.
+/// Every placemark shape in a KMZ archive: its main KML, and the KML files inside the same
+/// archive that it links to with a `NetworkLink` (how GDAL's LIBKML and other writers lay out a
+/// multi-layer KMZ: a `doc.kml` that only links `layers/*.kml`). A link is followed only to an
+/// entry of this archive by a relative path; one to anywhere else (`http:`, an absolute path,
+/// `..`) is not fetched. Linked files are followed two levels deep, 64 files at most, each read
+/// once.
 pub fn parse_kmz(bytes: &[u8]) -> anyhow::Result<Vec<GisFeature>> {
-    parse(&kml_of_kmz(bytes)?)
+    const MAX_DEPTH: usize = 2;
+    const MAX_LINKED: usize = 64;
+    let entries = crate::zip::entries(bytes)?;
+    let root = main_kml(&entries)?;
+    let mut out = Vec::new();
+    let mut seen: Vec<String> = vec![root.name.clone()];
+    let mut queue: Vec<(String, usize)> = vec![(root.name.clone(), 0)];
+    while let Some((name, depth)) = queue.pop() {
+        let Some(entry) = entries.iter().find(|e| e.name == name) else {
+            continue;
+        };
+        let text = text_of(crate::zip::read(bytes, entry, MAX_KML_BYTES)?);
+        let doc = clean(&text);
+        // A linked file that is not KML (an image, say) is skipped, not an error.
+        if depth == 0 || doc.contains("<kml") || doc.contains("<Placemark") {
+            out.extend(parse(&text)?);
+        }
+        if depth >= MAX_DEPTH {
+            continue;
+        }
+        let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
+        for link in elements(&doc, "NetworkLink") {
+            let Some(href) = first_text(link, "href") else {
+                continue;
+            };
+            let Some(target) = archive_path(dir, href.trim()) else {
+                continue;
+            };
+            if seen.contains(&target) || !entries.iter().any(|e| e.name == target) {
+                continue;
+            }
+            anyhow::ensure!(
+                seen.len() <= MAX_LINKED,
+                "the KMZ links more than {MAX_LINKED} KML files"
+            );
+            seen.push(target.clone());
+            queue.push((target, depth + 1));
+        }
+    }
+    Ok(out)
+}
+
+/// A `NetworkLink` href as a path inside the archive, relative to the linking file's directory;
+/// `None` for anything that would leave the archive.
+fn archive_path(dir: &str, href: &str) -> Option<String> {
+    if href.is_empty() || href.contains("://") || href.starts_with('/') || href.contains('\\') {
+        return None;
+    }
+    let mut parts: Vec<&str> = dir.split('/').filter(|p| !p.is_empty()).collect();
+    for seg in href.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => return None,
+            s => parts.push(s),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 /// Is this file a zip archive (a KMZ), judging by its first bytes rather than its name?
@@ -315,7 +377,13 @@ const MAX_KML_BYTES: u64 = 256 * 1024 * 1024;
 /// entry, as KMZ readers do.
 pub fn kml_of_kmz(zip: &[u8]) -> anyhow::Result<String> {
     let entries = crate::zip::entries(zip)?;
-    let kml = entries
+    let kml = main_kml(&entries)?;
+    Ok(text_of(crate::zip::read(zip, kml, MAX_KML_BYTES)?))
+}
+
+/// The archive's main KML: `doc.kml`, else the first `.kml` entry.
+fn main_kml(entries: &[crate::zip::Entry]) -> anyhow::Result<&crate::zip::Entry> {
+    entries
         .iter()
         .find(|e| e.name.eq_ignore_ascii_case("doc.kml"))
         .or_else(|| {
@@ -323,10 +391,11 @@ pub fn kml_of_kmz(zip: &[u8]) -> anyhow::Result<String> {
                 .iter()
                 .find(|e| e.name.to_ascii_lowercase().ends_with(".kml"))
         })
-        .ok_or_else(|| anyhow::anyhow!("the KMZ holds no .kml file"))?;
-    let bytes = crate::zip::read(zip, kml, MAX_KML_BYTES)?;
-    Ok(String::from_utf8(bytes)
-        .unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect()))
+        .ok_or_else(|| anyhow::anyhow!("the KMZ holds no .kml file"))
+}
+
+fn text_of(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect())
 }
 
 #[cfg(test)]
@@ -463,6 +532,99 @@ mod tests {
         z.extend_from_slice(&(cd as u32).to_le_bytes());
         z.extend_from_slice(&[0, 0]);
         z
+    }
+
+    /// A stored zip of several entries.
+    fn zip_many(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let (mut z, mut cd) = (Vec::new(), Vec::new());
+        for (name, body) in files {
+            let offset = z.len() as u32;
+            let head = |sig: &[u8], central: bool| {
+                let mut h = sig.to_vec();
+                h.extend_from_slice(if central {
+                    &[20, 0, 20, 0, 0, 0]
+                } else {
+                    &[20, 0, 0, 0]
+                });
+                h.extend_from_slice(&[0, 0]); // stored
+                h.extend_from_slice(&[0; 8]);
+                h.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                h.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                h.extend_from_slice(&(name.len() as u16).to_le_bytes());
+                h
+            };
+            z.extend(head(b"PK\x03\x04", false));
+            z.extend_from_slice(&[0, 0]);
+            z.extend_from_slice(name.as_bytes());
+            z.extend_from_slice(body);
+            cd.extend(head(b"PK\x01\x02", true));
+            cd.extend_from_slice(&[0; 12]);
+            cd.extend_from_slice(&offset.to_le_bytes());
+            cd.extend_from_slice(name.as_bytes());
+        }
+        let at = z.len();
+        let n = files.len() as u16;
+        z.extend_from_slice(&cd);
+        z.extend_from_slice(b"PK\x05\x06");
+        z.extend_from_slice(&[0, 0, 0, 0]);
+        z.extend_from_slice(&n.to_le_bytes());
+        z.extend_from_slice(&n.to_le_bytes());
+        z.extend_from_slice(&(cd.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(at as u32).to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        z
+    }
+
+    /// A multi-layer KMZ (GDAL's LIBKML layout): the main KML only links layer files inside the
+    /// archive. Those are read; a link out of the archive, to the web or by an absolute path is
+    /// not; a file linked twice is read once; links stop two levels down.
+    #[test]
+    fn a_kmz_reads_the_layers_its_main_kml_links_inside_the_archive_and_nothing_else() {
+        let place = |n: &str, links: &[&str]| {
+            let links: String = links
+                .iter()
+                .map(|h| format!("<NetworkLink><Link><href>{h}</href></Link></NetworkLink>"))
+                .collect();
+            format!(
+                "<kml><Document>{links}<Placemark><name>{n}</name><Point><coordinates>-97,35</coordinates></Point></Placemark></Document></kml>"
+            )
+        };
+        let doc = place(
+            "root",
+            &[
+                "layers/a.kml",
+                "layers/a.kml",
+                "../evil.kml",
+                "http://example.com/remote.kml",
+                "/abs.kml",
+            ],
+        );
+        let a = place("a", &["../doc.kml", "b.kml"]);
+        let b = place("b", &["c.kml"]);
+        let c = place("c", &[]);
+        let evil = place("evil", &[]);
+        let z = zip_many(&[
+            ("doc.kml", doc.as_bytes()),
+            ("layers/a.kml", a.as_bytes()),
+            ("layers/b.kml", b.as_bytes()),
+            ("layers/c.kml", c.as_bytes()),
+            ("evil.kml", evil.as_bytes()),
+            ("abs.kml", evil.as_bytes()),
+        ]);
+        let mut names: Vec<String> = parse_kmz(&z)
+            .unwrap()
+            .iter()
+            .map(|f| f.properties["name"].as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a", "b", "root"]);
+        assert_eq!(archive_path("layers", "../x.kml"), None);
+        assert_eq!(archive_path("", "https://x/y.kml"), None);
+        assert_eq!(archive_path("", "/y.kml"), None);
+        assert_eq!(
+            archive_path("a/b", "./c/d.kml").as_deref(),
+            Some("a/b/c/d.kml")
+        );
     }
 
     #[test]

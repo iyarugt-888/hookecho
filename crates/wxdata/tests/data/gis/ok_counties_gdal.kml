@@ -1,0 +1,1405 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document id="root_doc">
+<Schema name="ok_nad83" id="ok_nad83">
+	<SimpleField name="STATEFP" type="string"></SimpleField>
+	<SimpleField name="COUNTYFP" type="string"></SimpleField>
+	<SimpleField name="COUNTYNS" type="string"></SimpleField>
+	<SimpleField name="GEOIDFQ" type="string"></SimpleField>
+	<SimpleField name="GEOID" type="string"></SimpleField>
+	<SimpleField name="NAMELSAD" type="string"></SimpleField>
+	<SimpleField name="STUSPS" type="string"></SimpleField>
+	<SimpleField name="STATE_NAME" type="string"></SimpleField>
+	<SimpleField name="LSAD" type="string"></SimpleField>
+	<SimpleField name="ALAND" type="float"></SimpleField>
+	<SimpleField name="AWATER" type="float"></SimpleField>
+</Schema>
+<Folder><name>ok_nad83</name>
+  <Placemark>
+	<name>Cimarron</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">025</SimpleData>
+		<SimpleData name="COUNTYNS">01101800</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40025</SimpleData>
+		<SimpleData name="GEOID">40025</SimpleData>
+		<SimpleData name="NAMELSAD">Cimarron County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">4752131819</SimpleData>
+		<SimpleData name="AWATER">15923999</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-103.002518,36.675186 -103.001964,36.909573 -103.002199,37.000104 -102.841989,36.999598 -102.698142,36.995149 -102.355288,36.994506 -102.04224,36.993083 -102.028204191045,36.9931451471083 -102.032339018963,36.5000656730101 -102.162463,36.500326 -103.002434,36.500397 -103.002188,36.602716 -103.002518,36.675186</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Dewey</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">043</SimpleData>
+		<SimpleData name="COUNTYNS">01101809</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40043</SimpleData>
+		<SimpleData name="GEOID">40043</SimpleData>
+		<SimpleData name="NAMELSAD">Dewey County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2589024032</SimpleData>
+		<SimpleData name="AWATER">22668882</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.382074,36.164301 -98.955849,36.161577 -98.636899,36.164894 -98.631985,35.812402 -99.375817,35.812188 -99.381022,36.012925 -99.382074,36.164301</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Haskell</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">061</SimpleData>
+		<SimpleData name="COUNTYNS">01101818</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40061</SimpleData>
+		<SimpleData name="GEOID">40061</SimpleData>
+		<SimpleData name="NAMELSAD">Haskell County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1493711222</SimpleData>
+		<SimpleData name="AWATER">126247870</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.45125,35.296019 -95.390252,35.327497 -95.344766,35.293035 -95.240718,35.26231 -95.170462,35.310106 -95.049933,35.458894 -95.00651,35.4146 -94.901832,35.39794 -94.914454,35.347525 -94.828972,35.361546 -94.813629,35.323344 -94.814276,35.202331 -94.927774,35.20261 -94.927863,35.058246 -95.349409,35.05852 -95.349525,35.160021 -95.455018,35.160381 -95.45125,35.296019</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Nowata</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">105</SimpleData>
+		<SimpleData name="COUNTYNS">01101840</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40105</SimpleData>
+		<SimpleData name="GEOID">40105</SimpleData>
+		<SimpleData name="NAMELSAD">Nowata County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1465460409</SimpleData>
+		<SimpleData name="AWATER">38903890</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.80982,36.94193 -95.7867618707782,36.999270917592 -95.573598,36.99931 -95.5224145523987,36.9993197867829 -95.407733005873,36.9993417150323 -95.431758,36.942593 -95.43157,36.59754 -95.80954,36.59754 -95.80982,36.94193</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Grant</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">053</SimpleData>
+		<SimpleData name="COUNTYNS">01101814</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40053</SimpleData>
+		<SimpleData name="GEOID">40053</SimpleData>
+		<SimpleData name="NAMELSAD">Grant County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2591904426</SimpleData>
+		<SimpleData name="AWATER">7042653</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.1119851837458,36.9982479946353 -98.045342,36.998327 -97.8023129703503,36.998698609394 -97.768704,36.99875 -97.4623460298641,36.9988242387969 -97.462459,36.593627 -98.104286,36.593578 -98.109393,36.611543 -98.1119851837458,36.9982479946353</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Creek</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">037</SimpleData>
+		<SimpleData name="COUNTYNS">01101806</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40037</SimpleData>
+		<SimpleData name="GEOID">40037</SimpleData>
+		<SimpleData name="NAMELSAD">Creek County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2460214791</SimpleData>
+		<SimpleData name="AWATER">50817257</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.62212,36.159903 -96.600218,36.163502 -96.297888,36.162279 -96.297905,36.075766 -96.261294,36.075741 -96.029583,36.075366 -96.033118,35.856824 -96.137229,35.857097 -96.192383,35.856987 -96.192563,35.639087 -96.620828,35.639005 -96.619655,35.941571 -96.62161,36.154323 -96.62212,36.159903</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Adair</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">001</SimpleData>
+		<SimpleData name="COUNTYNS">01101788</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40001</SimpleData>
+		<SimpleData name="GEOID">40001</SimpleData>
+		<SimpleData name="NAMELSAD">Adair County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1486345557</SimpleData>
+		<SimpleData name="AWATER">8864933</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-94.797409,36.161652 -94.5622679285528,36.1619726146264 -94.5518886566514,36.1021239714216 -94.532071,35.987852 -94.494549,35.768303 -94.4930532906959,35.7592465106763 -94.4731193906467,35.6385471525294 -94.807757,35.638546 -94.797409,36.161652</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>McIntosh</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">091</SimpleData>
+		<SimpleData name="COUNTYNS">01101836</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40091</SimpleData>
+		<SimpleData name="GEOID">40091</SimpleData>
+		<SimpleData name="NAMELSAD">McIntosh County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1601338581</SimpleData>
+		<SimpleData name="AWATER">242888281</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.981511,35.28978 -95.981465,35.376788 -95.875405,35.37669 -95.875347,35.463623 -95.822429,35.463685 -95.822361,35.551693 -95.712953,35.551738 -95.344799,35.551751 -95.344766,35.293035 -95.390252,35.327497 -95.45125,35.296019 -95.602342,35.220739 -95.615664,35.249698 -95.75597,35.177198 -95.870663,35.185986 -95.907966,35.143494 -95.983077,35.151695 -95.981511,35.28978</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Payne</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">119</SimpleData>
+		<SimpleData name="COUNTYNS">01101847</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40119</SimpleData>
+		<SimpleData name="GEOID">40119</SimpleData>
+		<SimpleData name="NAMELSAD">Payne County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1773885850</SimpleData>
+		<SimpleData name="AWATER">31991880</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.354132,36.159072 -97.140668,36.159231 -97.140968,36.246435 -96.925069,36.246474 -96.818968,36.246478 -96.819005,36.158886 -96.62212,36.159903 -96.62161,36.154323 -96.619655,35.941571 -97.140583,35.941991 -97.203592,35.944795 -97.32362,36.010877 -97.35387,35.984934 -97.354132,36.159072</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Wagoner</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">145</SimpleData>
+		<SimpleData name="COUNTYNS">01101860</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40145</SimpleData>
+		<SimpleData name="GEOID">40145</SimpleData>
+		<SimpleData name="NAMELSAD">Wagoner County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1455356134</SimpleData>
+		<SimpleData name="AWATER">74815302</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.819459,35.856255 -95.761702,35.901147 -95.76165,36.16275 -95.708224,36.1619 -95.568316,36.130125 -95.571525,36.075282 -95.43997,36.075268 -95.207943,36.074772 -95.278701,35.964102 -95.231459,35.851195 -95.265679,35.813266 -95.362317,35.822574 -95.402214,35.806633 -95.589736,35.76516 -95.650419,35.856644 -95.766114,35.856284 -95.819459,35.856255</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Washita</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">149</SimpleData>
+		<SimpleData name="COUNTYNS">01101862</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40149</SimpleData>
+		<SimpleData name="GEOID">40149</SimpleData>
+		<SimpleData name="NAMELSAD">Washita County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2597989578</SimpleData>
+		<SimpleData name="AWATER">14579003</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.364217,35.465328 -98.623336,35.464225 -98.61824,35.117174 -98.620692,35.097765 -98.650932,35.123929 -98.749158,35.116346 -99.360226,35.116738 -99.364217,35.465328</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Caddo</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">015</SimpleData>
+		<SimpleData name="COUNTYNS">01101795</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40015</SimpleData>
+		<SimpleData name="GEOID">40015</SimpleData>
+		<SimpleData name="NAMELSAD">Caddo County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3309366432</SimpleData>
+		<SimpleData name="AWATER">32099077</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.623244,35.551522 -98.313251,35.551523 -98.305837,35.377173 -98.096014,35.377753 -98.093127,34.854988 -98.619816,34.85534 -98.620692,35.097765 -98.61824,35.117174 -98.623336,35.464225 -98.623244,35.551522</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Craig</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">035</SimpleData>
+		<SimpleData name="COUNTYNS">01101805</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40035</SimpleData>
+		<SimpleData name="GEOID">40035</SimpleData>
+		<SimpleData name="NAMELSAD">Craig County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1971642559</SimpleData>
+		<SimpleData name="AWATER">3649781</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.431758,36.942593 -95.407733005873,36.9993417150323 -95.322565,36.999358 -95.0735039666303,36.9994881346791 -95.0076200044721,36.9995225591258 -95.034123,36.994225 -94.999151,36.943101 -94.999403,36.670631 -95.00569,36.59766 -95.00573,36.50989 -95.32817,36.51024 -95.32837,36.59763 -95.43157,36.59754 -95.431758,36.942593</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Greer</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">055</SimpleData>
+		<SimpleData name="COUNTYNS">01101815</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40055</SimpleData>
+		<SimpleData name="GEOID">40055</SimpleData>
+		<SimpleData name="NAMELSAD">Greer County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1655740225</SimpleData>
+		<SimpleData name="AWATER">11148547</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.888444,35.029889 -99.782949,35.030111 -99.782727,35.11694 -99.409291,35.114509 -99.368367,35.087867 -99.327788,35.041697 -99.30622,34.857632 -99.246462,34.822114 -99.405821,34.813038 -99.423201,34.72502 -99.666849,34.724555 -99.719797,34.768451 -99.731092,34.944058 -99.888222,34.943897 -99.888444,35.029889</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Garvin</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">049</SimpleData>
+		<SimpleData name="COUNTYNS">01101812</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40049</SimpleData>
+		<SimpleData name="GEOID">40049</SimpleData>
+		<SimpleData name="NAMELSAD">Garvin County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2077546552</SimpleData>
+		<SimpleData name="AWATER">30019851</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.668099,34.855164 -96.932436,34.854496 -96.932452,34.636812 -97.200073,34.622762 -97.143973,34.506606 -97.352183,34.506796 -97.562323,34.507036 -97.563004,34.681185 -97.668512,34.68134 -97.668099,34.855164</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Pottawatomie</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">125</SimpleData>
+		<SimpleData name="COUNTYNS">01101850</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40125</SimpleData>
+		<SimpleData name="GEOID">40125</SimpleData>
+		<SimpleData name="NAMELSAD">Pottawatomie County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2040375639</SimpleData>
+		<SimpleData name="AWATER">14845673</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.142114,35.37686 -97.14149,35.463977 -96.624681,35.462707 -96.623699,35.400722 -96.77638,35.411471 -96.775681,34.899958 -96.813452,34.944649 -96.8854,34.926251 -96.930586,34.964364 -97.01593,34.907348 -97.142349,34.928176 -97.142114,35.37686</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Cherokee</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">021</SimpleData>
+		<SimpleData name="COUNTYNS">01101798</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40021</SimpleData>
+		<SimpleData name="GEOID">40021</SimpleData>
+		<SimpleData name="NAMELSAD">Cherokee County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1940228930</SimpleData>
+		<SimpleData name="AWATER">69661251</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.278701,35.964102 -95.207943,36.074772 -95.118377,36.074544 -95.1185,36.16163 -95.011328,36.161763 -94.797409,36.161652 -94.807757,35.638546 -95.127213,35.638788 -95.127163,35.812755 -95.265679,35.813266 -95.231459,35.851195 -95.278701,35.964102</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Major</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">093</SimpleData>
+		<SimpleData name="COUNTYNS">01101831</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40093</SimpleData>
+		<SimpleData name="GEOID">40093</SimpleData>
+		<SimpleData name="NAMELSAD">Major County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2473438558</SimpleData>
+		<SimpleData name="AWATER">7651009</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.960334,36.506914 -98.843702,36.506315 -98.80782,36.460744 -98.625361,36.392595 -98.533658,36.397866 -98.533617,36.46323 -98.104427,36.463105 -98.103904,36.164877 -98.210405,36.164889 -98.636899,36.164894 -98.955849,36.161577 -98.960334,36.506914</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Stephens</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">137</SimpleData>
+		<SimpleData name="COUNTYNS">01101856</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40137</SimpleData>
+		<SimpleData name="GEOID">40137</SimpleData>
+		<SimpleData name="NAMELSAD">Stephens County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2253839276</SimpleData>
+		<SimpleData name="AWATER">54824811</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.141799,34.681158 -98.089097,34.681163 -97.668512,34.68134 -97.563004,34.681185 -97.562323,34.507036 -97.562512,34.289183 -98.139227,34.289824 -98.139293,34.489279 -98.142148,34.506994 -98.141799,34.681158</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Comanche</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">031</SimpleData>
+		<SimpleData name="COUNTYNS">01101803</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40031</SimpleData>
+		<SimpleData name="GEOID">40031</SimpleData>
+		<SimpleData name="NAMELSAD">Comanche County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2769531009</SimpleData>
+		<SimpleData name="AWATER">37661894</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.826008,34.594413 -98.826041,34.855122 -98.619816,34.85534 -98.093127,34.854988 -98.08901,34.834806 -98.089097,34.681163 -98.141799,34.681158 -98.142148,34.506994 -98.24412,34.507121 -98.295928,34.449043 -98.504988,34.420452 -98.661956,34.405948 -98.661982,34.50746 -98.826144,34.50737 -98.826008,34.594413</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Kay</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">071</SimpleData>
+		<SimpleData name="COUNTYNS">01101823</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40071</SimpleData>
+		<SimpleData name="GEOID">40071</SimpleData>
+		<SimpleData name="NAMELSAD">Kay County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2381778880</SimpleData>
+		<SimpleData name="AWATER">65545215</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.4623460298641,36.9988242387969 -97.384925,36.998843 -97.1477209669227,36.9989723356215 -97.100652,36.998998 -96.749838,36.998988 -96.752375,36.782092 -96.889475,36.75123 -96.931943,36.686097 -97.064107,36.684207 -97.057556,36.593872 -97.461603,36.593637 -97.462459,36.593627 -97.4623460298641,36.9988242387969</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Oklahoma</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">109</SimpleData>
+		<SimpleData name="COUNTYNS">01101842</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40109</SimpleData>
+		<SimpleData name="GEOID">40109</SimpleData>
+		<SimpleData name="NAMELSAD">Oklahoma County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1836035186</SimpleData>
+		<SimpleData name="AWATER">24721024</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.674026,35.72597 -97.141066,35.724401 -97.14149,35.463977 -97.142114,35.37686 -97.335525,35.377225 -97.423566,35.377316 -97.671369,35.377151 -97.67143,35.447893 -97.671539,35.464209 -97.674026,35.72597</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Beckham</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">009</SimpleData>
+		<SimpleData name="COUNTYNS">01101792</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40009</SimpleData>
+		<SimpleData name="GEOID">40009</SimpleData>
+		<SimpleData name="NAMELSAD">Beckham County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2335328722</SimpleData>
+		<SimpleData name="AWATER">5521744</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.000388844143,35.4223639883094 -99.57582,35.421655 -99.575723,35.508864 -99.364141,35.508793 -99.364217,35.465328 -99.360226,35.116738 -99.404312,35.116898 -99.409291,35.114509 -99.782727,35.11694 -99.782949,35.030111 -99.888444,35.029889 -100.000384017848,35.0299299999999 -100.000385,35.182702 -100.000388844143,35.4223639883094</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Logan</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">083</SimpleData>
+		<SimpleData name="COUNTYNS">01101829</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40083</SimpleData>
+		<SimpleData name="GEOID">40083</SimpleData>
+		<SimpleData name="NAMELSAD">Logan County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1926268077</SimpleData>
+		<SimpleData name="AWATER">13203700</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.675617,36.164663 -97.460792,36.164462 -97.371722,36.164285 -97.354132,36.159072 -97.35387,35.984934 -97.32362,36.010877 -97.203592,35.944795 -97.140583,35.941991 -97.141066,35.724401 -97.674026,35.72597 -97.674391,35.861013 -97.675617,36.164663</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Sequoyah</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">135</SimpleData>
+		<SimpleData name="COUNTYNS">01101855</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40135</SimpleData>
+		<SimpleData name="GEOID">40135</SimpleData>
+		<SimpleData name="NAMELSAD">Sequoyah County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1744553526</SimpleData>
+		<SimpleData name="AWATER">105073391</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.127213,35.638788 -94.807757,35.638546 -94.4731193906467,35.6385471525294 -94.449696,35.496719 -94.4348090628047,35.3926242553894 -94.4340725641195,35.387474395379 -94.49237,35.301776 -94.594801,35.327974 -94.668796,35.295029 -94.750224,35.356969 -94.813629,35.323344 -94.828972,35.361546 -94.914454,35.347525 -94.901832,35.39794 -95.00651,35.4146 -95.049933,35.458894 -95.085635,35.461396 -95.132271,35.526055 -95.127213,35.638788</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Tulsa</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">143</SimpleData>
+		<SimpleData name="COUNTYNS">01101859</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40143</SimpleData>
+		<SimpleData name="GEOID">40143</SimpleData>
+		<SimpleData name="NAMELSAD">Tulsa County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1476917121</SimpleData>
+		<SimpleData name="AWATER">42925549</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.297888,36.162279 -96.268287,36.16198 -96.001226,36.161296 -96.001171,36.423686 -95.812342,36.42358 -95.79438,36.41628 -95.8122,36.32205 -95.812102,36.265913 -95.81534,36.24953 -95.8154,36.16263 -95.76165,36.16275 -95.761702,35.901147 -95.819459,35.856255 -96.033118,35.856824 -96.029583,36.075366 -96.261294,36.075741 -96.297905,36.075766 -96.297888,36.162279</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Pushmataha</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">127</SimpleData>
+		<SimpleData name="COUNTYNS">01101851</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40127</SimpleData>
+		<SimpleData name="GEOID">40127</SimpleData>
+		<SimpleData name="NAMELSAD">Pushmataha County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3614429654</SimpleData>
+		<SimpleData name="AWATER">69991694</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.779134,34.506644 -95.67175,34.506794 -95.67181,34.593732 -95.514511,34.594153 -95.514475,34.680718 -95.059616,34.680736 -94.937555,34.680792 -94.937604,34.507296 -95.046746,34.507276 -95.046585,34.243776 -95.151323,34.243737 -95.156521,34.156965 -95.779376,34.156699 -95.779134,34.506644</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Pontotoc</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">123</SimpleData>
+		<SimpleData name="COUNTYNS">01101849</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40123</SimpleData>
+		<SimpleData name="GEOID">40123</SimpleData>
+		<SimpleData name="NAMELSAD">Pontotoc County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1865705449</SimpleData>
+		<SimpleData name="AWATER">12725534</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.932436,34.854496 -96.930586,34.964364 -96.8854,34.926251 -96.813452,34.944649 -96.775681,34.899958 -96.727591,34.857182 -96.710934,34.911715 -96.577089,34.916584 -96.528587,34.869586 -96.490786,34.910585 -96.406135,34.934191 -96.406483,34.767328 -96.406357,34.680023 -96.512171,34.680065 -96.513787,34.505396 -96.827343,34.506062 -96.827144,34.59322 -96.932423,34.593261 -96.932452,34.636812 -96.932436,34.854496</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Alfalfa</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">003</SimpleData>
+		<SimpleData name="COUNTYNS">01101789</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40003</SimpleData>
+		<SimpleData name="GEOID">40003</SimpleData>
+		<SimpleData name="NAMELSAD">Alfalfa County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2244392664</SimpleData>
+		<SimpleData name="AWATER">38546676</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.5446619733489,36.9985242404006 -98.354073,36.997961 -98.3471487797447,36.9979692086496 -98.1119851837458,36.9982479946353 -98.109393,36.611543 -98.104286,36.593578 -98.104427,36.463105 -98.533617,36.46323 -98.5446619733489,36.9985242404006</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Johnston</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">069</SimpleData>
+		<SimpleData name="COUNTYNS">01101822</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40069</SimpleData>
+		<SimpleData name="GEOID">40069</SimpleData>
+		<SimpleData name="NAMELSAD">Johnston County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1665492483</SimpleData>
+		<SimpleData name="AWATER">39645099</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.933305,34.332561 -96.881005,34.332977 -96.88079,34.506053 -96.827343,34.506062 -96.513787,34.505396 -96.513768,34.419569 -96.407074,34.41839 -96.407517,34.157317 -96.453836,34.1141 -96.585355,34.114459 -96.620784,34.162041 -96.933503,34.172748 -96.933305,34.332561</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Hughes</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">063</SimpleData>
+		<SimpleData name="COUNTYNS">01101819</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40063</SimpleData>
+		<SimpleData name="GEOID">40063</SimpleData>
+		<SimpleData name="NAMELSAD">Hughes County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2083575253</SimpleData>
+		<SimpleData name="AWATER">26461993</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.490434,35.115857 -96.441305,35.115771 -96.441368,35.290122 -95.981511,35.28978 -95.983077,35.151695 -96.088792,35.049875 -96.092001,34.767479 -96.406483,34.767328 -96.406135,34.934191 -96.490786,34.910585 -96.490434,35.115857</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Lincoln</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">081</SimpleData>
+		<SimpleData name="COUNTYNS">01101828</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40081</SimpleData>
+		<SimpleData name="GEOID">40081</SimpleData>
+		<SimpleData name="NAMELSAD">Lincoln County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2466629763</SimpleData>
+		<SimpleData name="AWATER">34723064</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.141066,35.724401 -97.140583,35.941991 -96.619655,35.941571 -96.620828,35.639005 -96.624681,35.462707 -97.14149,35.463977 -97.141066,35.724401</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Coal</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">029</SimpleData>
+		<SimpleData name="COUNTYNS">01101802</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40029</SimpleData>
+		<SimpleData name="GEOID">40029</SimpleData>
+		<SimpleData name="NAMELSAD">Coal County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1338434468</SimpleData>
+		<SimpleData name="AWATER">12075986</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.513787,34.505396 -96.512171,34.680065 -96.406357,34.680023 -96.406483,34.767328 -96.092001,34.767479 -96.092043,34.680556 -96.092012,34.506059 -96.145442,34.505944 -96.145423,34.418313 -96.407074,34.41839 -96.513768,34.419569 -96.513787,34.505396</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Rogers</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">131</SimpleData>
+		<SimpleData name="COUNTYNS">01101853</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40131</SimpleData>
+		<SimpleData name="GEOID">40131</SimpleData>
+		<SimpleData name="NAMELSAD">Rogers County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1750176496</SimpleData>
+		<SimpleData name="AWATER">92946097</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.81534,36.24953 -95.812102,36.265913 -95.8122,36.32205 -95.79438,36.41628 -95.812342,36.42358 -95.81234,36.579426 -95.80954,36.59754 -95.43157,36.59754 -95.32837,36.59763 -95.32817,36.51024 -95.43561,36.51016 -95.43997,36.075268 -95.571525,36.075282 -95.568316,36.130125 -95.708224,36.1619 -95.76165,36.16275 -95.8154,36.16263 -95.81534,36.24953</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Kingfisher</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">073</SimpleData>
+		<SimpleData name="COUNTYNS">01101824</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40073</SimpleData>
+		<SimpleData name="GEOID">40073</SimpleData>
+		<SimpleData name="NAMELSAD">Kingfisher County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2326031241</SimpleData>
+		<SimpleData name="AWATER">20586906</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.210405,36.164889 -98.103904,36.164877 -97.675617,36.164663 -97.674391,35.861013 -97.674026,35.72597 -97.834102,35.725899 -98.207104,35.725187 -98.210405,36.164889</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Jackson</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">065</SimpleData>
+		<SimpleData name="COUNTYNS">01101820</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40065</SimpleData>
+		<SimpleData name="GEOID">40065</SimpleData>
+		<SimpleData name="NAMELSAD">Jackson County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2078860497</SimpleData>
+		<SimpleData name="AWATER">4114418</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.8420638841464,34.5069327688814 -99.666512,34.507121 -99.666849,34.724555 -99.423201,34.72502 -99.405821,34.813038 -99.246462,34.822114 -99.14457,34.84954 -99.149114,34.702352 -99.052511,34.701557 -99.10315,34.63795 -99.082881,34.590854 -99.16332,34.588036 -99.237922,34.426657 -99.192747,34.354861 -99.2216079008455,34.3253735743726 -99.27534,34.386599 -99.350407,34.437083 -99.394956,34.442099 -99.420432,34.380464 -99.470969,34.396471 -99.4750221370384,34.3968709897905 -99.58448,34.407673 -99.600026,34.374688 -99.696462,34.381036 -99.764882,34.435266 -99.818186,34.48784 -99.8420638841464,34.5069327688814</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Woods</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">151</SimpleData>
+		<SimpleData name="COUNTYNS">01101863</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40151</SimpleData>
+		<SimpleData name="GEOID">40151</SimpleData>
+		<SimpleData name="NAMELSAD">Woods County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3331971779</SimpleData>
+		<SimpleData name="AWATER">9081295</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.407015,36.999579 -99.129449,36.999422 -99.0003010538842,36.9993580981444 -98.791936,36.999255 -98.5446619733489,36.9985242404006 -98.533617,36.46323 -98.533658,36.397866 -98.625361,36.392595 -98.80782,36.460744 -98.843702,36.506315 -98.960334,36.506914 -98.959973,36.598991 -99.139855,36.78304 -99.250383,36.785015 -99.295186,36.819566 -99.374218,36.879597 -99.4562024346753,36.9997002794079 -99.407015,36.999579</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Harmon</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">057</SimpleData>
+		<SimpleData name="COUNTYNS">01101816</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40057</SimpleData>
+		<SimpleData name="GEOID">40057</SimpleData>
+		<SimpleData name="NAMELSAD">Harmon County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1391491971</SimpleData>
+		<SimpleData name="AWATER">3800411</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.000384017848,35.0299299999999 -99.888444,35.029889 -99.888222,34.943897 -99.731092,34.944058 -99.719797,34.768451 -99.666849,34.724555 -99.666512,34.507121 -99.8420638841464,34.5069327688814 -99.929334,34.576714 -99.997629328163,34.5611366245601 -100.000381,34.560509 -100.000382194816,34.7463605525616 -100.000384017848,35.0299299999999</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Roger Mills</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">129</SimpleData>
+		<SimpleData name="COUNTYNS">01101852</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40129</SimpleData>
+		<SimpleData name="GEOID">40129</SimpleData>
+		<SimpleData name="NAMELSAD">Roger Mills County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2955524813</SimpleData>
+		<SimpleData name="AWATER">13688537</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.000396202899,35.8812329999967 -99.925147,35.913664 -99.888309,35.987847 -99.809444,36.000044 -99.801389,35.910645 -99.717101,35.859769 -99.619813,35.842089 -99.558486,35.865988 -99.495812,35.978732 -99.381022,36.012925 -99.375817,35.812188 -99.377052,35.551741 -99.364141,35.508793 -99.575723,35.508864 -99.57582,35.421655 -100.000388844143,35.4223639883094 -100.000392,35.619115 -100.000396202899,35.8812329999967</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Grady</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">051</SimpleData>
+		<SimpleData name="COUNTYNS">01101813</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40051</SimpleData>
+		<SimpleData name="GEOID">40051</SimpleData>
+		<SimpleData name="NAMELSAD">Grady County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2850386657</SimpleData>
+		<SimpleData name="AWATER">11374380</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.096014,35.377753 -97.959679,35.34586 -97.671414,35.335946 -97.670629,34.87296 -97.668099,34.855164 -97.668512,34.68134 -98.089097,34.681163 -98.08901,34.834806 -98.093127,34.854988 -98.096014,35.377753</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Cleveland</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">027</SimpleData>
+		<SimpleData name="COUNTYNS">01101801</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40027</SimpleData>
+		<SimpleData name="GEOID">40027</SimpleData>
+		<SimpleData name="NAMELSAD">Cleveland County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1395713695</SimpleData>
+		<SimpleData name="AWATER">49260752</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.671369,35.377151 -97.423566,35.377316 -97.335525,35.377225 -97.142114,35.37686 -97.142349,34.928176 -97.333833,34.958948 -97.354192,35.076656 -97.407082,35.138144 -97.54146,35.214165 -97.556987,35.28844 -97.671415,35.337465 -97.671369,35.377151</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>McClain</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">087</SimpleData>
+		<SimpleData name="COUNTYNS">01101834</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40087</SimpleData>
+		<SimpleData name="GEOID">40087</SimpleData>
+		<SimpleData name="NAMELSAD">McClain County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1478151608</SimpleData>
+		<SimpleData name="AWATER">24711113</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.671415,35.337465 -97.556987,35.28844 -97.54146,35.214165 -97.407082,35.138144 -97.354192,35.076656 -97.333833,34.958948 -97.142349,34.928176 -97.01593,34.907348 -96.930586,34.964364 -96.932436,34.854496 -97.668099,34.855164 -97.670629,34.87296 -97.671414,35.335946 -97.671415,35.337465</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Garfield</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">047</SimpleData>
+		<SimpleData name="COUNTYNS">01101811</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40047</SimpleData>
+		<SimpleData name="GEOID">40047</SimpleData>
+		<SimpleData name="NAMELSAD">Garfield County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2741521326</SimpleData>
+		<SimpleData name="AWATER">4075930</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.104286,36.593578 -97.462459,36.593627 -97.461603,36.593637 -97.460792,36.164462 -97.675617,36.164663 -98.103904,36.164877 -98.104427,36.463105 -98.104286,36.593578</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Atoka</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">005</SimpleData>
+		<SimpleData name="COUNTYNS">01101790</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40005</SimpleData>
+		<SimpleData name="GEOID">40005</SimpleData>
+		<SimpleData name="NAMELSAD">Atoka County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2526412629</SimpleData>
+		<SimpleData name="AWATER">37269115</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.407074,34.41839 -96.145423,34.418313 -96.145442,34.505944 -96.092012,34.506059 -96.092043,34.680556 -95.882196,34.680534 -95.881987,34.593528 -95.67181,34.593732 -95.67175,34.506794 -95.779134,34.506644 -95.779376,34.156699 -95.991578,34.156805 -96.407517,34.157317 -96.407074,34.41839</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Carter</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">019</SimpleData>
+		<SimpleData name="COUNTYNS">01101797</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40019</SimpleData>
+		<SimpleData name="GEOID">40019</SimpleData>
+		<SimpleData name="NAMELSAD">Carter County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2129750449</SimpleData>
+		<SimpleData name="AWATER">29733323</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.562512,34.289183 -97.562323,34.507036 -97.352183,34.506796 -97.352115,34.376188 -97.038239,34.375707 -97.028817,34.332299 -96.933305,34.332561 -96.933503,34.172748 -96.968424,34.172684 -96.969627,34.07102 -97.560761,34.07115 -97.562365,34.09485 -97.562512,34.289183</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Murray</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">099</SimpleData>
+		<SimpleData name="COUNTYNS">01101837</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40099</SimpleData>
+		<SimpleData name="GEOID">40099</SimpleData>
+		<SimpleData name="NAMELSAD">Murray County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1078405803</SimpleData>
+		<SimpleData name="AWATER">22710693</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.352183,34.506796 -97.143973,34.506606 -97.200073,34.622762 -96.932452,34.636812 -96.932423,34.593261 -96.827144,34.59322 -96.827343,34.506062 -96.88079,34.506053 -96.881005,34.332977 -96.933305,34.332561 -97.028817,34.332299 -97.038239,34.375707 -97.352115,34.376188 -97.352183,34.506796</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Washington</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">147</SimpleData>
+		<SimpleData name="COUNTYNS">01101861</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40147</SimpleData>
+		<SimpleData name="GEOID">40147</SimpleData>
+		<SimpleData name="NAMELSAD">Washington County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1076201531</SimpleData>
+		<SimpleData name="AWATER">22871165</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.0008102061996,36.9992010529279 -95.9642712321022,36.9992231442824 -95.928122,36.999245 -95.7867618707782,36.999270917592 -95.80982,36.94193 -95.80954,36.59754 -95.81234,36.579426 -95.812342,36.42358 -96.001171,36.423686 -96.0008102061996,36.9992010529279</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Mayes</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">097</SimpleData>
+		<SimpleData name="COUNTYNS">01101833</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40097</SimpleData>
+		<SimpleData name="GEOID">40097</SimpleData>
+		<SimpleData name="NAMELSAD">Mayes County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1697286680</SimpleData>
+		<SimpleData name="AWATER">73073740</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.43561,36.51016 -95.32817,36.51024 -95.00573,36.50989 -95.011328,36.161763 -95.1185,36.16163 -95.118377,36.074544 -95.207943,36.074772 -95.43997,36.075268 -95.43561,36.51016</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Woodward</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">153</SimpleData>
+		<SimpleData name="COUNTYNS">01101864</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40153</SimpleData>
+		<SimpleData name="GEOID">40153</SimpleData>
+		<SimpleData name="NAMELSAD">Woodward County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3218801189</SimpleData>
+		<SimpleData name="AWATER">9693573</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.605634,36.592754 -99.295193,36.595031 -99.295186,36.819566 -99.250383,36.785015 -99.139855,36.78304 -98.959973,36.598991 -98.960334,36.506914 -98.955849,36.161577 -99.382074,36.164301 -99.596079,36.164061 -99.605634,36.592754</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Noble</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">103</SimpleData>
+		<SimpleData name="COUNTYNS">01101839</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40103</SimpleData>
+		<SimpleData name="GEOID">40103</SimpleData>
+		<SimpleData name="NAMELSAD">Noble County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1895123224</SimpleData>
+		<SimpleData name="AWATER">28103707</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.461603,36.593637 -97.057556,36.593872 -96.912756,36.598949 -96.888017,36.574886 -97.009785,36.506935 -97.032118,36.506957 -97.032106,36.333354 -96.924936,36.333344 -96.925069,36.246474 -97.140968,36.246435 -97.140668,36.159231 -97.354132,36.159072 -97.371722,36.164285 -97.460792,36.164462 -97.461603,36.593637</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Pawnee</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">117</SimpleData>
+		<SimpleData name="COUNTYNS">01101846</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40117</SimpleData>
+		<SimpleData name="GEOID">40117</SimpleData>
+		<SimpleData name="NAMELSAD">Pawnee County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1472027960</SimpleData>
+		<SimpleData name="AWATER">68849518</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.032118,36.506957 -97.009785,36.506935 -96.940235,36.455525 -96.875321,36.470915 -96.821031,36.538771 -96.753554,36.562601 -96.706195,36.477564 -96.710769,36.437656 -96.635727,36.425908 -96.575697,36.374347 -96.518709,36.377576 -96.573481,36.315709 -96.515229,36.298332 -96.457684,36.332664 -96.433812,36.285889 -96.326732,36.226551 -96.256624,36.225676 -96.268287,36.16198 -96.297888,36.162279 -96.600218,36.163502 -96.62212,36.159903 -96.819005,36.158886 -96.818968,36.246478 -96.925069,36.246474 -96.924936,36.333344 -97.032106,36.333354 -97.032118,36.506957</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Okmulgee</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">111</SimpleData>
+		<SimpleData name="COUNTYNS">01101843</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40111</SimpleData>
+		<SimpleData name="GEOID">40111</SimpleData>
+		<SimpleData name="NAMELSAD">Okmulgee County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1806369916</SimpleData>
+		<SimpleData name="AWATER">12960866</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.192563,35.639087 -96.192383,35.856987 -96.137229,35.857097 -96.033118,35.856824 -95.819459,35.856255 -95.766114,35.856284 -95.766265,35.72575 -95.713081,35.725807 -95.712953,35.551738 -95.822361,35.551693 -95.822429,35.463685 -95.875347,35.463623 -95.875405,35.37669 -95.981465,35.376788 -96.08753,35.376877 -96.087777,35.552003 -96.1927,35.551968 -96.192563,35.639087</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Love</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">085</SimpleData>
+		<SimpleData name="COUNTYNS">01101830</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40085</SimpleData>
+		<SimpleData name="GEOID">40085</SimpleData>
+		<SimpleData name="NAMELSAD">Love County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1331031195</SimpleData>
+		<SimpleData name="AWATER">47500219</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.5612431502211,33.899061506733 -97.536818,33.983877 -97.560761,34.07115 -96.969627,34.07102 -96.934833,34.01293 -96.934343303133,33.9455889292528 -96.9446168883705,33.945013250454 -96.952313,33.944582 -96.988745,33.918468 -96.985567,33.886522 -97.055838,33.855741 -97.07859,33.812756 -97.087852,33.774099 -97.091072,33.735115 -97.149394,33.721967 -97.205652,33.809824 -97.166629,33.847311 -97.206141,33.91428 -97.24618,33.900344 -97.318243,33.865121 -97.372941,33.819454 -97.444193,33.823773 -97.451469,33.87093 -97.4841434385876,33.9138891088909 -97.486505,33.916994 -97.55827,33.897099 -97.5612431502211,33.899061506733</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Osage</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">113</SimpleData>
+		<SimpleData name="COUNTYNS">01101844</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40113</SimpleData>
+		<SimpleData name="GEOID">40113</SimpleData>
+		<SimpleData name="NAMELSAD">Osage County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">5818878186</SimpleData>
+		<SimpleData name="AWATER">148530641</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-97.064107,36.684207 -96.931943,36.686097 -96.889475,36.75123 -96.752375,36.782092 -96.749838,36.998988 -96.5255820442829,36.9986779687248 -96.500288,36.998643 -96.217571,36.99907 -96.0008102061996,36.9992010529279 -96.001171,36.423686 -96.001226,36.161296 -96.268287,36.16198 -96.256624,36.225676 -96.326732,36.226551 -96.433812,36.285889 -96.457684,36.332664 -96.515229,36.298332 -96.573481,36.315709 -96.518709,36.377576 -96.575697,36.374347 -96.635727,36.425908 -96.710769,36.437656 -96.706195,36.477564 -96.753554,36.562601 -96.821031,36.538771 -96.875321,36.470915 -96.940235,36.455525 -97.009785,36.506935 -96.888017,36.574886 -96.912756,36.598949 -97.057556,36.593872 -97.064107,36.684207</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Cotton</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">033</SimpleData>
+		<SimpleData name="COUNTYNS">01101804</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40033</SimpleData>
+		<SimpleData name="GEOID">40033</SimpleData>
+		<SimpleData name="NAMELSAD">Cotton County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1638523151</SimpleData>
+		<SimpleData name="AWATER">23986260</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.661956,34.405948 -98.504988,34.420452 -98.295928,34.449043 -98.24412,34.507121 -98.142148,34.506994 -98.139293,34.489279 -98.139227,34.289824 -98.1384860257464,34.1412060197111 -98.16912,34.114171 -98.225282,34.127245 -98.31875,34.146421 -98.364023,34.157109 -98.398441,34.128456 -98.414426,34.085074 -98.423533,34.0819494760059 -98.475066,34.064269 -98.5282,34.094961 -98.577136,34.148962 -98.6102002179226,34.1561768671247 -98.60966,34.33372 -98.662004,34.333431 -98.661956,34.405948</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Kiowa</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">075</SimpleData>
+		<SimpleData name="COUNTYNS">01101825</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40075</SimpleData>
+		<SimpleData name="GEOID">40075</SimpleData>
+		<SimpleData name="NAMELSAD">Kiowa County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2629039887</SimpleData>
+		<SimpleData name="AWATER">40296743</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.404312,35.116898 -99.360226,35.116738 -98.749158,35.116346 -98.650932,35.123929 -98.620692,35.097765 -98.619816,34.85534 -98.826041,34.855122 -98.826008,34.594413 -99.001107,34.594366 -99.001025,34.637872 -99.10315,34.63795 -99.052511,34.701557 -99.149114,34.702352 -99.14457,34.84954 -99.246462,34.822114 -99.30622,34.857632 -99.327788,35.041697 -99.368367,35.087867 -99.409291,35.114509 -99.404312,35.116898</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Harper</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">059</SimpleData>
+		<SimpleData name="COUNTYNS">01101817</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40059</SimpleData>
+		<SimpleData name="GEOID">40059</SimpleData>
+		<SimpleData name="NAMELSAD">Harper County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2689919590</SimpleData>
+		<SimpleData name="AWATER">5259447</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.002571514322,37.001619153912 -99.995201,37.001631 -99.657658,37.000197 -99.5411149123609,36.9999096445655 -99.4562024346753,36.9997002794079 -99.374218,36.879597 -99.295186,36.819566 -99.295193,36.595031 -99.605634,36.592754 -100.00316,36.59325 -100.002571514322,37.001619153912</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Tillman</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">141</SimpleData>
+		<SimpleData name="COUNTYNS">01101858</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40141</SimpleData>
+		<SimpleData name="GEOID">40141</SimpleData>
+		<SimpleData name="NAMELSAD">Tillman County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2256226949</SimpleData>
+		<SimpleData name="AWATER">20895054</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.237922,34.426657 -99.16332,34.588036 -99.082881,34.590854 -99.10315,34.63795 -99.001025,34.637872 -99.001107,34.594366 -98.826008,34.594413 -98.826144,34.50737 -98.661982,34.50746 -98.661956,34.405948 -98.662004,34.333431 -98.60966,34.33372 -98.6102002179226,34.1561768671247 -98.648073,34.164441 -98.690072,34.133155 -98.737232,34.130992 -98.80681,34.155901 -98.872229,34.160446 -98.94022,34.203686 -98.9523248875282,34.2046698986035 -99.002916,34.208782 -99.0588,34.201256 -99.131553,34.209352 -99.189511,34.214312 -99.2116,34.31397 -99.2216079008455,34.3253735743726 -99.192747,34.354861 -99.237922,34.426657</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Seminole</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">133</SimpleData>
+		<SimpleData name="COUNTYNS">01101854</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40133</SimpleData>
+		<SimpleData name="GEOID">40133</SimpleData>
+		<SimpleData name="NAMELSAD">Seminole County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1638993887</SimpleData>
+		<SimpleData name="AWATER">19960707</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.77638,35.411471 -96.623699,35.400722 -96.536718,35.390772 -96.441303,35.4677 -96.441368,35.290122 -96.441305,35.115771 -96.490434,35.115857 -96.490786,34.910585 -96.528587,34.869586 -96.577089,34.916584 -96.710934,34.911715 -96.727591,34.857182 -96.775681,34.899958 -96.77638,35.411471</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Canadian</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">017</SimpleData>
+		<SimpleData name="COUNTYNS">01101796</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40017</SimpleData>
+		<SimpleData name="GEOID">40017</SimpleData>
+		<SimpleData name="NAMELSAD">Canadian County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2322112748</SimpleData>
+		<SimpleData name="AWATER">23146754</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.313153,35.725161 -98.207104,35.725187 -97.834102,35.725899 -97.674026,35.72597 -97.671539,35.464209 -97.67143,35.447893 -97.671369,35.377151 -97.671415,35.337465 -97.671414,35.335946 -97.959679,35.34586 -98.096014,35.377753 -98.305837,35.377173 -98.313251,35.551523 -98.313153,35.725161</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Okfuskee</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">107</SimpleData>
+		<SimpleData name="COUNTYNS">01101841</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40107</SimpleData>
+		<SimpleData name="GEOID">40107</SimpleData>
+		<SimpleData name="NAMELSAD">Okfuskee County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1601800028</SimpleData>
+		<SimpleData name="AWATER">26649343</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.624681,35.462707 -96.620828,35.639005 -96.192563,35.639087 -96.1927,35.551968 -96.087777,35.552003 -96.08753,35.376877 -95.981465,35.376788 -95.981511,35.28978 -96.441368,35.290122 -96.441303,35.4677 -96.536718,35.390772 -96.623699,35.400722 -96.624681,35.462707</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Ottawa</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">115</SimpleData>
+		<SimpleData name="COUNTYNS">01101845</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40115</SimpleData>
+		<SimpleData name="GEOID">40115</SimpleData>
+		<SimpleData name="NAMELSAD">Ottawa County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1219410535</SimpleData>
+		<SimpleData name="AWATER">35714103</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.0076200044721,36.9995225591258 -94.995293,36.999529 -94.71277,36.998794 -94.617964,36.998905 -94.618307,36.76656 -94.6179917784172,36.6679212723442 -94.999403,36.670631 -94.999151,36.943101 -95.034123,36.994225 -95.0076200044721,36.9995225591258</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Custer</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">039</SimpleData>
+		<SimpleData name="COUNTYNS">01101807</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40039</SimpleData>
+		<SimpleData name="GEOID">40039</SimpleData>
+		<SimpleData name="NAMELSAD">Custer County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2560924945</SimpleData>
+		<SimpleData name="AWATER">34326632</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-99.375817,35.812188 -98.631985,35.812402 -98.632196,35.566032 -98.623244,35.551522 -98.623336,35.464225 -99.364217,35.465328 -99.364141,35.508793 -99.377052,35.551741 -99.375817,35.812188</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Delaware</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">041</SimpleData>
+		<SimpleData name="COUNTYNS">01101808</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40041</SimpleData>
+		<SimpleData name="GEOID">40041</SimpleData>
+		<SimpleData name="NAMELSAD">Delaware County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1910774948</SimpleData>
+		<SimpleData name="AWATER">140487351</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.00573,36.50989 -95.00569,36.59766 -94.999403,36.670631 -94.6179917784172,36.6679212723442 -94.617815,36.612604 -94.617919,36.499414 -94.5862,36.299969 -94.5622679285528,36.1619726146264 -94.797409,36.161652 -95.011328,36.161763 -95.00573,36.50989</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Texas</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">139</SimpleData>
+		<SimpleData name="COUNTYNS">01101857</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40139</SimpleData>
+		<SimpleData name="GEOID">40139</SimpleData>
+		<SimpleData name="NAMELSAD">Texas County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">5286923168</SimpleData>
+		<SimpleData name="AWATER">19169341</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-102.028204191045,36.9931451471083 -101.90244,36.993702 -101.555258848691,36.9952909392776 -101.485326,36.995611 -101.211486,36.997124 -101.06645021566,36.9977361751404 -100.945466793078,36.9982468287288 -100.954152157693,36.4995294966262 -101.085156,36.499244 -101.623915,36.499528 -101.826565,36.499654 -102.032339018963,36.5000656730101 -102.028204191045,36.9931451471083</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Latimer</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">077</SimpleData>
+		<SimpleData name="COUNTYNS">01101826</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40077</SimpleData>
+		<SimpleData name="GEOID">40077</SimpleData>
+		<SimpleData name="NAMELSAD">Latimer County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1870249270</SimpleData>
+		<SimpleData name="AWATER">18237494</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.507738,35.029265 -95.349409,35.05852 -94.927863,35.058246 -94.927664,34.942025 -94.998125,34.941964 -94.997832,34.854915 -95.059512,34.855019 -95.059616,34.680736 -95.514475,34.680718 -95.507738,35.029265</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Blaine</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">011</SimpleData>
+		<SimpleData name="COUNTYNS">01101793</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40011</SimpleData>
+		<SimpleData name="GEOID">40011</SimpleData>
+		<SimpleData name="NAMELSAD">Blaine County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2404706856</SimpleData>
+		<SimpleData name="AWATER">26921320</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.636899,36.164894 -98.210405,36.164889 -98.207104,35.725187 -98.313153,35.725161 -98.313251,35.551523 -98.623244,35.551522 -98.632196,35.566032 -98.631985,35.812402 -98.636899,36.164894</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Choctaw</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">023</SimpleData>
+		<SimpleData name="COUNTYNS">01101799</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40023</SimpleData>
+		<SimpleData name="GEOID">40023</SimpleData>
+		<SimpleData name="NAMELSAD">Choctaw County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1995281898</SimpleData>
+		<SimpleData name="AWATER">75475686</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.991578,34.156805 -95.779376,34.156699 -95.156521,34.156965 -95.1559076171075,33.9384823885698 -95.226393,33.961954 -95.253623,33.92971 -95.283445,33.877746 -95.3104497954491,33.8738430381855 -95.352338,33.867789 -95.44737,33.86885 -95.525322,33.885487 -95.556915,33.92702 -95.603657,33.927195 -95.669978,33.905844 -95.737508,33.895967 -95.7896393177523,33.8724373846723 -95.918871,33.925057 -95.93815,34.1251 -95.991578,34.156805</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Le Flore</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">079</SimpleData>
+		<SimpleData name="COUNTYNS">01101827</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40079</SimpleData>
+		<SimpleData name="GEOID">40079</SimpleData>
+		<SimpleData name="NAMELSAD">Le Flore County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">4116561528</SimpleData>
+		<SimpleData name="AWATER">49746379</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.059512,34.855019 -94.997832,34.854915 -94.998125,34.941964 -94.927664,34.942025 -94.927863,35.058246 -94.927774,35.20261 -94.814276,35.202331 -94.813629,35.323344 -94.750224,35.356969 -94.668796,35.295029 -94.594801,35.327974 -94.49237,35.301776 -94.4340725641195,35.387474395379 -94.431515,35.369591 -94.435316,35.275893 -94.4363568693981,35.2467061646578 -94.4475060874703,34.9340729057232 -94.449058,34.890556 -94.4543955288439,34.7289436942281 -94.4575,34.634945 -94.4611686861559,34.5074566515725 -94.937604,34.507296 -94.937555,34.680792 -95.059616,34.680736 -95.059512,34.855019</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Marshall</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">095</SimpleData>
+		<SimpleData name="COUNTYNS">01101832</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40095</SimpleData>
+		<SimpleData name="GEOID">40095</SimpleData>
+		<SimpleData name="NAMELSAD">Marshall County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">962153977</SimpleData>
+		<SimpleData name="AWATER">143719930</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.968424,34.172684 -96.933503,34.172748 -96.620784,34.162041 -96.585355,34.114459 -96.548028,34.063302 -96.624803,34.009724 -96.57701,33.964406 -96.5946743073771,33.8830186573983 -96.659896,33.916666 -96.682103,33.876645 -96.712422,33.831633 -96.776766,33.841976 -96.794276,33.868886 -96.850593,33.847211 -96.897194,33.902954 -96.905253,33.947219 -96.934343303133,33.9455889292528 -96.934833,34.01293 -96.969627,34.07102 -96.968424,34.172684</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Beaver</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">007</SimpleData>
+		<SimpleData name="COUNTYNS">01101791</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40007</SimpleData>
+		<SimpleData name="GEOID">40007</SimpleData>
+		<SimpleData name="NAMELSAD">Beaver County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">4700407073</SimpleData>
+		<SimpleData name="AWATER">7347161</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.945466793078,36.9982468287288 -100.855634,36.998626 -100.633324986158,37.0001736090529 -100.552683,37.000735 -100.089481743903,37.0014794694635 -100.002571514322,37.001619153912 -100.00316,36.59325 -100.003761993368,36.4997018487376 -100.311018,36.499688 -100.546145126097,36.4995051393038 -100.592614,36.499469 -100.884174,36.499682 -100.954152157693,36.4995294966262 -100.945466793078,36.9982468287288</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Ellis</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">045</SimpleData>
+		<SimpleData name="COUNTYNS">01101810</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40045</SimpleData>
+		<SimpleData name="GEOID">40045</SimpleData>
+		<SimpleData name="NAMELSAD">Ellis County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3189509979</SimpleData>
+		<SimpleData name="AWATER">952235</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-100.00316,36.59325 -99.605634,36.592754 -99.596079,36.164061 -99.382074,36.164301 -99.381022,36.012925 -99.495812,35.978732 -99.558486,35.865988 -99.619813,35.842089 -99.717101,35.859769 -99.801389,35.910645 -99.809444,36.000044 -99.888309,35.987847 -99.925147,35.913664 -100.000396202899,35.8812329999967 -100.000399,36.055677 -100.000406,36.499702 -100.003761993368,36.4997018487376 -100.00316,36.59325</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>McCurtain</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">089</SimpleData>
+		<SimpleData name="COUNTYNS">01101835</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40089</SimpleData>
+		<SimpleData name="GEOID">40089</SimpleData>
+		<SimpleData name="NAMELSAD">McCurtain County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">4793486699</SimpleData>
+		<SimpleData name="AWATER">133952594</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.156521,34.156965 -95.151323,34.243737 -95.046585,34.243776 -95.046746,34.507276 -94.937604,34.507296 -94.4611686861559,34.5074566515725 -94.465425,34.359548 -94.470143947319,34.1901776556377 -94.474895,34.019655 -94.4772691832212,33.9408298614626 -94.481842,33.789008 -94.485875,33.637867 -94.528928,33.62184 -94.572872,33.669886 -94.630586,33.673401 -94.714865,33.707261 -94.7319329019959,33.7208305162803 -94.766146,33.748031 -94.841634,33.739431 -94.902276,33.776289 -94.93956,33.810503 -94.98165,33.852284 -95.046568,33.862565 -95.095002,33.904816 -95.149462,33.936336 -95.1559076171075,33.9384823885698 -95.156521,34.156965</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Bryan</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">013</SimpleData>
+		<SimpleData name="COUNTYNS">01101794</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40013</SimpleData>
+		<SimpleData name="GEOID">40013</SimpleData>
+		<SimpleData name="NAMELSAD">Bryan County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2342250031</SimpleData>
+		<SimpleData name="AWATER">101809038</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.624803,34.009724 -96.548028,34.063302 -96.585355,34.114459 -96.453836,34.1141 -96.407517,34.157317 -95.991578,34.156805 -95.93815,34.1251 -95.918871,33.925057 -95.7896393177523,33.8724373846723 -95.820596,33.858465 -95.8448785340707,33.860421904719 -95.887491,33.863856 -95.935325,33.875099 -96.063924,33.841523 -96.15163,33.831946 -96.173025,33.80056 -96.229023,33.748021 -96.277269,33.769735 -96.307389,33.735005 -96.363135,33.694215 -96.3796608259521,33.715530908566 -96.403507,33.746289 -96.436455,33.78005 -96.502286,33.77346 -96.523863,33.818114 -96.572937,33.819098 -96.592926,33.830916 -96.590112,33.880665 -96.5946743073771,33.8830186573983 -96.57701,33.964406 -96.624803,34.009724</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Pittsburg</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">121</SimpleData>
+		<SimpleData name="COUNTYNS">01101848</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40121</SimpleData>
+		<SimpleData name="GEOID">40121</SimpleData>
+		<SimpleData name="NAMELSAD">Pittsburg County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">3381261537</SimpleData>
+		<SimpleData name="AWATER">187443330</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-96.092001,34.767479 -96.088792,35.049875 -95.983077,35.151695 -95.907966,35.143494 -95.870663,35.185986 -95.75597,35.177198 -95.615664,35.249698 -95.602342,35.220739 -95.45125,35.296019 -95.455018,35.160381 -95.349525,35.160021 -95.349409,35.05852 -95.507738,35.029265 -95.514475,34.680718 -95.514511,34.594153 -95.67181,34.593732 -95.881987,34.593528 -95.882196,34.680534 -96.092043,34.680556 -96.092001,34.767479</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Muskogee</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">101</SimpleData>
+		<SimpleData name="COUNTYNS">01101838</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40101</SimpleData>
+		<SimpleData name="GEOID">40101</SimpleData>
+		<SimpleData name="NAMELSAD">Muskogee County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">2099548022</SimpleData>
+		<SimpleData name="AWATER">76078046</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-95.766114,35.856284 -95.650419,35.856644 -95.589736,35.76516 -95.402214,35.806633 -95.362317,35.822574 -95.265679,35.813266 -95.127163,35.812755 -95.127213,35.638788 -95.132271,35.526055 -95.085635,35.461396 -95.049933,35.458894 -95.170462,35.310106 -95.240718,35.26231 -95.344766,35.293035 -95.344799,35.551751 -95.712953,35.551738 -95.713081,35.725807 -95.766265,35.72575 -95.766114,35.856284</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Jefferson</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#ok_nad83">
+		<SimpleData name="STATEFP">40</SimpleData>
+		<SimpleData name="COUNTYFP">067</SimpleData>
+		<SimpleData name="COUNTYNS">01101821</SimpleData>
+		<SimpleData name="GEOIDFQ">0500000US40067</SimpleData>
+		<SimpleData name="GEOID">40067</SimpleData>
+		<SimpleData name="NAMELSAD">Jefferson County</SimpleData>
+		<SimpleData name="STUSPS">OK</SimpleData>
+		<SimpleData name="STATE_NAME">Oklahoma</SimpleData>
+		<SimpleData name="LSAD">06</SimpleData>
+		<SimpleData name="ALAND">1965685985</SimpleData>
+		<SimpleData name="AWATER">39417590</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-98.139227,34.289824 -97.562512,34.289183 -97.562365,34.09485 -97.560761,34.07115 -97.536818,33.983877 -97.5612431502211,33.899061506733 -97.596155,33.922106 -97.609091,33.968093 -97.671772,33.99137 -97.759834,33.92521 -97.803473,33.88019 -97.865765,33.849393 -97.951215,33.878424 -97.9519059508552,33.8912258148573 -97.953695,33.924373 -97.947572,33.991053 -98.005667,33.995964 -98.082839,34.002412 -98.099096,34.048639 -98.099328,34.104295 -98.123377,34.15454 -98.1384860257464,34.1412060197111 -98.139227,34.289824</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+</Folder>
+</Document></kml>

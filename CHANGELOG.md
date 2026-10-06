@@ -80,6 +80,13 @@ motion and how much of it falls along that radial.
 Output window → "Hold the program view" keeps the output's own camera: panning or zooming the
 program pane no longer moves what is on air, and taking a scene moves only the output.
 
+### Fixed: KMZ files whose main file links to layers inside them
+
+A KMZ written by GDAL/QGIS (and other tools that put each layer in its own file inside the KMZ)
+imported with no shapes, because only its main file was read. Layer files inside the same KMZ that
+the main file links to are now read too. Links to anything outside the KMZ are still never
+fetched.
+
 ### Added: workspaces and scenes remember your GIS layers
 
 Saving a workspace or a broadcast scene now records which imported GIS layers were on, in what
