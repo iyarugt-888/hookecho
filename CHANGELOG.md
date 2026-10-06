@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: velocity dealiasing and 1-degree tilts
+
+Upper tilts no longer draw with thin transparent stripes. About one row in eight was being left
+empty on every 1-degree tilt, because real radials don't sit exactly on the half-degree grid.
+Dealiasing is rebuilt on Py-ART's region method, and on 12 real storm volumes it now lands on the
+same unfolding as Py-ART for 99.6% of gates, up from 92%. Previously, fast fields on upper tilts
+were often left folded. Sweeps are unfolded at the Nyquist velocity the radar recorded wherever it
+gives one value for the sweep. The inspector shows the value used and whether it was decoded or
+estimated.
+
 ### Changed: the output window stays on its pane; scenes are cued, then taken
 
 The output window now stays on the pane that was active when you opened it, so working in another

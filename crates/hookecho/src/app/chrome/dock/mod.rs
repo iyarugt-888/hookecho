@@ -151,6 +151,8 @@ pub(crate) struct Probe {
     pub unambiguous_km: Option<f32>,
     /// The value came from the dealiased sweep.
     pub dealiased: bool,
+    /// The Nyquist velocity the dealiased sweep was unfolded at, m/s, and where it came from.
+    pub unfolded: Option<(f32, wxdata::dealias::NyquistSource)>,
 }
 
 /// The workstation's tool windows, in the order a dock's tab group lists them.

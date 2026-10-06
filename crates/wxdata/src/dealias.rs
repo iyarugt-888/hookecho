@@ -49,6 +49,92 @@ pub fn estimate_nyquist(vel: &[Option<f32>]) -> f32 {
         .fold(0.0f32, |m, v| m.max(v.abs()))
 }
 
+/// Where a sweep's Nyquist velocity came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NyquistSource {
+    /// Not known: no decoded value and no velocity to estimate from.
+    #[default]
+    Unknown,
+    /// Decoded from the radials' own Message 31 radial blocks.
+    Decoded,
+    /// Estimated as the largest raw |v|, because the radials carried no usable value.
+    Estimated,
+    /// Estimated, because the decoded values differ between rows (sectors at different PRFs),
+    /// which one unfolding interval cannot represent.
+    EstimatedVaries,
+    /// Estimated, because raw velocities exceed the decoded value: whatever that value is, the
+    /// field was not folded at it.
+    EstimatedInconsistent,
+}
+
+impl NyquistSource {
+    /// What a reader is told, after the value.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Decoded => "decoded",
+            Self::Estimated => "estimated from the largest |v| (none decoded)",
+            Self::EstimatedVaries => {
+                "estimated from the largest |v| (the decoded value varies by sector)"
+            }
+            Self::EstimatedInconsistent => {
+                "estimated from the largest |v| (raw values exceed the decoded one)"
+            }
+        }
+    }
+}
+
+/// How far decoded per-row values may differ and still be one Nyquist: the radial block carries
+/// it to 0.01 m/s, so rows of one PRF agree exactly; this only absorbs rounding.
+const NYQUIST_AGREEMENT_MS: f32 = 0.05;
+/// How far a raw |v| may sit past the decoded Nyquist before the two are inconsistent: Level II
+/// velocity comes in 0.5 m/s steps (1 m/s in the coarse mode), so a gate at the limit can round
+/// up past it by one step.
+const NYQUIST_QUANTIZATION_MS: f32 = 1.0;
+
+/// The Nyquist velocity to unfold a sweep at, and where it came from. `decoded` is the decoded
+/// per-row value (NaN or absent where a row carried none), `raw` the folded field.
+///
+/// The decoded value wins whenever it can be trusted. The largest observed |v| equals it on a
+/// storm whose winds reach the limit, but falls far short of it on a weak field, and dealiasing
+/// at the shortfall reads ordinary shear as folds — a 20 m/s couplet in a field peaking at
+/// ±12 m/s is "unfolded" by 24 m/s. ponytail: one value per sweep; a sweep sectorized at
+/// different PRFs falls back to the estimate rather than unfolding per sector.
+pub fn sweep_nyquist(decoded: &[f32], raw: &[Option<f32>]) -> (f32, NyquistSource) {
+    let estimate = estimate_nyquist(raw);
+    let estimated = |why: NyquistSource| {
+        if estimate > 0.0 {
+            (estimate, why)
+        } else {
+            (0.0, NyquistSource::Unknown)
+        }
+    };
+    let mut known: Vec<f32> = decoded
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .collect();
+    if known.is_empty() {
+        return estimated(NyquistSource::Estimated);
+    }
+    known.sort_by(f32::total_cmp);
+    let (lo, hi) = (known[0], known[known.len() - 1]);
+    if hi - lo > NYQUIST_AGREEMENT_MS {
+        return estimated(NyquistSource::EstimatedVaries);
+    }
+    let value = known[known.len() / 2];
+    if estimate > value + NYQUIST_QUANTIZATION_MS {
+        return estimated(NyquistSource::EstimatedInconsistent);
+    }
+    (value, NyquistSource::Decoded)
+}
+
+/// Bands each Nyquist interval is cut into for region finding (Py-ART's `interval_splits`).
+const BANDS: f32 = 3.0;
+/// Gates of no data a boundary may step over, along a radial or across azimuth (Py-ART's
+/// `skip_along_ray` and `skip_between_rays`).
+const MAX_GAP: usize = 100;
+
 /// Dealias a polar velocity grid laid out as `vel[az * gate_count + gate]`.
 /// `None` gates (no data / below threshold / range folded) pass through untouched.
 /// Azimuth wraps (bin 0 neighbors bin az_bins-1); range does not.
@@ -82,214 +168,277 @@ pub fn dealias_with_reference(
         return vel.to_vec();
     }
     let interval = 2.0 * nyquist;
-    // Two gates belong to the same region if their velocities are close enough that no
-    // fold sits between them. Half a Nyquist interval is Py-ART's default skip threshold.
-    let same_region = nyquist * 0.5;
 
-    // --- 1. Flood-fill connected regions of continuous velocity. ---
+    // --- 1. Regions, by Py-ART's segmentation. ---
+    // The Nyquist interval is cut into three equal bands (with more past ±V_ny when values lie
+    // there), and a region is a 4-connected run of gates inside one band. A band edge, not a
+    // neighbour difference, divides regions, so a region cannot creep across a fold through a
+    // chain of noisy gates each a little different from the last — which the previous
+    // neighbour-difference flood fill did, and which left whole sectors of fast fields unfolded.
+    let band_width = interval / BANDS;
+    let band = |v: f32| ((v + nyquist) / band_width).floor() as i32;
     // labels: usize::MAX = no data, otherwise the region id.
     const NONE: usize = usize::MAX;
     let mut labels = vec![NONE; n];
-    let idx = |az: usize, g: usize| az * gate_count + g;
-    // 4-neighbors with azimuthal wrap.
-    let neighbors = |az: usize, g: usize| {
-        let mut v: Vec<(usize, usize)> = Vec::with_capacity(4);
-        v.push(((az + 1) % az_bins, g));
-        v.push(((az + az_bins - 1) % az_bins, g));
-        if g + 1 < gate_count {
-            v.push((az, g + 1));
-        }
-        if g > 0 {
-            v.push((az, g - 1));
-        }
-        v
-    };
-
-    let mut region_count = 0usize;
+    let mut sizes: Vec<usize> = Vec::new();
     let mut stack = Vec::new();
-    for az in 0..az_bins {
-        for g in 0..gate_count {
-            let i = idx(az, g);
-            if vel[i].is_none() || labels[i] != NONE {
-                continue;
-            }
-            let region = region_count;
-            region_count += 1;
-            labels[i] = region;
-            stack.push((az, g));
-            while let Some((caz, cg)) = stack.pop() {
-                // A labelled cell always has a velocity (that is what labelling means); skip
-                // rather than assert it, so a future labelling change degrades instead of panics.
-                let Some(cv) = vel[idx(caz, cg)] else {
-                    continue;
-                };
-                for (naz, ng) in neighbors(caz, cg) {
-                    let ni = idx(naz, ng);
-                    let Some(nv) = vel[ni] else { continue };
-                    if labels[ni] == NONE && (nv - cv).abs() < same_region {
-                        labels[ni] = region;
-                        stack.push((naz, ng));
-                    }
+    for start in 0..n {
+        let Some(v0) = vel[start] else { continue };
+        if labels[start] != NONE {
+            continue;
+        }
+        let region = sizes.len();
+        let b = band(v0);
+        let mut size = 0usize;
+        labels[start] = region;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            size += 1;
+            let (az, g) = (i / gate_count, i % gate_count);
+            let neighbours = [
+                Some(((az + 1) % az_bins) * gate_count + g),
+                Some(((az + az_bins - 1) % az_bins) * gate_count + g),
+                (g + 1 < gate_count).then(|| i + 1),
+                (g > 0).then(|| i - 1),
+            ];
+            for j in neighbours.into_iter().flatten() {
+                if labels[j] == NONE && vel[j].is_some_and(|v| band(v) == b) {
+                    labels[j] = region;
+                    stack.push(j);
                 }
             }
         }
+        sizes.push(size);
     }
+    let region_count = sizes.len();
     if region_count == 0 {
         return vel.to_vec();
     }
 
-    // --- 2. Region sizes + inter-region boundary edges. ---
-    // edges[r] = list of (neighbor_region, v_self, v_neighbor) across shared boundaries.
-    let mut sizes = vec![0usize; region_count];
-    let mut edges: Vec<Vec<(usize, f32, f32)>> = vec![Vec::new(); region_count];
-    for az in 0..az_bins {
-        for g in 0..gate_count {
-            let i = idx(az, g);
-            let ra = labels[i];
-            if ra == NONE {
-                continue;
-            }
-            let Some(va) = vel[i] else { continue };
-            sizes[ra] += 1;
-            // Only scan the +az and +gate neighbors to record each boundary once.
-            for (naz, ng) in [((az + 1) % az_bins, g), (az, g + 1)] {
-                if ng >= gate_count {
-                    continue;
-                }
-                let ni = idx(naz, ng);
-                let rb = labels[ni];
-                if rb == NONE || rb == ra {
-                    continue;
-                }
-                let Some(vb) = vel[ni] else { continue };
-                edges[ra].push((rb, va, vb));
-                edges[rb].push((ra, vb, va));
-            }
+    // --- 2. Boundaries between regions. ---
+    // Each gate looks at its next neighbour along the radial and across azimuth (wrapping at
+    // north), stepping over up to MAX_GAP gates of no data as Py-ART does, so two regions a
+    // patch of filtered gates apart still constrain each other. Each touching pair is summed
+    // once: a vote per gate pair for the whole number of intervals f that, added to the high-id
+    // side, makes the pair continuous (f = round((v_lo − v_hi) / interval)).
+    type Votes = std::collections::HashMap<i32, u32>;
+    let mut pairs: std::collections::HashMap<(usize, usize), Votes> =
+        std::collections::HashMap::new();
+    let mut touch = |a: usize, b: usize, va: f32, vb: f32| {
+        if a == b {
+            return;
         }
-    }
-
-    // --- 3. Global fold optimizer. ---
-    // Every pair of touching regions votes, over all their shared gate pairs, for the integer
-    // fold difference that would make the boundary continuous. That gives one weighted edge per
-    // region pair, and the weight is evidence: a boundary of four hundred agreeing gates is a far
-    // better constraint than one of three. Solving the sweep is then a matter of believing the
-    // strongest constraints first — a maximum spanning tree over the region graph, rooted at the
-    // anchor — and letting the weak ones fall out of the arithmetic instead of the traversal
-    // order. The old greedy BFS took whatever edge it happened to reach first, which is why a
-    // multi-fold field could come apart at a seam: one thin boundary early in the walk fixed a
-    // region, and every region behind it inherited the mistake.
-    let mut pair_votes: std::collections::HashMap<
-        (usize, usize),
-        std::collections::HashMap<i32, u32>,
-    > = std::collections::HashMap::new();
-    for (ra, list) in edges.iter().enumerate() {
-        for &(rb, v_self, v_nb) in list {
-            if ra >= rb {
-                continue; // each pair recorded once, oriented low -> high
-            }
-            // fold = unfold[rb] - unfold[ra] that makes this gate pair continuous.
-            let fold = ((v_self as f64 - v_nb as f64) / interval as f64).round() as i32;
-            *pair_votes
-                .entry((ra, rb))
-                .or_default()
-                .entry(fold)
-                .or_insert(0) += 1;
-        }
-    }
-    // Collapse each pair to its winning fold plus a confidence = how many gate pairs backed it.
-    // adjacency[r] = (neighbor, fold applied as unfold[neighbor] - unfold[r], confidence).
-    let mut adjacency: Vec<Vec<(usize, i32, u32)>> = vec![Vec::new(); region_count];
-    for ((ra, rb), votes) in pair_votes {
-        let confidence = votes.values().copied().max().unwrap_or(0);
-        let fold = winning_fold(votes);
-        adjacency[ra].push((rb, fold, confidence));
-        adjacency[rb].push((ra, -fold, confidence));
-    }
-
-    let mut unfold = vec![0i32; region_count];
-    let mut solved = vec![false; region_count];
-    let Some(anchor) = (0..region_count).max_by_key(|&r| sizes[r]) else {
-        return vel.to_vec();
-    };
-    // Anchor fold: zero unless a reference field says otherwise. Same vote, against the previous
-    // sweep's value at each of the anchor's own gates.
-    unfold[anchor] = reference
-        .filter(|r| r.len() == n)
-        .map(|refv| {
-            let mut votes: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
-            for i in 0..n {
-                if labels[i] != anchor {
-                    continue;
-                }
-                let (Some(v), Some(rv)) = (vel[i], refv[i]) else {
-                    continue;
-                };
-                let fold = ((rv as f64 - v as f64) / interval as f64).round() as i32;
-                *votes.entry(fold).or_insert(0) += 1;
-            }
-            winning_fold(votes)
-        })
-        .unwrap_or(0);
-
-    // Maximum spanning tree by confidence, grown Prim-style from the anchor. Region ids break
-    // ties so the result does not depend on hash iteration order.
-    let mut frontier: Vec<(u32, usize, usize, i32)> = Vec::new(); // (confidence, from, to, fold)
-    let push_edges = |frontier: &mut Vec<(u32, usize, usize, i32)>, r: usize| {
-        for &(nb, fold, confidence) in &adjacency[r] {
-            frontier.push((confidence, r, nb, fold));
-        }
-    };
-    solved[anchor] = true;
-    push_edges(&mut frontier, anchor);
-    while !frontier.is_empty() {
-        // Best remaining edge into an unsolved region.
-        let best = frontier
-            .iter()
-            .enumerate()
-            .filter(|(_, &(_, _, to, _))| !solved[to])
-            .max_by_key(|(_, &(confidence, from, to, _))| {
-                (confidence, std::cmp::Reverse(from), std::cmp::Reverse(to))
-            })
-            .map(|(i, &e)| (i, e));
-        let Some((_, (_, from, to, fold))) = best else {
-            break; // nothing reachable left; disconnected regions keep their zero offset
+        let (lo, hi, d) = if a < b {
+            (a, b, va as f64 - vb as f64)
+        } else {
+            (b, a, vb as f64 - va as f64)
         };
-        unfold[to] = unfold[from] + fold;
-        solved[to] = true;
-        frontier.retain(|&(_, _, t, _)| !solved[t]);
-        push_edges(&mut frontier, to);
+        let fold = (d / interval as f64).round() as i32;
+        *pairs.entry((lo, hi)).or_default().entry(fold).or_insert(0) += 1;
+    };
+    let az_steps = MAX_GAP.min(az_bins.saturating_sub(1));
+    for i in 0..n {
+        let ra = labels[i];
+        if ra == NONE {
+            continue;
+        }
+        let Some(va) = vel[i] else { continue };
+        let (az, g) = (i / gate_count, i % gate_count);
+        // Along the radial.
+        for step in 1..=MAX_GAP + 1 {
+            let gg = g + step;
+            if gg >= gate_count {
+                break;
+            }
+            let j = i + step;
+            if labels[j] != NONE {
+                if let Some(vb) = vel[j] {
+                    touch(ra, labels[j], va, vb);
+                }
+                break;
+            }
+        }
+        // Across azimuth.
+        for step in 1..=az_steps + 1 {
+            if step >= az_bins {
+                break;
+            }
+            let j = ((az + step) % az_bins) * gate_count + g;
+            if labels[j] != NONE {
+                if let Some(vb) = vel[j] {
+                    touch(ra, labels[j], va, vb);
+                }
+                break;
+            }
+        }
     }
 
-    // Bounded refinement. The tree used one edge per region; every other boundary is now evidence
-    // that region's offset can be checked against. Re-vote each region against all its solved
-    // neighbours, weighted by boundary confidence, and stop as soon as a pass changes nothing.
-    // ponytail: ten passes, not to convergence — a field that is still moving after ten passes is
-    // oscillating between two equally-supported answers, and picking one is as good as the other.
-    for _ in 0..10 {
-        let mut changed = false;
-        for r in 0..region_count {
-            if r == anchor || !solved[r] {
+    // --- 3. Merge, heaviest boundary first (Py-ART's `_combine_regions`). ---
+    // Take the boundary with the most gate pairs, unfold the smaller side by that boundary's fold
+    // so it continues the larger, and merge the two into one node; the merged node's boundaries
+    // with a common neighbour add together, so evidence accumulates as the sweep is assembled
+    // instead of every region being judged on one boundary alone. Ties go to the lower boundary
+    // id, and ids follow sorted region pairs, so the result is the same on every run.
+    //
+    // One departure from Py-ART: a boundary's fold is the one most of its gate pairs vote for,
+    // not its rounded mean difference. A boundary that runs along a shear line carries pairs that
+    // differ by most of an interval without any fold between them, and a mean lets a minority of
+    // those drag the whole boundary over the rounding line; a vote does not.
+    struct Edge {
+        a: usize,
+        b: usize,
+        weight: i64,
+        /// Votes for the folds that, added to `b`, continue it from `a`.
+        votes: Votes,
+        alive: bool,
+    }
+    /// The votes as seen with the edge's ends swapped, or one end shifted by `k` intervals.
+    fn reoriented(votes: &Votes, sign: i32, shift: i32) -> Votes {
+        votes.iter().map(|(&f, &c)| (sign * f + shift, c)).collect()
+    }
+    let mut keys: Vec<(usize, usize)> = pairs.keys().copied().collect();
+    keys.sort_unstable();
+    let mut edges: Vec<Edge> = Vec::with_capacity(keys.len());
+    let mut node_edges: Vec<std::collections::HashMap<usize, usize>> =
+        vec![std::collections::HashMap::new(); region_count];
+    let mut heap = std::collections::BinaryHeap::new();
+    for (id, key) in keys.iter().enumerate() {
+        let votes = pairs.remove(key).unwrap_or_default();
+        let weight = votes.values().map(|&c| i64::from(c)).sum();
+        edges.push(Edge {
+            a: key.0,
+            b: key.1,
+            weight,
+            votes,
+            alive: true,
+        });
+        node_edges[key.0].insert(key.1, id);
+        node_edges[key.1].insert(key.0, id);
+        heap.push((weight, std::cmp::Reverse(id)));
+    }
+    drop(pairs);
+    let mut node_size = sizes.clone();
+    let mut members: Vec<Vec<usize>> = (0..region_count).map(|r| vec![r]).collect();
+    let mut unfold = vec![0i32; region_count];
+    while let Some((weight, std::cmp::Reverse(id))) = heap.pop() {
+        if !edges[id].alive || edges[id].weight != weight {
+            continue; // superseded by a combined boundary, or already inside one node
+        }
+        let (n1, n2) = (edges[id].a, edges[id].b);
+        let mut rdiff = winning_fold(edges[id].votes.clone());
+        let (base, merge) = if node_size[n1] > node_size[n2] {
+            (n1, n2)
+        } else {
+            rdiff = -rdiff;
+            (n2, n1)
+        };
+        // Unfold the merging node: its regions, and its boundaries' sums.
+        if rdiff != 0 {
+            for &r in &members[merge] {
+                unfold[r] += rdiff;
+            }
+            // Adding k intervals to an edge's `a` end raises every vote by k; to its `b` end,
+            // lowers it.
+            for &e in node_edges[merge].values() {
+                let shift = if edges[e].a == merge { rdiff } else { -rdiff };
+                edges[e].votes = reoriented(&edges[e].votes, 1, shift);
+            }
+        }
+        edges[id].alive = false;
+        node_edges[base].remove(&merge);
+        node_edges[merge].remove(&base);
+        let moved: Vec<(usize, usize)> = node_edges[merge].drain().collect();
+        for (nb, e) in moved {
+            if edges[e].a == merge {
+                edges[e].a = base;
+            } else {
+                edges[e].b = base;
+            }
+            node_edges[nb].remove(&merge);
+            if let Some(&be) = node_edges[base].get(&nb) {
+                let sign = if edges[e].a == edges[be].a { 1 } else { -1 };
+                let add = reoriented(&edges[e].votes, sign, 0);
+                for (f, c) in add {
+                    *edges[be].votes.entry(f).or_insert(0) += c;
+                }
+                edges[be].weight += edges[e].weight;
+                edges[e].votes = Votes::new();
+                edges[e].alive = false;
+                heap.push((edges[be].weight, std::cmp::Reverse(be)));
+            } else {
+                node_edges[base].insert(nb, e);
+                node_edges[nb].insert(base, e);
+            }
+        }
+        let merged = std::mem::take(&mut members[merge]);
+        members[base].extend(merged);
+        node_size[base] += node_size[merge];
+        node_size[merge] = 0;
+    }
+
+    // A continuity reference, when given, sets each connected node's whole number of folds: a
+    // vote, over the node's gates, for the shift that brings it onto the previous sweep. That is
+    // what keeps a storm genuinely faster than the Nyquist velocity unfolded from volume to
+    // volume, where the field alone cannot say how many folds its largest piece carries.
+    let mut referenced = false;
+    if let Some(refv) = reference.filter(|r| r.len() == n) {
+        let mut votes: Vec<std::collections::HashMap<i32, u32>> =
+            vec![std::collections::HashMap::new(); region_count];
+        let mut node_of = vec![0usize; region_count];
+        for (node, m) in members.iter().enumerate() {
+            for &r in m {
+                node_of[r] = node;
+            }
+        }
+        for i in 0..n {
+            let r = labels[i];
+            if r == NONE {
                 continue;
             }
-            let mut votes: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
-            for &(nb, fold, confidence) in &adjacency[r] {
-                if solved[nb] {
-                    *votes.entry(unfold[nb] - fold).or_insert(0) += confidence;
+            let (Some(v), Some(rv)) = (vel[i], refv[i]) else {
+                continue;
+            };
+            let unfolded = v as f64 + f64::from(unfold[r]) * interval as f64;
+            let fold = ((rv as f64 - unfolded) / interval as f64).round() as i32;
+            *votes[node_of[r]].entry(fold).or_insert(0) += 1;
+        }
+        for (node, v) in votes.into_iter().enumerate() {
+            if v.is_empty() {
+                continue;
+            }
+            referenced = true;
+            let shift = winning_fold(v);
+            if shift != 0 {
+                for &r in &members[node] {
+                    unfold[r] += shift;
                 }
             }
-            if votes.is_empty() {
-                continue;
-            }
-            let best = winning_fold(votes);
-            if best != unfold[r] {
-                unfold[r] = best;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
         }
     }
+
+    // Centering, as Py-ART's `centered` option does: with nothing outside the sweep to say how
+    // many folds it carries, shift every region by the one whole number of intervals that brings
+    // the gate-weighted mean fold nearest zero. Radial velocity around a sweep averages near zero
+    // (the inbound and outbound halves of a wind cancel), so a sweep whose mean fold is a whole
+    // interval off is one assembled around a folded region: the largest piece of a fast field
+    // can itself be aliased. A continuity reference is better evidence than the average, and wins.
+    if !referenced {
+        let gates: i64 = sizes.iter().map(|&s| s as i64).sum();
+        let folds: i64 = sizes
+            .iter()
+            .zip(&unfold)
+            .map(|(&s, &u)| s as i64 * i64::from(u))
+            .sum();
+        if gates > 0 {
+            let offset = (folds as f64 / gates as f64).round() as i32;
+            if offset != 0 {
+                for u in unfold.iter_mut() {
+                    *u -= offset;
+                }
+            }
+        }
+    }
+
     // --- 4. Apply per-region fold offsets. ---
     let mut out = vel.to_vec();
     for (i, o) in out.iter_mut().enumerate() {

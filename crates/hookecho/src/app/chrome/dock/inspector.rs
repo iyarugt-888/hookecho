@@ -60,10 +60,23 @@ impl HookEchoApp {
                     index.resolve(row)
                 }),
             pass_site,
-            nyquist_mps: sweep.estimated_nyquist_mps(),
+            // A dealiased sweep's values run past the Nyquist velocity, so an estimate read off
+            // them would be too high: it says what it was unfolded at instead.
+            nyquist_mps: if dealias {
+                use wxdata::dealias::NyquistSource as N;
+                matches!(
+                    sweep.nyquist_source,
+                    N::Estimated | N::EstimatedVaries | N::EstimatedInconsistent
+                )
+                .then_some(sweep.nyquist_ms)
+            } else {
+                sweep.estimated_nyquist_mps()
+            },
             nyquist_decoded_mps: sweep.row_value(&sweep.row_nyquist_mps, lon, lat),
             unambiguous_km: sweep.row_value(&sweep.row_unambiguous_km, lon, lat),
             dealiased: dealias,
+            unfolded: (dealias && sweep.nyquist_ms > 0.0)
+                .then_some((sweep.nyquist_ms, sweep.nyquist_source)),
         })
     }
 
@@ -226,6 +239,9 @@ impl HookEchoApp {
             .and_then(|p| {
                 nyquist_line(p.nyquist_decoded_mps, p.nyquist_mps, disp_factor, disp_unit)
             });
+        let unfolded = probe
+            .as_ref()
+            .and_then(|p| unfolded_line(p.unfolded, disp_factor, disp_unit));
         let unambiguous = probe
             .as_ref()
             .and_then(|p| p.unambiguous_km)
@@ -354,6 +370,9 @@ impl HookEchoApp {
                     }
                     if let Some(n) = &nyquist {
                         ws::kv(ui, &t, "Nyquist", n, None);
+                    }
+                    if let Some(u) = &unfolded {
+                        ws::kv(ui, &t, "Unfolded at", u, None);
                     }
                     if let Some(r) = &unambiguous {
                         ws::kv(ui, &t, "Unambiguous range", r, None);
@@ -1090,9 +1109,37 @@ pub(crate) fn nyquist_line(
     }
 }
 
+/// The interval a dealiased sweep was unfolded at, and whether the radar said so or it was read
+/// off the values.
+pub(crate) fn unfolded_line(
+    unfolded: Option<(f32, wxdata::dealias::NyquistSource)>,
+    factor: f32,
+    unit: &str,
+) -> Option<String> {
+    let (n, source) = unfolded?;
+    Some(format!(
+        "\u{b1}{:.1} {unit} ({})",
+        n * factor,
+        source.label()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_unfolding_interval_says_where_it_came_from() {
+        use wxdata::dealias::NyquistSource as N;
+        assert_eq!(
+            unfolded_line(Some((22.11, N::Decoded)), 1.0, "m/s").as_deref(),
+            Some("\u{b1}22.1 m/s (decoded)")
+        );
+        let varies = unfolded_line(Some((26.5, N::EstimatedVaries)), 1.943_84, "kt").unwrap();
+        assert!(varies.starts_with("\u{b1}51.5 kt (estimated"), "{varies}");
+        assert!(varies.contains("varies by sector"), "{varies}");
+        assert_eq!(unfolded_line(None, 1.0, "m/s"), None);
+    }
 
     fn coverage(
         policy: wxdata::level2::temporal::TemporalPolicy,
@@ -1635,6 +1682,7 @@ mod tests {
             nyquist_decoded_mps: None,
             unambiguous_km: None,
             dealiased: false,
+            unfolded: None,
         };
         assert_eq!(probe_flags(&p), ["range folded"]);
         let q = Probe {
