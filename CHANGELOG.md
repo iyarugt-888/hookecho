@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the output window stays on its pane; scenes are cued, then taken
+
+The output window now stays on the pane that was active when you opened it, so working in another
+pane no longer changes what is on air. Pick a different pane, or "Follow the active pane" for the
+old behaviour, under Output window → Program shows. Clicking a scene now cues it in a preview that
+shows where it will go and anything it will skip; Take puts the whole scene on at once. Alt+1..9
+still switch scenes straight away. If the program pane has been closed, Take is refused and the
+output says so instead of switching to another pane.
+
 ### Added: workspaces and scenes remember your GIS layers
 
 Saving a workspace or a broadcast scene now records which imported GIS layers were on, in what
