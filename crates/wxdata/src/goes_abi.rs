@@ -47,7 +47,7 @@ impl Satellite {
 /// rapid scan) and moves as the event does — so where it is has to be read from each granule
 /// ([`Footprint`]), never assumed. Full disk (10-minute cadence, mostly ocean for a US-focused
 /// app) is not read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub enum Sector {
     #[default]
     Conus,

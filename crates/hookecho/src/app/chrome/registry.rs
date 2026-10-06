@@ -373,6 +373,9 @@ impl HookEchoApp {
 
     pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
         if let RequestLane::Field(layer) = &lane {
+            if let Some(request) = self.selected_goes_request_for(self.active, *layer) {
+                return self.goes_health(request);
+            }
             if let Some(context) = self.selected_mrms_context_for(self.active, *layer) {
                 return self.mrms_context_health(context);
             }
@@ -404,6 +407,14 @@ impl HookEchoApp {
                 }
                 return health;
             }
+        }
+        if lane == RequestLane::Feed(FeedSource::GoesMesoSector) {
+            if let Some(request) = self.selected_goes_footprint_for(self.active) {
+                return self.goes_health(request);
+            }
+        }
+        if let RequestLane::Goes(request) = lane {
+            return self.goes_health(request);
         }
         if let RequestLane::Mrms(context) = lane {
             return self.mrms_context_health(context);

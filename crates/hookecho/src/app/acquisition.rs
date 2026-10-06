@@ -17,6 +17,7 @@ pub(super) struct OverlayAcquisition {
     sender: Sender<OverlayDelivery>,
     requests: Mutex<RequestBook>,
     model_jobs: Mutex<std::collections::HashMap<super::ModelRequest, (u64, AbortHandle)>>,
+    goes_jobs: Mutex<std::collections::HashMap<super::GoesRequest, (u64, AbortHandle)>>,
     mrms_jobs: Mutex<std::collections::HashMap<super::MrmsContext, (u64, AbortHandle)>>,
 }
 
@@ -32,6 +33,7 @@ impl OverlayAcquisition {
             sender,
             requests: Mutex::new(RequestBook::default()),
             model_jobs: Mutex::new(Default::default()),
+            goes_jobs: Mutex::new(Default::default()),
             mrms_jobs: Mutex::new(Default::default()),
         }
     }
@@ -72,6 +74,15 @@ impl OverlayAcquisition {
                 jobs.remove(request);
             }
         }
+        if let RequestLane::Goes(request) = lane {
+            let mut jobs = self
+                .goes_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if jobs.get(request).is_some_and(|(g, _)| *g == generation) {
+                jobs.remove(request);
+            }
+        }
         self.requests().finish(lane, generation, error, valid_time)
     }
 
@@ -80,6 +91,17 @@ impl OverlayAcquisition {
     }
 
     pub(super) fn discard(&self, lane: &RequestLane, generation: u64) {
+        if let RequestLane::Goes(request) = lane {
+            let mut jobs = self
+                .goes_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if jobs.get(request).is_some_and(|(g, _)| *g == generation) {
+                if let Some((_, handle)) = jobs.remove(request) {
+                    handle.abort();
+                }
+            }
+        }
         self.requests().discard(lane, generation);
     }
 
@@ -97,6 +119,16 @@ impl OverlayAcquisition {
         if let RequestLane::Mrms(request) = lane {
             if let Some((_, handle)) = self
                 .mrms_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(request)
+            {
+                handle.abort();
+            }
+        }
+        if let RequestLane::Goes(request) = lane {
+            if let Some((_, handle)) = self
+                .goes_jobs
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(request)
@@ -155,6 +187,37 @@ impl OverlayAcquisition {
         retired
     }
 
+    pub(super) fn cancel_unwanted_goes(
+        &self,
+        wanted: &std::collections::HashSet<super::GoesRequest>,
+    ) -> Vec<super::GoesRequest> {
+        let mut jobs = self
+            .goes_jobs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let retired: Vec<_> = jobs
+            .keys()
+            .filter(|r| !wanted.contains(r))
+            .copied()
+            .collect();
+        for request in &retired {
+            if let Some((generation, handle)) = jobs.remove(request) {
+                handle.abort();
+                self.requests()
+                    .discard(&RequestLane::Goes(*request), generation);
+            }
+        }
+        retired
+    }
+    pub(super) fn spawn_goes(&self, ctx: &egui::Context, request: super::GoesRequest, cap: usize) {
+        let source = request.source();
+        debug_assert_eq!(
+            super::GoesRequest::from_source(&source, request.tolerance_minutes),
+            Some(request)
+        );
+        self.spawn_lane(ctx, source, cap, RequestLane::Goes(request));
+    }
+
     pub(super) fn set_cache_resident(&self, lane: &RequestLane, resident: bool) {
         self.requests().set_cache_resident(lane, resident);
     }
@@ -187,6 +250,10 @@ impl OverlayAcquisition {
             RequestLane::Mrms(context) => Some(context),
             _ => None,
         };
+        let goes_request = match lane {
+            RequestLane::Goes(request) => Some(request),
+            _ => None,
+        };
         let registration = if let Some(request) = model_request {
             let (handle, registration) = AbortHandle::new_pair();
             if let Some((_, old)) = self
@@ -209,6 +276,17 @@ impl OverlayAcquisition {
                 old.abort();
             }
             Some(registration)
+        } else if let Some(request) = goes_request {
+            let (handle, registration) = AbortHandle::new_pair();
+            if let Some((_, old)) = self
+                .goes_jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(request, (generation, handle))
+            {
+                old.abort();
+            }
+            Some(registration)
         } else {
             None
         };
@@ -222,7 +300,14 @@ impl OverlayAcquisition {
                     .unwrap_or_else(Err)
                 {
                     // Oversized grids are prepared off-frame, before their delivery to the UI.
-                    Ok(msg) => Ok(prepare_message(msg, cap)),
+                    Ok(msg) => {
+                        let msg = if let Some(request) = goes_request {
+                            tag_goes_message(request, msg)?
+                        } else {
+                            msg
+                        };
+                        Ok(prepare_message(msg, cap))
+                    }
                     Err(e) => Err(e.to_string()),
                 }
             };
@@ -246,8 +331,33 @@ impl OverlayAcquisition {
     }
 }
 
+fn tag_goes_message(request: super::GoesRequest, msg: OverlayMsg) -> Result<OverlayMsg, String> {
+    let tagged = match msg {
+        OverlayMsg::Field(layer, field) if request.layer == Some(layer) => {
+            OverlayMsg::GoesField(request, request.stamp(field))
+        }
+        OverlayMsg::GoesFootprint(sector, fp)
+            if request.layer.is_none() && sector == request.sector =>
+        {
+            OverlayMsg::GoesFootprintFor(request, fp)
+        }
+        _ => return Err("GOES payload does not match its original request".into()),
+    };
+    if !request.accepts_message(&tagged) {
+        return Err("GOES scan is outside the selected analysis tolerance".into());
+    }
+    Ok(tagged)
+}
+
 fn prepare_message(msg: OverlayMsg, cap: usize) -> OverlayMsg {
     match msg {
+        OverlayMsg::GoesField(request, field) => {
+            let kind = request
+                .layer
+                .and_then(|layer| layer.descriptor())
+                .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
+            OverlayMsg::GoesField(request, field.for_display(cap, kind))
+        }
         OverlayMsg::Field(layer, f) => OverlayMsg::Field(layer, f.decimated(cap)),
         OverlayMsg::StampedField(layer, f) => {
             let kind = layer

@@ -17,6 +17,7 @@ pub(crate) enum RequestLane {
     Field(crate::render::FieldLayer),
     Model(super::ModelRequest),
     Mrms(super::MrmsContext),
+    Goes(super::GoesRequest),
     Placefile(String),
     Feed(FeedSource),
 }
@@ -26,6 +27,7 @@ impl RequestLane {
         match self {
             Self::Model(request) => request.description(),
             Self::Mrms(request) => request.description(),
+            Self::Goes(request) => request.description(),
             Self::Field(layer) => format!("field {}", layer.slug()),
             Self::Placefile(source) => format!("Placefile {source}"),
             Self::Feed(source) => source.label().into(),
@@ -37,6 +39,7 @@ impl RequestLane {
             Self::Field(layer) => field_refresh_secs(*layer),
             Self::Model(request) => field_refresh_secs(request.layer()),
             Self::Mrms(request) => field_refresh_secs(request.layer),
+            Self::Goes(request) => request.cadence().as_secs(),
             Self::Placefile(_) => 120,
             Self::Feed(source) => source.cadence_secs(),
         };
@@ -46,9 +49,11 @@ impl RequestLane {
     pub(crate) fn severity(&self) -> crate::source_health::Severity {
         match self {
             Self::Feed(source) => source.severity(),
-            Self::Field(_) | Self::Model(_) | Self::Mrms(_) | Self::Placefile(_) => {
-                crate::source_health::Severity::Routine
-            }
+            Self::Field(_)
+            | Self::Model(_)
+            | Self::Mrms(_)
+            | Self::Goes(_)
+            | Self::Placefile(_) => crate::source_health::Severity::Routine,
         }
     }
 
@@ -57,6 +62,7 @@ impl RequestLane {
             Self::Field(layer) => crate::source_health::field_endpoint_family(*layer),
             Self::Model(request) => crate::source_health::field_endpoint_family(request.layer()),
             Self::Mrms(request) => crate::source_health::field_endpoint_family(request.layer),
+            Self::Goes(_) => crate::source_health::EndpointFamily::GoesOpenData,
             Self::Placefile(_) => crate::source_health::EndpointFamily::UserConfigured,
             Self::Feed(source) => source.endpoint_family(),
         }

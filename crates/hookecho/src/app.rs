@@ -13,6 +13,8 @@ mod case;
 mod chrome;
 mod field_state;
 mod goes_timeline;
+mod goes_context;
+pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
 mod layer_probe;
 mod live_session;
@@ -1461,23 +1463,10 @@ pub struct HookEchoApp {
     diff_mode: crate::fielddiff::DiffMode,
     diff_valid: Option<crate::fielddiff::ComparisonTimes>,
     diff_error: Option<String>,
-    /// Which `settings.goes_satellite_west` each GOES band was last fetched for, so flipping the
-    /// satellite refetches at once instead of waiting out the normal cadence.
-    goes_west_key: std::collections::HashMap<crate::render::FieldLayer, bool>,
-    /// The GOES RGB recipe last fetched, so picking another refetches at once.
-    goes_rgb_fetched: Option<&'static str>,
-    /// The ABI sector each GOES layer was last fetched from, so a change of sector (a choice, or
-    /// the fallback to CONUS when a mesoscale box leaves the view) refetches at once.
-    goes_fetched_sector:
-        std::collections::HashMap<crate::render::FieldLayer, wxdata::goes_abi::Sector>,
-    /// Where the chosen mesoscale sector was last seen pointed (ROADMAP_NEW E5).
-    goes_footprint: Option<(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint)>,
-    /// When the mesoscale footprint was last probed on its own (while falling back to CONUS).
-    goes_footprint_probe: Option<Instant>,
-    /// The scan slot each GOES layer was last fetched for (`goes_slot`): `None` for the newest,
-    /// else the archive slot a scrubbed view asked for (ROADMAP_NEW A2/E7: satellite follows the
-    /// radar's time).
-    goes_fetched_slot: std::collections::HashMap<crate::render::FieldLayer, Option<i64>>,
+    /// Request and accepted identity are separate from the shared decoded GOES texture.
+    goes_fields: std::collections::HashMap<crate::render::FieldLayer, goes_context::GoesSlot>,
+    goes_footprint: Option<(GoesRequest, wxdata::goes_abi::Footprint)>,
+    goes_footprint_slot: goes_context::GoesSlot,
     /// GLM flashes for a scrubbed-back view: the window ending at that time (ROADMAP_NEW E6).
     glm_archive: Option<(DateTime<Utc>, Vec<wxdata::glm::Flash>)>,
     /// The minute slot the GLM archive window was last asked for.
@@ -5929,7 +5918,7 @@ impl HookEchoApp {
         // Where the chosen GOES mesoscale sector is pointed (ROADMAP_NEW E5), while a GOES layer
         // reads it: its box, following the sector as NOAA moves it, and whether this view is in it.
         if let Some((sector, fp)) = self
-            .goes_footprint
+            .goes_footprint_for(idx)
             .filter(|(s, _)| *s == self.settings.goes_sector && s.is_meso())
             .filter(|_| self.goes_layers_on())
         {
@@ -5953,7 +5942,7 @@ impl HookEchoApp {
                 8.0,
                 5.0,
             ));
-            let reading = self.goes_sector_now() == sector;
+            let reading = self.goes_sector_for_pane(idx) == sector;
             // At the bottom-left corner: the top-left is where the layer's colour scale sits.
             painter.text(
                 corners[3] + egui::vec2(4.0, -4.0),
@@ -8016,6 +8005,7 @@ fn is_goes_frame_layer(layer: crate::render::FieldLayer) -> bool {
 /// The scan slot a GOES request for `at` falls in: `None` for the newest, else the sector's
 /// cadence-long slot holding `at`, so scrubbing within one scan does not refetch but stepping to
 /// the next does.
+#[cfg(test)]
 pub(crate) fn goes_slot(
     at: Option<DateTime<Utc>>,
     sector: wxdata::goes_abi::Sector,
@@ -8026,6 +8016,7 @@ pub(crate) fn goes_slot(
 /// Whether a GOES layer's grid can be painted for a view at `target` (`None`: live): only one
 /// fetched for the slot now wanted, and, scrubbed back, a frame within `tolerance` of the target.
 /// So an old live frame never sits over an archive scan, nor an archive frame over live radar.
+#[cfg(test)]
 pub(crate) fn goes_frame_ready(
     fetched_slot: Option<Option<i64>>,
     wanted_slot: Option<i64>,

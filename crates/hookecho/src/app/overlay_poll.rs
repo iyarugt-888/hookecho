@@ -57,6 +57,18 @@ impl HookEchoApp {
                             result = Err("MRMS reply does not match its product, selected analysis or tolerance".into());
                         }
                     }
+                    if let RequestLane::Goes(request) = lane {
+                        if !self.goes_request_current(request) {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                        if result
+                            .as_ref()
+                            .is_ok_and(|msg| !request.accepts_message(msg))
+                        {
+                            result = Err("GOES reply does not match its satellite, sector, product or selected analysis".into());
+                        }
+                    }
                     if let Ok(OverlayMsg::DerivedFields(delivery)) = &result {
                         if !self.derived_key_current(&delivery.key) {
                             self.acquisition.discard(&lane, generation);
@@ -239,17 +251,37 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::Field(layer, field) => {
-                    // A GOES layer read from a mesoscale sector says where the sector is now.
-                    if let Some(&sector) = self.goes_fetched_sector.get(&layer) {
-                        if sector.is_meso() {
-                            self.goes_footprint =
-                                Some((sector, wxdata::goes_abi::Footprint::of(&field)));
+                    // GOES grids must arrive with their original immutable request.
+                    if !goes_context::is_goes(layer) {
+                        self.accept_field(layer, field, None);
+                    }
+                }
+                OverlayMsg::GoesFootprint(..) => {}
+                OverlayMsg::GoesField(request, field) => {
+                    if self.goes_request_current(request) && request.accepts_field(&field) {
+                        let layer = request.layer.unwrap();
+                        if self
+                            .goes_fields
+                            .get_mut(&layer)
+                            .is_some_and(|slot| slot.accept(request))
+                        {
+                            if request.sector.is_meso() {
+                                self.goes_footprint = Some((
+                                    request.footprint_request(),
+                                    wxdata::goes_abi::Footprint::of(&field.data),
+                                ));
+                            }
+                            self.accept_field(layer, field.data, Some(field.stamp));
                         }
                     }
-                    self.accept_field(layer, field, None);
                 }
-                OverlayMsg::GoesFootprint(sector, fp) => {
-                    self.goes_footprint = Some((sector, fp));
+                OverlayMsg::GoesFootprintFor(request, fp) => {
+                    if self.goes_request_current(request)
+                        && request.accepts_time(fp.time)
+                        && self.goes_footprint_slot.accept(request)
+                    {
+                        self.goes_footprint = Some((request, fp));
+                    }
                 }
                 OverlayMsg::GlmWindow(end, flashes) => {
                     self.glm_archive = Some((end, flashes));
