@@ -3590,7 +3590,14 @@ the RTMA for the same valid hours, and the "Model verification…" window shows 
   says so.
 - [ ] RAOB — not wired
 - [x] RTMA/URMA — RTMA only (real-time analysis); URMA is not read
-- [ ] MRMS precip/reflectivity where scientifically appropriate — not wired
+- [x] MRMS precip/reflectivity where scientifically appropriate — reflectivity (2026-10-07):
+  "Composite reflectivity" in the Model verification window, scored only against the MRMS
+  mosaic within 5 min of the valid time. The mosaic's in-coverage no-echo code (−99, which
+  display decoding turns into a gap like the outside-coverage −999) reads 0 dBZ for scoring
+  (`mrms::decode_grib2_scoring`), and forecast values below 0 dBZ are floored the same way, so a
+  forecast storm where nothing happened is a false alarm rather than an unscored cell. Live: HRRR
+  F+01 over CONUS, 920,627 cells, 35 dBZ POD 0.34 / FAR 0.84 / frequency bias 2.14. MRMS
+  precipitation (QPE) is still not wired.
 
 Metrics:
 

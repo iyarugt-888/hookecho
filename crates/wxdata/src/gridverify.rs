@@ -269,15 +269,18 @@ pub enum Truth {
     Rtma,
     /// METAR station reports nearest the valid time, each station once.
     Metar,
+    /// The MRMS reflectivity mosaic nearest the valid time, area-weighted.
+    Mrms,
 }
 
 impl Truth {
-    pub const ALL: [Truth; 2] = [Truth::Rtma, Truth::Metar];
+    pub const ALL: [Truth; 3] = [Truth::Rtma, Truth::Metar, Truth::Mrms];
 
     pub fn label(self) -> &'static str {
         match self {
             Truth::Rtma => "RTMA analysis",
             Truth::Metar => "METAR stations",
+            Truth::Mrms => "MRMS radar mosaic",
         }
     }
 }
@@ -287,29 +290,57 @@ impl Truth {
 pub enum VerifyField {
     Temp2m,
     Dewpoint2m,
+    /// Composite reflectivity, scored against the MRMS mosaic with both floored at
+    /// [`NO_ECHO_DBZ`].
+    CompositeReflectivity,
 }
 
+/// What "no echo" scores as, dBZ: MRMS's in-coverage no-echo cells and anything a model forecasts
+/// below it. Without a floor the clear-air values a model writes (down to −20 or so) would count
+/// as error against cells the radar mosaic leaves empty.
+pub const NO_ECHO_DBZ: f32 = 0.0;
+
 impl VerifyField {
-    pub const ALL: [VerifyField; 2] = [VerifyField::Temp2m, VerifyField::Dewpoint2m];
+    pub const ALL: [VerifyField; 3] = [
+        VerifyField::Temp2m,
+        VerifyField::Dewpoint2m,
+        VerifyField::CompositeReflectivity,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             VerifyField::Temp2m => "2 m temperature",
             VerifyField::Dewpoint2m => "2 m dewpoint",
+            VerifyField::CompositeReflectivity => "Composite reflectivity",
         }
     }
 
-    fn rtma(self) -> crate::rtma::RtmaField {
+    /// What it can be scored against: the first is the default.
+    pub fn truths(self) -> &'static [Truth] {
         match self {
-            VerifyField::Temp2m => crate::rtma::RtmaField::Temp2m,
-            VerifyField::Dewpoint2m => crate::rtma::RtmaField::Dewpoint2m,
+            VerifyField::Temp2m | VerifyField::Dewpoint2m => &[Truth::Rtma, Truth::Metar],
+            VerifyField::CompositeReflectivity => &[Truth::Mrms],
         }
     }
 
-    fn model_field(self) -> crate::model::ModelField {
+    /// Whether values are temperatures in Kelvin (else dBZ).
+    pub fn is_temperature(self) -> bool {
+        !matches!(self, VerifyField::CompositeReflectivity)
+    }
+
+    fn rtma(self) -> Option<crate::rtma::RtmaField> {
+        match self {
+            VerifyField::Temp2m => Some(crate::rtma::RtmaField::Temp2m),
+            VerifyField::Dewpoint2m => Some(crate::rtma::RtmaField::Dewpoint2m),
+            VerifyField::CompositeReflectivity => None,
+        }
+    }
+
+    pub fn model_field(self) -> crate::model::ModelField {
         match self {
             VerifyField::Temp2m => crate::model::ModelField::Temperature2m,
             VerifyField::Dewpoint2m => crate::model::ModelField::Dewpoint2m,
+            VerifyField::CompositeReflectivity => crate::model::ModelField::CompositeReflectivity,
         }
     }
 }
@@ -328,6 +359,12 @@ const ANALYSIS_LATENCY_MIN: i64 = 60;
 /// Reports up to [`crate::metar::NEAR_VALID_MIN`] after the hour count, and reach the feed within
 /// minutes.
 const METAR_LATENCY_MIN: i64 = 30;
+
+/// The mosaic posts every two minutes, a few minutes behind.
+const MRMS_LATENCY_MIN: i64 = 10;
+
+/// How far from the valid time an MRMS mosaic may be and still stand for it.
+const MRMS_TOLERANCE_MIN: i64 = 5;
 
 /// Score one model run against the RTMA at each of `leads` (whole forecast hours).
 ///
@@ -349,6 +386,12 @@ pub async fn verify_run(
         .model_field()
         .grib(model)
         .ok_or_else(|| anyhow::anyhow!("{} does not publish {}", model.label(), field.label()))?;
+    anyhow::ensure!(
+        field.truths().contains(&truth),
+        "{} is not scored against the {}",
+        field.label(),
+        truth.label()
+    );
     let now = Utc::now();
     let mut out = Vec::with_capacity(leads.len());
     for &lead in leads {
@@ -356,11 +399,13 @@ pub async fn verify_run(
         let latency = match truth {
             Truth::Rtma => ANALYSIS_LATENCY_MIN,
             Truth::Metar => METAR_LATENCY_MIN,
+            Truth::Mrms => MRMS_LATENCY_MIN,
         };
         let score = if valid > now - Duration::minutes(latency) {
             Err(match truth {
                 Truth::Rtma => "no analysis yet: this lead is not far enough in the past",
                 Truth::Metar => "no reports yet: this lead is not far enough in the past",
+                Truth::Mrms => "no mosaic yet: this lead is not far enough in the past",
             }
             .to_string())
         } else {
@@ -396,12 +441,34 @@ async fn score_lead(
         crate::hrrr::fetch_field_at_run(http, model, run, key.var, key.level, lead, key.min_valid);
     match truth {
         Truth::Rtma => {
+            let rtma = field
+                .rtma()
+                .ok_or_else(|| anyhow::anyhow!("the RTMA has no {}", field.label()))?;
             let (forecast, analysis) = futures_util::future::try_join(
                 forecast,
-                crate::rtma::fetch(http, field.rtma(), Some(valid)),
+                crate::rtma::fetch(http, rtma, Some(valid)),
             )
             .await?;
             compare(&forecast.field, &analysis.field, region, threshold)
+        }
+        Truth::Mrms => {
+            let (forecast, mosaic) = futures_util::future::try_join(
+                forecast,
+                crate::mrms::fetch_nearest_for_scoring(
+                    http,
+                    crate::mrms::REFLECTIVITY,
+                    valid,
+                    Duration::minutes(MRMS_TOLERANCE_MIN),
+                    NO_ECHO_DBZ,
+                ),
+            )
+            .await?;
+            let mut forecast = forecast.field;
+            floor_echo(&mut forecast.values);
+            // The nearest mosaic stands for the valid time (checked within the tolerance).
+            let mut mosaic = mosaic.data;
+            mosaic.time = forecast.time;
+            compare(&forecast, &mosaic, region, threshold)
         }
         Truth::Metar => {
             let forecast = forecast.await?.field;
@@ -422,6 +489,13 @@ async fn score_lead(
     }
 }
 
+/// Forecast reflectivity below [`NO_ECHO_DBZ`] is no echo, as the mosaic reads it.
+pub fn floor_echo(values: &mut [f32]) {
+    for v in values.iter_mut().filter(|v| v.is_finite()) {
+        *v = v.max(NO_ECHO_DBZ);
+    }
+}
+
 /// The stations' reports of `field`, in Kelvin like the forecast.
 pub fn station_points(obs: &[crate::metar::SurfaceOb], field: VerifyField) -> Vec<Point> {
     obs.iter()
@@ -429,6 +503,7 @@ pub fn station_points(obs: &[crate::metar::SurfaceOb], field: VerifyField) -> Ve
             let c = match field {
                 VerifyField::Temp2m => o.temp_c,
                 VerifyField::Dewpoint2m => o.dewp_c,
+                VerifyField::CompositeReflectivity => None,
             }?;
             Some(Point {
                 lon: o.lon,
@@ -783,5 +858,82 @@ mod tests {
                 "an hourly model is not this far off its stations"
             );
         }
+    }
+
+    #[test]
+    fn reflectivity_is_scored_only_against_the_mosaic_with_a_no_echo_floor() {
+        assert_eq!(VerifyField::CompositeReflectivity.truths(), [Truth::Mrms]);
+        assert!(!VerifyField::Temp2m.truths().contains(&Truth::Mrms));
+        let mut v = vec![-15.0, 5.0, f32::NAN, 42.0];
+        floor_echo(&mut v);
+        assert_eq!(v[..2], [0.0, 5.0]);
+        assert!(v[2].is_nan(), "a gap stays a gap");
+        // A forecast echo over a no-echo cell is a false alarm, not skipped.
+        let fc = grid(
+            4,
+            4,
+            40.0,
+            30.0,
+            |lon, _| if lon < -95.0 { 40.0 } else { 0.0 },
+        );
+        let obs = grid(4, 4, 40.0, 30.0, |_, _| NO_ECHO_DBZ);
+        let c = compare(&fc, &obs, None, Some(35.0))
+            .unwrap()
+            .contingency
+            .unwrap();
+        assert!(c.false_alarms > 0.0 && c.hits == 0.0);
+    }
+
+    /// Live: the HRRR's composite reflectivity against the MRMS mosaic.
+    /// Network test: `--ignored live_hrrr_reflectivity_against_mrms`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_hrrr_reflectivity_against_mrms() {
+        let http = reqwest::Client::new();
+        let run = crate::hrrr::run_choices(crate::hrrr::Model::Hrrr, Utc::now(), 12)
+            .into_iter()
+            .nth(4)
+            .unwrap();
+        // The archive has gaps (whole missing hours); a lead whose hour is missing says so, and
+        // at least one of three should land on frames.
+        let results = verify_run(
+            &http,
+            crate::hrrr::Model::Hrrr,
+            VerifyField::CompositeReflectivity,
+            run,
+            &[1, 2, 3],
+            None,
+            Some(35.0),
+            Truth::Mrms,
+        )
+        .await
+        .expect("verification");
+        let mut scored = 0;
+        for r in &results {
+            let g = match &r.score {
+                Ok(g) => g,
+                Err(e) => {
+                    println!("F+{:02}: {e}", r.lead_h);
+                    continue;
+                }
+            };
+            scored += 1;
+            let (s, c) = (g.scores, g.contingency.unwrap());
+            println!(
+                "F+{:02} valid {} · {} cells · bias {:+.2} dBZ · MAE {:.2} · POD {:.2} FAR {:.2} CSI {:.2} freq bias {:.2}",
+                r.lead_h,
+                r.valid,
+                s.cells,
+                s.bias,
+                s.mae,
+                c.pod().unwrap_or(f64::NAN),
+                c.far().unwrap_or(f64::NAN),
+                c.csi().unwrap_or(f64::NAN),
+                c.frequency_bias().unwrap_or(f64::NAN)
+            );
+            assert!(s.cells > 500_000, "no-echo cells are scored: {}", s.cells);
+            assert!(s.mae < 15.0);
+        }
+        assert!(scored > 0, "no lead landed on a mosaic");
     }
 }

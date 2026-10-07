@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: verify forecast radar against the MRMS mosaic
+
+The Model verification window can now score a model's composite reflectivity against the MRMS
+radar mosaic for the same time, cell by cell, with an event threshold in dBZ (35 by default):
+how often a forecast storm was there, and how often it was not.
+
 ### Added: verify a model against the METAR stations
 
 The Model verification window can now score a run against the airport weather stations as well

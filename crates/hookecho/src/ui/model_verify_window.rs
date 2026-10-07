@@ -26,7 +26,8 @@ pub struct Meta {
     pub model: crate::model_browser::BModel,
     pub field: VerifyField,
     pub run: DateTime<Utc>,
-    pub threshold_k: Option<f32>,
+    /// The event threshold in the field's own units (Kelvin, or dBZ).
+    pub threshold: Option<f32>,
     pub region_is_view: bool,
     pub truth: Truth,
 }
@@ -53,6 +54,8 @@ pub struct ModelVerifyWindow {
     pub threshold_on: bool,
     /// The event threshold in Kelvin, so a change of temperature unit never changes what it means.
     pub threshold_k: f32,
+    /// The reflectivity event threshold, dBZ.
+    pub threshold_dbz: f32,
 }
 
 impl Default for ModelVerifyWindow {
@@ -71,6 +74,8 @@ impl Default for ModelVerifyWindow {
             threshold_on: false,
             // Freezing.
             threshold_k: 273.15,
+            // Where a forecast storm is usually judged.
+            threshold_dbz: 35.0,
         }
     }
 }
@@ -100,21 +105,39 @@ pub fn auto_run(model: crate::model_browser::BModel, now: DateTime<Utc>) -> Opti
         .find(|run| *run <= cutoff)
 }
 
+/// An error (a difference) as the reader sees it: in their temperature unit, or dBZ.
+pub fn diff_shown(field: VerifyField, unit: TempUnit, native_diff: f64) -> f64 {
+    if field.is_temperature() {
+        diff_in(unit, native_diff)
+    } else {
+        native_diff
+    }
+}
+
+/// The unit errors are shown in.
+pub fn unit_text(field: VerifyField, unit: TempUnit) -> &'static str {
+    if field.is_temperature() {
+        unit.label()
+    } else {
+        " dBZ"
+    }
+}
+
 /// A score line in words: which way it leans and how big the typical miss is.
-pub fn headline(score: &GridScore, unit: TempUnit) -> String {
+pub fn headline(score: &GridScore, field: VerifyField, unit: TempUnit) -> String {
     let s = score.scores;
-    let bias = diff_in(unit, s.bias);
+    let u = unit_text(field, unit);
+    let bias = diff_shown(field, unit, s.bias);
     let lean = if bias.abs() < 0.1 {
         "no lean".to_string()
     } else if bias > 0.0 {
-        format!("runs {:.1}{} too high", bias, unit.label())
+        format!("runs {bias:.1}{u} too high")
     } else {
-        format!("runs {:.1}{} too low", -bias, unit.label())
+        format!("runs {:.1}{u} too low", -bias)
     };
     format!(
-        "typically off by {:.1}{} ({lean})",
-        diff_in(unit, s.mae),
-        unit.label()
+        "typically off by {:.1}{u} ({lean})",
+        diff_shown(field, unit, s.mae)
     )
 }
 
@@ -159,9 +182,13 @@ impl ModelVerifyWindow {
                     ui.selectable_value(&mut self.field, f, f.label());
                 }
             });
+            // Each field has its own truths; a choice the field cannot take falls back.
+            if !self.field.truths().contains(&self.truth) {
+                self.truth = self.field.truths()[0];
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.label("Against:");
-                for t in Truth::ALL {
+                for &t in self.field.truths() {
                     ui.selectable_value(&mut self.truth, t, t.label());
                 }
             });
@@ -200,18 +227,28 @@ impl ModelVerifyWindow {
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.region_is_view, "Only what is on screen");
                 ui.checkbox(&mut self.threshold_on, "Score an event above");
-                // Shown in the reader's unit, kept in Kelvin.
-                let mut shown = unit.from_c(self.threshold_k - 273.15);
-                if ui
-                    .add_enabled(
+                if self.field.is_temperature() {
+                    // Shown in the reader's unit, kept in Kelvin.
+                    let mut shown = unit.from_c(self.threshold_k - 273.15);
+                    if ui
+                        .add_enabled(
+                            self.threshold_on,
+                            egui::DragValue::new(&mut shown)
+                                .speed(0.5)
+                                .suffix(unit.label()),
+                        )
+                        .changed()
+                    {
+                        self.threshold_k = threshold_kelvin(unit, shown);
+                    }
+                } else {
+                    ui.add_enabled(
                         self.threshold_on,
-                        egui::DragValue::new(&mut shown)
-                            .speed(0.5)
-                            .suffix(unit.label()),
-                    )
-                    .changed()
-                {
-                    self.threshold_k = threshold_kelvin(unit, shown);
+                        egui::DragValue::new(&mut self.threshold_dbz)
+                            .speed(1.0)
+                            .range(5.0..=70.0)
+                            .suffix(" dBZ"),
+                    );
                 }
             });
             ui.horizontal(|ui| {
@@ -228,6 +265,7 @@ impl ModelVerifyWindow {
                         match self.truth {
                             Truth::Rtma => "Scoring against the RTMA…",
                             Truth::Metar => "Scoring against the stations…",
+                            Truth::Mrms => "Scoring against the radar mosaic…",
                         },
                     );
                 }
@@ -248,6 +286,14 @@ impl ModelVerifyWindow {
                          quarter hour of the valid time, every station once, the forecast read at \
                          the station. The model's grid box sits at the model's terrain height, so \
                          in the mountains part of the difference is height, not forecast error."
+                    }
+                    Truth::Mrms => {
+                        "Scores a forecast's composite reflectivity against the MRMS mosaic within \
+                         five minutes of the valid time, cell by cell. Inside radar coverage no \
+                         echo counts as 0 dBZ (and so does anything the model forecasts below it), \
+                         so a forecast storm where nothing happened is a false alarm. Score an \
+                         event (35 dBZ is usual) for the numbers that matter: hour-scale storm \
+                         placement is hard, and a few kilometres off is a miss plus a false alarm."
                     }
                 });
                 return;
@@ -279,14 +325,14 @@ fn results_table(
     tz: Option<wxdata::tz::Tz>,
     unit: TempUnit,
 ) {
-    let has_event = meta.threshold_k.is_some();
-    let unit_label = unit.label();
+    let has_event = meta.threshold.is_some();
+    let unit_label = unit_text(meta.field, unit);
     egui::Grid::new("model_verify_table")
         .striped(true)
         .num_columns(if has_event { 11 } else { 7 })
         .show(ui, |ui| {
             let count = match meta.truth {
-                Truth::Rtma => "Cells",
+                Truth::Rtma | Truth::Mrms => "Cells",
                 Truth::Metar => "Stations",
             };
             for h in ["Lead", "Valid", count] {
@@ -296,6 +342,7 @@ fn results_table(
                 .on_hover_text(match meta.truth {
                     Truth::Rtma => "Forecast minus analysis. Positive: the model ran high.",
                     Truth::Metar => "Forecast minus station. Positive: the model ran high.",
+                    Truth::Mrms => "Forecast minus mosaic. Positive: the model ran high.",
                 });
             ui.strong(format!("MAE {unit_label}"))
                 .on_hover_text("Average size of the error, ignoring direction.");
@@ -333,9 +380,10 @@ fn results_table(
                     Ok(g) => {
                         let s = g.scores;
                         ui.label(format!("{}", s.cells));
-                        ui.label(format!("{:+.2}", diff_in(unit, s.bias)));
-                        ui.label(format!("{:.2}", diff_in(unit, s.mae)));
-                        ui.label(format!("{:.2}", diff_in(unit, s.rmse)));
+                        let d = |v| diff_shown(meta.field, unit, v);
+                        ui.label(format!("{:+.2}", d(s.bias)));
+                        ui.label(format!("{:.2}", d(s.mae)));
+                        ui.label(format!("{:.2}", d(s.rmse)));
                         ui.label(s.correlation.map_or("—".into(), |c| format!("{c:.3}")));
                         if has_event {
                             let pct = |v: Option<f64>| {
@@ -375,7 +423,10 @@ fn results_table(
             .map(|r| r.lead_h)
             .unwrap_or(0);
         ui.add_space(4.0);
-        ui.weak(format!("At F+{lead}h the model is {}.", headline(g, unit)));
+        ui.weak(format!(
+            "At F+{lead}h the model is {}.",
+            headline(g, meta.field, unit)
+        ));
     }
 }
 
@@ -415,14 +466,25 @@ mod tests {
 
     #[test]
     fn the_headline_says_which_way_the_model_leans_in_words() {
-        let warm = headline(&score(1.0, 2.0), TempUnit::Celsius);
+        let t = VerifyField::Temp2m;
+        let warm = headline(&score(1.0, 2.0), t, TempUnit::Celsius);
         assert!(warm.contains("2.0") && warm.contains("too high"), "{warm}");
-        let cold = headline(&score(-1.0, 2.0), TempUnit::Celsius);
+        let cold = headline(&score(-1.0, 2.0), t, TempUnit::Celsius);
         assert!(cold.contains("too low"), "{cold}");
-        let flat = headline(&score(0.02, 0.5), TempUnit::Celsius);
+        let flat = headline(&score(0.02, 0.5), t, TempUnit::Celsius);
         assert!(flat.contains("no lean"), "{flat}");
         // The size follows the reader's unit.
-        assert!(headline(&score(0.0, 1.0), TempUnit::Fahrenheit).contains("1.8"));
+        assert!(headline(&score(0.0, 1.0), t, TempUnit::Fahrenheit).contains("1.8"));
+        // Reflectivity stays in dBZ whatever the temperature unit.
+        let dbz = headline(
+            &score(2.0, 3.0),
+            VerifyField::CompositeReflectivity,
+            TempUnit::Fahrenheit,
+        );
+        assert!(
+            dbz.contains("3.0 dBZ") && dbz.contains("2.0 dBZ too high"),
+            "{dbz}"
+        );
     }
 
     #[test]
@@ -442,11 +504,7 @@ mod tests {
             let regional = m.regional_model().expect("a regional model");
             for f in VerifyField::ALL {
                 // The scorer looks the key up in the catalogue; it must exist for every pair offered.
-                let mf = match f {
-                    VerifyField::Temp2m => wxdata::model::ModelField::Temperature2m,
-                    VerifyField::Dewpoint2m => wxdata::model::ModelField::Dewpoint2m,
-                };
-                assert!(mf.grib(regional).is_some(), "{m:?} {f:?}");
+                assert!(f.model_field().grib(regional).is_some(), "{m:?} {f:?}");
             }
         }
     }

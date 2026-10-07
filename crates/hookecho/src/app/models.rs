@@ -273,7 +273,11 @@ impl HookEchoApp {
             .zip(w.leads_on)
             .filter_map(|(lead, on)| on.then_some(*lead))
             .collect();
-        let threshold = w.threshold_on.then_some(w.threshold_k);
+        let threshold = w.threshold_on.then_some(if w.field.is_temperature() {
+            w.threshold_k
+        } else {
+            w.threshold_dbz
+        });
         let region = w.region_is_view.then(|| {
             let (west, south, east, north) = self.view_bounds();
             (west, south, east, north)
@@ -282,7 +286,7 @@ impl HookEchoApp {
             model: w.model,
             field: w.field,
             run,
-            threshold_k: threshold,
+            threshold,
             region_is_view: w.region_is_view,
             truth: w.truth,
         };
