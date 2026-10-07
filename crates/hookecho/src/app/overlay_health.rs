@@ -47,9 +47,9 @@ impl OverlayMsg {
             Self::GoesFootprint(_, fp) | Self::GoesFootprintFor(_, fp) => Some(fp.time),
             Self::GoesField(_, field) => Some(field.stamp.valid_time),
             Self::GlmWindow(end, _) => Some(*end),
-            Self::StampedField(_, field) | Self::MrmsField(_, field, _) => {
-                Some(field.stamp.valid_time)
-            }
+            Self::StampedField(_, field)
+            | Self::MrmsField(_, field, _)
+            | Self::VectorField(field, _) => Some(field.stamp.valid_time),
             Self::ModelDiff(_, _, _, _, times) | Self::Compare(_, _, _, _, times) => {
                 Some(times.valid)
             }

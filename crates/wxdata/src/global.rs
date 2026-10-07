@@ -572,12 +572,11 @@ pub async fn fetch_gfs_inventory_field(
             let base = gfs_base(run, fh);
             let idx = get_text(http, &format!("{base}.idx")).await?;
             let entries = crate::model_inventory::parse_idx(&idx);
-            let range =
-                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
-                    })?;
-            let mut field = download_and_decode(http, &base, range, RES_DEG).await?;
+            let at = crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                .ok_or_else(|| {
+                anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
+            })?;
+            let mut field = download_field(http, &base, at).await?;
             for v in &mut field.values {
                 if v.is_finite() {
                     *v = quantity.to_display(*v);
@@ -593,6 +592,51 @@ pub async fn fetch_gfs_inventory_field(
                     fcst_hour: fh,
                 })
             }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+}
+
+/// One field of a GFS message located by `model_inventory::find`, decoded onto [`RES_DEG`].
+async fn download_field(
+    http: &reqwest::Client,
+    base: &str,
+    (start, end, part): (u64, Option<u64>, usize),
+) -> anyhow::Result<MrmsField> {
+    let raw = crate::gribcache::fetch_range(http, base, (start, end), USER_AGENT).await?;
+    let raw = crate::model_inventory::field_bytes(raw, part)?;
+    crate::task::blocking(move || decode(&raw, RES_DEG)).await?
+}
+
+/// A GFS wind pair from its inventory: `UGRD` and `VGRD` at `level_text` with timing `kind` at
+/// `fh`, in m/s. The GFS grid is latitude/longitude, so its components are already east and
+/// north.
+pub async fn fetch_gfs_inventory_vector(
+    http: &reqwest::Client,
+    run: Option<DateTime<Utc>>,
+    fh: u16,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<(DateTime<Utc>, MrmsField, MrmsField)> {
+    let mut last = None;
+    for run in gfs_runs(run) {
+        let attempt = async {
+            let base = gfs_base(run, fh);
+            let idx = get_text(http, &format!("{base}.idx")).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let locate = |var: &str| {
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| anyhow::anyhow!("no {var}:{level_text} at F+{fh}"))
+            };
+            let (u_at, v_at) = (locate("UGRD")?, locate("VGRD")?);
+            let u = download_field(http, &base, u_at).await?;
+            let v = download_field(http, &base, v_at).await?;
+            anyhow::ensure!((u.nx, u.ny) == (v.nx, v.ny), "u/v grid mismatch");
+            anyhow::Ok((u, v))
+        };
+        match attempt.await {
+            Ok((u, v)) => return Ok((run, u, v)),
             Err(e) => last = Some(e),
         }
     }
@@ -789,6 +833,31 @@ fn decode(raw: &[u8], res_deg: f64) -> anyhow::Result<MrmsField> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A GFS 250 hPa wind pair from the inventory, live: two different fields, valid at run +
+    /// lead, with a jet somewhere on Earth.
+    /// `cargo test -p wxdata gfs_inventory_vector_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn gfs_inventory_vector_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, u, v) =
+            fetch_gfs_inventory_vector(&http, None, 12, "250 mb", TimingKind::Instant)
+                .await
+                .unwrap();
+        assert_eq!(u.time, run + chrono::Duration::hours(12));
+        let fastest = u
+            .values
+            .iter()
+            .zip(&v.values)
+            .filter(|(a, b)| a.is_finite() && b.is_finite())
+            .map(|(a, b)| a.hypot(*b))
+            .fold(0f32, f32::max);
+        println!("GFS {run} F+12 250 hPa: fastest wind {fastest:.0} m/s");
+        assert!(fastest > 40.0, "a jet in m/s: {fastest}");
+        assert_ne!(u.values, v.values);
+    }
 
     /// The newest GFS run's F+24 inventory and its 850 hPa temperature as a discovered field,
     /// live. `cargo test -p wxdata gfs_inventory_live -- --ignored --nocapture`

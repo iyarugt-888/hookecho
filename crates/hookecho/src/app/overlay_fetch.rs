@@ -46,6 +46,12 @@ pub(crate) enum OverlayMsg {
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
     ),
+    /// A browsed model wind (`FieldLayer::ModelField`): its speed in knots as the shown field,
+    /// and the east/north components (m/s) on the same lattice for its barbs.
+    VectorField(
+        wxdata::field::Stamped<wxdata::mrms::MrmsField>,
+        Box<super::model_field::WindPair>,
+    ),
     MrmsField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
@@ -912,6 +918,39 @@ impl OverlaySource {
                     _ => anyhow::bail!("{layer:?} is not an NDFD element"),
                 };
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
+            }
+            OverlaySource::ModelField(pick, fh, run) if pick.vector => {
+                use super::model_field::InventorySource;
+                let (run, lead, u, v) = match pick.model {
+                    InventorySource::Regional(m) => {
+                        let lead = fh.min(u16::from(u8::MAX)) as u8;
+                        let (run, lead, u, v) = wxdata::hrrr::fetch_inventory_vector(
+                            http, m, run, lead, pick.level, pick.kind,
+                        )
+                        .await?;
+                        (run, u16::from(lead), u, v)
+                    }
+                    InventorySource::Gfs => {
+                        let (run, u, v) = wxdata::global::fetch_gfs_inventory_vector(
+                            http, run, fh, pick.level, pick.kind,
+                        )
+                        .await?;
+                        (run, fh, u, v)
+                    }
+                };
+                let speed = super::model_field::wind_speed_kt(&u, &v)?;
+                let valid = run + chrono::Duration::hours(i64::from(lead));
+                OverlayMsg::VectorField(
+                    field_state::model_field(
+                        pick.model.source_id(),
+                        &pick.product_id(),
+                        speed,
+                        Some(run),
+                        valid,
+                        true,
+                    )?,
+                    Box::new((u, v)),
+                )
             }
             OverlaySource::ModelField(pick, fh, run) => {
                 use super::model_field::InventorySource;

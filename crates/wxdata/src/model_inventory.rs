@@ -340,6 +340,9 @@ impl TimingKind {
 pub struct Entry {
     /// Byte offset of the message in the GRIB2 file.
     pub offset: u64,
+    /// Which field of that message this line is (`92.2` is the second, index 1): RAP packs u and
+    /// v into one message, and decoding the message reads its first field.
+    pub sub: usize,
     /// Where the next distinct message starts; `None` for the last one.
     pub end: Option<u64>,
     pub var: String,
@@ -363,6 +366,7 @@ pub fn parse_idx(idx: &str) -> Vec<Entry> {
         .enumerate()
         .map(|(i, (offset, f))| Entry {
             offset: *offset,
+            sub: crate::grib_split::subfield_of(f[0]),
             // The next *distinct* offset: some files list several fields of one message.
             end: rows[i + 1..].iter().map(|(o, _)| *o).find(|o| o > offset),
             var: f[3].to_string(),
@@ -487,18 +491,29 @@ pub fn vector_pairs(fields: &[Field]) -> Vec<(&Field, &Field)> {
         .collect()
 }
 
-/// The message for `var` at `level_text` whose timing is `kind` at lead `lead_h`: its byte range.
+/// The message for `var` at `level_text` whose timing is `kind` at lead `lead_h`: its byte range
+/// and which field of the message it is (see [`Entry::sub`]).
 pub fn find(
     entries: &[Entry],
     var: &str,
     level_text: &str,
     kind: TimingKind,
     lead_h: u32,
-) -> Option<(u64, Option<u64>)> {
+) -> Option<(u64, Option<u64>, usize)> {
     entries
         .iter()
         .find(|e| e.var == var && e.level_text == level_text && kind.matches(&e.timing, lead_h))
-        .map(|e| (e.offset, e.end))
+        .map(|e| (e.offset, e.end, e.sub))
+}
+
+/// One field of a downloaded message: the message itself for the first, a rebuilt single-field
+/// message for a later one (`crate::grib_split`).
+pub fn field_bytes(message: Vec<u8>, sub: usize) -> anyhow::Result<Vec<u8>> {
+    if sub == 0 {
+        return Ok(message);
+    }
+    crate::grib_split::extract_field(&message, sub)
+        .ok_or_else(|| anyhow::anyhow!("no field {} in that message", sub + 1))
 }
 
 #[cfg(test)]
@@ -674,7 +689,7 @@ mod tests {
                 TimingKind::SinceRun(Stat::Accumulation),
                 6
             ),
-            Some((59_639_163, Some(60_001_030)))
+            Some((59_639_163, Some(60_001_030), 0))
         );
         assert_eq!(
             find(
@@ -687,7 +702,7 @@ mod tests {
                 },
                 6
             ),
-            Some((60_026_981, Some(60_221_554)))
+            Some((60_026_981, Some(60_221_554), 0))
         );
         // The wrong lead finds nothing rather than another hour's field.
         assert_eq!(find(&e, "TMP", "500 mb", TimingKind::Instant, 5), None);
@@ -699,7 +714,7 @@ mod tests {
                 TimingKind::Instant,
                 0
             ),
-            Some((0, Some(1_000_695)))
+            Some((0, Some(1_000_695), 0))
         );
     }
 }

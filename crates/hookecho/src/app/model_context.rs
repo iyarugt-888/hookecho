@@ -152,8 +152,22 @@ impl ModelRequest {
     }
 
     pub(super) fn accepts_message(self, msg: &OverlayMsg) -> bool {
-        matches!(msg, OverlayMsg::StampedField(layer, field)
-            if *layer == self.layer() && self.accepts(&field.stamp) && field.data.time == field.stamp.valid_time)
+        match msg {
+            OverlayMsg::StampedField(layer, field) => {
+                *layer == self.layer()
+                    && self.accepts(&field.stamp)
+                    && field.data.time == field.stamp.valid_time
+            }
+            // Only a wind pick's request takes a wind, and only on the speed grid's lattice.
+            OverlayMsg::VectorField(field, uv) => {
+                matches!(self, Self::Discovered(pick, ..) if pick.vector)
+                    && self.accepts(&field.stamp)
+                    && field.data.time == field.stamp.valid_time
+                    && super::model_field::same_lattice(&uv.0, &field.data)
+                    && super::model_field::same_lattice(&uv.1, &field.data)
+            }
+            _ => false,
+        }
     }
 
     pub(super) fn source(self) -> OverlaySource {
@@ -600,6 +614,7 @@ pub(super) mod tests {
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: wxdata::model_inventory::TimingKind::Instant,
+            vector: false,
         });
         let requests = MODEL_LAYERS.map(|layer| request_for(&controls, layer, None, now).unwrap());
         assert_eq!(
@@ -805,6 +820,7 @@ pub(super) mod tests {
                     var: "HGT".into(),
                     level: "500 mb".into(),
                     kind: wxdata::model_inventory::TimingKind::Instant,
+                    vector: false,
                 }
                 .pick(),
                 6,

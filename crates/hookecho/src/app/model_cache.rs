@@ -8,6 +8,8 @@ use wxdata::clock::Instant;
 pub(super) struct ModelSlot {
     pub state: FieldState,
     pub texture: ModelTextureKey,
+    /// A browsed wind's components, staged with its speed grid (barbs).
+    pub vectors: Option<std::sync::Arc<super::model_field::WindPair>>,
 }
 
 pub(super) struct ModelFieldCache {
@@ -92,6 +94,7 @@ impl ModelFieldCache {
             let slot = ModelSlot {
                 state: FieldState::default(),
                 texture: ModelTextureKey(self.next),
+                vectors: None,
             };
             if let Some((old_request, old)) = self.entries.push(request, slot) {
                 self.dropped.push((old_request, old.texture));

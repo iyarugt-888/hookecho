@@ -327,6 +327,25 @@ impl HookEchoApp {
                         self.accept_field(layer, field.data, Some(field.stamp));
                     }
                 }
+                OverlayMsg::VectorField(field, uv) => {
+                    let layer = crate::render::FieldLayer::ModelField;
+                    if let Some(request) = model_context {
+                        let upload = self.field_upload(layer, &field.data);
+                        if let Some(slot) = self.model_fields.get_mut(&request) {
+                            if slot.state.stage_model(request, field, upload) {
+                                slot.vectors = Some(std::sync::Arc::new(*uv));
+                                for idx in 0..self.views.len() {
+                                    if self.views[idx].fields_on.contains(&layer)
+                                        && self.selected_model_request_for(idx, layer)
+                                            == Some(request)
+                                    {
+                                        self.views[idx].last_model_fields.insert(layer, request);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
                 OverlayMsg::ColumnProduct(delivery) => self.accept_column_product(*delivery),
                 OverlayMsg::ColumnTrail(delivery) => self.accept_column_trail(*delivery),

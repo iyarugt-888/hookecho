@@ -94,6 +94,18 @@ pub struct Barb {
 /// point and points at the wind's source as the camera projects it (so a rotated or pitched map
 /// still reads true). Points off the grid, or with either component missing, get none.
 pub fn barbs(field: &WindField, cam: &Camera, vp: (f32, f32), spacing: f32) -> Vec<Barb> {
+    barbs_uv(&field.u, &field.v, cam, vp, spacing)
+}
+
+/// [`barbs`] from any east/north component grids (m/s), such as a wind picked in the model
+/// field browser.
+pub fn barbs_uv(
+    u: &MrmsField,
+    v: &MrmsField,
+    cam: &Camera,
+    vp: (f32, f32),
+    spacing: f32,
+) -> Vec<Barb> {
     let spacing = spacing.max(8.0);
     let mut out = Vec::new();
     let mut y = spacing / 2.0;
@@ -102,10 +114,8 @@ pub fn barbs(field: &WindField, cam: &Camera, vp: (f32, f32), spacing: f32) -> V
         while x < vp.0 {
             let w = cam.screen_to_world((x, y), vp);
             let (lon, lat) = world_to_lonlat(w.0, w.1);
-            if let Some((u, v)) = field
-                .sample(lon, lat)
-                .filter(|(u, v)| u.is_finite() && v.is_finite())
-            {
+            let sample = u.sample_bilinear(lon, lat).zip(v.sample_bilinear(lon, lat));
+            if let Some((u, v)) = sample.filter(|(u, v)| u.is_finite() && v.is_finite()) {
                 // Meteorological "from" bearing: the wind blows from there toward (u, v).
                 let from = f64::from(-u).atan2(f64::from(-v)).to_degrees();
                 let src = crate::geo::destination_point([lon, lat], from, 10.0);
@@ -125,6 +135,29 @@ pub fn barbs(field: &WindField, cam: &Camera, vp: (f32, f32), spacing: f32) -> V
         y += spacing;
     }
     out
+}
+
+/// Draw `barbs` (pane pixels from `origin`) with a dark halo, coloured by speed; calm points
+/// get a circle.
+pub fn paint_barbs(painter: &egui::Painter, origin: Pos2, barbs: &[Barb], alpha: f32) {
+    for b in barbs {
+        let at = Barb {
+            at: origin + b.at.to_vec2(),
+            ..*b
+        };
+        let col = barb_color(b.kt).gamma_multiply(alpha);
+        let halo = Color32::from_black_alpha((140.0 * alpha) as u8);
+        let lines = barb_lines(&at, 20.0);
+        for l in &lines {
+            painter.line_segment(*l, egui::Stroke::new(3.0, halo));
+        }
+        for l in &lines {
+            painter.line_segment(*l, egui::Stroke::new(1.4, col));
+        }
+        if b.kt < 2.5 {
+            painter.circle_stroke(at.at, 3.0, egui::Stroke::new(1.2, col));
+        }
+    }
 }
 
 /// A barb's line segments in pane pixels, `len` px long: the shaft toward the source and the

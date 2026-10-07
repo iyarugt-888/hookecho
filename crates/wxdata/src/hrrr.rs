@@ -700,14 +700,17 @@ pub async fn fetch_inventory_field(
         let attempt = async {
             let idx = fetch_idx(http, model, run, fh).await?;
             let entries = crate::model_inventory::parse_idx(&idx);
-            let range =
+            let (start, end, part) =
                 crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
                     .ok_or_else(|| {
                         anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
                     })?;
             let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
             let base = model.url(&date, run.hour(), fh);
-            let bytes = crate::gribcache::fetch_range(http, &base, range, USER_AGENT).await?;
+            let bytes =
+                crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
+            // RAP packs u and v as two fields of one message: decode the one asked for.
+            let bytes = crate::model_inventory::field_bytes(bytes, part)?;
             let mut field =
                 crate::task::guarded(|| decode_regrid(&bytes, model, f64::NEG_INFINITY))
                     .unwrap_or_else(|_| anyhow::bail!("{} grib decode panicked", model.label()))?;
@@ -727,6 +730,71 @@ pub async fn fetch_inventory_field(
                     fcst_minutes: None,
                 })
             }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
+}
+
+/// A wind pair from a run's inventory (ROADMAP_PARITY M5.3): `UGRD` and `VGRD` at `level_text`
+/// with timing `kind` at `fcst_hour`, from exactly `run` or the newest cycle that has both, as
+/// east and north components in m/s on one regridded lattice. Grid-relative Lambert components
+/// are turned on the native grid ([`crate::grid_winds`]); a message packing both (RAP) is split,
+/// so the pair can never be one field read twice.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_inventory_vector(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<(DateTime<Utc>, u8, MrmsField, MrmsField)> {
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        let attempt = async {
+            let idx = fetch_idx(http, model, run, fh).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let locate = |var: &str| {
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| anyhow::anyhow!("no {var}:{level_text} at F+{fh}"))
+            };
+            let (u_at, v_at) = (locate("UGRD")?, locate("VGRD")?);
+            let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+            let base = model.url(&date, run.hour(), fh);
+            let ub =
+                crate::gribcache::fetch_range(http, &base, (u_at.0, u_at.1), USER_AGENT).await?;
+            let vb = if (v_at.0, v_at.1) == (u_at.0, u_at.1) {
+                ub.clone()
+            } else {
+                crate::gribcache::fetch_range(http, &base, (v_at.0, v_at.1), USER_AGENT).await?
+            };
+            let ub = crate::model_inventory::field_bytes(ub, u_at.2)?;
+            let vb = crate::model_inventory::field_bytes(vb, v_at.2)?;
+            let res = model.res_deg();
+            crate::task::blocking(move || {
+                crate::task::guarded(|| {
+                    let mut u = decode_native(&ub)?;
+                    let mut v = decode_native(&vb)?;
+                    anyhow::ensure!(u.data.len() == v.data.len(), "u/v grid mismatch");
+                    if let Some(frame) = crate::grid_winds::from_message(&ub) {
+                        frame.rotate(&mut u.data, &mut v.data, &u.lons);
+                    }
+                    let uf = regrid(&u.lats, &u.lons, &u.data, u.time, res, f64::NEG_INFINITY)?;
+                    let vf = regrid(&v.lats, &v.lons, &v.data, v.time, res, f64::NEG_INFINITY)?;
+                    anyhow::Ok((uf, vf))
+                })
+                .unwrap_or_else(|_| anyhow::bail!("{} wind decode panicked", model.label()))
+            })
+            .await?
+        };
+        match attempt.await {
+            Ok((u, v)) => return Ok((run, fh, u, v)),
             Err(e) => last = Some(e),
         }
     }
@@ -1460,6 +1528,63 @@ mod tests {
             }
         }
         assert!(checked > 20, "{checked} points on the central meridian");
+    }
+
+    /// The RAP packs u and v as two fields of one message: a discovered pair and a discovered
+    /// single VGRD must both read the second field, not the first twice.
+    /// `cargo test -p wxdata rap_packed_winds_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn rap_packed_winds_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let lvl = "500 mb";
+        let (run, fh, u, v) =
+            fetch_inventory_vector(&http, Model::Rap, None, 3, lvl, TimingKind::Instant)
+                .await
+                .unwrap();
+        let differ = |a: &MrmsField, b: &MrmsField| {
+            a.values
+                .iter()
+                .zip(&b.values)
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .filter(|(x, y)| (*x - *y).abs() > 0.5)
+                .count()
+        };
+        let n = differ(&u, &v);
+        println!("RAP {run} F+{fh} {lvl}: u and v differ at {n} cells");
+        assert!(n > 1000, "the pair is one field read twice");
+        let vs = fetch_inventory_field(
+            &http,
+            Model::Rap,
+            Some(run),
+            fh,
+            "VGRD",
+            lvl,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let us = fetch_inventory_field(
+            &http,
+            Model::Rap,
+            Some(run),
+            fh,
+            "UGRD",
+            lvl,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        assert!(
+            differ(&us.field, &vs.field) > 1000,
+            "a single VGRD decoded as UGRD"
+        );
+        let idx = fetch_idx(&http, Model::Rap, run, fh).await.unwrap();
+        let packed = crate::model_inventory::parse_idx(&idx)
+            .iter()
+            .any(|e| e.var == "VGRD" && e.level_text == lvl && e.sub > 0);
+        println!("RAP {lvl} VGRD is a second field of its message: {packed}");
     }
 
     /// Rotation, checked against an earth-relative model: the HRRR's raw 10 m winds disagree in

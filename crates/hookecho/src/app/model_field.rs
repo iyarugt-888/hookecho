@@ -78,6 +78,10 @@ pub(crate) struct SavedFieldPick {
     pub var: String,
     pub level: String,
     pub kind: TimingKind,
+    /// The level's wind as a vector: `var` is its eastward component, the pair is fetched
+    /// together, shown as speed in knots and drawn as barbs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vector: bool,
 }
 
 /// [`SavedFieldPick`] in the `Copy` form a request carries.
@@ -87,6 +91,7 @@ pub(crate) struct FieldPick {
     pub var: &'static str,
     pub level: &'static str,
     pub kind: TimingKind,
+    pub vector: bool,
 }
 
 impl SavedFieldPick {
@@ -96,7 +101,16 @@ impl SavedFieldPick {
             var: intern(&self.var),
             level: intern(&self.level),
             kind: self.kind,
+            vector: self.vector,
         }
+    }
+
+    /// The wind at a `(u, v)` pair's level, as one vector pick.
+    pub(crate) fn wind(model: InventorySource, u: &Field) -> Option<Self> {
+        Some(Self {
+            vector: true,
+            ..Self::of(model, u)?
+        })
     }
 
     pub(crate) fn of(model: InventorySource, field: &Field) -> Option<Self> {
@@ -105,6 +119,7 @@ impl SavedFieldPick {
             var: field.entry.var.clone(),
             level: field.entry.level_text.clone(),
             kind: field.entry.timing.kind()?,
+            vector: false,
         })
     }
 }
@@ -113,6 +128,9 @@ impl FieldPick {
     /// "Temperature · 500 hPa · instant (°C)".
     pub(crate) fn label(self) -> String {
         let level = wxdata::model_inventory::Level::parse(self.level).label();
+        if self.vector {
+            return format!("Wind \u{b7} {level} \u{b7} {} (kt)", self.kind.label());
+        }
         match wxdata::model_inventory::vetted(self.var) {
             Some(q) => format!(
                 "{} \u{b7} {level} \u{b7} {} ({})",
@@ -124,9 +142,18 @@ impl FieldPick {
         }
     }
 
+    /// The unit the shown grid is in.
+    pub(crate) fn unit(self) -> &'static str {
+        if self.vector {
+            return "kt";
+        }
+        wxdata::model_inventory::vetted(self.var).map_or("", |q| q.unit)
+    }
+
     /// The stamp's product id: what was asked for, exactly.
     pub(crate) fn product_id(self) -> String {
-        format!("{}:{}:{}", self.var, self.level, self.kind.label())
+        let var = if self.vector { "WIND" } else { self.var };
+        format!("{var}:{}:{}", self.level, self.kind.label())
     }
 }
 
@@ -166,6 +193,73 @@ pub(crate) fn field_range(f: &wxdata::mrms::MrmsField) -> Option<(f32, f32)> {
 pub(crate) fn model_field_upload(f: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
     let range = field_range(f).unwrap_or((0.0, 1.0));
     super::column_product::column_upload(f, &crate::colormap::ramp_table(range.0, range.1), range)
+}
+
+/// A browsed wind's east and north components (m/s) on one lattice.
+pub(crate) type WindPair = (wxdata::mrms::MrmsField, wxdata::mrms::MrmsField);
+
+/// Whether two grids cover the same cells: what pairs a wind's components with its speed.
+pub(crate) fn same_lattice(a: &wxdata::mrms::MrmsField, b: &wxdata::mrms::MrmsField) -> bool {
+    a.nx == b.nx
+        && a.ny == b.ny
+        && a.values.len() == b.values.len()
+        && a.lon_west == b.lon_west
+        && a.lon_east == b.lon_east
+        && a.lat_north == b.lat_north
+        && a.lat_south == b.lat_south
+        && a.time == b.time
+}
+
+/// `f` on `like`'s lattice (same extent, coarser or equal cells) by nearest cell: display
+/// decimation pools the speed by its maximum, which would bias a signed component.
+pub(crate) fn resample_like(
+    f: wxdata::mrms::MrmsField,
+    like: &wxdata::mrms::MrmsField,
+) -> wxdata::mrms::MrmsField {
+    if (f.nx, f.ny) == (like.nx, like.ny) || like.nx == 0 || like.ny == 0 {
+        return f;
+    }
+    let mut values = Vec::with_capacity(like.nx * like.ny);
+    for y in 0..like.ny {
+        let sy = (((y as f64 + 0.5) * f.ny as f64 / like.ny as f64) as usize).min(f.ny - 1);
+        for x in 0..like.nx {
+            let sx = (((x as f64 + 0.5) * f.nx as f64 / like.nx as f64) as usize).min(f.nx - 1);
+            values.push(f.values.get(sy * f.nx + sx).copied().unwrap_or(f32::NAN));
+        }
+    }
+    wxdata::mrms::MrmsField {
+        values,
+        nx: like.nx,
+        ny: like.ny,
+        ..f
+    }
+}
+
+const MS_TO_KT: f32 = 1.943_844;
+
+/// The wind speed in knots from east/north components in m/s; a cell missing either component
+/// stays missing.
+pub(crate) fn wind_speed_kt(
+    u: &wxdata::mrms::MrmsField,
+    v: &wxdata::mrms::MrmsField,
+) -> anyhow::Result<wxdata::mrms::MrmsField> {
+    anyhow::ensure!(same_lattice(u, v), "wind components on different grids");
+    let values = u
+        .values
+        .iter()
+        .zip(&v.values)
+        .map(|(&a, &b)| {
+            if a.is_finite() && b.is_finite() {
+                a.hypot(b) * MS_TO_KT
+            } else {
+                f32::NEG_INFINITY
+            }
+        })
+        .collect();
+    Ok(wxdata::mrms::MrmsField {
+        values,
+        ..u.clone()
+    })
 }
 
 /// One model inventory lookup.
@@ -246,6 +340,20 @@ impl HookEchoApp {
         });
     }
 
+    /// The components of the wind pane `idx` shows from the browser, once its speed is the
+    /// staged, accepted field for the pane's exact request.
+    pub(crate) fn model_wind_for(&self, idx: usize) -> Option<std::sync::Arc<WindPair>> {
+        let layer = crate::render::FieldLayer::ModelField;
+        if !self.views.get(idx)?.fields_on.contains(&layer) {
+            return None;
+        }
+        let request = self.selected_model_request_for(idx, layer)?;
+        let slot = self.model_fields.get(&request)?;
+        slot.state
+            .model_ready(request)
+            .then(|| slot.vectors.clone())?
+    }
+
     /// Put `pick` on the active pane and turn its layer on.
     pub(crate) fn show_model_field(&mut self, pick: SavedFieldPick) {
         let v = &mut self.views[self.active];
@@ -318,6 +426,7 @@ impl HookEchoApp {
                 let shown = current.as_ref().and_then(|c| {
                     fields.iter().find(|f| {
                         c.model == b.model
+                            && !c.vector
                             && f.entry.var == c.var
                             && f.entry.level_text == c.level
                             && f.entry.timing.kind() == Some(c.kind)
@@ -342,12 +451,27 @@ impl HookEchoApp {
                             }
                         }
                         let pairs = wxdata::model_inventory::vector_pairs(fields);
-                        if !pairs.is_empty() {
-                            ui.weak(format!(
-                            "Wind components pair at {} levels (shown as components; the HRRR's \
-                             and NAM's are grid-relative)",
-                            pairs.len()
-                        ));
+                        let winds: Vec<SavedFieldPick> = pairs
+                            .iter()
+                            .filter_map(|(u, _)| SavedFieldPick::wind(b.model, u))
+                            .filter(|w| {
+                                needle.is_empty()
+                                    || w.pick().label().to_lowercase().contains(&needle)
+                            })
+                            .collect();
+                        if !winds.is_empty() {
+                            ui.separator();
+                            ui.weak(
+                                "Wind: both components turned to east/north, speed in knots \
+                                 under barbs (a single component above is as published: \
+                                 grid-relative on the HRRR, RAP and NAM)",
+                            );
+                        }
+                        for w in winds {
+                            let on = current.as_ref() == Some(&w);
+                            if ui.selectable_label(on, w.pick().label()).clicked() {
+                                chosen = Some(w);
+                            }
                         }
                         let unsupported: Vec<&Field> = fields
                             .iter()
@@ -398,7 +522,7 @@ impl HookEchoApp {
                 y,
             );
         };
-        let unit = wxdata::model_inventory::vetted(pick.var).map_or("", |q| q.unit);
+        let unit = pick.unit();
         let note = state.and_then(|s| s.stamp.as_ref()).map(|s| {
             format!(
                 "{} run {} \u{b7} valid {} UTC \u{b7} 2nd\u{2013}98th percentile",
@@ -433,6 +557,7 @@ mod tests {
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: TimingKind::Instant,
+            vector: false,
         };
         let json = serde_json::to_string(&saved).unwrap();
         assert_eq!(
@@ -444,6 +569,98 @@ mod tests {
         assert_eq!(p.product_id(), "TMP:500 mb:instant");
         // Interning gives the same pointer for the same text.
         assert!(std::ptr::eq(intern("500 mb"), p.level));
+        // A scalar pick saves as it did before vectors existed.
+        assert!(!json.contains("vector"), "{json}");
+    }
+
+    #[test]
+    fn a_wind_pick_is_its_own_product() {
+        let scalar = SavedFieldPick {
+            model: InventorySource::Regional(Regional::Rap),
+            var: "UGRD".into(),
+            level: "500 mb".into(),
+            kind: TimingKind::Instant,
+            vector: false,
+        };
+        let wind = SavedFieldPick {
+            vector: true,
+            ..scalar.clone()
+        };
+        let json = serde_json::to_string(&wind).unwrap();
+        assert_eq!(serde_json::from_str::<SavedFieldPick>(&json).unwrap(), wind);
+        assert_eq!(
+            wind.pick().label(),
+            "Wind \u{b7} 500 hPa \u{b7} instant (kt)"
+        );
+        assert_eq!(wind.pick().product_id(), "WIND:500 mb:instant");
+        assert_eq!(wind.pick().unit(), "kt");
+        assert_ne!(wind.pick().product_id(), scalar.pick().product_id());
+        assert_ne!(wind.pick(), scalar.pick());
+    }
+
+    #[test]
+    fn a_wind_reply_is_accepted_only_whole_and_only_by_a_wind_request() {
+        use super::super::model_context::ModelRequest;
+        let run = chrono::DateTime::from_timestamp(1_760_000_400 / 3600 * 3600, 0).unwrap();
+        let valid = run + chrono::Duration::hours(3);
+        let comp = |x: f32| {
+            let mut f = grid(vec![x, x, f32::NEG_INFINITY, x]);
+            f.time = valid;
+            f
+        };
+        let (u, v) = (comp(3.0), comp(-4.0));
+        let speed = wind_speed_kt(&u, &v).unwrap();
+        assert!((speed.values[0] - 5.0 * MS_TO_KT).abs() < 1e-4);
+        assert_eq!(
+            speed.values[2],
+            f32::NEG_INFINITY,
+            "half a wind is no speed"
+        );
+        let wind = SavedFieldPick {
+            model: InventorySource::Gfs,
+            var: "UGRD".into(),
+            level: "250 mb".into(),
+            kind: TimingKind::Instant,
+            vector: true,
+        }
+        .pick();
+        let stamped = super::super::field_state::model_field(
+            wind.model.source_id(),
+            &wind.product_id(),
+            speed,
+            Some(run),
+            valid,
+            true,
+        )
+        .unwrap();
+        let msg = |uv: WindPair| OverlayMsg::VectorField(stamped.clone(), Box::new(uv));
+        let asked = ModelRequest::Discovered(wind, 3, Some(run));
+        assert!(asked.accepts_message(&msg((u.clone(), v.clone()))));
+        // The scalar UGRD at that level is another product.
+        let scalar = FieldPick {
+            vector: false,
+            ..wind
+        };
+        assert!(!ModelRequest::Discovered(scalar, 3, Some(run))
+            .accepts_message(&msg((u.clone(), v.clone()))));
+        // Components on another lattice than the speed are refused.
+        let mut short = v.clone();
+        short.values.pop();
+        short.nx -= 1;
+        assert!(!asked.accepts_message(&msg((u.clone(), short))));
+    }
+
+    #[test]
+    fn components_follow_the_display_lattice_by_nearest_cell() {
+        let mut f = grid((0..16).map(|i| i as f32 - 8.0).collect());
+        f.nx = 4;
+        f.ny = 4;
+        let like = f.clone().decimated(2);
+        let r = resample_like(f.clone(), &like);
+        assert!(same_lattice(&r, &like));
+        // Nearest cell keeps the sign a maximum pool would lose.
+        assert_eq!(r.values, vec![-3.0, -1.0, 5.0, 7.0]);
+        assert_eq!(resample_like(f.clone(), &f).values, f.values);
     }
 
     fn grid(values: Vec<f32>) -> wxdata::mrms::MrmsField {
@@ -472,6 +689,7 @@ mod tests {
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: TimingKind::Instant,
+            vector: false,
         }
         .pick();
         let valid = run + chrono::Duration::hours(6);

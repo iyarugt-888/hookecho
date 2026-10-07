@@ -5608,25 +5608,22 @@ impl HookEchoApp {
         if self.show_wind && self.settings.wind_barbs {
             let alpha = self.wind_alpha(idx, cam.zoom);
             if let (Some(field), true) = (self.wind.as_ref(), alpha > 0.01) {
-                for b in crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX) {
-                    let at = crate::wind_draw::Barb {
-                        at: prect.left_top() + b.at.to_vec2(),
-                        ..b
-                    };
-                    let col = crate::wind_draw::barb_color(b.kt).gamma_multiply(alpha);
-                    let halo = egui::Color32::from_black_alpha((140.0 * alpha) as u8);
-                    let lines = crate::wind_draw::barb_lines(&at, 20.0);
-                    for l in &lines {
-                        painter.line_segment(*l, egui::Stroke::new(3.0, halo));
-                    }
-                    for l in &lines {
-                        painter.line_segment(*l, egui::Stroke::new(1.4, col));
-                    }
-                    if b.kt < 2.5 {
-                        painter.circle_stroke(at.at, 3.0, egui::Stroke::new(1.2, col));
-                    }
-                }
+                let barbs =
+                    crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX);
+                crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, alpha);
             }
+        }
+        // A wind picked in the model field browser draws as barbs over its speed, from the
+        // components staged with that speed (so the two never disagree on run or lead).
+        if let Some(uv) = self.model_wind_for(idx) {
+            let barbs = crate::wind_draw::barbs_uv(
+                &uv.0,
+                &uv.1,
+                &cam,
+                vp,
+                crate::wind_draw::BARB_SPACING_PX,
+            );
+            crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, 0.95);
         }
 
         // Animated wind particles, when they are being drawn on the CPU. The GPU path draws

@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: winds from the Model fields browser
+
+The Model fields browser now lists the wind at every level a run has both wind components
+(HRRR, RAP, NAM, GFS): picking one shows the wind speed in knots with barbs on top, the
+barbs always from the same run and lead as the speed under them.
+
+### Fixed: the RAP's v wind component in the Model fields browser
+
+The RAP stores both wind components in one record; picking its v component drew the u component
+instead. Each component is now read from its own part of the record.
+
 ### Added: wind barbs
 
 The HRRR wind layer can now be drawn as barbs (command palette → Wind barbs): speed in knots
