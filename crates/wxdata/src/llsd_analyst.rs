@@ -348,11 +348,11 @@ impl PassConfirmation {
 }
 
 /// Whether a column sits in a convective core: a >= 40 dBZ object within 5 km (`column.echo`)
-/// that is more than a single gate. A lone gate is a speck of clutter, bright band or a hail
-/// shaft's edge, not a core; it measures a length of 0 to a few hundredths of a km (the variance
-/// of one point, in floating point), while two gates already measure 0.3 km or more. Counting
-/// specks as cores showed 25 more false markers on 139 random severe-weather windows and found no
-/// more tornadoes (detectionplan.md).
+/// at least [`MIN_CORE_LENGTH_KM`] long. A lone gate is a speck of clutter, bright band or a hail
+/// shaft's edge, not a core: counting specks as cores showed 25 more false markers on 139 random
+/// severe-weather windows and found no more tornadoes. Nor is a small shower: on eight random
+/// years of severe-weather windows, every marker whose core was under 5 km long was false
+/// (detectionplan.md).
 fn in_core(c: &crate::rotation_columns::RotationColumn) -> bool {
     c.echo.is_some_and(|e| e.length_km >= MIN_CORE_LENGTH_KM)
 }
@@ -380,9 +380,13 @@ fn implausible_flow(f: &crate::tornado_fusion::Features) -> bool {
         && (f.near_inbound_10ms >= limit || f.near_vrot_10ms >= limit)
 }
 
-/// The shortest echo object that counts as a core (km): above a single gate's floating-point
-/// length, below any two gates'.
-const MIN_CORE_LENGTH_KM: f32 = 0.1;
+/// The shortest echo object that counts as a core (km). It was a tenth of a km, above a single
+/// gate's floating-point length; at 5 km, on eight random years of severe-weather windows, false
+/// marker episodes fell from 0.59 to 0.44 per radar-hour and false *likely* ones by half (0.034 to
+/// 0.017) with every tornado still found (POD 0.37), and on four random tornado samples false
+/// episodes fell 8% for 0.7 points of POD (0.409 to 0.402), re-derived from the markers drawn once
+/// a volume (detectionplan.md).
+const MIN_CORE_LENGTH_KM: f32 = 5.0;
 
 /// Compass bearing (degrees from north) of motion `(east, north)`.
 fn bearing(u: f32, v: f32) -> f32 {
