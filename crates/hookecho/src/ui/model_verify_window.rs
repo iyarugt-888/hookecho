@@ -1,5 +1,5 @@
-//! Model verification: how far off was a forecast run, scored against the RTMA analysis
-//! (ROADMAP_NEW K1).
+//! Model verification: how far off was a forecast run, scored against the RTMA analysis or the
+//! METAR stations (ROADMAP_NEW K1).
 //!
 //! The scoring lives in `wxdata::gridverify`; this window is the choosing and the reading. It is a
 //! table rather than a dashboard because the story is the *shape* of the errors: how they grow with
@@ -7,7 +7,7 @@
 
 use crate::settings::TempUnit;
 use chrono::{DateTime, Utc};
-use wxdata::gridverify::{GridScore, LeadResult, VerifyField};
+use wxdata::gridverify::{GridScore, LeadResult, Truth, VerifyField};
 
 /// The models that can be scored: the regional runs that publish the surface fields.
 pub const MODELS: [crate::model_browser::BModel; 4] = [
@@ -28,6 +28,7 @@ pub struct Meta {
     pub run: DateTime<Utc>,
     pub threshold_k: Option<f32>,
     pub region_is_view: bool,
+    pub truth: Truth,
 }
 
 /// What the window wants the app to do this frame.
@@ -43,6 +44,7 @@ pub struct ModelVerifyWindow {
     pub results: Option<(Meta, Vec<LeadResult>)>,
     pub model: crate::model_browser::BModel,
     pub field: VerifyField,
+    pub truth: Truth,
     /// `None` picks a run far enough back that its leads all have an analysis.
     pub run: Option<DateTime<Utc>>,
     pub leads_on: [bool; 5],
@@ -62,6 +64,7 @@ impl Default for ModelVerifyWindow {
             results: None,
             model: crate::model_browser::BModel::Hrrr,
             field: VerifyField::Temp2m,
+            truth: Truth::Rtma,
             run: None,
             leads_on: [true, true, true, false, false],
             region_is_view: false,
@@ -156,6 +159,12 @@ impl ModelVerifyWindow {
                     ui.selectable_value(&mut self.field, f, f.label());
                 }
             });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Against:");
+                for t in Truth::ALL {
+                    ui.selectable_value(&mut self.truth, t, t.label());
+                }
+            });
             ui.horizontal(|ui| {
                 ui.label("Run:");
                 let now = Utc::now();
@@ -166,7 +175,10 @@ impl ModelVerifyWindow {
                 egui::ComboBox::from_id_salt("model_verify_run")
                     .selected_text(current)
                     .show_ui(ui, |ui| {
-                        if ui.selectable_label(self.run.is_none(), "Auto (about 12 h ago)").clicked() {
+                        if ui
+                            .selectable_label(self.run.is_none(), "Auto (about 12 h ago)")
+                            .clicked()
+                        {
                             self.run = None;
                         }
                         for r in self.model.run_choices(now, self.model.run_list_len()) {
@@ -211,26 +223,42 @@ impl ModelVerifyWindow {
                     act.run = true;
                 }
                 if self.busy {
-                    crate::ui::loading(ui, "Scoring against the RTMA…");
+                    crate::ui::loading(
+                        ui,
+                        match self.truth {
+                            Truth::Rtma => "Scoring against the RTMA…",
+                            Truth::Metar => "Scoring against the stations…",
+                        },
+                    );
                 }
             });
             if let Some(e) = &self.error {
                 ui.colored_label(egui::Color32::from_rgb(240, 120, 120), e);
             }
             let Some((meta, rows)) = &self.results else {
-                ui.weak(
-                    "Scores a forecast run against the RTMA analysis for the same hour, over about a \
-                     million grid cells weighted by the ground they cover. The RTMA is itself an \
-                     estimate, so this measures agreement with it, not with every station.",
-                );
+                ui.weak(match self.truth {
+                    Truth::Rtma => {
+                        "Scores a forecast run against the RTMA analysis for the same hour, over \
+                         about a million grid cells weighted by the ground they cover. The RTMA is \
+                         itself an estimate, so this measures agreement with it, not with every \
+                         station."
+                    }
+                    Truth::Metar => {
+                        "Scores a forecast run against each METAR station's report within a \
+                         quarter hour of the valid time, every station once, the forecast read at \
+                         the station. The model's grid box sits at the model's terrain height, so \
+                         in the mountains part of the difference is height, not forecast error."
+                    }
+                });
                 return;
             };
             ui.separator();
             ui.strong(format!(
-                "{} {} · {} run · {}",
+                "{} {} · {} run · against the {} · {}",
                 meta.model.label(),
                 meta.field.label(),
                 meta.run.format("%d %b %HZ"),
+                meta.truth.label(),
                 if meta.region_is_view {
                     "map view"
                 } else {
@@ -257,11 +285,18 @@ fn results_table(
         .striped(true)
         .num_columns(if has_event { 11 } else { 7 })
         .show(ui, |ui| {
-            for h in ["Lead", "Valid", "Cells"] {
+            let count = match meta.truth {
+                Truth::Rtma => "Cells",
+                Truth::Metar => "Stations",
+            };
+            for h in ["Lead", "Valid", count] {
                 ui.strong(h);
             }
             ui.strong(format!("Bias {unit_label}"))
-                .on_hover_text("Forecast minus analysis. Positive: the model ran high.");
+                .on_hover_text(match meta.truth {
+                    Truth::Rtma => "Forecast minus analysis. Positive: the model ran high.",
+                    Truth::Metar => "Forecast minus station. Positive: the model ran high.",
+                });
             ui.strong(format!("MAE {unit_label}"))
                 .on_hover_text("Average size of the error, ignoring direction.");
             ui.strong(format!("RMSE {unit_label}"))

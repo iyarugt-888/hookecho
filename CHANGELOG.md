@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: verify a model against the METAR stations
+
+The Model verification window can now score a run against the airport weather stations as well
+as the RTMA analysis ("Against: METAR stations"): each station's report within a quarter hour of
+the forecast hour, compared with the forecast at that station, every station counted once.
+
 ### Added: the ECMWF in the Model fields browser
 
 The Model fields browser now lists the ECMWF IFS (quarter degree): temperature, height, humidity

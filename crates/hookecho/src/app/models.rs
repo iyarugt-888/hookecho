@@ -284,8 +284,9 @@ impl HookEchoApp {
             run,
             threshold_k: threshold,
             region_is_view: w.region_is_view,
+            truth: w.truth,
         };
-        let field = w.field;
+        let (field, truth) = (w.field, w.truth);
         self.model_verify.busy = true;
         self.model_verify.error = None;
         let (tx, rx) = std::sync::mpsc::channel();
@@ -293,7 +294,7 @@ impl HookEchoApp {
         let http = self.http.clone();
         self.spawner.spawn(async move {
             let res = wxdata::gridverify::verify_run(
-                &http, regional, field, run, &leads, region, threshold,
+                &http, regional, field, run, &leads, region, threshold, truth,
             )
             .await
             .map(|rows| (meta, rows))

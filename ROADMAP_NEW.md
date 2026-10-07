@@ -2422,9 +2422,12 @@ Create common APIs for:
 
 - [x] HRRR — migrated onto the F1 catalogue (definition + field mappings; fetch/regrid unchanged)
 - [x] RAP — migrated onto the same catalogue, including its analysis use at f00
-- [ ] GFS — expand beyond current comparison fields. Still on its own path in `global.rs`, which
+- [x] GFS — expand beyond current comparison fields. Still on its own path in `global.rs`, which
   fetches from a different bucket layout with a different index scheme; folding it in needs the
   per-model byte-range strategy F1 deliberately did not invent yet.
+  Done (2026-10-07, ROADMAP_PARITY M5.3): the Model fields browser reads the run's own `.idx`
+  through `wxdata::model_inventory` and offers every field with vetted units (390 of 743 at F+24
+  live), winds as barbs; the comparison fields keep their existing path.
 - [ ] RRFSv1 deterministic
 - [ ] REFS / RRFS ensemble members
 - [x] GEFS — found already fully built while surveying this section, the same pattern as A1/C3/D1's
@@ -2433,7 +2436,9 @@ Create common APIs for:
   (`app/chrome/ribbon.rs`) and the layer-options global-model list, and is covered by the
   `global_live`/`point_series_live` network tests. Re-verified live this pass: `global_live`
   fetched real GEFS-mean MSLP (600×300, 100% finite) alongside GFS/ECMWF/GDPS in the same run.
-- [ ] NBM — genuinely open, not stale: `wxdata::hrrr::Model::Nbm` already has real GRIB mappings
+- [x] NBM — browsable since ROADMAP_PARITY M5.3 increment 1: the Model fields browser is exactly
+  the field-based surface asked for below, and lists the NBM's own `.idx` fields with vetted units
+  (its `WIND` speed scalar included). Original note: genuinely open, not stale: `wxdata::hrrr::Model::Nbm` already has real GRIB mappings
   for the fields it publishes (confirmed live against `blend.t18z.core.f001.co.grib2.idx`:
   `TMP`/`DPT` at "2 m above ground" match the existing generic key exactly), and explicit `None`
   opt-outs for the fields it genuinely doesn't (composite reflectivity, mixed-layer CAPE, SRH,
@@ -2452,7 +2457,10 @@ As of 2026-09-12, NOAA’s current published implementation schedule lists RRFS/
 
 ### Tier 2
 
-- [ ] ECMWF open IFS fields useful over the U.S. if current licensing/access remains compatible
+- [x] ECMWF open IFS fields useful over the U.S. if current licensing/access remains compatible —
+  the Model fields browser reads the open-data IFS 0.25° `.index` (ROADMAP_PARITY M5.3 increment
+  6): pressure-level temperature/height/humidity/wind, 2 m temperature/dew point, 10/100 m wind,
+  pressure, precipitable water and precipitation since the run, mapped only where units match.
 - [ ] ECMWF ensemble products only where openly and legally retrievable
 - [ ] NOAA-accessible AI guidance such as GraphCast products where stable public feeds exist
 - [ ] experimental guidance behind an explicit EXPERIMENTAL label
@@ -3573,7 +3581,13 @@ At a point or region compare forecasts against:
 New this pass, see the Unreleased CHANGELOG entry: `wxdata::gridverify` scores a forecast run against
 the RTMA for the same valid hours, and the "Model verification…" window shows it by lead.
 
-- [ ] METAR — not wired; would need matching the forecast at each station point
+- [x] METAR — "Against: METAR stations" in the Model verification window (2026-10-07): each
+  station's report within 15 min of the valid time (`wxdata::metar::fetch_near`, the
+  aviationweather.gov archive, boxes split when a reply fills the API's 400-report cap), the
+  forecast read bilinearly at the station, every station counted once
+  (`gridverify::compare_points`). Live: HRRR F+01 over the southern Plains, 136 stations, MAE
+  0.85 K; a whole-CONUS hour returns 2,030 stations. No terrain-height correction: the window
+  says so.
 - [ ] RAOB — not wired
 - [x] RTMA/URMA — RTMA only (real-time analysis); URMA is not read
 - [ ] MRMS precip/reflectivity where scientifically appropriate — not wired
@@ -3587,7 +3601,7 @@ Metrics:
 - [x] categorical hit/miss/false alarm for thresholds — area-weighted, with POD, FAR, CSI and frequency bias
 
 Scope today: HRRR, RAP and the NAMs, for 2 m temperature and dewpoint, over the whole domain or the
-map view. It is a region score, not a point series.
+map view. It is a region score (grid cells or stations), not a point series.
 
 ## K2. Radar algorithm verification — partly done
 
