@@ -1597,14 +1597,16 @@ mod tests {
     async fn wind_rotation_agrees_with_gfs_live() {
         use crate::model_inventory::TimingKind;
         let http = reqwest::Client::new();
-        let (run, _) = crate::global::fetch_gfs_inventory(&http, None, 6)
-            .await
-            .unwrap();
+        let (run, _) =
+            crate::global::fetch_global_inventory(&http, crate::global::GlobalModel::Gfs, None, 6)
+                .await
+                .unwrap();
         let gfs = |var: &'static str| {
             let http = http.clone();
             async move {
-                crate::global::fetch_gfs_inventory_field(
+                crate::global::fetch_global_inventory_field(
                     &http,
+                    crate::global::GlobalModel::Gfs,
                     Some(run),
                     6,
                     var,

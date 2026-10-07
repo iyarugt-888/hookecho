@@ -369,7 +369,7 @@ pub(super) fn request_for(
         let pick = models.field.as_ref()?.pick();
         let run = match pick.model {
             InventorySource::Regional(m) => pinned_regional(m),
-            InventorySource::Gfs => pinned_global(),
+            InventorySource::Gfs | InventorySource::Ecmwf => pinned_global(),
         };
         return Some(ModelRequest::Discovered(pick, pick.model.lead(models), run));
     }

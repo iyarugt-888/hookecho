@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the ECMWF in the Model fields browser
+
+The Model fields browser now lists the ECMWF IFS (quarter degree): temperature, height, humidity
+and wind on its pressure levels, 2 m temperature and dew point, 10 m and 100 m wind, pressure,
+precipitable water and precipitation since the run began, in the same units as the GFS. Its
+other parameters are listed with the reason they are not shown yet.
+
 ### Added: winds from the Model fields browser
 
 The Model fields browser now lists the wind at every level a run has both wind components

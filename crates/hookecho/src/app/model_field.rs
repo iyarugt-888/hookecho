@@ -10,16 +10,18 @@ use chrono::Timelike;
 use wxdata::hrrr::Model as Regional;
 use wxdata::model_inventory::{Field, TimingKind};
 
-/// Where an inventory comes from: a regional model's file, or the GFS's quarter-degree file.
+/// Where an inventory comes from: a regional model's file, or a global model's quarter-degree
+/// file (the GFS's `.idx`, ECMWF's `.index`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) enum InventorySource {
     Regional(Regional),
     Gfs,
+    Ecmwf,
 }
 
 /// The models whose inventories can be browsed: every regional model the app reads, the HRRR's
-/// pressure-level file for its mandatory levels, and the GFS.
-pub(crate) const BROWSABLE: [InventorySource; 7] = [
+/// pressure-level file for its mandatory levels, the GFS and the ECMWF IFS.
+pub(crate) const BROWSABLE: [InventorySource; 8] = [
     InventorySource::Regional(Regional::Hrrr),
     InventorySource::Regional(Regional::HrrrPressure),
     InventorySource::Regional(Regional::Rap),
@@ -27,6 +29,7 @@ pub(crate) const BROWSABLE: [InventorySource; 7] = [
     InventorySource::Regional(Regional::Nam),
     InventorySource::Regional(Regional::Nbm),
     InventorySource::Gfs,
+    InventorySource::Ecmwf,
 ];
 
 impl Default for InventorySource {
@@ -36,11 +39,21 @@ impl Default for InventorySource {
 }
 
 impl InventorySource {
+    /// The global model, for a global source.
+    pub(crate) fn global(self) -> Option<wxdata::global::GlobalModel> {
+        match self {
+            InventorySource::Regional(_) => None,
+            InventorySource::Gfs => Some(wxdata::global::GlobalModel::Gfs),
+            InventorySource::Ecmwf => Some(wxdata::global::GlobalModel::Ecmwf),
+        }
+    }
+
     /// The name the stamp carries as its source.
     pub(crate) fn source_id(self) -> &'static str {
-        match self {
-            InventorySource::Regional(m) => m.label(),
-            InventorySource::Gfs => wxdata::global::GlobalModel::Gfs.label(),
+        match (self, self.global()) {
+            (InventorySource::Regional(m), _) => m.label(),
+            (_, Some(g)) => g.label(),
+            (_, None) => unreachable!("a non-regional source is global"),
         }
     }
 
@@ -48,15 +61,17 @@ impl InventorySource {
     pub(crate) fn cycle_hours(self) -> u32 {
         match self {
             InventorySource::Regional(m) => m.def().cycle_hours,
-            InventorySource::Gfs => 6,
+            InventorySource::Gfs | InventorySource::Ecmwf => 6,
         }
     }
 
-    /// The pane's lead for this source: the regional hour, or the global one.
+    /// The pane's lead for this source: the regional hour, or the global one snapped down to a
+    /// lead the model publishes a file for.
     pub(crate) fn lead(self, models: &crate::model_pane::ModelControls) -> u16 {
-        match self {
-            InventorySource::Regional(_) => u16::from(models.hrrr_fcst_hour),
-            InventorySource::Gfs => models.global_fcst_hour,
+        match (self, self.global()) {
+            (InventorySource::Regional(_), _) => u16::from(models.hrrr_fcst_hour),
+            (_, Some(g)) => g.inventory_lead(models.global_fcst_hour),
+            (_, None) => unreachable!("a non-regional source is global"),
         }
     }
 }
@@ -66,6 +81,7 @@ pub(crate) fn model_label(m: InventorySource) -> &'static str {
         InventorySource::Regional(Regional::HrrrPressure) => "HRRR pressure levels",
         InventorySource::Regional(other) => other.label(),
         InventorySource::Gfs => "GFS (0.25\u{b0})",
+        InventorySource::Ecmwf => "ECMWF IFS (0.25\u{b0})",
     }
 }
 
@@ -323,9 +339,12 @@ impl HookEchoApp {
                         .await
                         .map(|(run, lead, fields)| (run, u16::from(lead), fields))
                 }
-                InventorySource::Gfs => wxdata::global::fetch_gfs_inventory(&http, key.1, key.2)
-                    .await
-                    .map(|(run, fields)| (run, key.2, fields)),
+                InventorySource::Gfs | InventorySource::Ecmwf => {
+                    let model = key.0.global().expect("a global source");
+                    wxdata::global::fetch_global_inventory(&http, model, key.1, key.2)
+                        .await
+                        .map(|(run, fields)| (run, key.2, fields))
+                }
             };
             let state = match got {
                 Ok((run, lead_h, fields)) => InventoryState::Ready {
@@ -743,6 +762,26 @@ mod tests {
             ModelRequest::Discovered(gfs, 120, Some(gfs_run)).accepts(&gfs_stamped.stamp),
             "a GFS lead past a regional model's u8 range"
         );
+        // The same field from the ECMWF is a third source.
+        let ecmwf = FieldPick {
+            model: InventorySource::Ecmwf,
+            ..gfs
+        };
+        assert!(!ModelRequest::Discovered(ecmwf, 120, Some(gfs_run)).accepts(&gfs_stamped.stamp));
+    }
+
+    #[test]
+    fn a_global_lead_snaps_to_a_file_the_model_publishes() {
+        let mut models = crate::model_pane::ModelControls {
+            global_fcst_hour: 149,
+            ..Default::default()
+        };
+        assert_eq!(InventorySource::Ecmwf.lead(&models), 144);
+        assert_eq!(InventorySource::Gfs.lead(&models), 147);
+        models.global_fcst_hour = 7;
+        assert_eq!(InventorySource::Ecmwf.lead(&models), 6);
+        assert_eq!(InventorySource::Gfs.lead(&models), 7);
+        assert_eq!(InventorySource::Ecmwf.source_id(), "ECMWF");
     }
 
     #[test]

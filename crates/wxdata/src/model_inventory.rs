@@ -350,6 +350,10 @@ pub struct Entry {
     pub timing_text: String,
     pub level: Level,
     pub timing: Timing,
+    /// Decoded values times this are in the vetted quantity's native unit: 1 for NCEP files;
+    /// 1000 for ECMWF's `tp`, which is metres of water where `APCP` is kg/m² (by definition, a
+    /// metre of water over a square metre is 1000 kg).
+    pub scale: f32,
 }
 
 /// Every message line of an `.idx`, in file order.
@@ -374,6 +378,130 @@ pub fn parse_idx(idx: &str) -> Vec<Entry> {
             timing_text: f[5].to_string(),
             level: Level::parse(f[4]),
             timing: Timing::parse(f[5]),
+            scale: 1.0,
+        })
+        .collect()
+}
+
+/// ECMWF open-data parameters with an exact NCEP equivalent: `(param, levtype, NCEP
+/// abbreviation, level text, accumulated since the run, scale to the NCEP native unit)`. A
+/// pressure-level row takes its level from the line's `levelist`. Units checked against the
+/// ECMWF parameter database: `t`, `2t`, `2d` K; `gh` gpm; `r` %; `q` kg/kg; winds m/s; `msl`,
+/// `sp` Pa; `tcwv` kg/m²; `tp` m of water, accumulated from the start of the forecast. Anything
+/// else (gusts and 3-hourly extremes whose windows the line does not state, cloud, radiation,
+/// vorticity, divergence, `mucape`'s parcel) stays unsupported until mapped.
+type Equivalent = (
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    bool,
+    f32,
+);
+
+const ECMWF_EQUIVALENTS: &[Equivalent] = &[
+    ("t", "pl", "TMP", None, false, 1.0),
+    ("gh", "pl", "HGT", None, false, 1.0),
+    ("r", "pl", "RH", None, false, 1.0),
+    ("q", "pl", "SPFH", None, false, 1.0),
+    ("u", "pl", "UGRD", None, false, 1.0),
+    ("v", "pl", "VGRD", None, false, 1.0),
+    ("2t", "sfc", "TMP", Some("2 m above ground"), false, 1.0),
+    ("2d", "sfc", "DPT", Some("2 m above ground"), false, 1.0),
+    ("10u", "sfc", "UGRD", Some("10 m above ground"), false, 1.0),
+    ("10v", "sfc", "VGRD", Some("10 m above ground"), false, 1.0),
+    (
+        "100u",
+        "sfc",
+        "UGRD",
+        Some("100 m above ground"),
+        false,
+        1.0,
+    ),
+    (
+        "100v",
+        "sfc",
+        "VGRD",
+        Some("100 m above ground"),
+        false,
+        1.0,
+    ),
+    ("msl", "sfc", "PRMSL", Some("mean sea level"), false, 1.0),
+    ("sp", "sfc", "PRES", Some("surface"), false, 1.0),
+    (
+        "tcwv",
+        "sfc",
+        "PWAT",
+        Some("entire atmosphere (considered as a single layer)"),
+        false,
+        1.0,
+    ),
+    ("tp", "sfc", "APCP", Some("surface"), true, 1000.0),
+];
+
+#[derive(serde::Deserialize)]
+struct EcmwfLine {
+    param: String,
+    levtype: String,
+    #[serde(default)]
+    levelist: Option<String>,
+    step: String,
+    #[serde(rename = "_offset")]
+    offset: u64,
+    #[serde(rename = "_length")]
+    length: u64,
+}
+
+/// Every message of an ECMWF open-data JSON-lines `.index`, in NCEP terms where
+/// [`ECMWF_EQUIVALENTS`] has the parameter: abbreviation, `.idx`-style level and timing text,
+/// so [`discover_entries`] and [`find`] read both providers alike. An unmapped parameter keeps
+/// ECMWF's own name (lower case, so never a vetted NCEP abbreviation) and an unread timing.
+pub fn parse_ecmwf_index(index: &str) -> Vec<Entry> {
+    index
+        .lines()
+        .filter_map(|line| serde_json::from_str::<EcmwfLine>(line).ok())
+        .filter_map(|l| {
+            let step: u32 = l.step.parse().ok()?;
+            let pressure = l.levelist.as_deref().map(|lv| format!("{lv} mb"));
+            let mapped = ECMWF_EQUIVALENTS
+                .iter()
+                .find(|m| m.0 == l.param && m.1 == l.levtype);
+            let (var, level_text, timing_text, scale) = match mapped {
+                Some(&(_, levtype, var, level, accumulated, scale)) => {
+                    let level_text = match level {
+                        Some(t) => t.to_string(),
+                        None if levtype == "pl" => pressure?,
+                        None => return None,
+                    };
+                    let timing = if accumulated {
+                        format!("0-{step} hour acc fcst")
+                    } else {
+                        format!("{step} hour fcst")
+                    };
+                    (var.to_string(), level_text, timing, scale)
+                }
+                None => {
+                    let level_text = match (l.levtype.as_str(), pressure) {
+                        ("pl", Some(p)) => p,
+                        (t, _) => match &l.levelist {
+                            Some(lv) => format!("{t} {lv}"),
+                            None => t.to_string(),
+                        },
+                    };
+                    (l.param, level_text, format!("step {step}"), 1.0)
+                }
+            };
+            Some(Entry {
+                offset: l.offset,
+                sub: 0,
+                end: Some(l.offset + l.length),
+                level: Level::parse(&level_text),
+                timing: Timing::parse(&timing_text),
+                var,
+                level_text,
+                timing_text,
+                scale,
+            })
         })
         .collect()
 }
@@ -445,8 +573,13 @@ impl Field {
 /// Every field in an inventory, supported ones first (by quantity, then level), unsupported
 /// ones after in file order. One per `(parameter, level, timing)`.
 pub fn discover(idx: &str) -> Vec<Field> {
+    discover_entries(parse_idx(idx))
+}
+
+/// [`discover`] over entries already read (an NCEP `.idx` or an ECMWF `.index`).
+pub fn discover_entries(entries: Vec<Entry>) -> Vec<Field> {
     let mut seen = std::collections::HashSet::new();
-    let mut fields: Vec<Field> = parse_idx(idx)
+    let mut fields: Vec<Field> = entries
         .into_iter()
         .filter(|e| seen.insert((e.var.clone(), e.level_text.clone(), e.timing_text.clone())))
         .map(|entry| Field {
@@ -500,10 +633,20 @@ pub fn find(
     kind: TimingKind,
     lead_h: u32,
 ) -> Option<(u64, Option<u64>, usize)> {
+    find_entry(entries, var, level_text, kind, lead_h).map(|e| (e.offset, e.end, e.sub))
+}
+
+/// [`find`], the whole entry (for its [`Entry::scale`]).
+pub fn find_entry<'a>(
+    entries: &'a [Entry],
+    var: &str,
+    level_text: &str,
+    kind: TimingKind,
+    lead_h: u32,
+) -> Option<&'a Entry> {
     entries
         .iter()
         .find(|e| e.var == var && e.level_text == level_text && kind.matches(&e.timing, lead_h))
-        .map(|e| (e.offset, e.end, e.sub))
 }
 
 /// One field of a downloaded message: the message itself for the first, a rebuilt single-field
@@ -559,6 +702,73 @@ mod tests {
 580:411843963:d=2026100612:TMP:2 m above ground:anl:
 581:412356047:d=2026100612:SPFH:2 m above ground:anl:
 ";
+
+    /// Real lines from the ECMWF open-data IFS 0.25° `.index` of 2026-10-06 00Z, step 6.
+    const ECMWF: &str = r#"{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "levtype": "sfc", "step": "6", "param": "tp", "_offset": 0, "_length": 707373}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levtype": "sfc", "param": "10u", "_offset": 11401126, "_length": 743889}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levtype": "sfc", "param": "10v", "_offset": 17114364, "_length": 863577}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levtype": "sfc", "param": "2t", "_offset": 22339333, "_length": 655188}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "levtype": "sfc", "step": "6", "param": "10fg", "_offset": 72574848, "_length": 1420232}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levtype": "sfc", "param": "msl", "_offset": 103871052, "_length": 529428}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levelist": "500", "levtype": "pl", "param": "t", "_offset": 95221094, "_length": 616487}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levelist": "500", "levtype": "pl", "param": "vo", "_offset": 109634764, "_length": 1244779}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levelist": "500", "levtype": "pl", "param": "v", "_offset": 134696056, "_length": 734216}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levelist": "500", "levtype": "pl", "param": "u", "_offset": 136121024, "_length": 705762}
+{"domain": "g", "date": "20261006", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "step": "6", "levelist": "1", "levtype": "sol", "param": "sot", "_offset": 6617786, "_length": 622821}"#;
+
+    #[test]
+    fn ecmwf_lines_read_in_ncep_terms_only_where_units_match() {
+        let entries = parse_ecmwf_index(ECMWF);
+        assert_eq!(entries.len(), 11, "one entry per line");
+        let fields = discover_entries(entries.clone());
+        let label = |var: &str, level: &str| {
+            fields
+                .iter()
+                .find(|f| f.entry.var == var && f.entry.level_text == level)
+                .map(Field::label)
+        };
+        assert_eq!(
+            label("TMP", "500 mb").as_deref(),
+            Some("Temperature \u{b7} 500 hPa \u{b7} instant (°C)")
+        );
+        assert_eq!(
+            label("TMP", "2 m above ground").as_deref(),
+            Some("Temperature \u{b7} 2 m AGL \u{b7} instant (°C)")
+        );
+        // Precipitation: accumulated since the run, metres of water scaled to kg/m².
+        let tp = find_entry(
+            &entries,
+            "APCP",
+            "surface",
+            TimingKind::SinceRun(Stat::Accumulation),
+            6,
+        )
+        .expect("tp as APCP");
+        assert_eq!((tp.offset, tp.end, tp.scale), (0, Some(707_373), 1000.0));
+        // Ranges are the line's own offset and length.
+        assert_eq!(
+            find(&entries, "UGRD", "500 mb", TimingKind::Instant, 6),
+            Some((136_121_024, Some(136_826_786), 0))
+        );
+        assert_eq!(
+            find(&entries, "UGRD", "500 mb", TimingKind::Instant, 3),
+            None
+        );
+        // Gusts (window unstated), vorticity and soil stay unsupported, under ECMWF's names.
+        for (var, level) in [("10fg", "sfc"), ("vo", "500 mb"), ("sot", "sol 1")] {
+            let f = fields
+                .iter()
+                .find(|f| f.entry.var == var && f.entry.level_text == level)
+                .unwrap_or_else(|| panic!("{var} {level}"));
+            assert!(!f.supported(), "{var}");
+        }
+        let mut pairs: Vec<String> = vector_pairs(&fields)
+            .iter()
+            .map(|(u, _)| u.entry.level.label())
+            .collect();
+        pairs.sort();
+        assert_eq!(pairs, ["10 m AGL", "500 hPa"]);
+    }
 
     #[test]
     fn levels_and_timings_read_as_the_file_names_them() {

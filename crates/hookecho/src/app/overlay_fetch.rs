@@ -930,9 +930,10 @@ impl OverlaySource {
                         .await?;
                         (run, u16::from(lead), u, v)
                     }
-                    InventorySource::Gfs => {
-                        let (run, u, v) = wxdata::global::fetch_gfs_inventory_vector(
-                            http, run, fh, pick.level, pick.kind,
+                    InventorySource::Gfs | InventorySource::Ecmwf => {
+                        let model = pick.model.global().expect("a global source");
+                        let (run, u, v) = wxdata::global::fetch_global_inventory_vector(
+                            http, model, run, fh, pick.level, pick.kind,
                         )
                         .await?;
                         (run, fh, u, v)
@@ -964,9 +965,10 @@ impl OverlaySource {
                         let valid = fc.valid();
                         (fc.field, fc.run, valid)
                     }
-                    InventorySource::Gfs => {
-                        let fc = wxdata::global::fetch_gfs_inventory_field(
-                            http, run, fh, pick.var, pick.level, pick.kind,
+                    InventorySource::Gfs | InventorySource::Ecmwf => {
+                        let model = pick.model.global().expect("a global source");
+                        let fc = wxdata::global::fetch_global_inventory_field(
+                            http, model, run, fh, pick.var, pick.level, pick.kind,
                         )
                         .await?;
                         let valid = fc.valid();

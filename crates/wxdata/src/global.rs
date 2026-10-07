@@ -460,16 +460,7 @@ async fn fetch_run(
             (base, r)
         }
         GlobalModel::Ecmwf => {
-            let root = if Utc::now() - run > chrono::Duration::hours(ECMWF_PORTAL_HOURS) {
-                ECMWF_ARCHIVE
-            } else {
-                ECMWF_BASE
-            };
-            let base = format!(
-                "{root}/{date}/{:02}z/ifs/0p25/oper/{date}{:02}0000-{fh}h-oper-fc.grib2",
-                run.hour(),
-                run.hour()
-            );
+            let base = ecmwf_base(run, fh);
             let idx = get_text(http, &format!("{}.index", strip_ext(&base))).await?;
             let r = ecmwf_byte_range(&idx, field)
                 .ok_or_else(|| anyhow::anyhow!("no {:?} in ECMWF index", field))?;
@@ -528,36 +519,100 @@ fn gfs_base(run: DateTime<Utc>, fh: u16) -> String {
     )
 }
 
-/// The cycles to try: exactly `run`, or the newest few GFS cycles.
-fn gfs_runs(run: Option<DateTime<Utc>>) -> Vec<DateTime<Utc>> {
-    match run {
-        Some(r) => vec![r],
-        None => GlobalModel::Gfs.run_choices(Utc::now(), 4),
+/// An ECMWF open-data IFS quarter-degree file for `run` and lead `fh`: the portal for recent
+/// runs, the AWS mirror for older ones.
+fn ecmwf_base(run: DateTime<Utc>, fh: u16) -> String {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let root = if Utc::now() - run > chrono::Duration::hours(ECMWF_PORTAL_HOURS) {
+        ECMWF_ARCHIVE
+    } else {
+        ECMWF_BASE
+    };
+    format!(
+        "{root}/{date}/{:02}z/ifs/0p25/oper/{date}{:02}0000-{fh}h-oper-fc.grib2",
+        run.hour(),
+        run.hour()
+    )
+}
+
+impl GlobalModel {
+    /// The models whose whole file inventory can be browsed (ROADMAP_PARITY M5.3).
+    pub const BROWSABLE: [GlobalModel; 2] = [GlobalModel::Gfs, GlobalModel::Ecmwf];
+
+    /// The newest lead at or before `fh` that the model publishes a file for: the GFS hourly to
+    /// F+120 then 3-hourly to F+384; the ECMWF IFS 3-hourly to F+144 then 6-hourly to F+360.
+    pub fn inventory_lead(self, fh: u16) -> u16 {
+        match self {
+            GlobalModel::Ecmwf if fh <= 144 => fh / 3 * 3,
+            GlobalModel::Ecmwf => (fh / 6 * 6).min(360),
+            _ if fh <= 120 => fh,
+            _ => (fh / 3 * 3).min(384),
+        }
     }
 }
 
-/// The fields one GFS run's quarter-degree file holds at lead `fh` (ROADMAP_PARITY M5.3): from
-/// exactly `run`, or the newest cycle that has the lead posted. Returns the run actually read.
-pub async fn fetch_gfs_inventory(
+/// The file for an inventory read, or why the model has none.
+fn inventory_base(model: GlobalModel, run: DateTime<Utc>, fh: u16) -> anyhow::Result<String> {
+    match model {
+        GlobalModel::Gfs => Ok(gfs_base(run, fh)),
+        GlobalModel::Ecmwf => Ok(ecmwf_base(run, fh)),
+        other => anyhow::bail!("{} inventories are not browsable", other.label()),
+    }
+}
+
+/// The messages of the file at `base`, from the provider's own index, in NCEP terms.
+async fn inventory_entries(
     http: &reqwest::Client,
+    model: GlobalModel,
+    base: &str,
+) -> anyhow::Result<Vec<crate::model_inventory::Entry>> {
+    Ok(match model {
+        GlobalModel::Ecmwf => crate::model_inventory::parse_ecmwf_index(
+            &get_text(http, &format!("{}.index", strip_ext(base))).await?,
+        ),
+        _ => crate::model_inventory::parse_idx(&get_text(http, &format!("{base}.idx")).await?),
+    })
+}
+
+/// The cycles to try: exactly `run`, or the newest few of the model's.
+fn inventory_runs(model: GlobalModel, run: Option<DateTime<Utc>>) -> Vec<DateTime<Utc>> {
+    match run {
+        Some(r) => vec![r],
+        None => model.run_choices(Utc::now(), 4),
+    }
+}
+
+/// The fields one global run's quarter-degree file holds at lead `fh` (ROADMAP_PARITY M5.3):
+/// from exactly `run`, or the newest cycle that has the lead posted. Returns the run actually
+/// read. The GFS's `.idx` and ECMWF's `.index` both come out in NCEP terms
+/// ([`crate::model_inventory::parse_ecmwf_index`]).
+pub async fn fetch_global_inventory(
+    http: &reqwest::Client,
+    model: GlobalModel,
     run: Option<DateTime<Utc>>,
     fh: u16,
 ) -> anyhow::Result<(DateTime<Utc>, Vec<crate::model_inventory::Field>)> {
     let mut last = None;
-    for run in gfs_runs(run) {
-        match get_text(http, &format!("{}.idx", gfs_base(run, fh))).await {
-            Ok(idx) => return Ok((run, crate::model_inventory::discover(&idx))),
+    for run in inventory_runs(model, run) {
+        let base = inventory_base(model, run, fh)?;
+        match inventory_entries(http, model, &base).await {
+            Ok(e) if !e.is_empty() => {
+                return Ok((run, crate::model_inventory::discover_entries(e)))
+            }
+            Ok(_) => last = Some(anyhow::anyhow!("an empty {} index", model.label())),
             Err(e) => last = Some(e),
         }
     }
-    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
 }
 
-/// One discovered GFS field (ROADMAP_PARITY M5.3): `var` at `level_text` with timing `kind` at
-/// lead `fh`, in its vetted display units. Refused without vetted units; a run without that exact
-/// message is an error, never another lead's or interval's field.
-pub async fn fetch_gfs_inventory_field(
+/// One discovered global field (ROADMAP_PARITY M5.3): `var` at `level_text` with timing `kind`
+/// at lead `fh`, in its vetted display units. Refused without vetted units; a run without that
+/// exact message is an error, never another lead's or interval's field.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_global_inventory_field(
     http: &reqwest::Client,
+    model: GlobalModel,
     run: Option<DateTime<Utc>>,
     fh: u16,
     var: &str,
@@ -567,16 +622,16 @@ pub async fn fetch_gfs_inventory_field(
     let quantity = crate::model_inventory::vetted(var)
         .ok_or_else(|| anyhow::anyhow!("{var} has no vetted units"))?;
     let mut last = None;
-    for run in gfs_runs(run) {
+    for run in inventory_runs(model, run) {
         let attempt = async {
-            let base = gfs_base(run, fh);
-            let idx = get_text(http, &format!("{base}.idx")).await?;
-            let entries = crate::model_inventory::parse_idx(&idx);
-            let at = crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
-                .ok_or_else(|| {
-                anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
-            })?;
-            let mut field = download_field(http, &base, at).await?;
+            let base = inventory_base(model, run, fh)?;
+            let entries = inventory_entries(http, model, &base).await?;
+            let e =
+                crate::model_inventory::find_entry(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
+                    })?;
+            let mut field = download_field(http, &base, e).await?;
             for v in &mut field.values {
                 if v.is_finite() {
                     *v = quantity.to_display(*v);
@@ -595,38 +650,47 @@ pub async fn fetch_gfs_inventory_field(
             Err(e) => last = Some(e),
         }
     }
-    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
 }
 
-/// One field of a GFS message located by `model_inventory::find`, decoded onto [`RES_DEG`].
+/// The field one inventory entry names, decoded onto [`RES_DEG`] and scaled to its vetted
+/// quantity's native unit ([`crate::model_inventory::Entry::scale`]).
 async fn download_field(
     http: &reqwest::Client,
     base: &str,
-    (start, end, part): (u64, Option<u64>, usize),
+    e: &crate::model_inventory::Entry,
 ) -> anyhow::Result<MrmsField> {
-    let raw = crate::gribcache::fetch_range(http, base, (start, end), USER_AGENT).await?;
-    let raw = crate::model_inventory::field_bytes(raw, part)?;
-    crate::task::blocking(move || decode(&raw, RES_DEG)).await?
+    let raw = crate::gribcache::fetch_range(http, base, (e.offset, e.end), USER_AGENT).await?;
+    let raw = crate::model_inventory::field_bytes(raw, e.sub)?;
+    let mut field = crate::task::blocking(move || decode(&raw, RES_DEG)).await??;
+    if e.scale != 1.0 {
+        for v in &mut field.values {
+            if v.is_finite() {
+                *v *= e.scale;
+            }
+        }
+    }
+    Ok(field)
 }
 
-/// A GFS wind pair from its inventory: `UGRD` and `VGRD` at `level_text` with timing `kind` at
-/// `fh`, in m/s. The GFS grid is latitude/longitude, so its components are already east and
-/// north.
-pub async fn fetch_gfs_inventory_vector(
+/// A global wind pair from the inventory: `UGRD` and `VGRD` at `level_text` with timing `kind`
+/// at `fh`, in m/s. Both models' grids are latitude/longitude, so the components are already
+/// east and north.
+pub async fn fetch_global_inventory_vector(
     http: &reqwest::Client,
+    model: GlobalModel,
     run: Option<DateTime<Utc>>,
     fh: u16,
     level_text: &str,
     kind: crate::model_inventory::TimingKind,
 ) -> anyhow::Result<(DateTime<Utc>, MrmsField, MrmsField)> {
     let mut last = None;
-    for run in gfs_runs(run) {
+    for run in inventory_runs(model, run) {
         let attempt = async {
-            let base = gfs_base(run, fh);
-            let idx = get_text(http, &format!("{base}.idx")).await?;
-            let entries = crate::model_inventory::parse_idx(&idx);
+            let base = inventory_base(model, run, fh)?;
+            let entries = inventory_entries(http, model, &base).await?;
             let locate = |var: &str| {
-                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                crate::model_inventory::find_entry(&entries, var, level_text, kind, u32::from(fh))
                     .ok_or_else(|| anyhow::anyhow!("no {var}:{level_text} at F+{fh}"))
             };
             let (u_at, v_at) = (locate("UGRD")?, locate("VGRD")?);
@@ -640,7 +704,7 @@ pub async fn fetch_gfs_inventory_vector(
             Err(e) => last = Some(e),
         }
     }
-    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
 }
 
 /// Range-GET one GRIB2 message and decode it onto the `res_deg` lattice.
@@ -834,6 +898,89 @@ fn decode(raw: &[u8], res_deg: f64) -> anyhow::Result<MrmsField> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn inventory_leads_land_on_published_files() {
+        let e = GlobalModel::Ecmwf;
+        assert_eq!(
+            [0, 1, 5, 144, 145, 149, 150, 400].map(|h| e.inventory_lead(h)),
+            [0, 0, 3, 144, 144, 144, 150, 360]
+        );
+        let g = GlobalModel::Gfs;
+        assert_eq!(
+            [0, 7, 120, 121, 124, 500].map(|h| g.inventory_lead(h)),
+            [0, 7, 120, 120, 123, 384]
+        );
+    }
+
+    /// The newest ECMWF run's inventory, a pressure-level temperature, precipitation (metres of
+    /// water turned to mm) and a 250 hPa wind pair, live.
+    /// `cargo test -p wxdata ecmwf_inventory_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn ecmwf_inventory_live() {
+        use crate::model_inventory::{Stat, TimingKind};
+        let http = reqwest::Client::new();
+        let m = GlobalModel::Ecmwf;
+        let (run, fields) = fetch_global_inventory(&http, m, None, 12).await.unwrap();
+        let supported = fields.iter().filter(|f| f.supported()).count();
+        println!(
+            "ECMWF {run} F+12: {} fields, {supported} supported",
+            fields.len()
+        );
+        assert!(supported >= 80, "{supported}");
+        let range = |f: &MrmsField| {
+            f.values
+                .iter()
+                .filter(|v| v.is_finite())
+                .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)))
+        };
+        let t = fetch_global_inventory_field(
+            &http,
+            m,
+            Some(run),
+            12,
+            "TMP",
+            "850 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let (lo, hi) = range(&t.field);
+        println!("850 hPa temperature {lo:.1}..{hi:.1} °C");
+        assert!(lo > -60.0 && hi < 45.0 && hi > 10.0, "{lo}..{hi}");
+        assert_eq!(t.field.time, run + chrono::Duration::hours(12));
+        let p = fetch_global_inventory_field(
+            &http,
+            m,
+            Some(run),
+            12,
+            "APCP",
+            "surface",
+            TimingKind::SinceRun(Stat::Accumulation),
+        )
+        .await
+        .unwrap();
+        let (lo, hi) = range(&p.field);
+        println!("12 h precipitation {lo:.2}..{hi:.1} mm");
+        assert!(
+            lo >= -0.01 && hi > 10.0 && hi < 1000.0,
+            "mm, not m: {lo}..{hi}"
+        );
+        let (_, u, v) =
+            fetch_global_inventory_vector(&http, m, Some(run), 12, "250 mb", TimingKind::Instant)
+                .await
+                .unwrap();
+        let fastest = u
+            .values
+            .iter()
+            .zip(&v.values)
+            .filter(|(a, b)| a.is_finite() && b.is_finite())
+            .map(|(a, b)| a.hypot(*b))
+            .fold(0f32, f32::max);
+        println!("250 hPa fastest wind {fastest:.0} m/s");
+        assert!(fastest > 40.0);
+    }
+
     /// A GFS 250 hPa wind pair from the inventory, live: two different fields, valid at run +
     /// lead, with a jet somewhere on Earth.
     /// `cargo test -p wxdata gfs_inventory_vector_live -- --ignored --nocapture`
@@ -842,10 +989,16 @@ mod tests {
     async fn gfs_inventory_vector_live() {
         use crate::model_inventory::TimingKind;
         let http = reqwest::Client::new();
-        let (run, u, v) =
-            fetch_gfs_inventory_vector(&http, None, 12, "250 mb", TimingKind::Instant)
-                .await
-                .unwrap();
+        let (run, u, v) = fetch_global_inventory_vector(
+            &http,
+            GlobalModel::Gfs,
+            None,
+            12,
+            "250 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
         assert_eq!(u.time, run + chrono::Duration::hours(12));
         let fastest = u
             .values
@@ -866,7 +1019,9 @@ mod tests {
     async fn gfs_inventory_live() {
         use crate::model_inventory::TimingKind;
         let http = reqwest::Client::new();
-        let (run, fields) = fetch_gfs_inventory(&http, None, 24).await.unwrap();
+        let (run, fields) = fetch_global_inventory(&http, GlobalModel::Gfs, None, 24)
+            .await
+            .unwrap();
         let supported = fields.iter().filter(|f| f.supported()).count();
         println!(
             "GFS {run} F+24: {} fields, {supported} supported",
@@ -876,10 +1031,17 @@ mod tests {
             supported >= 100,
             "every pressure level of the vetted quantities"
         );
-        let t =
-            fetch_gfs_inventory_field(&http, Some(run), 24, "TMP", "850 mb", TimingKind::Instant)
-                .await
-                .unwrap();
+        let t = fetch_global_inventory_field(
+            &http,
+            GlobalModel::Gfs,
+            Some(run),
+            24,
+            "TMP",
+            "850 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
         let finite: Vec<f32> = t
             .field
             .values
