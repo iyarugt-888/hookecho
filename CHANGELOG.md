@@ -8,6 +8,32 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a storm impact report in the analysis export
+
+"Export analysis…" now includes `impacts.md` and `impacts.csv`: for every storm motion you have
+drawn, when it reaches each saved place, watch zone, imported asset layer and town already found
+in its path, how close it passes and whether it is inside the path, plus the people counted in
+its swath. The report says when a lookup was never made or failed instead of leaving it out, and
+nothing is fetched while exporting.
+
+### Added: scenes keep their product and time
+
+A broadcast scene now remembers the radar product, tilt, SRV, field layers, display thresholds
+and column product it was saved with, and whether it was live or an archived moment. Take puts
+all of it on air together; a scene that names a column product this installation does not have
+is held back with the reason rather than shown with something else. Scenes saved before this
+keep the pane's current product and time, as they always did.
+
+### Added: translucent 3D volume rendering
+
+The 3D map's smooth volumes and the 3D Reflectivity window can now render **Translucent** or
+**Lit** as well as the original maximum-intensity projection. Translucent blends every value
+front to back, so a hail core is seen inside the weaker echo around it rather than pasted over
+it; Lit adds shading from the echo's own gradient. Opacity is per kilometre of path, so the
+Quality setting and vertical exaggeration do not change how solid a storm looks. Saved 3D
+presets remember the mode; presets saved before this load as Maximum, as they were drawn.
+Display only: probes, exports and values are unchanged.
+
 ### Changed: the whole interface in Dear ImGui's look
 
 Every surface — the workstation dock, tool windows, the timeline, the phone's sheet and pill, the

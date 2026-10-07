@@ -4491,7 +4491,11 @@ This is the explicit “what are we still missing?” list for agents.
 - [ ] measured ultra-low-latency pipeline where provider permits
 - [ ] explicit beam-rise visualization
 - [ ] more polished 3D cross-section workflow
-- [ ] impact/analysis report workflow
+- [x] impact/analysis report workflow — the analysis export (K4) carries `impacts.csv` and a
+  readable `impacts.md`: every manual storm motion's arrivals at saved places, watch zones,
+  imported impact targets and towns in its path, with the people counted in its swath and which
+  lookups were not made (ROADMAP_PARITY M2.3 increment 3). SCIT-only storms and alert population
+  summaries are not in it yet
 
 ## WeatherWise Plus / Pro feature parity (checklist, 2026-09-27)
 
@@ -4646,7 +4650,9 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
   the sweep edge, labelled with the sweep's time span. Ages are relative to the sweep's own newest
   data, not the wall clock. Tested; not yet exercised on screen.
 - [x] Shapefile GIS import — see I1 item 2
-- [ ] stronger broadcast output/capture workflows
+- [ ] stronger broadcast output/capture workflows — program pinned/held with cue and Take
+  (M6.1); scenes now keep product, tilt, thresholds and live/fixed time (M6.2 increment 1);
+  palettes, thumbnails and capture manifests remain
 - [ ] multi-provider operational redundancy
 
 ## GR2Analyst-class gaps
@@ -4654,7 +4660,9 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
 - [x] user-defined radar product system — formula evaluation + a live gate-side readout (see C1);
   rendering a product as its own map layer is not built
 - [ ] maximum/minimum value trails
-- [ ] mature transfer-function 3D
+- [ ] mature transfer-function 3D — translucent front-to-back compositing with per-km opacity
+  and gradient lighting now sits beside MIP (ROADMAP_PARITY M3.5 increment 1); an editable stop
+  list beyond the four-point curve remains
 - [ ] isosurfaces
 - [x] movable slicing planes / clip slabs — see H4: an arbitrary-bearing vertical plane plus the
   pre-existing axis-aligned box; a horizontal in-view CAPPI plane and a map-pane cross-section
