@@ -168,6 +168,8 @@ pub(crate) enum PaletteAction {
     ToggleSatLoop,
     /// Open or close the model field browser (ROADMAP_PARITY M5.3).
     ModelFields,
+    /// Open or close the range-height beam diagram.
+    BeamDiagram,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),

@@ -170,6 +170,8 @@ impl HookEchoApp {
         let (zoom, scroll) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta));
         if let Some(pos) = response.hover_pos().filter(|p| prect.contains(*p)) {
             let cursor = (pos.x - prect.left(), pos.y - prect.top());
+            let w = self.views[idx].camera.screen_to_world(cursor, vp);
+            self.hover_lonlat = Some((idx, crate::render::mercator::world_to_lonlat(w.0, w.1)));
             // ROADMAP_NEW J3: share this pane's hovered geo point with every other pane. Reused
             // directly as the probe table's sample point in `paint_linked_cursor`, called once
             // after every pane has had a chance to update it this frame.

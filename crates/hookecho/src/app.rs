@@ -40,6 +40,7 @@ mod radar_wind;
 mod region_stats;
 pub(crate) mod model_field;
 mod report;
+mod beam_diagram;
 mod sat_loop;
 pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
 pub(crate) use contours::{summarize_contours, ContourEntry, ContourKind};
@@ -1683,6 +1684,8 @@ pub struct HookEchoApp {
     sat_loop: sat_loop::SatLoop,
     /// The model field browser (ROADMAP_PARITY M5.3).
     field_browser: model_field::ModelFieldBrowser,
+    /// The range-height beam diagram (WeatherWise-class beam rise).
+    beam_diagram: beam_diagram::BeamDiagram,
     goes_times_rx: Option<std::sync::mpsc::Receiver<Vec<chrono::DateTime<chrono::Utc>>>>,
     /// The archive hour the loaded frame times cover (`None` = the live window ending now).
     /// Scrubbing far enough back to cross into another hour refetches; staying inside one does
@@ -1733,6 +1736,8 @@ pub struct HookEchoApp {
     /// whichever pane the mouse is actually over and cleared when the pointer leaves every pane.
     /// Not persisted — a live hover position, not a saved preference.
     linked_probe: Option<(usize, (f64, f64))>,
+    /// The map point under the pointer and its pane, whatever the cursor links (beam diagram).
+    hover_lonlat: Option<(usize, (f64, f64))>,
     linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,

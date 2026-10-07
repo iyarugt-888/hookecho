@@ -1960,6 +1960,14 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Beam diagram",
+            "Radar",
+            "Every tilt's beam height against range, read at the cursor, with the heights no beam samples",
+            false,
+            PaletteAction::BeamDiagram,
+            Some(self.beam_diagram.open),
+        );
+        push(
             "Model fields",
             "Tools",
             "Browse every field a regional model run publishes (any level) and show one on the map",

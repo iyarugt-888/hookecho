@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a beam diagram
+
+**Beam diagram** (command palette) draws every tilt of the current scan as it climbs with
+range, and reads them at the place under your pointer: how high each beam is there, from its
+bottom to its top, and which heights no beam samples at all — the gap below the lowest beam that
+grows with range, and the gaps between the higher tilts.
+
 ### Added: scenes remember the 3D map; duplicate and reorder scenes
 
 A broadcast scene now also restores the 3D map — on or off, its mode, translucent or lit

@@ -4490,7 +4490,9 @@ This is the explicit “what are we still missing?” list for agents.
 - [x] progressive in-progress sweep display — per-chunk radial merge/GPU updates, retained previous
   pass shading, scan progress and the data-triggered 2D live sweep bar are all implemented in B2
 - [ ] measured ultra-low-latency pipeline where provider permits
-- [ ] explicit beam-rise visualization
+- [x] explicit beam-rise visualization — the cross-section's beam-rise overlay, the 3D beam guides
+  (H5), and the Beam diagram window: every tilt against range, read at the cursor with the
+  heights no beam samples (ROADMAP_PARITY M3.6 increment 7)
 - [ ] more polished 3D cross-section workflow
 - [x] impact/analysis report workflow — the analysis export (K4) carries `impacts.csv` and a
   readable `impacts.md`: every manual storm motion's arrivals at saved places, watch zones,
