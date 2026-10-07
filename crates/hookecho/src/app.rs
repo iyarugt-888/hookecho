@@ -5604,6 +5604,31 @@ impl HookEchoApp {
             }
         }
 
+        // Wind barbs, when asked for: the same east/north grid the particles fly on.
+        if self.show_wind && self.settings.wind_barbs {
+            let alpha = self.wind_alpha(idx, cam.zoom);
+            if let (Some(field), true) = (self.wind.as_ref(), alpha > 0.01) {
+                for b in crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX) {
+                    let at = crate::wind_draw::Barb {
+                        at: prect.left_top() + b.at.to_vec2(),
+                        ..b
+                    };
+                    let col = crate::wind_draw::barb_color(b.kt).gamma_multiply(alpha);
+                    let halo = egui::Color32::from_black_alpha((140.0 * alpha) as u8);
+                    let lines = crate::wind_draw::barb_lines(&at, 20.0);
+                    for l in &lines {
+                        painter.line_segment(*l, egui::Stroke::new(3.0, halo));
+                    }
+                    for l in &lines {
+                        painter.line_segment(*l, egui::Stroke::new(1.4, col));
+                    }
+                    if b.kt < 2.5 {
+                        painter.circle_stroke(at.at, 3.0, egui::Stroke::new(1.2, col));
+                    }
+                }
+            }
+        }
+
         // Animated wind particles, when they are being drawn on the CPU. The GPU path draws
         // inside the map callback instead (see `wind_gpu_frame`), which is also what puts it
         // under the warning polygons rather than over them.

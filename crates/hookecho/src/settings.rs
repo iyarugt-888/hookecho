@@ -732,6 +732,10 @@ pub struct Settings {
     /// quietly polls less often than it says it does is the wrong kind of surprise.
     #[serde(default)]
     pub battery_saver: bool,
+    /// Draw the wind layer as barbs on a screen lattice as well as (or with particles off,
+    /// instead of) the particles.
+    #[serde(default)]
+    pub wind_barbs: bool,
     /// Record a breadcrumb track of the session's GPS fixes, exportable as GPX. Off by default:
     /// where you drove is yours, and nothing records it unless you say so. The track lives in
     /// memory only until you save it.
@@ -1958,6 +1962,7 @@ impl Default for Settings {
             route_engine: Default::default(),
             route_url: String::new(),
             battery_saver: false,
+            wind_barbs: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,
@@ -3231,6 +3236,7 @@ mod tests {
             route_engine: Default::default(),
             route_url: String::new(),
             battery_saver: false,
+            wind_barbs: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,

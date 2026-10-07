@@ -170,6 +170,8 @@ pub(crate) enum PaletteAction {
     ModelFields,
     /// Open or close the range-height beam diagram.
     BeamDiagram,
+    /// Draw the wind layer as barbs too.
+    ToggleWindBarbs,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),

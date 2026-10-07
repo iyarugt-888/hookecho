@@ -1960,6 +1960,14 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Wind barbs",
+            "Model",
+            "Draw the HRRR wind as barbs (speed in knots, pointing where it comes from)",
+            false,
+            PaletteAction::ToggleWindBarbs,
+            Some(self.settings.wind_barbs),
+        );
+        push(
             "Beam diagram",
             "Radar",
             "Every tilt's beam height against range, read at the cursor, with the heights no beam samples",

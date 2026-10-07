@@ -325,6 +325,13 @@ impl HookEchoApp {
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
             PaletteAction::ToggleSatLoop => self.toggle_sat_loop(),
+            PaletteAction::ToggleWindBarbs => {
+                self.settings.wind_barbs = !self.settings.wind_barbs;
+                if self.settings.wind_barbs {
+                    self.show_wind = true;
+                }
+                self.settings.save();
+            }
             PaletteAction::BeamDiagram => self.beam_diagram.open = !self.beam_diagram.open,
             PaletteAction::ModelFields => self.field_browser.open = !self.field_browser.open,
             PaletteAction::GoLive => {

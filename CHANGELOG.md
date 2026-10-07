@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wind barbs
+
+The HRRR wind layer can now be drawn as barbs (command palette → Wind barbs): speed in knots
+with the usual barbs and pennants, pointing where the wind comes from, and staying correct when
+the map is rotated or tilted.
+
 ### Fixed: HRRR wind directions near the coasts
 
 The HRRR (and RAP and NAM) give their winds along the model's own map grid, which leans away
