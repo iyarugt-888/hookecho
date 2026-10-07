@@ -1411,6 +1411,8 @@ detection remains with Claude.
 - *Desktop/Android/browser evidence:* none interactive. The browser is a floating window reached from the command palette on every platform; not exercised on Android.
 - *Known limitations / open:* regional models only (global GFS/ECMWF inventories not yet browsable); the existing max-per-cell scatter regrid is used, which is exact at native spacing but biases a smooth field where several native points fall in one cell; no vector (barb/streamline) drawing from u/v pairs and no grid-relative rotation; no contours, point probe readout label or export naming for the discovered layer beyond the generic grid paths; comparisons are reported, not yet wired into the difference layer.
 
+**Evidence ledger — 2026-10-07, increment 2 (the GFS):** the Model fields browser also lists the GFS quarter-degree file at the pane's global lead (to F+384), through [`global::{fetch_gfs_inventory, fetch_gfs_inventory_field}`](crates/wxdata/src/global.rs) and the same inventory, vetted-units and timing-kind rules; a picked GFS field draws as the Model field layer on the existing 0.3° global lattice. A pick now names its source (`InventorySource`: a regional model or the GFS), the request's lead is `u16`, and a GFS stamp is accepted only by a GFS request (tested, including a 120 h lead). Picks saved by increment 1 earlier on this branch use the old form and reset. Live (`gfs_inventory_live`): GFS 18Z F+24, 743 fields, 390 supported; 850 hPa temperature −46.8..36.7 °C. ECMWF (JSON-lines index, different parameter naming) and vector drawing remain.
+
 #### M5.4 — Unify rendering quality, labels, and transitions
 
 **Priority:** P1. **Depends on:** M1.2, M3.5, M4.3, M5.2. **Original references:** ROADMAP_2 §4; ROADMAP_NEW §§O1–O4, Q2, Q3.

@@ -30,6 +30,9 @@ their exact stops, and a build from before this reads them as a four-point appro
 
 ### Added: every field a regional model run publishes
 
+The browser also covers the GFS at quarter degree: every field its run holds at the pane's
+global lead, out to 384 hours.
+
 **Model fields** (command palette) lists what the pane's HRRR, HRRR pressure-level, RAP, NAM,
 NAM nest or NBM run actually holds at its lead, read from the run's own index: temperatures,
 heights, winds and moisture at every pressure level, surface gusts, precipitation totals and more.

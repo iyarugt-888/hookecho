@@ -10,21 +10,62 @@ use chrono::Timelike;
 use wxdata::hrrr::Model as Regional;
 use wxdata::model_inventory::{Field, TimingKind};
 
-/// The models whose inventories can be browsed: every regional model the app reads, and the
-/// HRRR's pressure-level file for its mandatory levels.
-pub(crate) const BROWSABLE: [Regional; 6] = [
-    Regional::Hrrr,
-    Regional::HrrrPressure,
-    Regional::Rap,
-    Regional::NamNest,
-    Regional::Nam,
-    Regional::Nbm,
+/// Where an inventory comes from: a regional model's file, or the GFS's quarter-degree file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) enum InventorySource {
+    Regional(Regional),
+    Gfs,
+}
+
+/// The models whose inventories can be browsed: every regional model the app reads, the HRRR's
+/// pressure-level file for its mandatory levels, and the GFS.
+pub(crate) const BROWSABLE: [InventorySource; 7] = [
+    InventorySource::Regional(Regional::Hrrr),
+    InventorySource::Regional(Regional::HrrrPressure),
+    InventorySource::Regional(Regional::Rap),
+    InventorySource::Regional(Regional::NamNest),
+    InventorySource::Regional(Regional::Nam),
+    InventorySource::Regional(Regional::Nbm),
+    InventorySource::Gfs,
 ];
 
-pub(crate) fn model_label(m: Regional) -> &'static str {
+impl Default for InventorySource {
+    fn default() -> Self {
+        InventorySource::Regional(Regional::Hrrr)
+    }
+}
+
+impl InventorySource {
+    /// The name the stamp carries as its source.
+    pub(crate) fn source_id(self) -> &'static str {
+        match self {
+            InventorySource::Regional(m) => m.label(),
+            InventorySource::Gfs => wxdata::global::GlobalModel::Gfs.label(),
+        }
+    }
+
+    /// The hours between cycles, for which pinned runs apply.
+    pub(crate) fn cycle_hours(self) -> u32 {
+        match self {
+            InventorySource::Regional(m) => m.def().cycle_hours,
+            InventorySource::Gfs => 6,
+        }
+    }
+
+    /// The pane's lead for this source: the regional hour, or the global one.
+    pub(crate) fn lead(self, models: &crate::model_pane::ModelControls) -> u16 {
+        match self {
+            InventorySource::Regional(_) => u16::from(models.hrrr_fcst_hour),
+            InventorySource::Gfs => models.global_fcst_hour,
+        }
+    }
+}
+
+pub(crate) fn model_label(m: InventorySource) -> &'static str {
     match m {
-        Regional::HrrrPressure => "HRRR pressure levels",
-        other => other.label(),
+        InventorySource::Regional(Regional::HrrrPressure) => "HRRR pressure levels",
+        InventorySource::Regional(other) => other.label(),
+        InventorySource::Gfs => "GFS (0.25\u{b0})",
     }
 }
 
@@ -32,7 +73,7 @@ pub(crate) fn model_label(m: Regional) -> &'static str {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SavedFieldPick {
-    pub model: Regional,
+    pub model: InventorySource,
     /// The NCEP abbreviation and level text exactly as the inventory names them.
     pub var: String,
     pub level: String,
@@ -42,7 +83,7 @@ pub(crate) struct SavedFieldPick {
 /// [`SavedFieldPick`] in the `Copy` form a request carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct FieldPick {
-    pub model: Regional,
+    pub model: InventorySource,
     pub var: &'static str,
     pub level: &'static str,
     pub kind: TimingKind,
@@ -58,7 +99,7 @@ impl SavedFieldPick {
         }
     }
 
-    pub(crate) fn of(model: Regional, field: &Field) -> Option<Self> {
+    pub(crate) fn of(model: InventorySource, field: &Field) -> Option<Self> {
         Some(Self {
             model,
             var: field.entry.var.clone(),
@@ -133,18 +174,18 @@ pub(crate) enum InventoryState {
     Pending,
     Ready {
         run: DateTime<Utc>,
-        lead_h: u8,
+        lead_h: u16,
         fields: Vec<Field>,
     },
     Failed(String),
 }
 
-type InventoryKey = (Regional, Option<DateTime<Utc>>, u8);
+type InventoryKey = (InventorySource, Option<DateTime<Utc>>, u16);
 
 #[derive(Default)]
 pub(crate) struct ModelFieldBrowser {
     pub open: bool,
-    pub model: Regional,
+    pub model: InventorySource,
     pub search: String,
     key: Option<InventoryKey>,
     pub state: Option<InventoryState>,
@@ -156,12 +197,13 @@ impl HookEchoApp {
     /// context; an answer for an older context is dropped.
     fn sync_model_inventory(&mut self, ctx: &egui::Context) {
         let models = &self.views[self.active].models;
+        let source = self.field_browser.model;
         let key = (
-            self.field_browser.model,
+            source,
             models
                 .model_run
-                .filter(|r| r.hour() % self.field_browser.model.def().cycle_hours == 0),
-            models.hrrr_fcst_hour,
+                .filter(|r| r.hour() % source.cycle_hours() == 0),
+            source.lead(models),
         );
         if let Some(rx) = &self.field_browser.rx {
             while let Ok((k, state)) = rx.try_recv() {
@@ -180,7 +222,18 @@ impl HookEchoApp {
         let http = self.http.clone();
         let ctx = ctx.clone();
         self.spawner.spawn(async move {
-            let state = match wxdata::hrrr::fetch_inventory(&http, key.0, key.1, key.2).await {
+            let got = match key.0 {
+                InventorySource::Regional(m) => {
+                    let lead = key.2.min(u16::from(u8::MAX)) as u8;
+                    wxdata::hrrr::fetch_inventory(&http, m, key.1, lead)
+                        .await
+                        .map(|(run, lead, fields)| (run, u16::from(lead), fields))
+                }
+                InventorySource::Gfs => wxdata::global::fetch_gfs_inventory(&http, key.1, key.2)
+                    .await
+                    .map(|(run, fields)| (run, key.2, fields)),
+            };
+            let state = match got {
                 Ok((run, lead_h, fields)) => InventoryState::Ready {
                     run,
                     lead_h,
@@ -211,7 +264,10 @@ impl HookEchoApp {
         let mut open = true;
         let mut chosen = None;
         let current = self.views[self.active].models.field.clone();
-        let lead = self.views[self.active].models.hrrr_fcst_hour;
+        let lead = self
+            .field_browser
+            .model
+            .lead(&self.views[self.active].models);
         egui::Window::new("Model fields")
             .open(&mut open)
             .default_width(420.0)
@@ -373,7 +429,7 @@ mod tests {
     #[test]
     fn a_pick_survives_saving_and_names_what_it_shows() {
         let saved = SavedFieldPick {
-            model: Regional::HrrrPressure,
+            model: InventorySource::Regional(Regional::HrrrPressure),
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: TimingKind::Instant,
@@ -412,7 +468,7 @@ mod tests {
             .and_then(|t| t.with_nanosecond(0))
             .unwrap();
         let pick = SavedFieldPick {
-            model: Regional::HrrrPressure,
+            model: InventorySource::Regional(Regional::HrrrPressure),
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: TimingKind::Instant,
@@ -423,7 +479,7 @@ mod tests {
         field.time = valid;
         // As the fetch stamps it.
         let stamped = super::super::field_state::model_field(
-            pick.model.label(),
+            pick.model.source_id(),
             &pick.product_id(),
             field,
             Some(run),
@@ -447,6 +503,28 @@ mod tests {
         assert!(!ModelRequest::Discovered(pick, 7, Some(run)).accepts(&stamped.stamp));
         let earlier = run - chrono::Duration::hours(1);
         assert!(!ModelRequest::Discovered(pick, 6, Some(earlier)).accepts(&stamped.stamp));
+        // The same field from the GFS is another source: not interchangeable.
+        let gfs = FieldPick {
+            model: InventorySource::Gfs,
+            ..pick
+        };
+        assert!(!ModelRequest::Discovered(gfs, 6, Some(run)).accepts(&stamped.stamp));
+        let mut gfs_field = grid(vec![-20.0; 4]);
+        let gfs_run = run - chrono::Duration::hours(i64::from(run.hour() % 6));
+        gfs_field.time = gfs_run + chrono::Duration::hours(120);
+        let gfs_stamped = super::super::field_state::model_field(
+            gfs.model.source_id(),
+            &gfs.product_id(),
+            gfs_field,
+            Some(gfs_run),
+            gfs_run + chrono::Duration::hours(120),
+            false,
+        )
+        .unwrap();
+        assert!(
+            ModelRequest::Discovered(gfs, 120, Some(gfs_run)).accepts(&gfs_stamped.stamp),
+            "a GFS lead past a regional model's u8 range"
+        );
     }
 
     #[test]

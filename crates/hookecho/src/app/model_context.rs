@@ -25,7 +25,7 @@ pub(crate) enum ModelRequest {
     ),
     Analysis(crate::render::FieldLayer, Option<DateTime<Utc>>),
     /// A field from a regional model's inventory (M5.3) at a forecast hour, from a pinned run.
-    Discovered(super::model_field::FieldPick, u8, Option<DateTime<Utc>>),
+    Discovered(super::model_field::FieldPick, u16, Option<DateTime<Utc>>),
 }
 
 pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 22] = {
@@ -233,7 +233,7 @@ impl ModelRequest {
                 run,
             ),
             Self::Discovered(pick, hour, run) => (
-                pick.model.label(),
+                pick.model.source_id(),
                 pick.product_id(),
                 i64::from(hour) * 60,
                 run,
@@ -351,12 +351,13 @@ pub(super) fn request_for(
     use crate::render::FieldLayer as L;
     use wxdata::global::GlobalField as G;
     if layer == L::ModelField {
+        use super::model_field::InventorySource;
         let pick = models.field.as_ref()?.pick();
-        return Some(ModelRequest::Discovered(
-            pick,
-            models.hrrr_fcst_hour,
-            pinned_regional(pick.model),
-        ));
+        let run = match pick.model {
+            InventorySource::Regional(m) => pinned_regional(m),
+            InventorySource::Gfs => pinned_global(),
+        };
+        return Some(ModelRequest::Discovered(pick, pick.model.lead(models), run));
     }
     Some(match layer {
         L::Hrrr => {
@@ -595,7 +596,7 @@ pub(super) mod tests {
         // The discovered-field layer asks for nothing until a field is picked.
         assert_eq!(request_for(&controls, L::ModelField, None, now), None);
         controls.field = Some(super::super::model_field::SavedFieldPick {
-            model: M::Hrrr,
+            model: super::super::model_field::InventorySource::Regional(M::Hrrr),
             var: "TMP".into(),
             level: "500 mb".into(),
             kind: wxdata::model_inventory::TimingKind::Instant,
@@ -800,7 +801,7 @@ pub(super) mod tests {
             ModelRequest::Analysis(L::RtmaTemp2m, None),
             ModelRequest::Discovered(
                 super::super::model_field::SavedFieldPick {
-                    model: M::HrrrPressure,
+                    model: super::super::model_field::InventorySource::Regional(M::HrrrPressure),
                     var: "HGT".into(),
                     level: "500 mb".into(),
                     kind: wxdata::model_inventory::TimingKind::Instant,

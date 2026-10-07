@@ -287,7 +287,7 @@ pub(crate) enum OverlaySource {
     Rtma(crate::render::FieldLayer, Option<DateTime<Utc>>),
     /// A field from a regional model's inventory (ROADMAP_PARITY M5.3) at a forecast hour, from
     /// a pinned run.
-    ModelField(super::model_field::FieldPick, u8, Option<DateTime<Utc>>),
+    ModelField(super::model_field::FieldPick, u16, Option<DateTime<Utc>>),
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -914,18 +914,33 @@ impl OverlaySource {
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
             }
             OverlaySource::ModelField(pick, fh, run) => {
-                let fc = wxdata::hrrr::fetch_inventory_field(
-                    http, pick.model, run, fh, pick.var, pick.level, pick.kind,
-                )
-                .await?;
-                let valid = fc.valid();
+                use super::model_field::InventorySource;
+                let (field, run, valid) = match pick.model {
+                    InventorySource::Regional(m) => {
+                        let lead = fh.min(u16::from(u8::MAX)) as u8;
+                        let fc = wxdata::hrrr::fetch_inventory_field(
+                            http, m, run, lead, pick.var, pick.level, pick.kind,
+                        )
+                        .await?;
+                        let valid = fc.valid();
+                        (fc.field, fc.run, valid)
+                    }
+                    InventorySource::Gfs => {
+                        let fc = wxdata::global::fetch_gfs_inventory_field(
+                            http, run, fh, pick.var, pick.level, pick.kind,
+                        )
+                        .await?;
+                        let valid = fc.valid();
+                        (fc.field, fc.run, valid)
+                    }
+                };
                 OverlayMsg::StampedField(
                     crate::render::FieldLayer::ModelField,
                     field_state::model_field(
-                        pick.model.label(),
+                        pick.model.source_id(),
                         &pick.product_id(),
-                        fc.field,
-                        Some(fc.run),
+                        field,
+                        Some(run),
                         valid,
                         false,
                     )?,

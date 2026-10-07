@@ -518,6 +518,87 @@ async fn fetch_run(
     })
 }
 
+/// The GFS quarter-degree file for `run` and lead `fh`.
+fn gfs_base(run: DateTime<Utc>, fh: u16) -> String {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    format!(
+        "{GFS_BUCKET}/gfs.{date}/{:02}/atmos/gfs.t{:02}z.pgrb2.0p25.f{fh:03}",
+        run.hour(),
+        run.hour()
+    )
+}
+
+/// The cycles to try: exactly `run`, or the newest few GFS cycles.
+fn gfs_runs(run: Option<DateTime<Utc>>) -> Vec<DateTime<Utc>> {
+    match run {
+        Some(r) => vec![r],
+        None => GlobalModel::Gfs.run_choices(Utc::now(), 4),
+    }
+}
+
+/// The fields one GFS run's quarter-degree file holds at lead `fh` (ROADMAP_PARITY M5.3): from
+/// exactly `run`, or the newest cycle that has the lead posted. Returns the run actually read.
+pub async fn fetch_gfs_inventory(
+    http: &reqwest::Client,
+    run: Option<DateTime<Utc>>,
+    fh: u16,
+) -> anyhow::Result<(DateTime<Utc>, Vec<crate::model_inventory::Field>)> {
+    let mut last = None;
+    for run in gfs_runs(run) {
+        match get_text(http, &format!("{}.idx", gfs_base(run, fh))).await {
+            Ok(idx) => return Ok((run, crate::model_inventory::discover(&idx))),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+}
+
+/// One discovered GFS field (ROADMAP_PARITY M5.3): `var` at `level_text` with timing `kind` at
+/// lead `fh`, in its vetted display units. Refused without vetted units; a run without that exact
+/// message is an error, never another lead's or interval's field.
+pub async fn fetch_gfs_inventory_field(
+    http: &reqwest::Client,
+    run: Option<DateTime<Utc>>,
+    fh: u16,
+    var: &str,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<GlobalForecast> {
+    let quantity = crate::model_inventory::vetted(var)
+        .ok_or_else(|| anyhow::anyhow!("{var} has no vetted units"))?;
+    let mut last = None;
+    for run in gfs_runs(run) {
+        let attempt = async {
+            let base = gfs_base(run, fh);
+            let idx = get_text(http, &format!("{base}.idx")).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let range =
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
+                    })?;
+            let mut field = download_and_decode(http, &base, range, RES_DEG).await?;
+            for v in &mut field.values {
+                if v.is_finite() {
+                    *v = quantity.to_display(*v);
+                }
+            }
+            anyhow::Ok(field)
+        };
+        match attempt.await {
+            Ok(field) => {
+                return Ok(GlobalForecast {
+                    field,
+                    run,
+                    fcst_hour: fh,
+                })
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no GFS cycle found")))
+}
+
 /// Range-GET one GRIB2 message and decode it onto the `res_deg` lattice.
 async fn download_and_decode(
     http: &reqwest::Client,
@@ -708,6 +789,44 @@ fn decode(raw: &[u8], res_deg: f64) -> anyhow::Result<MrmsField> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The newest GFS run's F+24 inventory and its 850 hPa temperature as a discovered field,
+    /// live. `cargo test -p wxdata gfs_inventory_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn gfs_inventory_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, fields) = fetch_gfs_inventory(&http, None, 24).await.unwrap();
+        let supported = fields.iter().filter(|f| f.supported()).count();
+        println!(
+            "GFS {run} F+24: {} fields, {supported} supported",
+            fields.len()
+        );
+        assert!(
+            supported >= 100,
+            "every pressure level of the vetted quantities"
+        );
+        let t =
+            fetch_gfs_inventory_field(&http, Some(run), 24, "TMP", "850 mb", TimingKind::Instant)
+                .await
+                .unwrap();
+        let finite: Vec<f32> = t
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        let (lo, hi) = finite
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        println!(
+            "850 hPa temperature {lo:.1}..{hi:.1} °C, valid {}",
+            t.valid()
+        );
+        assert!(lo > -60.0 && hi < 45.0 && hi > 10.0, "{lo}..{hi}");
+    }
 
     #[test]
     fn ecmwf_index_lines_resolve_to_ranges() {
