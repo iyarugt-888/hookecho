@@ -65,7 +65,10 @@ a third to three quarters; a tornado report or an observed warning still confirm
 keeps false *possible* markers on ordinary severe days near where they were while finding 45% of
 the tornadoes there, up from 37%. Layer options → Detectors → **Show it at its first scan** draws
 it at once instead: about a tenth more of the tornadoes on tornado days, with about twice the
-false *possible* markers. Live tracks also no longer restart partway through each volume.
+false *possible* markers. A marker also needs a storm core at least 5 km long, where it took
+a tenth of a km: on ordinary severe days every marker beside a smaller one was false, and
+dropping them took false markers there a quarter lower than before all this, with no tornado
+lost. Live tracks also no longer restart partway through each volume.
 
 ### Changed: Tornado detection reads the air around the storm
 
@@ -578,7 +581,7 @@ it open from the marker.
 It alerts once when a marker reaches *likely* or higher, and again only if it rises. The fused
 pipeline makes the verdicts; the original stands in while it computes. *Possible* now also marks
 strong low-level rotation without debris, 40 km or more from the radar (bar in Layer options →
-Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km),
+Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km, at least 5 km long),
 and a *possible* marker within 2 km of a wind turbine that stood in the scan's year is not drawn
 (USGS U.S. Wind Turbine Database). Nor is shallow rotation with no debris and near-ground winds of
 60 m/s or more, which is velocity unfolding failing around ground clutter; on the quiet days of
