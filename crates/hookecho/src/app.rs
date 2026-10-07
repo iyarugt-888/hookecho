@@ -57,6 +57,7 @@ mod chase;
 mod construct;
 mod contours;
 mod ensemble_stamps;
+mod radar_outlines;
 mod data_age;
 mod data_poll;
 mod detectors;
@@ -6963,7 +6964,9 @@ impl HookEchoApp {
     /// already the filtered, toggled set `rebuild_overlays` assembled for display, so an export
     /// matches what the user is looking at instead of quietly carrying layers they had turned off.
     fn export_map_geojson(&mut self) {
-        let features = self.map_export_features();
+        let mut features = self.map_export_features();
+        // The displayed reflectivity sweep's threshold edges, as lines with their scan's metadata.
+        features.extend(self.radar_outline_features());
         let count = features.len();
         if count == 0 {
             self.toast(

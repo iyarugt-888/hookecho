@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: radar outlines in the GeoJSON export
+
+"Export map as GeoJSON…" now includes the displayed reflectivity scan's 35, 50 and 60 dBZ
+outlines as lines, each labelled with the radar, tilt, scan time and threshold, ready for GIS
+tools.
+
 ### Added: ensemble postage stamps and single members
 
 "Ensemble members" shows the GEFS mean and all 31 members side by side over the map view, in the

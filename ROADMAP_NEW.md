@@ -3297,8 +3297,12 @@ Export:
   ProbSevere, fire perimeters, imported shapes), each with its kind and title
 - [x] markers and watch zones — not in this list originally, but they are the other two things a
   user draws and would expect to get back out
-- [ ] sampled/threshold contours — no contour geometry is generated in a form that could be
-  exported; the contour overlays draw directly rather than producing vector features
+- [x] sampled/threshold contours — model contours (earlier), and now the displayed reflectivity
+  sweep's 35/50/60 dBZ outlines (2026-10-07, `app/radar_outlines.rs`): the sweep sampled gate by
+  gate onto a 0.01° lattice over its coverage, no echo inside coverage kept distinct from no
+  coverage so an echo's edge closes where it ends, each line with site, product, elevation, scan
+  time, threshold, unit and whether it closes. On the Mayfield 2021 corpus volume: 291 lines
+  (216/73/2), 289 closed; read back independently as a WGS84 FeatureCollection of LineStrings.
 - [ ] route geometry — L1's route engine is not started, so there is nothing to export
 
 ### Acceptance criteria
