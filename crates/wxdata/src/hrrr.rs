@@ -620,6 +620,89 @@ pub fn run_choices(model: Model, now: DateTime<Utc>, count: usize) -> Vec<DateTi
         .collect()
 }
 
+/// The fields one run's file holds at `fcst_hour` (ROADMAP_PARITY M5.3), read from its `.idx`:
+/// from exactly `run`, or the newest cycle that has the lead posted. Returns the run and lead
+/// actually read.
+pub async fn fetch_inventory(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+) -> anyhow::Result<(DateTime<Utc>, u8, Vec<crate::model_inventory::Field>)> {
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        match fetch_idx(http, model, run, fh).await {
+            Ok(idx) => return Ok((run, fh, crate::model_inventory::discover(&idx))),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
+}
+
+/// One discovered field (ROADMAP_PARITY M5.3): the message for `var` at `level_text` whose timing
+/// is `kind` at `fcst_hour`, from exactly `run` or the newest cycle that has it, converted to its
+/// vetted display units. A parameter without vetted units is refused, never drawn with guessed
+/// ones; a run without that exact message is an error, never another lead's or interval's field.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_inventory_field(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+    var: &str,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<HrrrForecast> {
+    let quantity = crate::model_inventory::vetted(var)
+        .ok_or_else(|| anyhow::anyhow!("{var} has no vetted units"))?;
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        let attempt = async {
+            let idx = fetch_idx(http, model, run, fh).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let range =
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
+                    })?;
+            let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+            let base = model.url(&date, run.hour(), fh);
+            let bytes = crate::gribcache::fetch_range(http, &base, range, USER_AGENT).await?;
+            let mut field =
+                crate::task::guarded(|| decode_regrid(&bytes, model, f64::NEG_INFINITY))
+                    .unwrap_or_else(|_| anyhow::bail!("{} grib decode panicked", model.label()))?;
+            for v in &mut field.values {
+                if v.is_finite() {
+                    *v = quantity.to_display(*v);
+                }
+            }
+            anyhow::Ok(field)
+        };
+        match attempt.await {
+            Ok(field) => {
+                return Ok(HrrrForecast {
+                    field,
+                    run,
+                    fcst_hour: fh,
+                    fcst_minutes: None,
+                })
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
+}
+
 /// Fetch `var`/`level` at `fcst_hour` from exactly `run`. Unlike [`fetch_field`] this never walks
 /// back to another cycle: the point of naming a run is to get that one, or an honest error.
 pub async fn fetch_field_at_run(
@@ -919,6 +1002,61 @@ pub(crate) fn regrid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The newest HRRR run's F+6 inventory, live, and its 500 hPa temperature as a discovered
+    /// field in °C. `cargo test -p wxdata inventory_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn inventory_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, fh, fields) = fetch_inventory(&http, Model::Hrrr, None, 6).await.unwrap();
+        let supported = fields.iter().filter(|f| f.supported()).count();
+        println!(
+            "HRRR {run} F+{fh}: {} fields, {supported} supported, {} vector pairs",
+            fields.len(),
+            crate::model_inventory::vector_pairs(&fields).len()
+        );
+        assert!(supported >= 25 && fields.len() > supported);
+        let t = fetch_inventory_field(
+            &http,
+            Model::Hrrr,
+            Some(run),
+            fh,
+            "TMP",
+            "500 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let finite: Vec<f32> = t
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        let (lo, hi) = finite
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        println!(
+            "500 hPa temperature {lo:.1}..{hi:.1} °C over {} cells",
+            finite.len()
+        );
+        assert!(lo > -60.0 && hi < 5.0, "{lo}..{hi}");
+        // A parameter without vetted units is refused.
+        assert!(fetch_inventory_field(
+            &http,
+            Model::Hrrr,
+            Some(run),
+            fh,
+            "POT",
+            "2 m above ground",
+            TimingKind::Instant
+        )
+        .await
+        .is_err());
+    }
 
     #[test]
     fn aligned_candidates_use_exact_valid_time_and_newest_cycle_first() {

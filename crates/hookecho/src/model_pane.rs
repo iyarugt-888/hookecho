@@ -16,6 +16,10 @@ pub(crate) struct ModelControls {
     pub hrrr_subhourly: bool,
     pub env_cape_ml: bool,
     pub env_srh_km: u8,
+    /// A field picked from a regional model's inventory (ROADMAP_PARITY M5.3). Written only when
+    /// set, so a workspace without one stays readable by builds that predate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<crate::app::model_field::SavedFieldPick>,
     #[serde(skip)]
     pub hrrr_by_timeline: bool,
 }
@@ -34,6 +38,7 @@ impl Default for ModelControls {
             hrrr_subhourly: false,
             env_cape_ml: false,
             env_srh_km: 3,
+            field: None,
             hrrr_by_timeline: false,
         }
     }

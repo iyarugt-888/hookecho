@@ -166,6 +166,8 @@ pub(crate) enum PaletteAction {
     InstantReplay,
     /// Start or stop the satellite-native loop (ROADMAP_PARITY M5.2).
     ToggleSatLoop,
+    /// Open or close the model field browser (ROADMAP_PARITY M5.3).
+    ModelFields,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),

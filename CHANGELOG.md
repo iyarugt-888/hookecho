@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: every field a regional model run publishes
+
+**Model fields** (command palette) lists what the pane's HRRR, HRRR pressure-level, RAP, NAM,
+NAM nest or NBM run actually holds at its lead, read from the run's own index: temperatures,
+heights, winds and moisture at every pressure level, surface gusts, precipitation totals and more.
+Pick one to draw it, with its units, level, timing, run and valid time in the legend. Parameters
+whose units are not vetted are listed with the reason instead of being drawn with a guess, and
+precipitation totals keep their interval as the lead changes.
+
 ### Added: 3D around one storm
 
 The 3D map's smooth volumes can now be built around the selected storm instead of the whole

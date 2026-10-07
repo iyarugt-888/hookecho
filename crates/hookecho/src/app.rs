@@ -38,6 +38,7 @@ mod overlay_health;
 mod pane_time;
 mod radar_wind;
 mod region_stats;
+pub(crate) mod model_field;
 mod report;
 mod sat_loop;
 pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
@@ -1680,6 +1681,8 @@ pub struct HookEchoApp {
     goes_follow_radar: bool,
     /// Satellite-native playback (ROADMAP_PARITY M5.2); drives the GOES clock while on.
     sat_loop: sat_loop::SatLoop,
+    /// The model field browser (ROADMAP_PARITY M5.3).
+    field_browser: model_field::ModelFieldBrowser,
     goes_times_rx: Option<std::sync::mpsc::Receiver<Vec<chrono::DateTime<chrono::Utc>>>>,
     /// The archive hour the loaded frame times cover (`None` = the live window ending now).
     /// Scrubbing far enough back to cross into another hour refetches; staying inside one does

@@ -31,6 +31,7 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
                 | FL::GlobalDewpoint2m
                 | FL::GlobalWind10m
                 | FL::GlobalPrecip
+                | FL::ModelField
                 | FL::ThunderProb
                 | FL::GlmFed
                 | FL::ModelDiff
@@ -1957,6 +1958,14 @@ impl HookEchoApp {
             true,
             PaletteAction::GoLive,
             None,
+        );
+        push(
+            "Model fields",
+            "Tools",
+            "Browse every field a regional model run publishes (any level) and show one on the map",
+            false,
+            PaletteAction::ModelFields,
+            Some(self.field_browser.open),
         );
         push(
             "Satellite loop",

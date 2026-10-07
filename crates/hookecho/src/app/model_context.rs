@@ -24,9 +24,11 @@ pub(crate) enum ModelRequest {
         Option<DateTime<Utc>>,
     ),
     Analysis(crate::render::FieldLayer, Option<DateTime<Utc>>),
+    /// A field from a regional model's inventory (M5.3) at a forecast hour, from a pinned run.
+    Discovered(super::model_field::FieldPick, u8, Option<DateTime<Utc>>),
 }
 
-pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 21] = {
+pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 22] = {
     use crate::render::FieldLayer as L;
     [
         L::Hrrr,
@@ -42,6 +44,7 @@ pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 21] = {
         L::GlobalDewpoint2m,
         L::GlobalWind10m,
         L::GlobalPrecip,
+        L::ModelField,
         L::RtmaTemp2m,
         L::RtmaDewpoint2m,
         L::RtmaWind10m,
@@ -106,6 +109,12 @@ impl ModelRequest {
                 i64::from(hour) * 60,
                 run,
             ),
+            Self::Discovered(pick, hour, run) => (
+                super::model_field::model_label(pick.model),
+                pick.label(),
+                i64::from(hour) * 60,
+                run,
+            ),
             Self::Analysis(layer, hour) => {
                 return format!(
                     "RTMA/URMA / {}; {}",
@@ -137,6 +146,7 @@ impl ModelRequest {
                 Self::Global(layer, model, field, lead, run)
             }
             OverlaySource::Rtma(layer, hour) => Self::Analysis(layer, hour),
+            OverlaySource::ModelField(pick, lead, run) => Self::Discovered(pick, lead, run),
             _ => return None,
         })
     }
@@ -158,12 +168,14 @@ impl ModelRequest {
                 OverlaySource::Global(layer, model, field, lead, run)
             }
             Self::Analysis(layer, hour) => OverlaySource::Rtma(layer, hour),
+            Self::Discovered(pick, lead, run) => OverlaySource::ModelField(pick, lead, run),
         }
     }
 
     pub(super) fn layer(self) -> crate::render::FieldLayer {
         match self {
             Self::Reflectivity(..) | Self::Subhourly(..) => crate::render::FieldLayer::Hrrr,
+            Self::Discovered(..) => crate::render::FieldLayer::ModelField,
             Self::Environment(layer, ..)
             | Self::RegionalProduct(layer, ..)
             | Self::Global(layer, ..)
@@ -217,6 +229,12 @@ impl ModelRequest {
             Self::Global(_, model, field, hour, run) => (
                 model.label(),
                 field.slug().into(),
+                i64::from(hour) * 60,
+                run,
+            ),
+            Self::Discovered(pick, hour, run) => (
+                pick.model.label(),
+                pick.product_id(),
                 i64::from(hour) * 60,
                 run,
             ),
@@ -332,6 +350,14 @@ pub(super) fn request_for(
     };
     use crate::render::FieldLayer as L;
     use wxdata::global::GlobalField as G;
+    if layer == L::ModelField {
+        let pick = models.field.as_ref()?.pick();
+        return Some(ModelRequest::Discovered(
+            pick,
+            models.hrrr_fcst_hour,
+            pinned_regional(pick.model),
+        ));
+    }
     Some(match layer {
         L::Hrrr => {
             let run = pinned_regional(models.refl_model);
@@ -566,6 +592,14 @@ pub(super) mod tests {
             first, second,
             "matching valid times do not make different cycles interchangeable"
         );
+        // The discovered-field layer asks for nothing until a field is picked.
+        assert_eq!(request_for(&controls, L::ModelField, None, now), None);
+        controls.field = Some(super::super::model_field::SavedFieldPick {
+            model: M::Hrrr,
+            var: "TMP".into(),
+            level: "500 mb".into(),
+            kind: wxdata::model_inventory::TimingKind::Instant,
+        });
         let requests = MODEL_LAYERS.map(|layer| request_for(&controls, layer, None, now).unwrap());
         assert_eq!(
             requests
@@ -764,6 +798,17 @@ pub(super) mod tests {
             ModelRequest::RegionalProduct(L::ThunderProb, 1, None),
             ModelRequest::Global(L::GlobalMslp, G::Gfs, F::Mslp, 384, None),
             ModelRequest::Analysis(L::RtmaTemp2m, None),
+            ModelRequest::Discovered(
+                super::super::model_field::SavedFieldPick {
+                    model: M::HrrrPressure,
+                    var: "HGT".into(),
+                    level: "500 mb".into(),
+                    kind: wxdata::model_inventory::TimingKind::Instant,
+                }
+                .pick(),
+                6,
+                Some(run()),
+            ),
         ] {
             assert_eq!(ModelRequest::from_source(&request.source()), Some(request));
         }
@@ -772,7 +817,7 @@ pub(super) mod tests {
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            21
+            22
         );
         assert!(ModelRequest::from_source(&OverlaySource::Fronts).is_none());
     }

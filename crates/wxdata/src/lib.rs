@@ -66,6 +66,7 @@ pub mod lsr;
 pub mod metar;
 pub mod meteoalarm;
 pub mod model;
+pub mod model_inventory;
 pub mod mosaic;
 pub mod mping;
 pub mod mrms;

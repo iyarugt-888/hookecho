@@ -649,6 +649,8 @@ pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         // Bands are cut from the ~2-min mosaic, so they are as fresh as it is.
         FL::SnowBands => 120,
         FL::Hrrr | FL::UpdraftHelicity => 600,
+        // A regional model field: hourly cycles, so ten minutes catches a new run promptly.
+        FL::ModelField => 600,
         // Snowfall accumulates over a whole model run; it moves as slowly as the run does.
         FL::Snowfall => 600,
         // The analysis is reissued four times a day; half an hour is plenty.

@@ -316,6 +316,10 @@ pub enum FieldLayer {
     GlobalWind10m,
     /// Global model precipitable water / total precipitation.
     GlobalPrecip,
+    /// A field picked from a regional model's own inventory (ROADMAP_PARITY M5.3,
+    /// `ModelControls::field`): any parameter with vetted units at any level the file holds.
+    /// Coloured over its own range by its quantity's ramp, not a fixed one.
+    ModelField,
     /// Banded precipitation from the MRMS mosaic, narrowed to snow — the snow-squall layer.
     SnowBands,
     /// NBM calibrated probability of thunder over the hour ending at the scrubbed forecast hour.
@@ -537,7 +541,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 91] = [
+    pub const DRAW_ORDER: [FieldLayer; 92] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -568,6 +572,7 @@ impl FieldLayer {
         FieldLayer::GlobalDewpoint2m,
         FieldLayer::GlobalWind10m,
         FieldLayer::GlobalPrecip,
+        FieldLayer::ModelField,
         FieldLayer::ModelDiff,
         FieldLayer::CompareA,
         FieldLayer::CompareB,
@@ -749,6 +754,7 @@ impl FieldLayer {
             FieldLayer::GlobalDewpoint2m => "global-dewpoint2m",
             FieldLayer::GlobalWind10m => "global-wind10m",
             FieldLayer::GlobalPrecip => "global-precip",
+            FieldLayer::ModelField => "model-field",
             FieldLayer::ModelDiff => "model-diff",
             FieldLayer::CompareA => "compare-a",
             FieldLayer::CompareB => "compare-b",
@@ -3264,6 +3270,7 @@ fn smooth_field(layer: FieldLayer) -> bool {
         // the formula never produced, so it is drawn cell by cell, exactly as it probes.
         && layer != FieldLayer::UserColumn
         && layer != FieldLayer::UserColumnTrail
+        && layer != FieldLayer::ModelField
         && !field_ramps::ramp_for(layer)
             .is_some_and(|r| matches!(r.scale, field_ramps::FieldScale::Categorical(_)))
 }

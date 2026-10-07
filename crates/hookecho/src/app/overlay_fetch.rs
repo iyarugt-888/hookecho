@@ -285,6 +285,9 @@ pub(crate) enum OverlaySource {
     Ndfd(crate::render::FieldLayer),
     /// An RTMA analysis field for one analysis hour (`None` = the newest that has posted).
     Rtma(crate::render::FieldLayer, Option<DateTime<Utc>>),
+    /// A field from a regional model's inventory (ROADMAP_PARITY M5.3) at a forecast hour, from
+    /// a pinned run.
+    ModelField(super::model_field::FieldPick, u8, Option<DateTime<Utc>>),
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -390,6 +393,7 @@ impl OverlaySource {
             | Self::Ndfd(layer)
             | Self::Rtma(layer, _) => RequestLane::Field(*layer),
             Self::GoesRgb(..) => RequestLane::Field(FL::GoesRgb),
+            Self::ModelField(..) => RequestLane::Field(FL::ModelField),
             Self::GoesFootprint(..) => RequestLane::Feed(FeedSource::GoesMesoSector),
             Self::GlmWindow(..) => RequestLane::Feed(FeedSource::GlmArchive),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
@@ -908,6 +912,24 @@ impl OverlaySource {
                     _ => anyhow::bail!("{layer:?} is not an NDFD element"),
                 };
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
+            }
+            OverlaySource::ModelField(pick, fh, run) => {
+                let fc = wxdata::hrrr::fetch_inventory_field(
+                    http, pick.model, run, fh, pick.var, pick.level, pick.kind,
+                )
+                .await?;
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    crate::render::FieldLayer::ModelField,
+                    field_state::model_field(
+                        pick.model.label(),
+                        &pick.product_id(),
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        false,
+                    )?,
+                )
             }
             OverlaySource::Rtma(layer, hour) => {
                 let field = model_context::rtma_field(layer)

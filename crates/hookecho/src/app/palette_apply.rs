@@ -325,6 +325,7 @@ impl HookEchoApp {
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
             PaletteAction::ToggleSatLoop => self.toggle_sat_loop(),
+            PaletteAction::ModelFields => self.field_browser.open = !self.field_browser.open,
             PaletteAction::GoLive => {
                 self.radar_timeline();
                 self.views[self.active].timeline.go_head();
