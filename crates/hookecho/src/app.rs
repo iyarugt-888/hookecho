@@ -819,6 +819,11 @@ struct LoopExport {
     volumes: Vec<Option<(String, DateTime<Utc>)>>,
     /// Hold each frame for its real scan gap (`Settings::loop_real_timing`) or all alike.
     real_timing: bool,
+    /// What each captured frame asked for and found (ROADMAP_PARITY M6.3), for the manifest.
+    records: Vec<crate::capture_manifest::FrameRecord>,
+    /// The frame being captured: the scan asked for, and whether the wait for it ran out.
+    asked: Option<String>,
+    timed_out: bool,
 }
 
 /// A placefile the app has fetched and is tracking (mirrors a `PlacefileConfig` by URL).

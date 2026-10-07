@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: loop exports say exactly what they captured
+
+The JSON written beside an exported GIF or MP4 is now a capture manifest: for every frame, the
+scan that was asked for and the one actually on screen, how long it took to appear, each layer's
+data time and whether it was ready, a SHA-256 of the picture, and which video frames it fills.
+A frame that came out as the wrong scan, repeated the previous one, or had a layer still loading
+is listed as a problem, and the save message says so instead of reporting plain success.
+
 ### Added: a satellite loop at the satellite's own cadence
 
 "Loop satellite scans" (Satellite layer options, or the command palette) plays every scan the

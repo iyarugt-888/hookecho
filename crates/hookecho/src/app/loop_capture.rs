@@ -37,6 +37,9 @@ impl HookEchoApp {
             fps: speed,
             volumes: Vec::with_capacity(slots),
             real_timing: self.settings.loop_real_timing,
+            records: Vec::with_capacity(slots),
+            asked: None,
+            timed_out: false,
         });
     }
 
@@ -63,6 +66,7 @@ impl HookEchoApp {
                 return;
             }
             if le.settle == LOOP_SETTLE_FRAMES {
+                le.timed_out = true;
                 log::warn!(
                     "loop export: {} not on screen after {}s; capturing {} instead",
                     wanted.as_deref().unwrap_or("?"),
@@ -77,6 +81,7 @@ impl HookEchoApp {
             return;
         }
         le.capturing = true;
+        le.asked = wanted;
         self.screenshot_pending = Some(ShotDest::Loop);
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
     }
@@ -91,16 +96,32 @@ impl HookEchoApp {
         for px in &image.pixels {
             buf.extend_from_slice(&[px.r(), px.g(), px.b(), px.a()]);
         }
+        let sha256 = crate::capture_manifest::checksum(&buf);
         if let Some(img) = image::RgbaImage::from_raw(w, h, buf) {
             le.frames.push(img);
             // What is on screen, not what the cursor names: the label must match the picture.
-            le.volumes.push(
-                self.views[self.active]
-                    .volume
-                    .as_ref()
-                    .map(|v| (v.name.clone(), v.time)),
-            );
+            let shown = self.views[self.active]
+                .volume
+                .as_ref()
+                .map(|v| (v.name.clone(), v.time));
+            le.volumes.push(shown.clone());
+            let record = crate::capture_manifest::FrameRecord {
+                asked: le.asked.take(),
+                shown,
+                waited_ms: le.step_at.elapsed().as_millis() as u64,
+                timed_out: std::mem::take(&mut le.timed_out),
+                sources: Vec::new(),
+                sha256,
+            };
+            let sources = self.capture_sources(record.shown.as_ref().map(|(_, t)| *t));
+            if let Some(le) = &mut self.loop_export {
+                le.records
+                    .push(crate::capture_manifest::FrameRecord { sources, ..record });
+            }
         }
+        let Some(le) = &mut self.loop_export else {
+            return;
+        };
         le.capturing = false;
         le.remaining -= 1;
         if le.remaining > 0 {
@@ -143,11 +164,27 @@ impl HookEchoApp {
                     crate::loopexport::encode_mp4_timed(&le.frames, &delays, &le.dest)
                 }
             };
-            // The sidecar: which scans the loop shows and how long each is held.
+            // The sidecar: which scans the loop shows and how long each is held, and the capture
+            // manifest (ROADMAP_PARITY M6.3): each logical frame's encoded frames, what it asked
+            // for and showed, its layers' times and a checksum, and the problems found.
+            let encoded: Vec<u32> = match le.format {
+                LoopFormat::Gif => vec![1; delays.len()],
+                LoopFormat::Mp4 => {
+                    crate::loopexport::cfr_counts(&delays, crate::loopexport::MP4_FPS)
+                }
+            };
+            let problems = crate::capture_manifest::problems(&le.records);
             if res.is_ok() {
                 let v = &self.views[self.active];
                 let (interval, fps) = crate::loopexport::timing_words(timing);
                 let meta = serde_json::json!({
+                    "schema": crate::capture_manifest::MANIFEST_SCHEMA,
+                    "encoded_fps": match le.format {
+                        LoopFormat::Gif => None,
+                        LoopFormat::Mp4 => Some(crate::loopexport::MP4_FPS),
+                    },
+                    "logical_frames": crate::capture_manifest::frames(&le.records, &delays, &encoded),
+                    "problems": problems,
                     "site": v.site,
                     "product": v.moment.short_name(),
                     "tilt_index": v.tilt,
@@ -170,8 +207,20 @@ impl HookEchoApp {
                         le.dest.display(),
                         le.frames.len()
                     );
-                    let msg = format!("Loop saved ({} frames)", le.frames.len());
-                    self.toast(ToastKind::Success, msg);
+                    if problems.is_empty() {
+                        let msg = format!("Loop saved ({} frames)", le.frames.len());
+                        self.toast(ToastKind::Success, msg);
+                    } else {
+                        // Saved, but not as asked: say so, and where the details are.
+                        let msg = format!(
+                            "Loop saved ({} frames) with {} problem{}: {}. Details in the .json",
+                            le.frames.len(),
+                            problems.len(),
+                            if problems.len() == 1 { "" } else { "s" },
+                            problems[0]
+                        );
+                        self.toast(ToastKind::Info, msg);
+                    }
                 }
                 Err(e) => {
                     log::warn!("loop encode failed: {e}");
@@ -179,6 +228,34 @@ impl HookEchoApp {
                 }
             }
         }
+    }
+}
+
+impl HookEchoApp {
+    /// Every field layer on the active pane as a capture sees it: ready for the pane's selected
+    /// time or not, and its data's valid time.
+    fn capture_sources(
+        &self,
+        radar_time: Option<DateTime<Utc>>,
+    ) -> Vec<crate::capture_manifest::SourceStamp> {
+        let v = &self.views[self.active];
+        crate::capture_manifest::stamps(
+            radar_time,
+            crate::render::FieldLayer::DRAW_ORDER
+                .iter()
+                .filter(|l| v.fields_on.contains(l))
+                .map(|l| {
+                    let valid = self
+                        .field_state_for(self.active, *l)
+                        .and_then(|s| s.stamp.as_ref())
+                        .map(|s| s.valid_time);
+                    (
+                        l.slug().to_string(),
+                        self.mrms_ready_for(self.active, *l),
+                        valid,
+                    )
+                }),
+        )
     }
 }
 
