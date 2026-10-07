@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a satellite loop at the satellite's own cadence
+
+"Loop satellite scans" (Satellite layer options, or the command palette) plays every scan the
+satellite made over the last 15 minutes to 2 hours: each one-minute frame in a mesoscale sector,
+each five-minute CONUS frame. Missing scans are shown as gaps on its strip instead of being
+closed up, the loop waits for each frame to appear rather than racing ahead into blank frames,
+and the next few frames are downloaded ahead to disk. Radar keeps its own time while it plays.
+
 ### Added: a storm impact report in the analysis export
 
 "Export analysis…" now includes `impacts.md` and `impacts.csv`: for every storm motion you have

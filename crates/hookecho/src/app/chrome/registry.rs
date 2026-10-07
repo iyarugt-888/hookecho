@@ -1959,6 +1959,14 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Satellite loop",
+            "Tools",
+            "Loop every satellite scan, one-minute mesoscale frames included, with missing scans shown",
+            false,
+            PaletteAction::ToggleSatLoop,
+            Some(self.sat_loop.on),
+        );
+        push(
             "Instant replay (DVR)",
             "Tools",
             "Replay the scans already in memory",

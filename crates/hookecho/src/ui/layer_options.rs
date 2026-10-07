@@ -780,6 +780,16 @@ pub(crate) fn show(
         if let Some(note) = goes_sector_note {
             ui.label(egui::RichText::new(note).small());
         }
+        if ui
+            .button("Loop satellite scans")
+            .on_hover_text(
+                "Play every scan the satellite made (each minute in a mesoscale sector), with \
+                 missing scans shown as gaps. Radar keeps its own time.",
+            )
+            .clicked()
+        {
+            actions.palette = Some(crate::app::PaletteAction::ToggleSatLoop);
+        }
         changed |= crate::ui::style::toggle(ui, goes_satellite_west, "Use GOES-West")
             .on_hover_text(
                 "GOES-18 instead of GOES-East — covers the Pacific and the western half of the \

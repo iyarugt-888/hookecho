@@ -95,6 +95,7 @@ impl HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::SnowBands);
             }
         }
+        self.update_sat_loop(ctx);
         self.schedule_goes(ctx);
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
         // bundle and this always shows the message valid nearest to now.

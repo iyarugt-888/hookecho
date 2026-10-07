@@ -4463,7 +4463,8 @@ This is the explicit “what are we still missing?” list for agents.
 ## WeatherFront-class gaps
 
 - [ ] native full-resolution GOES ABI
-- [ ] 1-minute mesoscale satellite
+- [x] 1-minute mesoscale satellite — a satellite loop plays every listed mesoscale scan (or
+  CONUS), with missing scans as gaps and bounded disk prefetch (ROADMAP_PARITY M5.2 increment 1)
 - [ ] broad RGB/channel suite
 - [ ] generic 80+-class MRMS catalog coverage
 - [ ] RRFS/REFS

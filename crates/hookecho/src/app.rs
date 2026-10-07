@@ -39,6 +39,7 @@ mod pane_time;
 mod radar_wind;
 mod region_stats;
 mod report;
+mod sat_loop;
 pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
 pub(crate) use contours::{summarize_contours, ContourEntry, ContourKind};
 use fetch_schedule::field_refresh_secs;
@@ -1669,6 +1670,8 @@ pub struct HookEchoApp {
     goes_time_idx: Option<usize>,
     /// Keep the GOES frame on the active pane's radar clock rather than on a hand-picked frame.
     goes_follow_radar: bool,
+    /// Satellite-native playback (ROADMAP_PARITY M5.2); drives the GOES clock while on.
+    sat_loop: sat_loop::SatLoop,
     goes_times_rx: Option<std::sync::mpsc::Receiver<Vec<chrono::DateTime<chrono::Utc>>>>,
     /// The archive hour the loaded frame times cover (`None` = the live window ending now).
     /// Scrubbing far enough back to cross into another hour refetches; staying inside one does

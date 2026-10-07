@@ -629,6 +629,7 @@ impl HookEchoApp {
             }
         }
         self.goes_time_bar(ctx);
+        self.sat_loop_bar(ctx);
         if let Some(act) = self
             .event_window
             .show(ctx, &mut self.settings, &mut self.drawer)

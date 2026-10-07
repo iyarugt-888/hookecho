@@ -824,16 +824,8 @@ impl OverlaySource {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
-                let band = match layer {
-                    FL::GoesIr | FL::GoesColdTop => 13,
-                    FL::GoesVisible => 2,
-                    FL::GoesWaterVapor => 8,
-                    FL::GoesShortwaveIr => 7,
-                    FL::GoesMidWaterVapor => 9,
-                    FL::GoesLowWaterVapor => 10,
-                    FL::GoesDirtyIr => 15,
-                    FL::GoesLongwaveIr => 14,
-                    _ => anyhow::bail!("{layer:?} is not a GOES band"),
+                let Some(band) = super::sat_loop::goes_layer_band(layer) else {
+                    anyhow::bail!("{layer:?} is not a GOES band");
                 };
                 // A mesoscale box is about 1000 km a side: square, and finer per degree.
                 let (nx, ny) = goes_grid(sector);

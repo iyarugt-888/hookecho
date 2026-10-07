@@ -510,6 +510,7 @@ impl HookEchoApp {
             goes_times_style: None,
             goes_time_idx: None,
             goes_follow_radar: true,
+            sat_loop: sat_loop::SatLoop::new(),
             goes_times_rx: None,
             goes_hour: None,
             glm_fed_prev: None,

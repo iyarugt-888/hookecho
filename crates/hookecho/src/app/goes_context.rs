@@ -197,6 +197,10 @@ impl GoesSlot {
 impl HookEchoApp {
     fn goes_clock_for(&self, idx: usize) -> Option<Option<DateTime<Utc>>> {
         let timeline = &self.views.get(idx)?.timeline;
+        // A satellite loop drives the GOES layers' own clock: the scan on its playhead.
+        if let Some(scan) = self.sat_loop.current() {
+            return Some(Some(scan));
+        }
         let target = self.model_target_time(idx);
         (target.is_some() || timeline.following || timeline.forecast_hour().is_some())
             .then_some(target)

@@ -324,6 +324,7 @@ impl HookEchoApp {
             PaletteAction::DockWindow(w) => self.dock.toggle(w),
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
+            PaletteAction::ToggleSatLoop => self.toggle_sat_loop(),
             PaletteAction::GoLive => {
                 self.radar_timeline();
                 self.views[self.active].timeline.go_head();

@@ -164,6 +164,8 @@ pub(crate) enum PaletteAction {
     DockWindow(chrome::DockWin),
     Reload,
     InstantReplay,
+    /// Start or stop the satellite-native loop (ROADMAP_PARITY M5.2).
+    ToggleSatLoop,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),
