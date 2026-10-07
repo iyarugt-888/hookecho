@@ -262,60 +262,88 @@ pub fn circulations_with(
 }
 
 /// How many low-level passes a column's track must read *likely* or stronger on, by radar
-/// evidence alone, before a verdict of that tier is shown so and alerts ([`LikelyConfirmation`]).
+/// evidence alone, before a verdict of that tier is shown so and alerts ([`PassConfirmation`]).
 /// With markers drawn at every pass ([`crate::low_passes`]), one pass's *likely* doubled the false
 /// alerts on four random tornado samples (0.13-0.24 to 0.19-0.47 per radar-hour); a second pass
 /// took them below what one verdict a volume gave (0.04-0.11 against 0.13-0.20), with POD at that
 /// tier within four points (detectionplan.md, "Every low-level pass").
 pub const LIKELY_PASSES: u32 = 2;
 
-/// The passes on which each track has read *likely* or stronger ([`LIKELY_PASSES`]). Recorded
-/// once a pass ([`Self::record`]), applied to the verdicts drawn from it ([`Self::apply`]); a new
-/// tracker starts a new one.
+/// What each track has read on the low-level passes so far: how many it was a verdict on, and how
+/// many *likely* or stronger. Recorded once a pass ([`Self::record`]), applied to the verdicts
+/// drawn from it ([`Self::apply`]); a new tracker starts a new one.
+///
+/// Two rules read it. *Likely* and stronger need [`LIKELY_PASSES`] passes at that tier, or are
+/// held at *possible*. And, unless asked not to (`lifts_wait` false), a rotation-only *possible*
+/// (the lift of [`Analysed::tornado_id_with`], scored under [`MIN_SCORE`]) is drawn only once its
+/// track was a verdict on an earlier pass too: drawn at every pass, lifts doubled the false
+/// *possible* markers; waiting one pass took ordinary severe days back to about the false rate of
+/// one verdict a volume (0.66 per radar-hour against 0.59) and kept most of the tornadoes found
+/// (POD 0.45 against 0.47 at every pass and 0.37 a volume) (detectionplan.md).
 #[derive(Debug, Clone, Default)]
-pub struct LikelyConfirmation {
-    passes: std::collections::HashMap<u64, u32>,
+pub struct PassConfirmation {
+    verdicts: std::collections::HashMap<u64, u32>,
+    likely: std::collections::HashMap<u64, u32>,
 }
 
-impl LikelyConfirmation {
-    /// Count this pass's columns that read *likely* or stronger on radar evidence alone (no
-    /// report or warning), with the rotation-only bar `rotation_only_possible`. Once per pass.
+impl PassConfirmation {
+    /// Count this pass's columns that read as a verdict, and as *likely* or stronger, on radar
+    /// evidence alone (no report or warning), with the rotation-only bar `rotation_only_possible`.
+    /// Once per pass.
     pub fn record(&mut self, analysed: &[Analysed], rotation_only_possible: Option<f32>) {
         let none = Confirmation::default();
         for a in analysed {
-            if a.tornado_id_with(&none, rotation_only_possible)
-                .is_some_and(|id| id.tier >= Tier::Likely)
-            {
-                *self.passes.entry(a.tracked.track_id).or_default() += 1;
+            let Some(id) = a.tornado_id_with(&none, rotation_only_possible) else {
+                continue;
+            };
+            let track = a.tracked.track_id;
+            *self.verdicts.entry(track).or_default() += 1;
+            if id.tier >= Tier::Likely {
+                *self.likely.entry(track).or_default() += 1;
             }
         }
     }
 
     /// Whether `track` has read *likely* or stronger on [`LIKELY_PASSES`] passes.
     pub fn confirmed(&self, track: u64) -> bool {
-        self.passes.get(&track).copied().unwrap_or(0) >= LIKELY_PASSES
+        self.likely.get(&track).copied().unwrap_or(0) >= LIKELY_PASSES
     }
 
-    /// Hold every *likely* or *debris* verdict among `ids` whose column's track is not yet
-    /// [`Self::confirmed`] at *possible*. A *confirmed* one (a report or an observed warning)
-    /// stands: people saw it.
-    pub fn apply<'a>(
+    /// Whether `track` was a verdict on a pass before this one.
+    pub fn seen_before(&self, track: u64) -> bool {
+        self.verdicts.get(&track).copied().unwrap_or(0) >= 2
+    }
+
+    /// Apply both rules to `ids`: a *likely* or *debris* verdict whose track is not
+    /// [`Self::confirmed`] is held at *possible* (a *confirmed* one, from a report or an observed
+    /// warning, stands: people saw it), and with `lifts_wait` a rotation-only *possible* whose
+    /// track was not [`Self::seen_before`] is not drawn.
+    pub fn apply(&self, analysed: &[Analysed], ids: &mut Vec<TornadoId>, lifts_wait: bool) {
+        ids.retain_mut(|id| self.keep(analysed, id, lifts_wait));
+    }
+
+    /// [`Self::apply`] to circulations, by their verdicts.
+    pub fn apply_circulations(
         &self,
         analysed: &[Analysed],
-        ids: impl IntoIterator<Item = &'a mut TornadoId>,
+        circulations: &mut Vec<Circulation>,
+        lifts_wait: bool,
     ) {
-        for id in ids {
-            if !matches!(id.tier, Tier::Likely | Tier::Debris) {
-                continue;
-            }
-            let track = analysed
-                .iter()
-                .find(|a| a.tracked.column.lon == id.lon && a.tracked.column.lat == id.lat)
-                .map(|a| a.tracked.track_id);
-            if !track.is_some_and(|t| self.confirmed(t)) {
-                id.tier = Tier::Possible;
-            }
+        circulations.retain_mut(|c| self.keep(analysed, &mut c.id, lifts_wait));
+    }
+
+    fn keep(&self, analysed: &[Analysed], id: &mut TornadoId, lifts_wait: bool) -> bool {
+        let track = analysed
+            .iter()
+            .find(|a| a.tracked.column.lon == id.lon && a.tracked.column.lat == id.lat)
+            .map(|a| a.tracked.track_id);
+        if matches!(id.tier, Tier::Likely | Tier::Debris)
+            && !track.is_some_and(|t| self.confirmed(t))
+        {
+            id.tier = Tier::Possible;
         }
+        let lift = id.tier == Tier::Possible && id.score < MIN_SCORE;
+        !(lifts_wait && lift && !track.is_some_and(|t| self.seen_before(t)))
     }
 }
 
@@ -927,12 +955,12 @@ mod tests {
         (ball.lon, ball.lat) = (strong.column.lon, strong.column.lat);
         let a = analyse(vec![strong], &[ball], &[]);
         let none = Confirmation::default();
-        let shown = |c: &LikelyConfirmation| {
+        let shown = |c: &PassConfirmation| {
             let mut ids = identify_with(&a, |_, _| none, VerdictOptions::default());
-            c.apply(&a, ids.iter_mut());
+            c.apply(&a, &mut ids, true);
             ids[0].tier
         };
-        let mut c = LikelyConfirmation::default();
+        let mut c = PassConfirmation::default();
         let read = identify_with(&a, |_, _| none, VerdictOptions::default())[0].tier;
         assert!(read >= Tier::Likely, "{read:?}");
         c.record(&a, None);
@@ -945,8 +973,33 @@ mod tests {
             report: Some((2.0, 3)),
         };
         let mut ids = identify_with(&a, report, VerdictOptions::default());
-        LikelyConfirmation::default().apply(&a, ids.iter_mut());
+        PassConfirmation::default().apply(&a, &mut ids, true);
         assert_eq!(ids[0].tier, Tier::Confirmed);
+    }
+
+    #[test]
+    fn a_rotation_only_possible_waits_a_pass_unless_asked_not_to() {
+        // Strong low-level shear, no debris: a lift, *possible* under the evidence floor.
+        let mut t = tracked(1);
+        t.column.low_level_azshear = Some(0.021);
+        t.column.max_azshear = 0.021;
+        for m in &mut t.column.members {
+            m.object.max_azshear = 0.021;
+        }
+        let a = analyse(vec![t], &[], &[]);
+        let none = Confirmation::default();
+        let bar = VerdictOptions::bar(Some(0.020));
+        let drawn = |c: &PassConfirmation, wait: bool| {
+            let mut ids = identify_with(&a, |_, _| none, bar);
+            c.apply(&a, &mut ids, wait);
+            ids.len()
+        };
+        let mut c = PassConfirmation::default();
+        c.record(&a, Some(0.020));
+        assert_eq!(drawn(&c, true), 0, "its first pass: held back");
+        assert_eq!(drawn(&c, false), 1, "asked to show early: drawn");
+        c.record(&a, Some(0.020));
+        assert_eq!(drawn(&c, true), 1, "its second pass: drawn");
     }
 
     #[test]

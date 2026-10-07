@@ -982,6 +982,13 @@ pub struct DetectorTuning {
     /// says `null` keeps it off.
     #[serde(default = "default_rotation_only_possible")]
     pub rotation_only_possible: Option<f32>,
+    /// Draw a rotation-only Possible at the first low-level scan that reads it. Off (the
+    /// default), it waits until its track has been a verdict on an earlier scan too
+    /// (`llsd_analyst::PassConfirmation`): drawn at every scan, these doubled the false Possible
+    /// markers; waiting one scan kept most of the tornadoes found on ordinary severe days at about
+    /// the false rate of reading once a volume.
+    #[serde(default)]
+    pub early_rotation: bool,
 }
 
 /// Which pipeline Tornado ID shows.
@@ -1043,6 +1050,7 @@ impl Default for DetectorTuning {
             llsd_preview: false,
             tornado_id_source: TornadoIdSource::Fusion,
             rotation_only_possible: default_rotation_only_possible(),
+            early_rotation: false,
         }
     }
 }

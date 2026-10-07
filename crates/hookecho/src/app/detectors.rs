@@ -299,19 +299,20 @@ impl HookEchoApp {
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
                 let options = self.verdict_options(idx, environment.as_deref());
-                let likely = self.llsd_tracker.as_ref().map(|t| &t.likely);
+                let passes = self.llsd_tracker.as_ref().map(|t| &t.passes);
+                let lifts_wait = !self.settings.detectors.early_rotation;
                 if merged {
                     let mut c = wxdata::llsd_analyst::circulations_with(
                         &analysed, couplets, tds, confirm, options,
                     );
-                    if let Some(l) = likely {
-                        l.apply(&analysed, c.iter_mut().map(|c| &mut c.id));
+                    if let Some(p) = passes {
+                        p.apply_circulations(&analysed, &mut c, lifts_wait);
                     }
                     (Vec::new(), c, lineage)
                 } else {
                     let mut ids = wxdata::llsd_analyst::identify_with(&analysed, confirm, options);
-                    if let Some(l) = likely {
-                        l.apply(&analysed, ids.iter_mut());
+                    if let Some(p) = passes {
+                        p.apply(&analysed, &mut ids, lifts_wait);
                     }
                     (ids, Vec::new(), lineage)
                 }
@@ -346,7 +347,8 @@ impl HookEchoApp {
                         self.verdict_options(idx, environment.as_deref()),
                     );
                     if let Some(t) = &self.llsd_tracker {
-                        t.likely.apply(analysed, c.iter_mut().map(|c| &mut c.id));
+                        let lifts_wait = !self.settings.detectors.early_rotation;
+                        t.passes.apply_circulations(analysed, &mut c, lifts_wait);
                     }
                     return c;
                 }
@@ -518,7 +520,7 @@ impl HookEchoApp {
                     step.debris.as_deref().unwrap_or(&debris),
                     &[],
                 );
-                tracking.likely.record(&analysed, bar);
+                tracking.passes.record(&analysed, bar);
                 tracking.fed = Some((name.clone(), step.time));
                 tracking.last = tracked;
             }
@@ -878,8 +880,8 @@ pub(crate) struct LlsdTracking {
     fed: Option<(String, i64)>,
     /// What the tracker made of that pass, re-analysed as the volume's other sweeps arrive.
     last: Vec<wxdata::rotation_tracks::Tracked>,
-    /// The passes each track has read *likely* or stronger on.
-    pub(crate) likely: wxdata::llsd_analyst::LikelyConfirmation,
+    /// What each track has read on the passes so far, for the two-pass rules.
+    pub(crate) passes: wxdata::llsd_analyst::PassConfirmation,
 }
 
 impl LlsdTracking {
@@ -891,7 +893,7 @@ impl LlsdTracking {
             ),
             fed: None,
             last: Vec::new(),
-            likely: Default::default(),
+            passes: Default::default(),
         }
     }
 }

@@ -1308,6 +1308,16 @@ pub(crate) fn tornado_id_controls(
              tornadoes, against a tenth without it, at under one false Possible marker per \
              radar-hour; the original Tornado ID made three and a half.",
         );
+        if detectors.rotation_only_possible.is_some() {
+            ui.checkbox(&mut detectors.early_rotation, "Show it at its first scan")
+                .on_hover_text(
+                    "Draws such a circulation at the first low-level scan that reads it, rather \
+                     than once a second scan has followed it too. On random tornado days it \
+                     found about a tenth more of the tornadoes, with about twice the false \
+                     Possible markers; on ordinary severe days, about the same tornadoes either \
+                     way. Possible raises no alert.",
+                );
+        }
     }
     ui.label(
         egui::RichText::new(

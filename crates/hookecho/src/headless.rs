@@ -6014,10 +6014,14 @@ fn backtest_event(
         // SAILS or MRLE the lowest tilt is revisited partway through the volume, and each earlier
         // pass becomes a step of its own (tracked, and its markers drawn at its own time) before
         // the volume's last pass, which every run reads; and a marker reads *likely* or stronger
-        // only from its track's second pass at that tier (`llsd_analyst::LikelyConfirmation`).
-        // Off, the volume's last pass alone, unconfirmed: the app as it was.
+        // only from its track's second pass at that tier, and a rotation-only *possible* only
+        // once its track was a verdict on an earlier pass, unless `HOOKECHO_BACKTEST_EARLY_LIFT=1`
+        // asks for it at its first (`llsd_analyst::PassConfirmation`, the app's
+        // `detectors.early_rotation`). Off, the volume's last pass alone, unconfirmed: the app as
+        // it was.
         let use_sails = std::env::var("HOOKECHO_BACKTEST_SAILS").is_ok_and(|v| v == "1");
-        let mut likely = wxdata::llsd_analyst::LikelyConfirmation::default();
+        let lifts_wait = !std::env::var("HOOKECHO_BACKTEST_EARLY_LIFT").is_ok_and(|v| v == "1");
+        let mut confirmation = wxdata::llsd_analyst::PassConfirmation::default();
         let http = reqwest::Client::new();
         let mut env_hours: std::collections::HashMap<i64, Option<wxdata::near_storm::EnvHour>> =
             std::collections::HashMap::new();
@@ -6481,7 +6485,7 @@ fn backtest_event(
                 let analysed = wxdata::llsd_analyst::analyse(tracked, &step_hits, &[]);
                 let bar = Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE);
                 if use_sails {
-                    likely.record(&analysed, bar);
+                    confirmation.record(&analysed, bar);
                 }
                 // The environment gate, as the app draws it, when the run has HRRR hours. The
                 // hour is cropped to 250 km of the radar, past the farthest marker.
@@ -6516,7 +6520,7 @@ fn backtest_event(
                     options,
                 );
                 if use_sails {
-                    likely.apply(&analysed, circulations.iter_mut().map(|c| &mut c.id));
+                    confirmation.apply_circulations(&analysed, &mut circulations, lifts_wait);
                 }
                 for c in circulations {
                     let id = &c.id;
