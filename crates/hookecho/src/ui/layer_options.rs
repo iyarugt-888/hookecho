@@ -694,10 +694,19 @@ pub(crate) fn show(
                 ui.selectable_value(&mut ensemble.kind, kind, kind.label());
             }
         });
-        if ensemble.kind == StatKind::Probability {
+        crate::ui::style::toggle(ui, &mut ensemble.spaghetti, "Spaghetti").on_hover_text(
+            "Every member's contour at one value, one colour per member, with the mean's in \
+                 bold white: where the members agree the lines bunch, where they disagree they \
+                 spread.",
+        );
+        if ensemble.kind == StatKind::Probability || ensemble.spaghetti {
             let (mut shown, unit) = ensemble.threshold_display(temp_unit);
             ui.horizontal(|ui| {
-                ui.label("Chance above:");
+                ui.label(if ensemble.kind == StatKind::Probability {
+                    "Chance above:"
+                } else {
+                    "Contour at:"
+                });
                 let speed = (shown.abs() * 0.01).max(0.5);
                 if ui
                     .add(
@@ -1221,7 +1230,8 @@ pub(crate) fn show(
     }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut detectors.tbss_core_dbz, 50.0..=70.0)
                 .text("Core")
                 .suffix(" dBZ"),
@@ -1230,12 +1240,14 @@ pub(crate) fn show(
     }
     if section == "Detectors" && filters.show_zdr_columns {
         header(ui, "ZDR columns");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut detectors.zdr_min_db, 0.5..=3.0)
                 .text("Minimum ZDR")
                 .suffix(" dB"),
         );
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut detectors.zdr_min_depth_km, 0.5..=3.0)
                 .text("Depth above freezing")
                 .suffix(" km"),
@@ -1243,13 +1255,15 @@ pub(crate) fn show(
     }
     if section == "Lightning" && show_glm {
         header(ui, "Flash-extent density");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut detectors.glm_fed_cell_deg, 0.02..=0.2)
                 .text("Cell size")
                 .suffix("°"),
         )
         .on_hover_text("Grid resolution: 0.05° is about 5 km");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut detectors.glm_fed_window_min, 5..=30)
                 .text("Window")
                 .suffix(" min"),

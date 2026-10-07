@@ -6,6 +6,7 @@
 
 use crate::render::{FieldLayer, MrmsUpload};
 use crate::settings::TempUnit;
+use wxdata::contour::{contour_level, ContourLine};
 use wxdata::ensemble::{EnsembleField, Statistic};
 use wxdata::mrms::MrmsField;
 
@@ -51,8 +52,11 @@ impl StatKind {
 pub struct EnsembleView {
     pub field: EnsembleField,
     pub kind: StatKind,
-    /// Exceedance threshold in the field's native units (see `EnsembleField::display`).
+    /// Exceedance threshold in the field's native units (see `EnsembleField::display`); also the
+    /// level the spaghetti is drawn at.
     pub threshold: f32,
+    /// Every member's contour at `threshold` over whatever statistic is shown.
+    pub spaghetti: bool,
 }
 
 impl Default for EnsembleView {
@@ -62,6 +66,7 @@ impl Default for EnsembleView {
             field,
             kind: StatKind::Probability,
             threshold: field.default_threshold(),
+            spaghetti: false,
         }
     }
 }
@@ -138,6 +143,52 @@ impl EnsembleView {
         };
         self.threshold = self.field.from_display(display);
     }
+}
+
+/// Spaghetti: each member's contour at one level, and the ensemble mean's.
+pub struct Spaghetti {
+    pub level: f32,
+    pub members: Vec<Vec<ContourLine>>,
+    pub mean: Vec<ContourLine>,
+}
+
+/// What a computed [`Spaghetti`] was made from: field, run, lead, level (by bits) and how many
+/// members, so a new run, lead or level is never drawn with the old lines.
+pub type SpaghettiKey = (
+    EnsembleField,
+    chrono::DateTime<chrono::Utc>,
+    u16,
+    u32,
+    usize,
+);
+
+pub fn spaghetti_key(view: &EnsembleView, run: &wxdata::ensemble::EnsembleRun) -> SpaghettiKey {
+    (
+        view.field,
+        run.run,
+        run.fcst_hour,
+        view.threshold.to_bits(),
+        run.members.len(),
+    )
+}
+
+/// Contour every member at `level`, and the members' mean.
+pub fn spaghetti(members: &[MrmsField], level: f32) -> Spaghetti {
+    let mean = wxdata::ensemble::combine(members, Statistic::Mean)
+        .map(|m| contour_level(&m, level))
+        .unwrap_or_default();
+    Spaghetti {
+        level,
+        members: members.iter().map(|m| contour_level(m, level)).collect(),
+        mean,
+    }
+}
+
+/// Member `i` of `n`'s line colour: evenly around the colour wheel, so neighbours differ.
+pub fn member_color(i: usize, n: usize) -> egui::Color32 {
+    let h = i as f32 / n.max(1) as f32;
+    let c: egui::Color32 = egui::ecolor::Hsva::new(h, 0.7, 0.95, 1.0).into();
+    c.gamma_multiply(0.75)
 }
 
 /// The single-model layer whose color scale matches this field's own units.
@@ -268,6 +319,7 @@ mod tests {
                 field: EnsembleField::Temp2m,
                 kind: StatKind::Probability,
                 threshold: 0.0,
+                spaghetti: false,
             };
             let freezing = if unit == TempUnit::Fahrenheit {
                 32.0
@@ -291,6 +343,7 @@ mod tests {
             field,
             kind,
             threshold: 0.0,
+            spaghetti: false,
         };
         let f = TempUnit::Fahrenheit;
         assert_eq!(
@@ -324,5 +377,90 @@ mod tests {
         assert_eq!(sequential_index(100.0, 100.0), 255);
         assert_eq!(sequential_index(1e9, 100.0), 255);
         assert_eq!(sequential_index(-5.0, 100.0), 0);
+    }
+
+    /// A west-east ramp, value = longitude + `shift`, on 0.5° cells.
+    fn ramp(shift: f32) -> MrmsField {
+        let (nx, ny) = (40, 10);
+        let (west, north) = (-110.0, 45.0);
+        let values = (0..ny)
+            .flat_map(|_| (0..nx).map(move |c| west as f32 + 0.5 * (c as f32 + 0.5) + shift))
+            .collect();
+        MrmsField {
+            values,
+            nx,
+            ny,
+            lon_west: west,
+            lon_east: west + 0.5 * nx as f64,
+            lat_north: north,
+            lat_south: north - 0.5 * ny as f64,
+            time: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn each_member_draws_its_own_contour_and_the_mean_sits_between() {
+        // Three members whose -100 line falls at -100, -101 and -102 (value = lon + shift).
+        let members = [ramp(0.0), ramp(1.0), ramp(2.0)];
+        let s = spaghetti(&members, -100.0);
+        assert_eq!(s.members.len(), 3);
+        let lon_of = |lines: &[ContourLine]| {
+            let pts: Vec<f64> = lines
+                .iter()
+                .flat_map(|l| l.pts.iter().map(|p| p.0))
+                .collect();
+            assert!(!pts.is_empty());
+            pts.iter().sum::<f64>() / pts.len() as f64
+        };
+        for (m, want) in s.members.iter().zip([-100.0, -101.0, -102.0]) {
+            assert!((lon_of(m) - want).abs() < 1e-6, "{} vs {want}", lon_of(m));
+        }
+        assert!((lon_of(&s.mean) + 101.0).abs() < 1e-6, "the mean's line");
+        // Colours differ from member to member.
+        assert_ne!(member_color(0, 31), member_color(1, 31));
+    }
+
+    #[test]
+    fn spaghetti_is_redrawn_for_a_new_level_but_not_for_a_new_statistic() {
+        let run = wxdata::ensemble::EnsembleRun {
+            members: vec![ramp(0.0), ramp(1.0)],
+            run: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+            fcst_hour: 24,
+        };
+        let mut v = EnsembleView {
+            spaghetti: true,
+            ..EnsembleView::default()
+        };
+        let k = spaghetti_key(&v, &run);
+        v.kind = StatKind::Mean;
+        assert_eq!(spaghetti_key(&v, &run), k);
+        v.threshold += 1.0;
+        assert_ne!(spaghetti_key(&v, &run), k);
+    }
+
+    /// The GEFS 500 hPa height spaghetti at 5700 m, live: all 31 members have lines.
+    /// `cargo test -p hookecho --lib gefs_spaghetti_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn gefs_spaghetti_live() {
+        let http = reqwest::Client::new();
+        let run = wxdata::ensemble::fetch_gefs(&http, EnsembleField::Height500, 48)
+            .await
+            .unwrap();
+        let s = spaghetti(&run.members, 5_700.0);
+        let points: Vec<usize> = s
+            .members
+            .iter()
+            .map(|m| m.iter().map(|l| l.pts.len()).sum())
+            .collect();
+        println!(
+            "GEFS {} F+48: {} members, contour points per member {:?}; mean {} lines",
+            run.run,
+            run.members.len(),
+            points,
+            s.mean.len()
+        );
+        assert!(points.iter().all(|&p| p > 100));
+        assert!(!s.mean.is_empty());
     }
 }

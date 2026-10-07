@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: ensemble spaghetti
+
+The GEFS ensemble layer has a Spaghetti switch: every member's contour at one value (500 hPa at
+5700 m, freezing at 2 m, a CAPE or rain amount), one colour per member, with the ensemble mean's
+in bold white. Where the members agree the lines bunch; where they disagree they fan out. The
+value is the same one the exceedance probability uses.
+
+### Fixed: model contours a little out of place
+
+Contour lines treated a grid's outer edges as its first and last values, while the coloured field
+and the probe put each value at its cell's centre. On fine grids (the HRRR) the difference was
+invisible; on coarse global grids contours sat up to a quarter degree off the colours under them
+near the grid's edges. They now line up.
+
 ### Added: verify forecast radar against the MRMS mosaic
 
 The Model verification window can now score a model's composite reflectivity against the MRMS

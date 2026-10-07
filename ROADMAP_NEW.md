@@ -2633,7 +2633,11 @@ For GEFS/REFS and any supported ensemble:
 - [x] probability of threshold exceedance — percent of members strictly above, engine and headless
 - [ ] neighborhood probability when scientifically appropriate
 - member postage-stamp grid
-- spaghetti contours
+- [x] spaghetti contours — the ensemble layer's "Spaghetti" switch (2026-10-07): each member's
+  contour at the layer's value (`wxdata::contour::contour_level`), one colour per member, the
+  mean's in bold white and labelled, recontoured only when the run, lead, level or member count
+  changes. Live: GEFS 500 hPa 5700 m at F+48 and F+168, all 31 members drawn
+  (`HOOKECHO_ENSEMBLE_SPAGHETTI=5700 hookecho --headless-ensemble gh500 spread 168 out.png`).
 - [x] point plume/time series — the forecast window's "Ensemble plume (GEFS)": the mean with a one-standard-deviation band at the tapped point, from the ready-made mean and spread files (so it shows the spread, not individual members or percentiles)
 - ensemble sounding overlay
 

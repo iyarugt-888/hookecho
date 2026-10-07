@@ -1500,6 +1500,12 @@ pub struct HookEchoApp {
         u32,
     )>,
     ensemble_error: Option<String>,
+    /// The members' contours at the ensemble level, when spaghetti is on (see
+    /// `ensemble_layer::spaghetti_key`).
+    ensemble_spaghetti: Option<(
+        crate::ensemble_layer::SpaghettiKey,
+        std::sync::Arc<crate::ensemble_layer::Spaghetti>,
+    )>,
     /// The compare panes' shared valid time and distinct source runs.
     compare_valid: Option<crate::fielddiff::ComparisonTimes>,
     compare_error: Option<String>,
@@ -5721,6 +5727,7 @@ impl HookEchoApp {
         // fetched and colored — overlaying, say, MSLP and CAPE together rather than one exclusive
         // choice.
         self.paint_model_contours(&painter, prect, cam, vp, idx);
+        self.paint_ensemble_spaghetti(&painter, prect, cam, vp, idx);
 
         // The tornado markers' click targets are this frame's, or none (set again below).
         ui.ctx()

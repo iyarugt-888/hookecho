@@ -2630,7 +2630,81 @@ pub fn run_ensemble(
         wind_upload: None,
         wind: None,
     };
-    render_to_png(&rt, cb, out_path)
+    render_to_png(&rt, cb, out_path)?;
+    // `HOOKECHO_ENSEMBLE_SPAGHETTI=<level in native units>`: the map layer's spaghetti, the same
+    // member and mean contours, drawn over the picture on the CPU.
+    if let Some(level) = std::env::var("HOOKECHO_ENSEMBLE_SPAGHETTI")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+    {
+        let lines = crate::ensemble_layer::spaghetti(&run.members, level);
+        let mut img = image::open(out_path)?.to_rgba8();
+        let px = (size() as f32, size() as f32);
+        let to_px = |&(lon, lat): &(f64, f64)| {
+            camera.world_to_screen(crate::render::mercator::lonlat_to_world(lon, lat), px)
+        };
+        let n = lines.members.len();
+        for (i, member) in lines.members.iter().enumerate() {
+            let c = crate::ensemble_layer::member_color(i, n).to_srgba_unmultiplied();
+            for l in member {
+                draw_polyline(&mut img, l.pts.iter().map(to_px), c, 0);
+            }
+        }
+        for l in &lines.mean {
+            draw_polyline(&mut img, l.pts.iter().map(to_px), [0, 0, 0, 200], 1);
+            draw_polyline(&mut img, l.pts.iter().map(to_px), [255, 255, 255, 255], 0);
+        }
+        img.save(out_path)?;
+        println!(
+            "spaghetti at {level}: {} member line sets, {} mean lines",
+            n,
+            lines.mean.len()
+        );
+    }
+    Ok(())
+}
+
+/// A polyline in pixel coordinates over `img`, blended at `rgba`'s alpha, `halo` pixels thick
+/// either side of the centre line.
+fn draw_polyline(
+    img: &mut image::RgbaImage,
+    pts: impl Iterator<Item = (f32, f32)>,
+    rgba: [u8; 4],
+    halo: i32,
+) {
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let a = f32::from(rgba[3]) / 255.0;
+    let mut plot = |x: i32, y: i32| {
+        for dy in -halo..=halo {
+            for dx in -halo..=halo {
+                let (x, y) = (x + dx, y + dy);
+                if x < 0 || y < 0 || x >= w || y >= h {
+                    continue;
+                }
+                let p = img.get_pixel_mut(x as u32, y as u32);
+                for (c, &v) in p.0.iter_mut().zip(&rgba[..3]) {
+                    *c = (f32::from(*c) * (1.0 - a) + f32::from(v) * a) as u8;
+                }
+            }
+        }
+    };
+    let mut prev: Option<(f32, f32)> = None;
+    for p in pts {
+        if let Some(q) = prev {
+            let steps = (p.0 - q.0).abs().max((p.1 - q.1).abs()).ceil().max(1.0) as i32;
+            // A segment that leaps the picture (a dateline wrap) is not drawn.
+            if steps < w.max(h) {
+                for s in 0..=steps {
+                    let t = s as f32 / steps as f32;
+                    plot(
+                        (q.0 + (p.0 - q.0) * t).round() as i32,
+                        (q.1 + (p.1 - q.1) * t).round() as i32,
+                    );
+                }
+            }
+        }
+        prev = Some(p);
+    }
 }
 
 /// Render an RTMA analysis field from live data (ROADMAP_NEW G1):

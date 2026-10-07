@@ -416,6 +416,7 @@ impl HookEchoApp {
             ensemble_key: None,
             ensemble_display_key: None,
             ensemble_error: None,
+            ensemble_spaghetti: None,
             compare_valid: None,
             compare_error: None,
             compare_grid: None,
