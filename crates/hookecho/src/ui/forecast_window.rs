@@ -403,7 +403,7 @@ fn plume_chart(
     let w = ui.available_width().max(220.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 120.0), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
     let plot = rect.shrink2(Vec2::new(6.0, 4.0));
     let axis_h = 12.0;
     let body = egui::Rect::from_min_max(
@@ -462,14 +462,14 @@ fn plume_chart(
         Align2::LEFT_TOP,
         format!("{hi:.0}{unit}"),
         font.clone(),
-        Color32::from_gray(190),
+        crate::theme::current().text,
     );
     p.text(
         body.left_bottom() - Vec2::new(-2.0, 1.0),
         Align2::LEFT_BOTTOM,
         format!("{lo:.0}{unit}"),
         font.clone(),
-        Color32::from_gray(190),
+        crate::theme::current().text,
     );
     let step = (points.len() / 4).max(1);
     for (i, pt) in points.iter().enumerate() {
@@ -481,7 +481,7 @@ fn plume_chart(
             Align2::CENTER_TOP,
             short_hour(pt.valid, tz),
             font.clone(),
-            Color32::from_gray(170),
+            crate::theme::current().text,
         );
     }
     // The last lead's spread, in words: how uncertain the far end is is the point of a plume.
@@ -564,7 +564,7 @@ fn series_chart(
     let h = 110.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
 
     let plot = rect.shrink2(Vec2::new(6.0, 4.0));
     let axis_h = 12.0;
@@ -628,7 +628,7 @@ fn series_chart(
             Align2::CENTER_BOTTOM,
             format!("{v:.0}"),
             font.clone(),
-            Color32::from_gray(235),
+            crate::theme::current().text,
         );
     }
     // Time axis at roughly quarter-width steps.
@@ -642,7 +642,7 @@ fn series_chart(
             Align2::CENTER_TOP,
             short_hour(*t, tz),
             font.clone(),
-            Color32::from_gray(170),
+            crate::theme::current().text,
         );
     }
 }
@@ -680,7 +680,7 @@ fn minute_strip(ui: &mut egui::Ui, minute: &[Option<f32>]) {
     let w = ui.available_width().max(220.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 26.0), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
     let bw = rect.width() / minute.len() as f32;
     for (i, v) in minute.iter().enumerate() {
         let lvl = v.map(intensity).unwrap_or(0);
@@ -721,7 +721,7 @@ fn hourly_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period], tz: Optio
     let h = 96.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
 
     let plot = rect.shrink2(Vec2::new(6.0, 4.0));
     let axis_h = 12.0;
@@ -754,7 +754,7 @@ fn hourly_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period], tz: Optio
             egui::pos2(x_of(i) - bw / 2.0, body.bottom() - frac * body.height()),
             egui::pos2(x_of(i) + bw / 2.0, body.bottom()),
         );
-        p.rect_filled(bar, 1.0, Color32::from_rgba_unmultiplied(70, 140, 230, 120));
+        p.rect_filled(bar, 0.0, Color32::from_rgba_unmultiplied(70, 140, 230, 120));
     }
 
     let pts: Vec<egui::Pos2> = temps
@@ -783,7 +783,7 @@ fn hourly_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period], tz: Optio
             Align2::CENTER_BOTTOM,
             format!("{:.0}°", temps[i]),
             font.clone(),
-            Color32::from_gray(235),
+            crate::theme::current().text,
         );
     }
     // Time axis every 6 hours.
@@ -796,7 +796,7 @@ fn hourly_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period], tz: Optio
             Align2::CENTER_TOP,
             short_hour(x.start, tz),
             font.clone(),
-            Color32::from_gray(170),
+            crate::theme::current().text,
         );
     }
 }
@@ -819,7 +819,7 @@ fn wind_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period]) {
     let h = 46.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
     let body = rect.shrink2(Vec2::new(6.0, 5.0));
 
     let peak = hours
@@ -856,7 +856,7 @@ fn wind_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period]) {
         let tip = c + dir * 4.5;
         let tail = c - dir * 4.5;
         let wing = Vec2::new(-dir.y, dir.x) * 2.4;
-        let grey = Color32::from_gray(180);
+        let grey = crate::theme::current().plot_lines;
         p.line_segment([tail, tip], Stroke::new(1.0, grey));
         p.line_segment([tip, tip - dir * 3.0 + wing], Stroke::new(1.0, grey));
         p.line_segment([tip, tip - dir * 3.0 - wing], Stroke::new(1.0, grey));
@@ -867,7 +867,7 @@ fn wind_strip(ui: &mut egui::Ui, hours: &[wxdata::forecast::Period]) {
         Align2::LEFT_TOP,
         format!("wind · peak {peak:.0} mph"),
         FontId::proportional(9.0),
-        Color32::from_gray(170),
+        crate::theme::current().text,
     );
     resp.on_hover_text("Sustained wind over the next 24 hours; arrows show which way it blows");
 }

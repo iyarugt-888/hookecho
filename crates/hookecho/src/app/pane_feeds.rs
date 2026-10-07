@@ -89,7 +89,7 @@ impl HookEchoApp {
                 let galley =
                     painter.layout_no_wrap(f.title.clone(), font.clone(), egui::Color32::BLACK);
                 let rect = egui::Rect::from_center_size(c, galley.size() + egui::vec2(8.0, 4.0));
-                painter.rect_filled(rect, 3.0, color);
+                painter.rect_filled(rect, 0.0, color);
                 painter.text(
                     c,
                     egui::Align2::CENTER_CENTER,

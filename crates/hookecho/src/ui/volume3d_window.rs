@@ -172,8 +172,8 @@ pub(crate) fn layers_section(
 fn axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::Slider::new(lo, 0.0..=1.0).show_value(false));
-        ui.add(egui::Slider::new(hi, 0.0..=1.0).show_value(false));
+        crate::theme::slider(ui, egui::Slider::new(lo, 0.0..=1.0).show_value(false));
+        crate::theme::slider(ui, egui::Slider::new(hi, 0.0..=1.0).show_value(false));
     });
     // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.
     if *lo > *hi {
@@ -221,7 +221,7 @@ pub(crate) fn opacity_curve(
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 84.0), egui::Sense::hover());
     let plot = rect.shrink(6.0);
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
     for f in [0.25, 0.5, 0.75] {
         let y = plot.bottom() - plot.height() * f;
         painter.hline(
@@ -373,7 +373,7 @@ pub(crate) fn plane_controls(
     if let Some(p) = plane {
         ui.horizontal(|ui| {
             ui.label("Bearing");
-            ui.add(
+            crate::theme::slider(ui,
                 egui::Slider::new(&mut p.bearing_deg, 0.0..=360.0)
                     .suffix("\u{b0}")
                     .custom_formatter(|v, _| format!("{v:.0}")),
@@ -381,7 +381,7 @@ pub(crate) fn plane_controls(
         });
         ui.horizontal(|ui| {
             ui.label("Offset");
-            ui.add(egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false));
+            crate::theme::slider(ui, egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false));
         })
         .response
         .on_hover_text(
@@ -401,7 +401,7 @@ pub(crate) fn plane_controls(
         if let Some(t) = &mut p.thickness {
             ui.horizontal(|ui| {
                 ui.label("Thickness");
-                ui.add(egui::Slider::new(t, 0.02..=1.0).show_value(false));
+                crate::theme::slider(ui, egui::Slider::new(t, 0.02..=1.0).show_value(false));
             });
         }
     }

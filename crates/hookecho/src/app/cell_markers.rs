@@ -88,7 +88,7 @@ impl HookEchoApp {
                     let bg = egui::Rect::from_min_size(anchor, size + egui::vec2(10.0, 4.0));
                     painter.rect_filled(
                         bg,
-                        3.0,
+                        0.0,
                         egui::Color32::from_rgba_unmultiplied(150, 30, 30, 210),
                     );
                     // The galley just measured, drawn — one layout, not two.
@@ -128,7 +128,7 @@ impl HookEchoApp {
                 let bg = egui::Rect::from_min_size(anchor, galley.size() + egui::vec2(10.0, 4.0));
                 painter.rect_filled(
                     bg,
-                    3.0,
+                    0.0,
                     egui::Color32::from_rgba_unmultiplied(60, 60, 150, 200),
                 );
                 painter.text(

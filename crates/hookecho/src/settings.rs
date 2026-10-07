@@ -4,57 +4,53 @@
 //! land in later milestones. `#[serde(default)]` makes old config files forward-compatible
 //! — new fields fill from `Default`, unknown fields are ignored.
 
-use crate::ui::m3::Density;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// egui theme preference.
+/// The colour scheme: one of Dear ImGui's own three styles (`theme.rs` holds their colours), or
+/// whichever of Dark and Light the system is using.
+///
+/// The app's earlier themes were retired when the whole UI took Dear ImGui's look; their names
+/// still load, onto Dark (or Light, for the old light one), so no settings file breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
+    /// `ImGui::StyleColorsDark()`, ImGui's default.
     #[default]
-    #[serde(alias = "Magma", alias = "Redline", alias = "AcidStorm")]
+    #[serde(
+        alias = "Magma",
+        alias = "Redline",
+        alias = "AcidStorm",
+        alias = "Synthwave",
+        alias = "Ultraviolet",
+        alias = "Bubblegum",
+        alias = "Voltage",
+        alias = "Aurora",
+        alias = "Riptide",
+        alias = "HighContrast",
+        alias = "Oled",
+        alias = "DearImGui"
+    )]
     Dark,
+    /// `ImGui::StyleColorsLight()`.
     #[serde(alias = "Glacier")]
     Light,
+    /// `ImGui::StyleColorsClassic()`: translucent black windows, purple title bars.
+    Classic,
+    /// Dark or Light, following the system.
     System,
-    #[serde(alias = "Ultraviolet", alias = "Bubblegum", alias = "Voltage")]
-    Synthwave,
-    #[serde(alias = "Riptide")]
-    Aurora,
-    HighContrast,
-    Oled,
-    /// Dear ImGui's own default dark style, reproduced as closely as this app's single-accent
-    /// palette abstraction can: near-black window fill, the exact "ImGui blue" accent
-    /// (`#4296FA`, `ImGuiCol_CheckMark`/`ImGuiCol_Header` in `StyleColorsDark()`), and the muted
-    /// navy `FrameBg` blend for idle input fields that gives ImGui's widgets their identifiable
-    /// look.
-    DearImGui,
 }
 
 impl Theme {
     /// All themes in menu order.
-    pub const ALL: [Theme; 8] = [
-        Theme::Dark,
-        Theme::Light,
-        Theme::System,
-        Theme::Synthwave,
-        Theme::Aurora,
-        Theme::HighContrast,
-        Theme::Oled,
-        Theme::DearImGui,
-    ];
+    pub const ALL: [Theme; 4] = [Theme::Dark, Theme::Light, Theme::Classic, Theme::System];
 
     pub fn label(self) -> &'static str {
         match self {
             Theme::Dark => "Dark",
             Theme::Light => "Light",
+            Theme::Classic => "Classic",
             Theme::System => "System",
-            Theme::Synthwave => "Synthwave",
-            Theme::Aurora => "Aurora",
-            Theme::HighContrast => "High contrast",
-            Theme::Oled => "OLED black",
-            Theme::DearImGui => "Dear ImGui",
         }
     }
 }
@@ -345,9 +341,6 @@ pub struct Settings {
     /// The touch chrome's look on a phone; see [`PhoneDesign`].
     #[serde(default)]
     pub phone_design: PhoneDesign,
-    /// UI density (spacing/type token table). Comfortable by default; Compact restores the
-    /// pre-0.12 pro-dense desktop metrics.
-    pub density: Density,
     /// User accent override as RGB. `None` keeps the theme's own accent.
     pub accent: Option<[u8; 3]>,
     /// Hold every animation at its endpoint. The app also sets this for itself when frames get
@@ -1072,14 +1065,11 @@ impl Settings {
             return false;
         }
         self.layout = Layout::Dock;
-        let (theme, density) = Layout::Dock.recommended_theme_and_density();
-        self.theme = theme;
-        self.density = density;
         true
     }
 
     /// Move anyone still on the ribbon, the old default, to the dock, now the default, once —
-    /// with the dock's own look. A ribbon picked again afterwards stays picked, and any other
+    /// A ribbon picked again afterwards stays picked, and any other
     /// layout is kept. Returns whether it changed anything.
     pub fn adopt_dock_default(&mut self) -> bool {
         if self.dock_adopted {
@@ -1090,9 +1080,6 @@ impl Settings {
             return false;
         }
         self.layout = Layout::Dock;
-        let (theme, density) = Layout::Dock.recommended_theme_and_density();
-        self.theme = theme;
-        self.density = density;
         true
     }
 
@@ -1611,20 +1598,6 @@ impl Layout {
     pub fn map_first(self) -> bool {
         self == Layout::Wsv3
     }
-
-    /// The `(Theme, Density)` pair this theme is designed to look like — applied once, as a
-    /// one-time convenience, the moment the user picks this theme in Settings (see
-    /// `ui::settings_window`'s theme picker); `Theme`/`Density` stay independently changeable
-    /// right after, this is not enforced every frame. `Wsv3`'s own look (theme_plan.md's Ref 4)
-    /// is dense and dark, unlike `CommandRibbon`'s original comfortable spacing.
-    pub fn recommended_theme_and_density(self) -> (Theme, Density) {
-        match self {
-            Layout::CommandRibbon => (Theme::Dark, Density::Comfortable),
-            Layout::Wsv3 => (Theme::Dark, Density::Compact),
-            Layout::Minimal => (Theme::default(), Density::default()),
-            Layout::Dock => (Theme::DearImGui, Density::Compact),
-        }
-    }
 }
 
 /// Which of the five phone designs draws the touch chrome (`ui::phone_design` says how each
@@ -1852,7 +1825,7 @@ impl Default for Settings {
             etop_dbz: default_etop_dbz(),
             poll_interval_secs: 30,
             // The dock's own look: it is the default layout.
-            theme: Theme::DearImGui,
+            theme: Theme::Dark,
             layout: Layout::default(),
             workstation: Default::default(),
             tablet_layout_adopted: false,
@@ -1861,7 +1834,6 @@ impl Default for Settings {
             local_api: false,
             local_api_port: default_local_api_port(),
             phone_design: PhoneDesign::default(),
-            density: Density::Compact,
             accent: None,
             reduce_motion: false,
             hide_far_3d: true,
@@ -2877,20 +2849,6 @@ mod tests {
     }
 
     #[test]
-    fn each_layouts_recommended_pair_is_internally_consistent() {
-        // Not asserting exact colors (a design choice, not a contract) — just that every variant
-        // has an answer and picking Wsv3 in particular recommends a denser layout than
-        // CommandRibbon, per theme_plan.md §6.2's own description of the new theme's look.
-        for l in Layout::ALL {
-            let _ = l.recommended_theme_and_density();
-        }
-        let (_, command_ribbon_density) = Layout::CommandRibbon.recommended_theme_and_density();
-        let (_, wsv3_density) = Layout::Wsv3.recommended_theme_and_density();
-        assert_eq!(command_ribbon_density, crate::ui::m3::Density::Comfortable);
-        assert_eq!(wsv3_density, crate::ui::m3::Density::Compact);
-    }
-
-    #[test]
     fn every_timeline_style_round_trips_and_has_a_distinct_label() {
         for s in TimelineStyle::ALL {
             let settings = Settings {
@@ -3038,10 +2996,9 @@ mod tests {
             mping_key: String::new(),
             etop_dbz: 30.0,
             default_site: "KFWS".to_string(),
-            density: Density::Compact,
             accent: Some([255, 0, 128]),
             poll_interval_secs: 45,
-            theme: Theme::Synthwave,
+            theme: Theme::Classic,
             layout: Layout::Minimal,
             workstation: Default::default(),
             tablet_layout_adopted: false,
@@ -3436,14 +3393,6 @@ mod tests {
     }
 
     #[test]
-    fn picking_the_dock_layout_recommends_the_imgui_theme_and_a_dense_layout() {
-        assert_eq!(
-            Layout::Dock.recommended_theme_and_density(),
-            (Theme::DearImGui, Density::Compact)
-        );
-    }
-
-    #[test]
     fn a_settings_file_with_no_phone_design_gets_station() {
         assert_eq!(
             Settings::from_json_lossy("{}").phone_design,
@@ -3483,7 +3432,6 @@ mod tests {
         assert_eq!(s.layout, Layout::CommandRibbon);
         assert!(s.adopt_tablet_default(true));
         assert_eq!(s.layout, Layout::Dock);
-        assert_eq!(s.theme, Theme::DearImGui);
         // Changed back on purpose: stays changed.
         s.layout = Layout::CommandRibbon;
         assert!(!s.adopt_tablet_default(true));
@@ -3491,16 +3439,36 @@ mod tests {
     }
 
     #[test]
+    fn retired_theme_names_still_load() {
+        for (name, theme) in [
+            ("DearImGui", Theme::Dark),
+            ("Synthwave", Theme::Dark),
+            ("Aurora", Theme::Dark),
+            ("HighContrast", Theme::Dark),
+            ("Oled", Theme::Dark),
+            ("Magma", Theme::Dark),
+            ("Glacier", Theme::Light),
+            ("Classic", Theme::Classic),
+            ("System", Theme::System),
+        ] {
+            let s: Settings = serde_json::from_str(&format!(r#"{{"theme":"{name}"}}"#)).unwrap();
+            assert_eq!(s.theme, theme, "{name}");
+        }
+        // A file that still carries the retired density setting loads too.
+        let s: Settings = serde_json::from_str(r#"{"density":"Comfortable"}"#).unwrap();
+        assert_eq!(s.theme, Theme::Dark);
+    }
+
+    #[test]
     fn the_dock_is_the_default_and_the_old_default_ribbon_moves_to_it_once() {
         let fresh = Settings::default();
         assert_eq!(fresh.layout, Layout::Dock);
-        assert_eq!(fresh.theme, Theme::DearImGui, "with its own look");
+        assert_eq!(fresh.theme, Theme::Dark, "Dear ImGui's default style");
         // A file from before the dock was the default, still on the ribbon.
         let mut old: Settings = serde_json::from_str(r#"{"layout":"CommandRibbon"}"#).unwrap();
         assert!(!old.dock_adopted);
         assert!(old.adopt_dock_default());
         assert_eq!(old.layout, Layout::Dock);
-        assert_eq!(old.theme, Theme::DearImGui);
         // The ribbon picked again afterwards stays picked.
         old.layout = Layout::CommandRibbon;
         assert!(!old.adopt_dock_default());

@@ -167,7 +167,7 @@ fn sources_list(
             };
             ui.label(ws::text(
                 summary,
-                12.0,
+                crate::theme::FONT,
                 if attention > 0 { t.warn } else { t.text_dim },
             ));
             ui.add(
@@ -206,7 +206,7 @@ fn sources_list(
                 .show(ui, |ui| {
                     ui.label(ws::text(
                         "No sources match these filters.",
-                        12.0,
+                        crate::theme::FONT,
                         t.text_dim,
                     ));
                     if ws::button(ui, t, "Reset filters", 0.0).clicked() {
@@ -222,12 +222,12 @@ fn sources_list(
         .show(ui, |ui| {
             ui.label(ws::text(
                 "Data age \u{b7} + means future valid time",
-                10.5,
+                crate::theme::FONT,
                 t.text_faint,
             ));
             ui.label(ws::text(
                 "Tap a source or press Enter for details",
-                10.5,
+                crate::theme::FONT,
                 t.text_faint,
             ));
         });
@@ -275,12 +275,12 @@ fn source_row(
         egui::pos2(rect.right() - 12.0, y),
         egui::Align2::RIGHT_CENTER,
         &age,
-        FontId::monospace(11.5),
+        FontId::monospace(crate::theme::FONT),
         t.text_dim,
     );
     let mut job = egui::text::LayoutJob::simple_singleline(
         h.source.clone(),
-        FontId::proportional(12.5),
+        FontId::proportional(crate::theme::FONT),
         t.text,
     );
     let x = rect.left() + 34.0;
@@ -333,12 +333,12 @@ fn source_row(
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
-                ui.add(egui::Label::new(ws::text(&detail, 11.5, t.text_dim)).wrap());
+                ui.add(egui::Label::new(ws::text(&detail, crate::theme::FONT, t.text_dim)).wrap());
             });
     } else if let Some(e) = error {
         let mut job = egui::text::LayoutJob::simple(
             e.to_string(),
-            FontId::proportional(11.0),
+            FontId::proportional(crate::theme::FONT),
             color,
             (ui.available_width() - 44.0).max(40.0),
         );

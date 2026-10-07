@@ -23,13 +23,13 @@ const CARD_H: f32 = 72.0;
 /// its own road and water colors, so the cards differ the way the maps do.
 fn swatch(painter: &egui::Painter, rect: egui::Rect, style: BasemapStyle) {
     let Some(pal) = style.vector_palette() else {
-        painter.rect_filled(rect, 4.0, egui::Color32::from_gray(40));
+        painter.rect_filled(rect, 0.0, egui::Color32::from_gray(40));
         return;
     };
     let c = |v: [u8; 4]| egui::Color32::from_rgb(v[0], v[1], v[2]);
     let vs = crate::basemap_style::style(pal);
     let bg = vs.background.map(c).unwrap_or(egui::Color32::from_gray(60));
-    painter.rect_filled(rect, 4.0, bg);
+    painter.rect_filled(rect, 0.0, bg);
     // A road, a casing under it, and a river: the three things the palettes differ most in.
     if let Some((road, w)) = crate::basemap_style::stroke(pal, "transportation", "motorway") {
         if let Some((case, cw)) = crate::basemap_style::casing(pal, "transportation", "motorway") {
@@ -99,14 +99,14 @@ fn card(
     match thumb {
         Some(tex) => {
             egui::Image::new(&tex)
-                .corner_radius(4.0)
+                .corner_radius(0)
                 .paint_at(ui, img_rect);
         }
         None if style == BasemapStyle::Auto => auto_swatch(&painter, img_rect),
         None => swatch(&painter, img_rect, style),
     }
     if !enabled {
-        painter.rect_filled(img_rect, 4.0, egui::Color32::from_black_alpha(150));
+        painter.rect_filled(img_rect, 0.0, egui::Color32::from_black_alpha(150));
         painter.text(
             img_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -122,7 +122,7 @@ fn card(
     } else {
         egui::Stroke::new(1.0, ui.visuals().widgets.inactive.bg_stroke.color)
     };
-    painter.rect_stroke(img_rect, 4.0, border, egui::StrokeKind::Inside);
+    painter.rect_stroke(img_rect, 0.0, border, egui::StrokeKind::Inside);
     painter.text(
         egui::pos2(rect.center().x, img_rect.bottom() + 2.0),
         egui::Align2::CENTER_TOP,

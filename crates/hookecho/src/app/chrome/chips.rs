@@ -17,16 +17,14 @@ impl HookEchoApp {
             )
             .interactable(false)
             .show(ctx, |ui| {
+                let warn = crate::theme::current().warn;
                 crate::ui::style::glass(ui, 236)
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgb(235, 180, 70),
-                    ))
+                    .stroke(egui::Stroke::new(1.0, warn))
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new("Visual quality reduced")
                                 .size(crate::ui::style::FONT_SM)
-                                .color(egui::Color32::from_rgb(245, 205, 105)),
+                                .color(warn),
                         );
                     });
             });
@@ -106,7 +104,7 @@ impl HookEchoApp {
                             ui.label(
                                 egui::RichText::new(&t.text)
                                     .size(crate::ui::style::FONT_BASE)
-                                    .color(egui::Color32::from_gray(235).gamma_multiply(alpha)),
+                                    .color(crate::theme::current().text.gamma_multiply(alpha)),
                             );
                         })
                         .response;
@@ -148,7 +146,7 @@ impl HookEchoApp {
                             1.0,
                             egui::Color32::from_rgb(255, 120, 120).gamma_multiply(a),
                         ))
-                        .corner_radius(egui::CornerRadius::same(6))
+                        .corner_radius(egui::CornerRadius::ZERO)
                         .inner_margin(egui::Margin::symmetric(12, 6))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {

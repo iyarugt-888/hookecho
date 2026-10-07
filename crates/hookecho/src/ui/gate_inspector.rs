@@ -102,7 +102,7 @@ pub fn show(
         .frame(
             egui::Frame::window(&ctx.style_of(ctx.theme()))
                 .fill(egui::Color32::from_rgb(17, 23, 31))
-                .corner_radius(16)
+                .corner_radius(0)
                 .inner_margin(18),
         )
         .show(ctx, |ui| attributes(ui, popup, tz, udp_products));

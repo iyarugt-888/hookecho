@@ -80,13 +80,13 @@ pub(super) fn paint_order_group(
     ui.horizontal(|ui| {
         ui.add_space(12.0);
         ui.label(ws::text(ph::STACK_SIMPLE, 13.0, t.text_dim));
-        ui.label(ws::text("Paint order", 12.5, t.text));
-        ui.label(ws::text("top first", 11.0, t.text_faint));
+        ui.label(ws::text("Paint order", crate::theme::FONT, t.text));
+        ui.label(ws::text("top first", crate::theme::FONT, t.text_faint));
         if !custom.is_empty() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
                 if ui
-                    .add(egui::Button::new(ws::text("Reset", 11.5, t.text_dim)).frame(false))
+                    .add(egui::Button::new(ws::text("Reset", crate::theme::FONT, t.text_dim)).frame(false))
                     .named("Reset the paint order to the built-in one")
                     .clicked()
                 {
@@ -121,7 +121,7 @@ fn radar_line(ui: &mut egui::Ui, t: &ws::Tokens) {
     let p = ui.painter();
     let label = p.layout_no_wrap(
         "radar".to_string(),
-        FontId::proportional(10.5),
+        FontId::proportional(crate::theme::FONT),
         t.text_faint,
     );
     let mid = rect.left() + 34.0;
@@ -187,7 +187,7 @@ fn order_row(
         t.text_dim,
     );
     let mut job =
-        egui::text::LayoutJob::simple_singleline(name, FontId::proportional(12.5), t.text);
+        egui::text::LayoutJob::simple_singleline(name, FontId::proportional(crate::theme::FONT), t.text);
     job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 64.0).max(20.0));
     let galley = ui.fonts_mut(|f| f.layout_job(job));
     ui.painter().galley(

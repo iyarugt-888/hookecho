@@ -1158,7 +1158,7 @@ impl HookEchoApp {
                     };
                     egui::Frame::new()
                         .fill(egui::Color32::from_black_alpha(150))
-                        .corner_radius(4.0)
+                        .corner_radius(0)
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
                             ui.colored_label(egui::Color32::from_white_alpha(200), txt)

@@ -106,7 +106,7 @@ pub(super) fn live_sweep_strip(
         egui::pos2(pill_rect.right() - INSET, pill_rect.bottom() - 1.0),
     );
     let painter = ui.painter();
-    painter.rect_filled(track, 1.5, Color32::from_black_alpha(90));
+    painter.rect_filled(track, 0.0, Color32::from_black_alpha(90));
     let fraction = if p.chunks_in_sweep > 0 {
         (p.chunk_index as f32 / p.chunks_in_sweep as f32).clamp(0.0, 1.0)
     } else {
@@ -123,7 +123,7 @@ pub(super) fn live_sweep_strip(
         ui.ctx().request_repaint();
         0.55 + 0.45 * (t * std::f32::consts::TAU * 0.5).sin().abs()
     };
-    painter.rect_filled(fill, 1.5, accent.gamma_multiply(alpha));
+    painter.rect_filled(fill, 0.0, accent.gamma_multiply(alpha));
 }
 
 impl HookEchoApp {
@@ -140,7 +140,7 @@ impl HookEchoApp {
             self.ribbon_collapse_button(ctx);
             return;
         }
-        let accent = wsv3::WSV3_BLUE;
+        let accent = crate::theme::current().check_mark;
         let mut actions = ui::layer_options::UiActions::default();
 
         // --- reads, before the panel borrows `self` in a closure ---
@@ -245,7 +245,7 @@ impl HookEchoApp {
                     full.min,
                     egui::pos2(full.right(), full.top() + wsv3::RIBBON_H),
                 );
-                wsv3::ribbon_gradient(ui.painter(), ribbon_rect);
+                wsv3::ribbon_background(ui.painter(), ribbon_rect);
 
                 ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
                 egui::ScrollArea::horizontal()
@@ -267,7 +267,7 @@ impl HookEchoApp {
                             {
                                 open_command_search = true;
                             }
-                            ui.label(RichText::new("product · station · time").size(10.0).color(wsv3::STATUS_FG));
+                            ui.label(RichText::new("product · station · time").size(10.0).color(wsv3::status_fg()));
                         });
                     }
 
@@ -296,8 +296,8 @@ impl HookEchoApp {
                                             .color(accent),
                                     )
                                     .min_size(vec2(34.0, 34.0))
-                                    .fill(wsv3::PILL_BG)
-                                    .corner_radius(17.0),
+                                    .fill(wsv3::pill_bg())
+                                    .corner_radius(0),
                                 )
                                 .named("Choose the radar site")
                                 .clicked()
@@ -311,7 +311,7 @@ impl HookEchoApp {
                                             RichText::new(&site)
                                                 .size(16.0)
                                                 .strong()
-                                                .color(wsv3::INK),
+                                                .color(wsv3::ink()),
                                         )
                                         .frame(false),
                                     )
@@ -322,7 +322,7 @@ impl HookEchoApp {
                                 ui.label(
                                     RichText::new(&city_state)
                                         .size(10.0)
-                                        .color(Color32::from_white_alpha(130)),
+                                        .color(crate::theme::current().text),
                                 );
                             });
                         });
@@ -354,7 +354,7 @@ impl HookEchoApp {
                             ui.label(
                                 RichText::new("loading\u{2026}")
                                     .size(11.0)
-                                    .color(wsv3::STATUS_FG),
+                                    .color(wsv3::status_fg()),
                             );
                         } else {
                             ui.horizontal_wrapped(|ui| {
@@ -505,7 +505,7 @@ impl HookEchoApp {
                                 let vcp_resp = ui
                                     .add(
                                         egui::Button::new(
-                                            RichText::new(&vcp).size(11.0).color(wsv3::STATUS_FG),
+                                            RichText::new(&vcp).size(11.0).color(wsv3::status_fg()),
                                         )
                                         .frame(false),
                                     )
@@ -593,7 +593,7 @@ impl HookEchoApp {
                                 RichText::new(crate::model_browser::format_lead(model_lead))
                                     .size(12.0)
                                     .strong()
-                                    .color(wsv3::INK),
+                                    .color(wsv3::ink()),
                             );
                             if wsv3::pill(ui, "\u{203a}", false, accent).clicked() {
                                 actions.palette = Some(PaletteAction::StepModelLead(1));
@@ -616,7 +616,7 @@ impl HookEchoApp {
                                     crate::timefmt::fmt_clock(v, tz_l, false)
                                 ))
                                 .size(10.0)
-                                .color(wsv3::STATUS_FG),
+                                .color(wsv3::status_fg()),
                             );
                         }
                     });
@@ -942,10 +942,10 @@ impl HookEchoApp {
 
         egui::Panel::bottom("wsv3_status")
             .exact_size(wsv3::STATUS_H)
-            .frame(egui::Frame::NONE.fill(wsv3::STATUS_BG))
+            .frame(egui::Frame::NONE.fill(wsv3::status_bg()))
             .show(root, |ui| {
                 let lab = |ui: &mut egui::Ui, s: String| {
-                    ui.label(RichText::new(s).size(11.0).color(wsv3::STATUS_FG));
+                    ui.label(RichText::new(s).size(11.0).color(wsv3::status_fg()));
                 };
                 ui.vertical(|ui| {
                     ui.horizontal_centered(|ui| {
@@ -1000,7 +1000,7 @@ impl HookEchoApp {
                 egui::Frame::new()
                     .fill(Color32::from_rgb(0x22, 0x35, 0x5e))
                     .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x4a, 0x63, 0x9a)))
-                    .corner_radius(5.0)
+                    .corner_radius(0)
                     .inner_margin(egui::Margin::symmetric(8, 4))
                     .show(ui, |ui| {
                         ui.label(RichText::new(text).size(12.5).color(Color32::WHITE));

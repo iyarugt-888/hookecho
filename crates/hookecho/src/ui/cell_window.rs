@@ -1,5 +1,6 @@
 //! Storm console with every available attribute visible on selection.
 use crate::theme;
+use crate::theme::Hold as _;
 use wxdata::level3::Cell;
 const KT_TO_MPH: f32 = 1.150_78;
 #[derive(Debug, Clone, Copy, Default)]
@@ -43,7 +44,7 @@ pub fn show(
         .frame(
             egui::Frame::window(&ctx.style_of(ctx.theme()))
                 .fill(egui::Color32::from_rgb(17, 23, 31))
-                .corner_radius(16)
+                .corner_radius(0)
                 .inner_margin(18),
         )
         .show(ctx, |ui| {
@@ -60,7 +61,7 @@ pub fn show(
                         } else {
                             "Follow cell"
                         })
-                        .selected(true),
+                        .held(true),
                     )
                     .clicked();
                 view3d = ui

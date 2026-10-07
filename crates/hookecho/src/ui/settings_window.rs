@@ -4,6 +4,7 @@ use crate::app::PaletteEntry;
 use crate::colormap::Palettes;
 use crate::hotkeys::{self, BindableAction, Binding};
 use crate::settings::{Settings, Theme, TimeDisplay, VelocityUnit};
+use crate::theme::Hold as _;
 use crate::ui::a11y::Named as _;
 use wxdata::level2::Moment;
 
@@ -12,7 +13,7 @@ enum Tab {
     #[default]
     General,
     /// theme_plan.md §3: split out of General — theme_plan.md §6.1's "Theme"/"Color scheme"
-    /// split, Density, the timeline style, and the floating-search toggle live here now.
+    /// split, the timeline style, and the floating-search toggle live here now.
     Appearance,
     Palettes,
     Units,
@@ -56,7 +57,7 @@ mod dock_tests {
                 };
                 let mut settings = Settings {
                     layout: crate::settings::Layout::Dock,
-                    theme: Theme::DearImGui,
+                    theme: Theme::Dark,
                     ..Default::default()
                 };
                 let palettes = Palettes::default();
@@ -275,7 +276,6 @@ impl SettingsWindow {
         entries: &[PaletteEntry],
         workstation: bool,
     ) -> Option<SyncAction> {
-        let imgui = workstation || crate::theme::is_imgui_style();
         let tabs = [
             (Tab::General, "General"),
             (Tab::Appearance, "Appearance"),
@@ -308,22 +308,14 @@ impl SettingsWindow {
                         if crate::ui::m3::chip(ui, label, self.tab == tab).clicked() {
                             self.tab = tab;
                         }
-                    } else if imgui {
-                        // The dock theme is a compact tool UI, not a row of soft navigation
-                        // chips. Keep its Settings tabs flat, square and visibly selected.
+                    } else {
+                        // ImGui buttons on one line, the open section held down.
                         if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(label).monospace())
-                                    .selected(self.tab == tab)
-                                    .corner_radius(0)
-                                    .min_size(egui::vec2(72.0, 24.0)),
-                            )
+                            .add(egui::Button::new(label).held(self.tab == tab))
                             .clicked()
                         {
                             self.tab = tab;
                         }
-                    } else {
-                        ui.selectable_value(&mut self.tab, tab, label);
                     }
                 }
             });
@@ -1129,13 +1121,10 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
 }
 
 /// theme_plan.md §3: split out of `general_tab` — everything that changes how the app *looks*
-/// (colors, chrome, density, the timeline's own visual style) rather than how it *behaves*.
-/// `Theme` (this app's own chrome+color preset — the type is `Layout`, see that type's own doc
-/// comment for the naming story) reads as the primary choice here; `Color scheme` (just colors —
-/// the type is `Theme`) is the secondary, customize-further control underneath it, so a casual
-/// user picks one Theme and is done, while a power user can still override just the colors.
-/// Picking a Theme applies its `recommended_theme_and_density()` pair once, immediately; Color
-/// scheme and Density stay independently changeable right after (nothing re-forces them back).
+/// (colors, chrome, the timeline's own visual style) rather than how it *behaves*. `Theme` (the
+/// chrome's arrangement — the type is `Layout`, see that type's own doc comment for the naming
+/// story) and `Color scheme` (one of Dear ImGui's styles — the type is `Theme`) are independent:
+/// every layout is drawn in whichever ImGui style is picked, at ImGui's one geometry.
 fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     let stacked = ui.available_width() < 440.0;
     settings_form(ui, "appearance_grid", |ui| {
@@ -1155,14 +1144,7 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             grid_label(ui, stacked, "Theme");
             ui.horizontal_wrapped(|ui| {
                 for l in crate::settings::Layout::ALL {
-                    if ui
-                        .selectable_value(&mut settings.layout, l, l.label())
-                        .clicked()
-                    {
-                        let (theme, density) = l.recommended_theme_and_density();
-                        settings.theme = theme;
-                        settings.density = density;
-                    }
+                    ui.selectable_value(&mut settings.layout, l, l.label());
                 }
             })
             .response
@@ -1188,11 +1170,11 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             // Live swatch: accent over the theme background, so the choice previews at a glance.
             let (rect, _) = ui.allocate_exact_size(egui::vec2(46.0, 18.0), egui::Sense::hover());
             let p = ui.painter_at(rect);
-            p.rect_filled(rect, 3.0, crate::theme::preview_bg(settings.theme));
+            p.rect_filled(rect, 0.0, crate::theme::preview_bg(settings.theme));
             p.circle_filled(rect.center(), 6.0, crate::theme::accent(settings.theme));
         })
         .response
-        .on_hover_text("Just the colors — picking a Theme above already chose one of these.");
+        .on_hover_text("Dear ImGui's own styles: Dark (its default), Light and Classic.");
         ui.end_row();
 
         grid_label(ui, stacked, "Accent color");
@@ -1207,16 +1189,6 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                 ui.color_edit_button_srgb(rgb);
             }
         });
-        ui.end_row();
-
-        grid_label(ui, stacked, "Density");
-        ui.horizontal_wrapped(|ui| {
-            for d in crate::ui::m3::Density::ALL {
-                ui.selectable_value(&mut settings.density, d, d.label());
-            }
-        })
-        .response
-        .on_hover_text("Compact restores the denser spacing of earlier releases.");
         ui.end_row();
 
         grid_label(ui, stacked, "Timeline");
@@ -1307,11 +1279,11 @@ fn general_tab(
         } else {
             0.7
         };
-        ui.add(egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
+        crate::theme::slider(ui, egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
         ui.end_row();
     });
     ui.weak(
-        "UI scale also responds to Ctrl+= / Ctrl+- / Ctrl+0. Colors, chrome, density and the \
+        "UI scale also responds to Ctrl+= / Ctrl+- / Ctrl+0. Colors, chrome and the \
              timeline live under the Appearance tab now.",
     );
 
@@ -1467,7 +1439,7 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
         );
     ui.horizontal_wrapped(|ui| {
         ui.label("Volume");
-        ui.add(egui::Slider::new(&mut settings.alert_volume, 0.0..=1.0).step_by(0.05));
+        crate::theme::slider(ui, egui::Slider::new(&mut settings.alert_volume, 0.0..=1.0).step_by(0.05));
     });
     ui.add_space(4.0);
 

@@ -1,9 +1,9 @@
 //! Material 3 design tokens for the mobile chrome.
 //!
 //! Spacing, shape, type, motion and state-layer values in one place so the phone UI stops
-//! hand-picking numbers. Colors deliberately do NOT live here — they come from the active theme
-//! (`theme::apply` puts the palette in `ui.visuals()`, and `style::glass` builds the card fill), so
-//! all 13 themes keep working instead of fighting a second palette.
+//! hand-picking numbers. Colors deliberately do NOT live here — they come from the active Dear
+//! ImGui style (`theme::apply` puts the palette in `ui.visuals()`), and the geometry the rest of
+//! the app uses on touch is `theme::geometry`'s.
 //!
 //! Compiles everywhere; only the mobile code calls it.
 
@@ -17,13 +17,17 @@ pub const SP_4: f32 = 16.0;
 pub const SP_6: f32 = 24.0;
 
 // ---------- Shape ----------
-pub const R_XS: f32 = 4.0;
-pub const R_SM: f32 = 8.0;
-pub const R_MD: f32 = 12.0;
-pub const R_LG: f32 = 16.0;
-/// Sheet top corners and the extra-large containers M3 Expressive leans on.
-pub const R_XL: f32 = 28.0;
-pub const R_FULL: f32 = 9999.0;
+// Dear ImGui rounds nothing (`FrameRounding`, `WindowRounding`, `PopupRounding` are all 0), and
+// the touch chrome follows it: sheets, chips, rows and icon buttons are square. The names stay so
+// each call site still says which size of container it is.
+pub const R_XS: f32 = 0.0;
+pub const R_SM: f32 = 0.0;
+pub const R_MD: f32 = 0.0;
+pub const R_LG: f32 = 0.0;
+/// Sheet top corners.
+pub const R_XL: f32 = 0.0;
+/// What was a full pill.
+pub const R_FULL: f32 = 0.0;
 
 // ---------- Type scale ----------
 // Display is omitted: nothing on this surface wants 45pt.
@@ -310,103 +314,5 @@ mod tests {
         assert!(!is_landscape(port));
         assert!(is_landscape(land));
         assert!(!is_landscape(square));
-    }
-}
-
-// ---------- Density ----------
-
-/// UI density. `Comfortable` is the product default; `Compact` restores the pro-dense desktop
-/// metrics the app shipped with through 0.11.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub enum Density {
-    #[default]
-    Comfortable,
-    Compact,
-}
-
-impl Density {
-    pub const ALL: [Density; 2] = [Density::Comfortable, Density::Compact];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Density::Comfortable => "Comfortable",
-            Density::Compact => "Compact",
-        }
-    }
-}
-
-/// The spacing/type numbers `theme::apply` installs, as one table per density.
-///
-/// ponytail: a plain struct of values, not a trait or a config file — density is a table swap,
-/// so widgets never branch on it. Add a third table here if a "spacious" mode ever matters.
-#[derive(Debug, Clone, Copy)]
-pub struct Metrics {
-    pub item_spacing: Vec2,
-    pub button_padding: Vec2,
-    pub interact_h: f32,
-    pub window_margin: i8,
-    pub menu_margin: i8,
-    pub heading: f32,
-    pub body: f32,
-    pub button: f32,
-    pub small: f32,
-    pub mono: f32,
-}
-
-/// Touch metrics (Android): the M3 type scale and a touch-sized interact height, independent of
-/// density — a finger is the same size in either mode.
-pub const TOUCH: Metrics = Metrics {
-    item_spacing: vec2(SP_2, SP_2),
-    button_padding: vec2(SP_3, SP_2),
-    // 44, not 48: `interact_size` is the *minimum* egui pads every widget to, and 48 there
-    // bloats inline rows. Real tap targets get `MIN_TARGET` explicitly.
-    interact_h: 44.0,
-    window_margin: 10,
-    menu_margin: 8,
-    heading: T_TITLE,
-    body: T_BODY,
-    button: T_LABEL_LG,
-    small: T_LABEL_SM,
-    mono: T_LABEL,
-};
-
-/// Pointer metrics, comfortable: roomier rows and readable type for a map-first product.
-pub const COMFORT: Metrics = Metrics {
-    item_spacing: vec2(8.0, 6.0),
-    button_padding: vec2(10.0, 5.0),
-    interact_h: 26.0,
-    window_margin: 10,
-    menu_margin: 8,
-    heading: 15.0,
-    body: 13.5,
-    button: 13.5,
-    small: 11.0,
-    mono: 12.5,
-};
-
-/// Pointer metrics, compact: the pre-0.12 desktop density, for users who want a section, a
-/// category row, a tree and three disclosures in one panel.
-pub const COMPACT: Metrics = Metrics {
-    item_spacing: vec2(6.0, 4.0),
-    button_padding: vec2(8.0, 3.0),
-    interact_h: 22.0,
-    window_margin: 10,
-    menu_margin: 8,
-    heading: 14.0,
-    body: 12.5,
-    button: 12.5,
-    small: 11.0,
-    mono: 12.0,
-};
-
-/// The table `theme::apply` should install. Touch wins over density.
-pub fn metrics(density: Density, touch: bool) -> Metrics {
-    if touch {
-        TOUCH
-    } else {
-        match density {
-            Density::Comfortable => COMFORT,
-            Density::Compact => COMPACT,
-        }
     }
 }

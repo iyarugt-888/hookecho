@@ -290,7 +290,7 @@ impl HookEchoApp {
         let mut storm_act = None;
         let mut body = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
-                ui.label(ws::text(product, 14.5, t.accent).strong());
+                ui.label(ws::text(product, crate::theme::FONT, t.text));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if live {
                         ws::badge(ui, &t, "Live", t.live);
@@ -362,7 +362,7 @@ impl HookEchoApp {
                         ui.add(
                             egui::Label::new(ws::text(
                                 format!("{label}: {value}"),
-                                11.0,
+                                crate::theme::FONT,
                                 t.text_dim,
                             ))
                             .wrap(),
@@ -388,7 +388,7 @@ impl HookEchoApp {
                         } else {
                             "Readings need a single map pane."
                         },
-                        12.0,
+                        crate::theme::FONT,
                         t.text_dim,
                     ));
                 }
@@ -844,7 +844,7 @@ fn paint_coverage_rows(ui: &mut egui::Ui, t: &ws::Tokens, title: &str, rows: &[(
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_width(key_width);
-                    ui.add(egui::Label::new(ws::text(*key, 12.0, t.text_dim)).wrap());
+                    ui.add(egui::Label::new(ws::text(*key, crate::theme::FONT, t.text_dim)).wrap());
                 },
             );
             let value_width = ui.available_width();
@@ -853,7 +853,7 @@ fn paint_coverage_rows(ui: &mut egui::Ui, t: &ws::Tokens, title: &str, rows: &[(
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_width(value_width);
-                    ui.add(egui::Label::new(ws::text(value, 12.5, t.text)).wrap());
+                    ui.add(egui::Label::new(ws::text(value, crate::theme::FONT, t.text)).wrap());
                 },
             );
         });

@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the whole interface in Dear ImGui's look
+
+Every surface — the workstation dock, tool windows, the timeline, the phone's sheet and pill, the
+ribbon and the floating map chrome — now draws as Dear ImGui does: 19px frames, one 13px font,
+square corners (tabs alone round their tops), no borders on controls, no shadows or gradients,
+buttons and selected rows in ImGui's own colour roles. The color scheme is one of Dear ImGui's
+three styles, taken exactly from v1.91.5: **Dark** (the default), **Light** and **Classic**, or
+**System**. The earlier themes are retired: Synthwave, Aurora, High contrast, OLED black and the
+old Dear ImGui theme load as Dark, so no settings file breaks. The Density setting is gone too —
+ImGui has one geometry. The high-contrast and colorblind-safe radar color tables stay in
+Settings → Palettes.
+
 ### Fixed: archived environmental height datum; added colder isotherms
 
 Archived radar products now use the sounding's recorded HGHT geopotential metres MSL instead

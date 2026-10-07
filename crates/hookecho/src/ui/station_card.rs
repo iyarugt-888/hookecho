@@ -229,14 +229,14 @@ fn camera_pane(ui: &mut egui::Ui, card: &mut Card) {
         }
         None => {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 120.0), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 4.0, Color32::from_gray(24));
+            ui.painter().rect_filled(rect, 0.0, crate::theme::current().frame_bg);
             let msg = camera_status_text(&status);
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 msg,
                 egui::FontId::proportional(12.0),
-                Color32::from_gray(190),
+                crate::theme::current().text,
             );
         }
     }
@@ -293,7 +293,7 @@ fn camera_status_text(_status: &Option<()>) -> String {
 fn chip(ui: &mut egui::Ui, text: &str, bg: Color32) {
     egui::Frame::new()
         .fill(bg)
-        .corner_radius(3.0)
+        .corner_radius(0)
         .inner_margin(egui::Margin::symmetric(5, 1))
         .show(ui, |ui| {
             ui.label(RichText::new(text).size(10.5).color(Color32::WHITE));
@@ -434,7 +434,7 @@ fn wind_block(ui: &mut egui::Ui, card: &Card) {
     sparkline(
         ui,
         &card.series(|s| s.gust_kt.or(s.wspd_kt)),
-        Color32::from_rgb(110, 180, 240),
+        crate::theme::current().check_mark,
     );
 }
 
@@ -466,7 +466,7 @@ fn dial(ui: &mut egui::Ui, dir: Option<f32>) {
     let p = ui.painter();
     let c = rect.center();
     let r = rect.width() * 0.45;
-    p.circle_stroke(c, r, egui::Stroke::new(1.0, Color32::from_gray(110)));
+    p.circle_stroke(c, r, egui::Stroke::new(1.0, crate::theme::current().separator));
     for (i, tick) in ["N", "E", "S", "W"].iter().enumerate() {
         let a = (i as f32) * std::f32::consts::FRAC_PI_2 - std::f32::consts::FRAC_PI_2;
         p.text(
@@ -474,7 +474,7 @@ fn dial(ui: &mut egui::Ui, dir: Option<f32>) {
             egui::Align2::CENTER_CENTER,
             tick,
             egui::FontId::proportional(8.0),
-            Color32::from_gray(140),
+            crate::theme::current().text,
         );
     }
     if let Some(d) = dir {
@@ -483,9 +483,9 @@ fn dial(ui: &mut egui::Ui, dir: Option<f32>) {
         let tip = c + egui::vec2(a.cos(), a.sin()) * r;
         p.line_segment(
             [c, tip],
-            egui::Stroke::new(2.0, Color32::from_rgb(110, 180, 240)),
+            egui::Stroke::new(2.0, crate::theme::current().check_mark),
         );
-        p.circle_filled(c, 2.0, Color32::from_rgb(110, 180, 240));
+        p.circle_filled(c, 2.0, crate::theme::current().check_mark);
     }
 }
 
@@ -494,14 +494,14 @@ fn sparkline(ui: &mut egui::Ui, values: &[f32], color: Color32) {
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 26.0), egui::Sense::hover());
     let p = ui.painter();
-    p.rect_filled(rect, 2.0, Color32::from_black_alpha(40));
+    p.rect_filled(rect, 0.0, crate::theme::current().frame_bg);
     if values.len() < 2 {
         p.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "collecting\u{2026}",
             egui::FontId::proportional(9.0),
-            Color32::from_gray(120),
+            crate::theme::current().separator,
         );
         return;
     }
@@ -533,7 +533,7 @@ fn sparkline(ui: &mut egui::Ui, values: &[f32], color: Color32) {
         egui::Align2::RIGHT_TOP,
         format!("{lo:.dp$} – {hi:.dp$}"),
         egui::FontId::proportional(8.5),
-        Color32::from_gray(150),
+        crate::theme::current().text_disabled,
     );
 }
 

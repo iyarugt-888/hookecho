@@ -15,6 +15,7 @@ mod column_product;
 mod column_trail;
 mod trail;
 mod xsection_edit;
+use crate::theme::Hold as _;
 #[cfg(test)]
 use trail::trail_status_line;
 use trail::TrailState;
@@ -1174,13 +1175,8 @@ fn distinct_tilts(elevations: &[f32], want: usize) -> Vec<usize> {
 const CONTROL_BUTTONS: usize = 6;
 
 /// Everything `theme::apply` is keyed on, remembered so it only re-applies when one of them moves:
-/// `(theme, system_dark, density, accent)`.
-type ThemeApplied = (
-    crate::settings::Theme,
-    bool,
-    crate::ui::m3::Density,
-    Option<[u8; 3]>,
-);
+/// `(theme, system_dark, accent)`.
+type ThemeApplied = (crate::settings::Theme, bool, Option<[u8; 3]>);
 
 /// Which point-forecast series a request or cache entry is for: `(lat_e5, lon_e5, which series)`.
 type ModelSeriesKey = (i32, i32, ui::forecast_window::ModelSeriesUi);
@@ -1225,7 +1221,7 @@ pub struct HookEchoApp {
     pane_shown: std::collections::HashMap<usize, ShownKey>,
     /// Palette generation currently baked into each pane's LUT (see [`ShownKey`]).
     pane_lut: std::collections::HashMap<usize, u64>,
-    /// Last `(theme, system_dark, density, accent)` handed to `theme::apply`.
+    /// Last `(theme, system_dark, accent)` handed to `theme::apply`.
     theme_applied: Option<ThemeApplied>,
     /// When the settings tree was last diffed against the saved copy.
     settings_checked: Option<Instant>,
@@ -3614,7 +3610,7 @@ impl HookEchoApp {
                     egui::Color32::WHITE,
                 );
                 let r = egui::Rect::from_min_size(at, galley.size()).expand2(egui::vec2(4.0, 2.0));
-                painter.rect_filled(r, 3.0, accent.gamma_multiply(0.85));
+                painter.rect_filled(r, 0.0, accent.gamma_multiply(0.85));
                 painter.galley(at, galley, egui::Color32::WHITE);
             }
         }
@@ -4601,7 +4597,7 @@ impl HookEchoApp {
                 };
                 egui::Frame::new()
                     .fill(fill)
-                    .corner_radius(4.0)
+                    .corner_radius(0)
                     .inner_margin(egui::Margin::symmetric(8, 4))
                     .show(ui, |ui| {
                         if following {
@@ -8658,7 +8654,7 @@ fn archive_day_calendar(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<ch
                     let enabled = d >= wxdata::level2::ARCHIVE_START && d <= today;
                     let button = egui::Button::new(day.to_string())
                         .small()
-                        .selected(d == date)
+                        .held(d == date)
                         .frame(d == today && d != date);
                     if ui.add_enabled(enabled, button).clicked() {
                         picked = Some(d);

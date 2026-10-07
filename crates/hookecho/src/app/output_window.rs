@@ -197,7 +197,7 @@ impl HookEchoApp {
         let toggle = |ui: &mut egui::Ui, v: &mut bool, label: &str| ui.checkbox(v, label);
         ui.collapsing("Streaming overlay", |ui| {
             let b = &mut self.settings.broadcast;
-            ui.add(
+            crate::theme::slider(ui,
                 egui::Slider::new(&mut b.safe_margin_pct, 0.0..=15.0)
                     .suffix(" %")
                     .text("Safe margin"),
@@ -329,7 +329,7 @@ fn paint_strap(
         ),
         galley.size() + pad * 2.0,
     );
-    painter.rect_filled(band, 3.0, egui::Color32::from_black_alpha(200));
+    painter.rect_filled(band, 0.0, egui::Color32::from_black_alpha(200));
     painter.rect_filled(
         egui::Rect::from_min_size(band.min, egui::vec2(size * 0.18, band.height())),
         0.0,

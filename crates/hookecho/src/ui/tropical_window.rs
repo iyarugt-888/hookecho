@@ -436,7 +436,7 @@ fn intensity_chart(ui: &mut egui::Ui, g: &Guidance, sp: &Spaghetti, tz: Option<T
     let painter = ui.painter_at(rect);
     let vis = ui.visuals();
     let (text, weak) = (vis.text_color(), vis.weak_text_color());
-    painter.rect_filled(rect, 4.0, vis.extreme_bg_color);
+    painter.rect_filled(rect, 0.0, vis.extreme_bg_color);
     let plot = Rect::from_min_max(
         rect.min + egui::vec2(34.0, 8.0),
         rect.max - egui::vec2(38.0, 20.0),

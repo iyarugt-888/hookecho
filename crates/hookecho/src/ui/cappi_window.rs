@@ -39,7 +39,7 @@ pub fn show(
     window.show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("Altitude");
-            ui.add(egui::Slider::new(alt_km, 0.5..=15.0).suffix(" km"));
+            crate::theme::slider(ui, egui::Slider::new(alt_km, 0.5..=15.0).suffix(" km"));
         });
         ui.label(format!("{length:.0} km across · reflectivity · north up"));
         ui.separator();

@@ -37,7 +37,7 @@ impl HookEchoApp {
                 let response = ui
                     .add_sized(
                         egui::vec2(width, 58.0),
-                        egui::Button::new("").corner_radius(10.0),
+                        egui::Button::new("").corner_radius(0),
                     )
                     .named(title)
                     .on_hover_text(description);

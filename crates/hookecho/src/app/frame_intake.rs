@@ -167,24 +167,13 @@ impl HookEchoApp {
             ctx.send_viewport_cmd(cmd);
         }
 
-        // "Modern dark pro" styling (palette/spacing/rounding/accent). Re-applied when the theme
+        // Dear ImGui styling (theme.rs: colours, geometry, accent). Re-applied when the theme
         // or the system light/dark preference changes — it rebuilds and installs a whole
         // `egui::Style`, which is wasted work on every other frame.
         let system_dark = ctx.input(|i| i.raw.system_theme) != Some(egui::Theme::Light);
-        let theme_key = (
-            self.settings.theme,
-            system_dark,
-            self.settings.density,
-            self.settings.accent,
-        );
+        let theme_key = (self.settings.theme, system_dark, self.settings.accent);
         if self.theme_applied != Some(theme_key) {
-            crate::theme::apply(
-                ctx,
-                self.settings.theme,
-                system_dark,
-                self.settings.density,
-                self.settings.accent,
-            );
+            crate::theme::apply(ctx, self.settings.theme, system_dark, self.settings.accent);
             self.theme_applied = Some(theme_key);
         }
 

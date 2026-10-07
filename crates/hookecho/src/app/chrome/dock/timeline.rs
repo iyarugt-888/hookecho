@@ -194,7 +194,7 @@ impl HookEchoApp {
                             .map(|d| crate::timefmt::fmt_date_clock(d, tz))
                             .unwrap_or_else(|| "\u{2014}".to_string()),
                     };
-                    ui.label(ws::mono(label, 14.0, egui::Color32::WHITE).strong());
+                    ui.label(ws::mono(label, crate::theme::FONT, t.text));
                     ui.add_space(12.0);
                     ws::caption(ui, &t, "Speed");
                     egui::ComboBox::from_id_salt("dock_speed")
@@ -283,7 +283,7 @@ impl HookEchoApp {
                         egui::pos2(left, rail_y - 9.0),
                         egui::pos2(right, rail_y + 9.0),
                     ),
-                    4.0,
+                    0.0,
                     t.field,
                 );
                 if slots > 0 {
@@ -318,9 +318,9 @@ impl HookEchoApp {
                     let x = slot_x(tl.playhead.min(slots - 1), slots, left, right);
                     p.line_segment(
                         [egui::pos2(x, rail_y - 11.0), egui::pos2(x, rail_y + 11.0)],
-                        Stroke::new(2.0, t.accent),
+                        Stroke::new(2.0, t.im.slider_grab_active),
                     );
-                    p.circle_filled(egui::pos2(x, rail_y - 11.0), 4.0, t.accent);
+                    p.circle_filled(egui::pos2(x, rail_y - 11.0), 4.0, t.im.slider_grab_active);
                     let times: Vec<Option<DateTime<Utc>>> =
                         tl.frames.iter().map(|id| id.date_time()).collect();
                     let mut last_x = f32::NEG_INFINITY;
@@ -330,12 +330,19 @@ impl HookEchoApp {
                             continue;
                         }
                         last_x = x;
-                        p.text(
-                            egui::pos2(x, rect.bottom() - 1.0),
-                            egui::Align2::CENTER_BOTTOM,
+                        // Centred on its tick, but kept inside the track: the first hour sits on
+                        // the left end, where a centred label lost half its width off the panel.
+                        let galley = p.layout_no_wrap(
                             label,
-                            FontId::proportional(10.5),
-                            t.text_faint,
+                            FontId::monospace(crate::theme::FONT),
+                            t.text,
+                        );
+                        let half = galley.size().x / 2.0;
+                        let cx = x.clamp(rect.left() + half, (rect.right() - half).max(rect.left() + half));
+                        p.galley(
+                            egui::pos2(cx - half, rect.bottom() - 1.0 - galley.size().y),
+                            galley,
+                            t.text,
                         );
                     }
                     if resp.clicked() || resp.dragged() {
@@ -353,7 +360,7 @@ impl HookEchoApp {
                         egui::pos2(left + 8.0, rail_y),
                         egui::Align2::LEFT_CENTER,
                         if tl.listing { "Listing scans\u{2026}" } else { "No scans for this day" },
-                        FontId::proportional(11.5),
+                        FontId::proportional(crate::theme::FONT),
                         t.text_dim,
                     );
                 }
@@ -373,15 +380,16 @@ impl HookEchoApp {
                         .layout(egui::Layout::right_to_left(egui::Align::Center)),
                 );
                 let have = cached.iter().filter(|c| **c).count();
-                right.label(ws::mono(format!("{have}/{observed}"), 11.0, t.text_dim));
-                let (r, _) = right.allocate_exact_size(egui::vec2(96.0, 6.0), Sense::hover());
-                right.painter().rect_filled(r, 3.0, t.field);
+                right.label(ws::mono(format!("{have}/{observed}"), crate::theme::FONT, t.text_dim));
+                // ImGui's ProgressBar: a frame filled in `PlotHistogram`.
+                let (r, _) = right.allocate_exact_size(egui::vec2(96.0, ws::CONTROL_H), Sense::hover());
+                right.painter().rect_filled(r, 0.0, t.field);
                 if observed > 0 {
                     let mut fill = r;
                     fill.set_width(r.width() * have as f32 / observed as f32);
                     right
                         .painter()
-                        .rect_filled(fill, 3.0, t.live.gamma_multiply(0.8));
+                        .rect_filled(fill, 0.0, t.im.plot_histogram);
                 }
                 ws::caption(&mut right, &t, "Buffer");
                 let mut left = ui.new_child(
@@ -395,7 +403,7 @@ impl HookEchoApp {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.label(ws::mono(
                     format!("Frame {} / {}", (tl.playhead + 1).min(slots), slots),
-                    11.0,
+                    crate::theme::FONT,
                     t.text_dim,
                 ));
                 ws::divider(ui, &t, 18.0);
@@ -447,11 +455,11 @@ impl HookEchoApp {
                     }
                 }
                 if let Some(a) = elevations.get(tilt) {
-                    ui.label(ws::mono(format!("{a:.1}\u{b0}"), 11.0, t.text));
+                    ui.label(ws::mono(format!("{a:.1}\u{b0}"), crate::theme::FONT, t.text));
                 }
                 if !status.is_empty() {
                     ws::divider(ui, &t, 18.0);
-                    ui.label(ws::mono(&status, 11.0, t.live));
+                    ui.label(ws::mono(&status, crate::theme::FONT, t.live));
                 }
             });
         if go_head {
@@ -470,29 +478,24 @@ impl HookEchoApp {
     }
 }
 
-/// A finger-sized transport button: the play button filled with the accent, the rest plain.
+/// A finger-sized transport button: an ImGui button scaled for touch, the play button held in
+/// `ButtonActive`.
 fn touch_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, filled: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(46.0, 38.0), Sense::click());
-    let fill = if filled {
-        t.accent
-    } else if resp.is_pointer_button_down_on() || resp.hovered() {
-        t.field_hi
+    let fill = if filled || resp.is_pointer_button_down_on() {
+        t.im.button_active
+    } else if resp.hovered() {
+        t.im.button_hovered
     } else {
-        t.field
+        t.im.button
     };
-    ui.painter().rect(
-        r,
-        8.0,
-        fill,
-        Stroke::new(1.0, if filled { t.accent } else { t.line }),
-        egui::StrokeKind::Inside,
-    );
+    ui.painter().rect_filled(r, 0.0, fill);
     ui.painter().text(
         r.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
         FontId::proportional(19.0),
-        if filled { egui::Color32::WHITE } else { t.text },
+        t.text,
     );
     resp
 }
@@ -544,7 +547,7 @@ fn phone_rows(
                     ui.set_min_width(240.0);
                     ui.label(ws::text(
                         format!("Showing {}", tl.date.format("%b %-d, %Y")),
-                        12.0,
+                        crate::theme::FONT,
                         t.text_dim,
                     ));
                     ui.horizontal(|ui| {
@@ -583,13 +586,7 @@ fn phone_rows(
                     .layout_no_wrap(word.to_string(), FontId::proportional(15.0), color);
             let (r, resp) =
                 ui.allocate_exact_size(egui::vec2(galley.size().x + 40.0, 38.0), Sense::click());
-            ui.painter().rect(
-                r,
-                8.0,
-                t.field,
-                Stroke::new(1.0, t.line),
-                egui::StrokeKind::Inside,
-            );
+            ui.painter().rect_filled(r, 0.0, t.field);
             ui.painter()
                 .circle_filled(egui::pos2(r.left() + 16.0, r.center().y), 5.0, color);
             ui.painter().galley(
@@ -617,7 +614,7 @@ fn phone_rows(
                 .map(|d| crate::timefmt::fmt_date_clock(d, tz))
                 .unwrap_or_else(|| "\u{2014}".to_string()),
         };
-        ui.label(ws::mono(label, 14.0, egui::Color32::WHITE));
+        ui.label(ws::mono(label, 14.0, t.text));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             egui::ComboBox::from_id_salt("phone_speed")
                 .width(70.0)

@@ -443,7 +443,7 @@ pub(crate) fn map_3d_panel(
                 let gap = ui.spacing().item_spacing.x;
                 ui.spacing_mut().slider_width =
                     ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
-                ui.add(
+                ws::slider(ui, &t, 
                     egui::Slider::new(&mut view.camera.bearing, -180.0..=180.0)
                         .suffix("°")
                         .max_decimals(0),
@@ -629,7 +629,7 @@ pub(crate) fn map_3d_panel(
                 let mut on = view.map_3d.denoise_enabled;
                 ws::prop_toggle(ui, &t, &mut on, "Denoise", |ui| {
                     ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                    ui.add(
+                    ws::slider(ui, &t, 
                         egui::Slider::new(&mut floor, lo..=hi)
                             .suffix(suffix)
                             .max_decimals(floor_decimals(suffix)),
@@ -647,7 +647,7 @@ pub(crate) fn map_3d_panel(
                 ui.add_enabled_ui(on, |ui| {
                     ws::prop_toggle(ui, &t, &mut capped, "Ceiling", |ui| {
                         ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                        ui.add(
+                        ws::slider(ui, &t, 
                             egui::Slider::new(&mut top, floor..=hi)
                                 .suffix(suffix)
                                 .max_decimals(floor_decimals(suffix)),
@@ -1030,9 +1030,9 @@ fn slice_row(ui: &mut egui::Ui, t: &ws::Tokens, label: &str, lo: &mut f32, hi: &
     ws::prop_row(ui, t, label, |ui| {
         let gap = ui.spacing().item_spacing.x;
         ui.spacing_mut().slider_width = ((ui.available_width() - gap) / 2.0).max(30.0);
-        ui.add(egui::Slider::new(lo, 0.0..=1.0).show_value(false))
+        ws::slider(ui, t, egui::Slider::new(lo, 0.0..=1.0).show_value(false))
             .on_hover_text("Low end of the slab");
-        ui.add(egui::Slider::new(hi, 0.0..=1.0).show_value(false))
+        ws::slider(ui, t, egui::Slider::new(hi, 0.0..=1.0).show_value(false))
             .on_hover_text("High end of the slab");
     });
     // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.

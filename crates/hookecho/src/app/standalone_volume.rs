@@ -375,12 +375,8 @@ mod tests {
             original,
             VolumeKey::for_view(&view, &settings, &[], 1).unwrap()
         );
-        settings.theme = crate::settings::Theme::HighContrast;
-        assert_ne!(
-            original,
-            VolumeKey::for_view(&view, &settings, &[], 0).unwrap()
-        );
-        settings.theme = crate::settings::Theme::DearImGui;
+        // No theme asks for the high-contrast volume any more, so the colour scheme is not one.
+        settings.theme = crate::settings::Theme::Classic;
         assert_eq!(
             original,
             VolumeKey::for_view(&view, &settings, &[], 0).unwrap()

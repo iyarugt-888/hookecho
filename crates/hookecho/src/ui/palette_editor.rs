@@ -192,7 +192,7 @@ fn preview_bar(ui: &mut egui::Ui, table: &ColorTable, range: (f32, f32)) {
     }
     p.rect_stroke(
         rect,
-        3.0,
+        0.0,
         ui.visuals().widgets.noninteractive.bg_stroke,
         egui::StrokeKind::Inside,
     );

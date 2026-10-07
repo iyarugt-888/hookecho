@@ -1,249 +1,170 @@
-//! WSV3-style desktop chrome primitives.
+//! The ribbon layout's chrome primitives, in Dear ImGui's manner.
 //!
-//! The look this reproduces: a docked ribbon of labelled control groups painted over a
-//! navy→black vertical gradient, glossy stadium "pill" buttons for the mode switches, faint
-//! hairline dividers between groups, a docked horizontal colour scale directly under the ribbon,
-//! and a thin status bar along the bottom edge. It is the opposite trade from the minimal
-//! chrome — the map gives back a strip of height in exchange for every control being visible at
-//! once.
+//! The ribbon is a docked strip of labelled control groups, a docked horizontal colour scale
+//! directly under it, and a thin status bar along the bottom edge — the opposite trade from the
+//! minimal chrome: the map gives back a strip of height in exchange for every control being
+//! visible at once. It used to be painted as a navy→black gradient with glossy stadium pills; it
+//! now draws what every other surface draws: an ImGui window strip, flat 19px buttons and frames,
+//! 1px separators, the active ImGui style's colours (`theme::current`).
 //!
 //! Everything here is a free function: no `self`, no app state. `app/chrome/ribbon.rs` composes
 //! these into the actual ribbon and wires them to `PaletteAction`s.
 
 use crate::colormap::ColorTable;
+use crate::theme::{self, FONT, FRAME_H};
 use egui::{
-    pos2, vec2, Align2, Color32, FontId, Mesh, Rect, Response, RichText, Sense, Shape, Stroke,
-    StrokeKind, Ui,
+    pos2, vec2, Align2, Color32, FontId, Mesh, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui,
 };
 
-/// Ribbon gradient endpoints — a blue-tinted charcoal at the top fading to near-black.
-pub const RIBBON_TOP: Color32 = Color32::from_rgb(0x2b, 0x30, 0x3c);
-pub const RIBBON_BOT: Color32 = Color32::from_rgb(0x0c, 0x0d, 0x11);
-/// Group-header text: a letter-spaced light blue-grey, drawn small.
-pub const HEADER: Color32 = Color32::from_rgb(0xa9, 0xb4, 0xcc);
-/// Body text on the ribbon.
-pub const INK: Color32 = Color32::from_rgb(0xd6, 0xdc, 0xe8);
-/// The signature WSV3 blue used on active pills and highlighted list rows.
-pub const WSV3_BLUE: Color32 = Color32::from_rgb(0x3d, 0x7b, 0xd6);
-/// Unselected pill fill.
-pub const PILL_BG: Color32 = Color32::from_rgb(0x1b, 0x1e, 0x28);
-/// Status bar.
-pub const STATUS_BG: Color32 = Color32::from_rgb(0x09, 0x0a, 0x0d);
-pub const STATUS_FG: Color32 = Color32::from_rgb(0x86, 0x8c, 0x9a);
+/// Body text on the ribbon: ImGui's `Text`.
+pub fn ink() -> Color32 {
+    theme::current().text
+}
+/// A resting control fill: ImGui's `Button`.
+pub fn pill_bg() -> Color32 {
+    theme::current().button
+}
+/// The status bar: ImGui's `MenuBarBg`, the bar along an edge.
+pub fn status_bg() -> Color32 {
+    theme::current().menu_bar_bg
+}
+/// Status bar text and colour-scale labels: ImGui's `Text` (ImGui has no secondary grey).
+pub fn status_fg() -> Color32 {
+    theme::current().text
+}
 
-/// Ribbon control-row height (the gradient band).
+/// Ribbon control-row height.
 pub const RIBBON_H: f32 = 130.0;
-/// Docked colour scale height, drawn immediately below the ribbon.
-pub const COLORBAR_H: f32 = 26.0;
-/// Bottom status bar height.
-pub const STATUS_H: f32 = 22.0;
+/// Docked colour scale height: a frame-high bar, its ticks, and a line of labels under them.
+pub const COLORBAR_H: f32 = 40.0;
+/// Bottom status bar height: one frame.
+pub const STATUS_H: f32 = FRAME_H + 3.0;
 /// Right-edge keep-out for the window min/max/close buttons in this layout (they anchor 70 px in
 /// from the edge and are ~100 px wide).
 pub const WINDOW_BTN_KEEPOUT: f32 = 178.0;
 
-/// Flat ribbon fill for the Dear ImGui theme (`ImGuiCol_MenuBarBg`, `(0.14, 0.14, 0.14, 1.00)`).
-/// Dear ImGui's own style never uses a gradient anywhere — flat fills only — so the theme gets a
-/// flat ribbon instead of the WSV3 navy→black sweep.
-const IMGUI_RIBBON_BG: Color32 = Color32::from_rgb(0x24, 0x24, 0x24);
-
-/// Paint the vertical ribbon gradient across `rect` and a hard hairline along its bottom edge.
-pub fn ribbon_gradient(painter: &egui::Painter, rect: Rect) {
-    if crate::theme::is_imgui_style() {
-        painter.rect_filled(rect, 0.0, IMGUI_RIBBON_BG);
-        painter.hline(
-            rect.x_range(),
-            rect.bottom() - 0.5,
-            Stroke::new(1.0, Color32::from_black_alpha(170)),
-        );
-        return;
-    }
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(rect.left_top(), RIBBON_TOP);
-    mesh.colored_vertex(rect.right_top(), RIBBON_TOP);
-    mesh.colored_vertex(rect.right_bottom(), RIBBON_BOT);
-    mesh.colored_vertex(rect.left_bottom(), RIBBON_BOT);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    painter.add(Shape::mesh(mesh));
+/// Paint the ribbon's background across `rect`: an ImGui window strip, its border along the
+/// bottom edge. No gradient: ImGui fills are flat.
+pub fn ribbon_background(painter: &egui::Painter, rect: Rect) {
+    let p = theme::current();
+    painter.rect_filled(rect, 0.0, p.window_bg);
     painter.hline(
         rect.x_range(),
         rect.bottom() - 0.5,
-        Stroke::new(1.0, Color32::from_black_alpha(170)),
-    );
-    painter.hline(
-        rect.x_range(),
-        rect.bottom() - 1.5,
-        Stroke::new(1.0, Color32::from_white_alpha(10)),
+        Stroke::new(1.0, p.border),
     );
 }
 
-/// A glossy stadium pill. `selected` fills it with the accent; otherwise it is a dark chip with a
-/// hairline ring. The returned [`Response`] senses clicks.
+/// A ribbon button: ImGui's `Button`, held in `ButtonActive` while `selected`. The returned
+/// [`Response`] senses clicks. (`accent` is the caller's theme accent, kept for the call sites;
+/// the selected fill is the style's own `ButtonActive`.)
 pub fn pill(ui: &mut Ui, label: &str, selected: bool, accent: Color32) -> Response {
     pill_sized(ui, label, selected, accent, 0.0)
 }
 
-/// [`pill`] with a minimum width (so a row of related pills lines up).
-///
-/// Under the Dear ImGui theme ([`crate::theme::is_imgui_style`]) this draws a flat, square-cornered
-/// button sized to ImGui's own tight `FramePadding` instead of the WSV3 glossy stadium pill —
-/// the same widget, a different shape, matching how the reference screenshots' buttons actually
-/// look: no gloss, no rounding, no border on an idle/hovered frame, sized close to its label
-/// rather than a fixed generous pill.
+/// [`pill`] with a minimum width (so a row of related buttons lines up): `FramePadding` either
+/// side of the label, one frame high, square, no border, no gloss.
 pub fn pill_sized(
     ui: &mut Ui,
     label: &str,
     selected: bool,
-    accent: Color32,
+    _accent: Color32,
     min_w: f32,
 ) -> Response {
-    let imgui = crate::theme::is_imgui_style();
-    let font = FontId::proportional(13.0);
+    let p = theme::current();
+    let font = FontId::proportional(FONT);
     let text_w = ui
         .painter()
-        .layout_no_wrap(label.to_owned(), font.clone(), Color32::WHITE)
+        .layout_no_wrap(label.to_owned(), font.clone(), p.text)
         .size()
         .x;
-    // ImGui's FramePadding is (4, 3): 4 px either side of the label, a ~19 px frame height for a
-    // 13 px line — tight, versus the WSV3 pill's fixed generous stadium size.
-    let (h_pad, height) = if imgui { (8.0, 19.0) } else { (22.0, 27.0) };
-    let w = (text_w + h_pad).max(min_w);
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, height), Sense::click());
-    let p = ui.painter();
-    let radius = if imgui { 0.0 } else { rect.height() * 0.5 };
-    let base = if selected {
-        accent
+    let w = (text_w + 8.0).max(min_w);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, FRAME_H), Sense::click());
+    let fill = if selected || resp.is_pointer_button_down_on() {
+        p.button_active
     } else if resp.hovered() {
-        if imgui {
-            ui.visuals().widgets.hovered.bg_fill
-        } else {
-            Color32::from_rgb(0x26, 0x2b, 0x38)
-        }
-    } else if imgui {
-        ui.visuals().widgets.inactive.bg_fill
+        p.button_hovered
     } else {
-        PILL_BG
+        p.button
     };
-    p.rect_filled(rect, radius, base);
-    if !imgui {
-        // Gloss: a lighter wash over the top half. Dear ImGui's own frames are flat fills with no
-        // gradient anywhere, so this is skipped entirely for that theme rather than toned down.
-        let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.center().y));
-        p.rect_filled(
-            top,
-            radius,
-            Color32::from_white_alpha(if selected { 26 } else { 12 }),
-        );
-        // Likewise the hairline ring: ImGui's default style draws no border on a frame
-        // (`FrameBorderSize` is `0.0`) — the fill color alone carries idle/hovered/selected.
-        p.rect_stroke(
-            rect,
-            radius,
-            Stroke::new(
-                1.0,
-                if selected {
-                    accent
-                } else {
-                    Color32::from_white_alpha(46)
-                },
-            ),
-            StrokeKind::Inside,
-        );
-    }
-    let text_col = if selected {
-        Color32::WHITE
-    } else if imgui {
-        ui.visuals().text_color()
-    } else {
-        INK
-    };
-    p.text(rect.center(), Align2::CENTER_CENTER, label, font, text_col);
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, fill);
+    painter.text(rect.center(), Align2::CENTER_CENTER, label, font, p.text);
     resp
 }
 
-/// The small uppercase label that titles a ribbon group.
+/// The label that titles a ribbon group: plain text at the one size, as ImGui labels are.
 pub fn group_label(ui: &mut Ui, text: &str) {
-    ui.label(
-        RichText::new(text.to_uppercase())
-            .size(9.0)
-            .color(HEADER)
-            .strong(),
-    );
+    ui.label(egui::RichText::new(text).size(FONT).color(ink()));
     ui.add_space(2.0);
 }
 
-/// A full-height faint vertical divider between two ribbon groups.
+/// A full-height 1px separator between two ribbon groups.
 pub fn vsep(ui: &mut Ui) {
-    ui.add_space(7.0);
+    ui.add_space(4.0);
     let (rect, _) = ui.allocate_exact_size(vec2(1.0, RIBBON_H - 14.0), Sense::hover());
-    let x = rect.center().x;
-    let p = ui.painter();
     let yr = egui::Rangef::new(rect.top() + 6.0, rect.bottom() - 6.0);
-    p.vline(
-        x - 0.5,
+    ui.painter().vline(
+        rect.center().x,
         yr,
-        Stroke::new(1.0, Color32::from_black_alpha(150)),
+        Stroke::new(1.0, theme::current().separator),
     );
-    p.vline(x + 0.5, yr, Stroke::new(1.0, Color32::from_white_alpha(12)));
-    ui.add_space(7.0);
+    ui.add_space(4.0);
 }
 
-/// A compact toggle used for the checkbox-style options in the ribbon (Smoothing, Map legend…).
-/// Returns `true` on the frame it is clicked.
-///
-/// Under the Dear ImGui theme the box stays one flat, square, `FrameBg`-colored frame whether
-/// checked or not — ImGui's own checkbox never changes the box's fill, only whether a
-/// `CheckMark`-colored glyph is drawn inside it — rather than the WSV3 style's rounded box that
-/// turns solid blue when on.
+/// ImGui's check mark in a `size` square at `min`: the three-point tick `RenderCheckMark` draws,
+/// inset by a sixth of the box.
+pub fn check_mark(painter: &egui::Painter, min: egui::Pos2, size: f32, color: Color32) {
+    let pad = (size / 6.0).floor().max(1.0);
+    let sz = size - pad * 2.0;
+    let thickness = (sz / 5.0).max(1.0);
+    let third = sz / 3.0;
+    let bx = min.x + pad + third;
+    let by = min.y + pad + sz - third * 0.5;
+    painter.add(Shape::line(
+        vec![
+            pos2(bx - third, by - third),
+            pos2(bx, by),
+            pos2(bx + third * 2.0, by - third * 2.0),
+        ],
+        Stroke::new(thickness, color),
+    ));
+}
+
+/// ImGui's checkbox for the ribbon's options (Smoothing, Map legend…): a frame-high
+/// `FrameBg` box, the tick in `CheckMark` when on, then the label. Returns `true` on the frame
+/// it is clicked.
 pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
-    let imgui = crate::theme::is_imgui_style();
-    let font = FontId::proportional(12.0);
+    let p = theme::current();
+    let font = FontId::proportional(FONT);
     let tw = ui
         .painter()
-        .layout_no_wrap(label.to_owned(), font.clone(), Color32::WHITE)
+        .layout_no_wrap(label.to_owned(), font.clone(), p.text)
         .size()
         .x;
-    let (rect, resp) = ui.allocate_exact_size(vec2(tw + 20.0, 18.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(FRAME_H + 4.0 + tw, FRAME_H), Sense::click());
     if resp.clicked() {
         *on = !*on;
     }
-    let p = ui.painter();
-    let box_r = Rect::from_center_size(pos2(rect.left() + 7.0, rect.center().y), vec2(12.0, 12.0));
-    let radius = if imgui { 0.0 } else { 3.0 };
-    let accent = ui.visuals().hyperlink_color;
-    let fill = if imgui {
-        ui.visuals().widgets.inactive.bg_fill
-    } else if *on {
-        WSV3_BLUE
+    let painter = ui.painter();
+    let box_r = Rect::from_min_size(rect.min, vec2(FRAME_H, FRAME_H));
+    let fill = if resp.is_pointer_button_down_on() {
+        p.frame_bg_active
+    } else if resp.hovered() {
+        p.frame_bg_hovered
     } else {
-        PILL_BG
+        p.frame_bg
     };
-    p.rect_filled(box_r, radius, fill);
-    p.rect_stroke(
-        box_r,
-        radius,
-        Stroke::new(1.0, Color32::from_white_alpha(60)),
-        StrokeKind::Inside,
-    );
+    painter.rect_filled(box_r, 0.0, fill);
     if *on {
-        p.text(
-            box_r.center(),
-            Align2::CENTER_CENTER,
-            "\u{2713}",
-            FontId::proportional(11.0),
-            if imgui { accent } else { Color32::WHITE },
-        );
+        check_mark(painter, box_r.min, FRAME_H, p.check_mark);
     }
-    p.text(
-        pos2(rect.left() + 17.0, rect.center().y),
+    painter.text(
+        pos2(box_r.right() + 4.0, rect.center().y),
         Align2::LEFT_CENTER,
         label,
         font,
-        if imgui {
-            ui.visuals().text_color()
-        } else {
-            INK
-        },
+        p.text,
     );
     resp.clicked()
 }
@@ -255,9 +176,10 @@ fn colorbar_geometry(rect: Rect, table: &ColorTable) -> Option<(Rect, f32, f32)>
         (Some(a), Some(b)) if b.value > a.value => (a.value, b.value),
         _ => return None,
     };
+    // A frame-high bar, as the design system's colour scale is: the data is the one gradient.
     let bar = Rect::from_min_max(
-        pos2(rect.left() + 6.0, rect.top() + 3.0),
-        pos2(rect.right() - 6.0, rect.top() + 14.0),
+        pos2(rect.left() + 6.0, rect.top() + 2.0),
+        pos2(rect.right() - 6.0, rect.top() + 2.0 + FRAME_H),
     );
     Some((bar, vmin, vmax))
 }
@@ -285,7 +207,7 @@ pub fn colorbar_band(painter: &egui::Painter, rect: Rect, table: &ColorTable, lo
     );
     painter.rect_stroke(
         band,
-        1.0,
+        0.0,
         Stroke::new(2.0, Color32::WHITE),
         StrokeKind::Outside,
     );
@@ -301,7 +223,7 @@ pub fn colorbar(
     disp_factor: f32,
     disp_label: &str,
 ) {
-    painter.rect_filled(rect, 0.0, Color32::from_rgb(0x05, 0x05, 0x07));
+    painter.rect_filled(rect, 0.0, theme::current().window_bg);
     let Some((bar, vmin, vmax)) = colorbar_geometry(rect, table) else {
         return;
     };
@@ -363,7 +285,7 @@ pub fn colorbar(
             }
         }
     }
-    let font = FontId::proportional(9.5);
+    let font = FontId::monospace(FONT);
     let mut last_x = f32::NEG_INFINITY;
     for v in ticks {
         let x = x_of(v);
@@ -373,15 +295,15 @@ pub fn colorbar(
         last_x = x;
         painter.vline(
             x,
-            egui::Rangef::new(bar.bottom(), bar.bottom() + 3.0),
-            Stroke::new(1.0, Color32::from_white_alpha(90)),
+            egui::Rangef::new(bar.bottom(), bar.bottom() + 4.0),
+            Stroke::new(1.0, status_fg()),
         );
         painter.text(
-            pos2(x, bar.bottom() + 4.0),
+            pos2(x, bar.bottom() + 5.0),
             Align2::CENTER_TOP,
             format!("{:.0}", v * disp_factor),
             font.clone(),
-            STATUS_FG,
+            status_fg(),
         );
     }
     if !disp_label.is_empty() {
@@ -389,7 +311,7 @@ pub fn colorbar(
             pos2(rect.left() + 4.0, bar.center().y),
             Align2::LEFT_CENTER,
             disp_label.trim(),
-            FontId::proportional(9.0),
+            FontId::proportional(FONT),
             Color32::from_white_alpha(150),
         );
     }

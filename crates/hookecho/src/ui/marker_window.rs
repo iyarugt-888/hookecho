@@ -201,7 +201,7 @@ pub fn marker_grid(
                         ui.add(
                             egui::Image::new(tex)
                                 .fit_to_exact_size(egui::vec2(20.0, 20.0))
-                                .corner_radius(10.0),
+                                .corner_radius(0),
                         );
                     }
                     // Icons are copied into the data dir and referenced by name from then on;

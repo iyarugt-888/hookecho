@@ -185,7 +185,7 @@ pub(crate) fn show(
                 actions.palette = Some(PaletteAction::StepModelLead(-1));
             }
             let mut lead = *lead_min;
-            let response = ui.add(
+            let response = crate::theme::slider(ui,
                 egui::Slider::new(&mut lead, range.min..=range.max)
                     .step_by(f64::from(range.step))
                     .show_value(true)

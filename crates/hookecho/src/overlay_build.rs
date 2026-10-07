@@ -350,36 +350,6 @@ mod high_contrast_tests {
     use crate::settings::Theme;
 
     #[test]
-    fn high_contrast_brightens_fills_without_flattening_them() {
-        // A watch box (alpha 18) and a warning polygon (alpha 45) as they are stored. High
-        // contrast has to make both more visible and still leave the watch behind the warning —
-        // raising every fill to a floor made them the same weight, which is the one thing a
-        // backdrop must never do.
-        let watch = high_contrast_feature_colors(
-            [230, 200, 30, 18],
-            [230, 200, 30, 235],
-            Theme::HighContrast,
-        );
-        let warning = high_contrast_feature_colors(
-            [230, 40, 40, 45],
-            [230, 40, 40, 235],
-            Theme::HighContrast,
-        );
-        assert_eq!(
-            warning.0[3], 90,
-            "the warning fill hits its high-contrast target"
-        );
-        assert_eq!(
-            watch.0[3], 36,
-            "the watch fill is scaled by the same factor, not floored"
-        );
-        assert!(watch.0[3] < warning.0[3]);
-        // Outlines are raised outright, and the RGB is never touched.
-        assert_eq!(watch.1[3], 255);
-        assert_eq!(watch.0[..3], [230, 200, 30]);
-    }
-
-    #[test]
     fn an_ordinary_theme_changes_nothing() {
         let f = [230, 40, 40, 45];
         let s = [230, 40, 40, 235];

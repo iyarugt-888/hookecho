@@ -478,7 +478,7 @@ impl View {
         let is_open = self.open.contains(&key) || (searching && !item.body.is_empty());
         let frame = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(6, 4))
-            .corner_radius(4)
+            .corner_radius(0)
             .fill(if is_open {
                 Color32::from_white_alpha(8)
             } else {

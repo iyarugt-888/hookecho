@@ -62,14 +62,14 @@ fn stack_view(
             let resp = egui::Frame::new()
                 .fill(ui.visuals().faint_bg_color)
                 .stroke(egui::Stroke::new(1.0, color32(card.color)))
-                .corner_radius(egui::CornerRadius::same(6))
+                .corner_radius(egui::CornerRadius::ZERO)
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
                     // Colored header strip + event name.
                     ui.horizontal(|ui| {
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(6.0, 16.0), egui::Sense::hover());
-                        ui.painter().rect_filled(rect, 1.0, color32(card.color));
+                        ui.painter().rect_filled(rect, 0.0, color32(card.color));
                         ui.strong(&a.event);
                     });
                     // Summary line: hail · wind · countdown.

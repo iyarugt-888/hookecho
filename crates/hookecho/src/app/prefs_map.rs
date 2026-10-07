@@ -54,8 +54,8 @@ impl HookEchoApp {
                     .add_sized(
                         egui::vec2(width, 34.0),
                         egui::Button::new(label)
-                            .selected(smooth == value)
-                            .corner_radius(9.0),
+                            .held(smooth == value)
+                            .corner_radius(0),
                     )
                     .on_hover_text(hint)
                     .clicked()
@@ -248,7 +248,7 @@ impl HookEchoApp {
                     if ui.add(egui::Button::new(
                         egui::RichText::new(egui_phosphor::regular::BROADCAST)
                             .size(24.0).color(crate::theme::accent(self.settings.theme)))
-                        .min_size(egui::vec2(42.0, 42.0)).corner_radius(21.0))
+                        .min_size(egui::vec2(42.0, 42.0)).corner_radius(0))
                         .named("Choose the radar site").clicked() {
                         actions.open_site_dialog = true;
                     }
@@ -346,7 +346,7 @@ impl HookEchoApp {
                             );
                             if thr_on {
                                 let t = thr.get_or_insert((vmin + vmax) * 0.5);
-                                ui.add(
+                                crate::theme::slider(ui,
                                     egui::Slider::new(t, vmin..=vmax)
                                         .custom_formatter(move |v, _| format!("{:.0}", v * f))
                                         .custom_parser(move |s| {

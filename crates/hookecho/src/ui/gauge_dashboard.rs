@@ -533,7 +533,7 @@ fn overview(
         for (label, value, color, tip) in tiles {
             let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), Sense::hover());
             let p = ui.painter();
-            p.rect_filled(r, 4.0, t.field);
+            p.rect_filled(r, 0.0, t.field);
             p.text(
                 r.left_top() + egui::vec2(7.0, 5.0),
                 egui::Align2::LEFT_TOP,
@@ -581,7 +581,7 @@ fn overview(
         if on {
             ui.painter().rect_stroke(
                 r,
-                2.0,
+                0.0,
                 Stroke::new(1.5, Color32::WHITE),
                 egui::StrokeKind::Inside,
             );
@@ -1358,7 +1358,7 @@ mod tests {
             "DRY1",
             "Change over the past week, worst gauges",
             "Fastest rise: MAJ1 River (MAJ1) +7.2 ft in 24 h",
-            "SELECTED GAUGE",
+            "Selected gauge",
         ] {
             assert!(has(s), "{s:?} not drawn in {texts:?}");
         }

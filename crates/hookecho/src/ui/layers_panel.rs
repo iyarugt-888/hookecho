@@ -4,6 +4,7 @@
 //! (`HookEchoApp::palette_entries`), so they can never drift apart.
 
 use crate::app::{HealthState, PaletteAction, PaletteEntry, SourceHealth};
+use crate::theme::Hold as _;
 use crate::ui::a11y::Named as _;
 use egui::{vec2, Color32, RichText, Stroke};
 
@@ -602,7 +603,7 @@ fn row(
                                 .truncate()
                                 .min_size(vec2(w, ROW_H))
                                 .fill(bg)
-                                .corner_radius(7.0)
+                                .corner_radius(0)
                                 .stroke(if on {
                                     Stroke::new(1.0, accent.gamma_multiply(0.7))
                                 } else {
@@ -794,7 +795,7 @@ fn category_tile(
                 1.0,
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
             ))
-            .corner_radius(12.0),
+            .corner_radius(0),
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
@@ -850,7 +851,7 @@ fn observation_row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32) -> bool
     let r = ui
         .add_sized(
             [ui.available_width(), 66.0],
-            egui::Button::new("").corner_radius(10.0),
+            egui::Button::new("").corner_radius(0),
         )
         .named_toggle(&e.label, on)
         .on_hover_text(e.desc);
@@ -961,8 +962,8 @@ pub(crate) fn body(
                 .add_sized(
                     vec2(width, 34.0),
                     egui::Button::new(label)
-                        .selected(active_only == value)
-                        .corner_radius(9.0),
+                        .held(active_only == value)
+                        .corner_radius(0),
                 )
                 .clicked()
             {
@@ -1133,7 +1134,7 @@ pub(crate) fn body(
                     let on = entry.on == Some(true);
                     egui::Frame::new()
                         .fill(ui.visuals().faint_bg_color)
-                        .corner_radius(12.0)
+                        .corner_radius(0)
                         .inner_margin(10)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {

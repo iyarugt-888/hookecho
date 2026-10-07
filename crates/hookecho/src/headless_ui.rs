@@ -22,13 +22,7 @@ impl Snapshot {
         use eframe::egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor};
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::fonts::base());
-        crate::theme::apply(
-            &ctx,
-            crate::settings::Theme::DearImGui,
-            true,
-            crate::ui::m3::Density::Compact,
-            None,
-        );
+        crate::theme::apply(&ctx, crate::settings::Theme::Dark, true, None);
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let size = width.max(height);
         let target = super::new_target(&self.device, format, size);

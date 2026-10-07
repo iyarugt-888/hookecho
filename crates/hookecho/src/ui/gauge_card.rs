@@ -685,7 +685,7 @@ fn chip(ui: &mut egui::Ui, text: &str, bg: Color32) {
     };
     egui::Frame::new()
         .fill(bg)
-        .corner_radius(3.0)
+        .corner_radius(0)
         .inner_margin(egui::Margin::symmetric(6, 1))
         .show(ui, |ui| {
             ui.label(RichText::new(text).size(11.0).color(fg).strong());
@@ -959,7 +959,7 @@ fn hydrograph(
         .bg_stroke
         .color
         .gamma_multiply(0.6);
-    painter.rect_filled(rect, 4.0, vis.extreme_bg_color);
+    painter.rect_filled(rect, 0.0, vis.extreme_bg_color);
     let plot = Rect::from_min_max(
         rect.min + egui::vec2(40.0, 8.0),
         rect.max - egui::vec2(if opts.flow { 48.0 } else { 10.0 }, 22.0),
@@ -1212,7 +1212,7 @@ fn hydrograph(
             .unwrap_or_else(|| place(candidates[0]));
         painter.rect_filled(
             at.expand(2.0),
-            2.0,
+            0.0,
             vis.extreme_bg_color.gamma_multiply(0.85),
         );
         painter.galley(at.min, galley, text);

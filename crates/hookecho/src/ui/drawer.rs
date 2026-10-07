@@ -132,19 +132,14 @@ impl Drawer {
         let depth = self.stack.len();
         let mut gear_on = self.gear;
         let mut close = false;
-        let imgui = crate::theme::is_imgui_style();
         egui::Area::new(egui::Id::new("drawer_header"))
             .fixed_pos(head.min)
             .show(ctx, |ui| {
-                let header = if imgui {
-                    egui::Frame::NONE
-                        .fill(ui.visuals().window_fill)
-                        .stroke(ui.visuals().window_stroke)
-                        .corner_radius(0)
-                        .inner_margin(egui::Margin::symmetric(6, 5))
-                } else {
-                    crate::ui::style::glass(ui, 250)
-                };
+                // An ImGui title bar: the focused-window colour, square, the window's padding.
+                let header = egui::Frame::NONE
+                    .fill(crate::theme::current().title_bg_active)
+                    .stroke(ui.visuals().window_stroke)
+                    .inner_margin(egui::Margin::symmetric(8, 3));
                 header.show(ui, |ui| {
                     ui.set_width(head.width() - 24.0);
                     ui.horizontal(|ui| {
@@ -158,7 +153,7 @@ impl Drawer {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new(glyph).size(crate::ui::style::FONT_LG),
+                                    egui::RichText::new(glyph).size(crate::theme::FONT),
                                 )
                                 .fill(egui::Color32::TRANSPARENT)
                                 .stroke(egui::Stroke::NONE),
@@ -168,10 +163,7 @@ impl Drawer {
                         {
                             close = true;
                         }
-                        let title = egui::RichText::new(title)
-                            .size(crate::ui::style::FONT_LG)
-                            .strong();
-                        ui.label(if imgui { title.monospace() } else { title });
+                        ui.label(egui::RichText::new(title).size(crate::theme::FONT));
                         if gear {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -180,7 +172,7 @@ impl Drawer {
                                         .add(
                                             egui::Button::new(
                                                 egui::RichText::new(egui_phosphor::regular::GEAR)
-                                                    .size(crate::ui::style::FONT_LG),
+                                                    .size(crate::theme::FONT),
                                             )
                                             .fill(egui::Color32::TRANSPARENT)
                                             .stroke(egui::Stroke::NONE),
@@ -203,17 +195,9 @@ impl Drawer {
         }
 
         let frame = egui::Frame::window(&ctx.style_of(ctx.theme()))
-            .corner_radius(if crate::platform::phone_layout() || imgui {
-                0
-            } else {
-                crate::ui::style::RADIUS_LG as u8
-            })
+            .corner_radius(0)
             .shadow(egui::epaint::Shadow::NONE)
-            .inner_margin(if imgui {
-                egui::Margin::same(7)
-            } else {
-                egui::Margin::symmetric(crate::ui::m3::SP_3 as i8, crate::ui::m3::SP_2 as i8)
-            });
+            .inner_margin(egui::Margin::same(8));
         Some(
             w.title_bar(false)
                 .fixed_rect(body)
