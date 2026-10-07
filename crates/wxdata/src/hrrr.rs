@@ -482,31 +482,61 @@ pub async fn fetch_wind(
     level: WindLevel,
     fcst_hour: u8,
 ) -> anyhow::Result<(DateTime<Utc>, MrmsField, MrmsField)> {
+    let mut last = None;
+    for run in recent_cycles(Model::Hrrr, Utc::now()) {
+        let fh = clamp_lead(Model::Hrrr, run, fcst_hour);
+        match fetch_wind_at_run(http, run, fh, level).await {
+            Ok((u, v)) => return Ok((run, u, v)),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+}
+
+/// [`fetch_wind`] from exactly `run` at lead `fh`, as east and north components. The HRRR's u/v
+/// are relative to its Lambert grid ([`crate::grid_winds`]); they are turned on the native grid,
+/// before the regrid, from the message's own grid definition. The two components are fetched as
+/// separate messages and kept in order explicitly, so they can never swap.
+pub(crate) async fn fetch_wind_at_run(
+    http: &reqwest::Client,
+    run: DateTime<Utc>,
+    fh: u8,
+    level: WindLevel,
+) -> anyhow::Result<(MrmsField, MrmsField)> {
+    let model = Model::Hrrr;
     let lvl = level.idx_level();
-    let (run, mut fields) = fetch_fields_one_run(
-        http,
-        Model::Hrrr,
-        fcst_hour,
-        &[
-            ("UGRD", lvl, f64::NEG_INFINITY),
-            ("VGRD", lvl, f64::NEG_INFINITY),
-        ],
-    )
-    .await?;
-    anyhow::ensure!(fields.len() == 2, "expected u and v, got {}", fields.len());
-    // `.buffered` preserves input order, but a wind field is unreadable if u and v ever swap, so
-    // pop them back-to-front explicitly rather than trusting that at a distance.
-    let v = fields.pop().unwrap();
-    let u = fields.pop().unwrap();
-    anyhow::ensure!(
-        u.nx == v.nx && u.ny == v.ny,
-        "u/v grid mismatch: {}x{} vs {}x{}",
-        u.nx,
-        u.ny,
-        v.nx,
-        v.ny
-    );
-    Ok((run, u, v))
+    let idx = fetch_idx(http, model, run, fh).await?;
+    let range = |var: &str| {
+        field_byte_range(&idx, var, lvl).ok_or_else(|| anyhow::anyhow!("no {var}:{lvl} in idx"))
+    };
+    let (ur, vr) = (range("UGRD")?, range("VGRD")?);
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let base = model.url(&date, run.hour(), fh);
+    let (ub, vb) = futures_util::try_join!(
+        crate::gribcache::fetch_range(http, &base, ur, USER_AGENT),
+        crate::gribcache::fetch_range(http, &base, vr, USER_AGENT),
+    )?;
+    let res = model.res_deg();
+    crate::task::blocking(move || {
+        crate::task::guarded(|| {
+            let mut u = decode_native(&ub)?;
+            let mut v = decode_native(&vb)?;
+            anyhow::ensure!(
+                u.data.len() == v.data.len(),
+                "u/v grid mismatch: {} vs {} points",
+                u.data.len(),
+                v.data.len()
+            );
+            if let Some(frame) = crate::grid_winds::from_message(&ub) {
+                frame.rotate(&mut u.data, &mut v.data, &u.lons);
+            }
+            let uf = regrid(&u.lats, &u.lons, &u.data, u.time, res, f64::NEG_INFINITY)?;
+            let vf = regrid(&v.lats, &v.lons, &v.data, v.time, res, f64::NEG_INFINITY)?;
+            anyhow::Ok((uf, vf))
+        })
+        .unwrap_or_else(|_| anyhow::bail!("HRRR wind decode panicked"))
+    })
+    .await?
 }
 
 /// Fetch one field across forecast hours `1..=through_hour` from a SINGLE model cycle and fold
@@ -1405,25 +1435,126 @@ mod tests {
             "u and v are the same field — submessage aliasing"
         );
 
-        // `fetch_wind` pops the pair off a `.buffered()` stream assuming input order. A silent
-        // swap there would point every vector 90 degrees wrong and still look like weather, so
-        // pin it against single-field fetches that cannot be reordered. Same run, same hour.
+        // The pair must not be swapped. `u` is now turned to east/north, so compare it with the
+        // raw UGRD only near the central meridian (97.5°W), where the grid's axes are east and
+        // north and the turn is a fraction of a degree.
         let lvl = WindLevel::Surface.idx_level();
         let solo_u = fetch_run_field(&http, Model::Hrrr, run, 1, "UGRD", lvl, f64::NEG_INFINITY)
             .await
             .expect("solo UGRD");
         assert_eq!((solo_u.nx, solo_u.ny), (u.nx, u.ny));
-        let diff = solo_u
-            .values
-            .iter()
-            .zip(&u.values)
-            .filter(|(a, b)| a.is_finite() && b.is_finite())
-            .filter(|(a, b)| (*a - *b).abs() > 0.01)
-            .count();
-        assert_eq!(
-            diff, 0,
-            "fetch_wind's `u` is not UGRD — the pair is swapped"
+        let mut checked = 0;
+        for lat in (30..=45).map(f64::from) {
+            for lon in [-97.6, -97.5, -97.4] {
+                let (Some(a), Some(b)) = (
+                    solo_u.sample_bilinear(lon, lat),
+                    u.sample_bilinear(lon, lat),
+                ) else {
+                    continue;
+                };
+                checked += 1;
+                assert!(
+                    (a - b).abs() < 0.2 + 0.02 * a.abs(),
+                    "{lon},{lat}: {a} vs {b}"
+                );
+            }
+        }
+        assert!(checked > 20, "{checked} points on the central meridian");
+    }
+
+    /// Rotation, checked against an earth-relative model: the HRRR's raw 10 m winds disagree in
+    /// direction with the GFS's by roughly the Lambert convergence angle (measured 2026-10-07 12Z
+    /// F+6: median +16.3° over the east coast and −17.4° over the west, counterclockwise
+    /// positive), and the turned ones do not (+3.1° and −1.0°).
+    /// `cargo test -p wxdata wind_rotation_agrees_with_gfs_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn wind_rotation_agrees_with_gfs_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, _) = crate::global::fetch_gfs_inventory(&http, None, 6)
+            .await
+            .unwrap();
+        let gfs = |var: &'static str| {
+            let http = http.clone();
+            async move {
+                crate::global::fetch_gfs_inventory_field(
+                    &http,
+                    Some(run),
+                    6,
+                    var,
+                    "10 m above ground",
+                    TimingKind::Instant,
+                )
+                .await
+                .unwrap()
+                .field
+            }
+        };
+        let (gu, gv) = (gfs("UGRD").await, gfs("VGRD").await);
+        let (ru, rv) = futures_util::try_join!(
+            fetch_run_field(
+                &http,
+                Model::Hrrr,
+                run,
+                6,
+                "UGRD",
+                "10 m above ground",
+                f64::NEG_INFINITY
+            ),
+            fetch_run_field(
+                &http,
+                Model::Hrrr,
+                run,
+                6,
+                "VGRD",
+                "10 m above ground",
+                f64::NEG_INFINITY
+            ),
+        )
+        .unwrap();
+        let (eu, ev) = fetch_wind_at_run(&http, run, 6, WindLevel::Surface)
+            .await
+            .unwrap();
+        let dir = |u: f32, v: f32| f64::from(v).atan2(f64::from(u)).to_degrees();
+        let bias = |lons: std::ops::Range<i32>, hu: &MrmsField, hv: &MrmsField| {
+            let mut diffs = Vec::new();
+            for lat in 33..=44 {
+                for lon in lons.clone() {
+                    let (lon, lat) = (f64::from(lon), f64::from(lat));
+                    let s = |f: &MrmsField| f.sample_bilinear(lon, lat);
+                    let (Some(a), Some(b), Some(c), Some(d)) = (s(hu), s(hv), s(&gu), s(&gv))
+                    else {
+                        continue;
+                    };
+                    // Only winds strong enough for their direction to mean something.
+                    if a.hypot(b) < 4.0 || c.hypot(d) < 4.0 {
+                        continue;
+                    }
+                    let delta = (dir(a, b) - dir(c, d) + 540.0).rem_euclid(360.0) - 180.0;
+                    diffs.push(delta);
+                }
+            }
+            diffs.sort_by(f64::total_cmp);
+            (
+                diffs.get(diffs.len() / 2).copied().unwrap_or(f64::NAN),
+                diffs.len(),
+            )
+        };
+        let east_raw = bias(-80..-70, &ru, &rv);
+        let east_rot = bias(-80..-70, &eu, &ev);
+        let west_raw = bias(-124..-114, &ru, &rv);
+        let west_rot = bias(-124..-114, &eu, &ev);
+        println!(
+            "run {run} F+6, median HRRR-GFS direction difference (deg, n): east raw {east_raw:?} \
+             rotated {east_rot:?}; west raw {west_raw:?} rotated {west_rot:?}"
         );
+        assert!(
+            east_raw.1 >= 10 && west_raw.1 >= 10,
+            "enough wind to compare"
+        );
+        assert!(east_rot.0.abs() < east_raw.0.abs() && west_rot.0.abs() < west_raw.0.abs());
+        assert!(east_rot.0.abs() < 6.0 && west_rot.0.abs() < 6.0);
     }
 
     #[test]

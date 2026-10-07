@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: HRRR wind directions near the coasts
+
+The HRRR (and RAP and NAM) give their winds along the model's own map grid, which leans away
+from true north the farther you are from the middle of the country. The wind particles and model
+soundings used them as if they were north and east, so winds near either coast were turned by
+about 15°. They are now turned back from each file's own grid description; checked against the
+GFS, the coast-to-coast direction bias went from about 16° to 1–3°.
+
 ### Added: a beam diagram
 
 **Beam diagram** (command palette) draws every tilt of the current scan as it climbs with
