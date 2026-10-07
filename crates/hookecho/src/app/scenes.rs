@@ -8,7 +8,7 @@
 //! an older scene keeps the pane's current product and time for the parts it never stored.
 
 use super::*;
-use crate::broadcast::{Scene, SceneProduct, SceneTime, SCENE_VERSION};
+use crate::broadcast::{Scene, SceneProduct, SceneTime, SceneView3d, SCENE_VERSION};
 use output_window::{program_pane, OutputSize};
 
 /// Whether a scene going into pane `target` sets program's held camera rather than the pane's:
@@ -72,6 +72,24 @@ pub(crate) fn scene_readiness(
                 "{unknown} field layer{} this build doesn't have will be skipped",
                 if unknown == 1 { "" } else { "s" }
             ));
+        }
+    }
+    if let Some(v3) = &scene.view3d {
+        match crate::view::Map3dRepresentation::from_label(&v3.representation) {
+            None => r.notes.push(format!(
+                "3D mode \u{201c}{}\u{201d} isn't in this build; the 3D map is left as it is",
+                v3.representation
+            )),
+            Some(crate::view::Map3dRepresentation::SmoothProduct) => {
+                if let Some(name) = &v3.product {
+                    if !settings.udp_products.iter().any(|d| &d.name == name) {
+                        r.blocking.push(format!(
+                            "3D product \u{201c}{name}\u{201d} is not defined here"
+                        ));
+                    }
+                }
+            }
+            Some(_) => {}
         }
     }
     if let Some(SceneTime::Fixed { utc }) = scene.time {
@@ -181,6 +199,38 @@ pub(crate) fn apply_scene_product(p: &SceneProduct, v: &mut MapView) {
     v.column_product = p.column_product.clone();
 }
 
+/// The pane's 3D map as a scene keeps it.
+pub(crate) fn scene_view3d(v: &MapView) -> SceneView3d {
+    let m = &v.map_3d;
+    SceneView3d {
+        enabled: m.enabled,
+        representation: m.representation.label().to_string(),
+        render: m.volume_render,
+        vertical_exaggeration: m.vertical_exaggeration,
+        opacity: m.opacity,
+        quality_steps: m.quality_steps,
+        product: m.product.clone(),
+    }
+}
+
+/// Put a scene's 3D map on a pane. A mode this build lacks leaves the 3D map as it is (the
+/// readiness check says so); a region of interest is cleared, since it belonged to a storm of
+/// another time.
+pub(crate) fn apply_scene_view3d(s: &SceneView3d, v: &mut MapView) {
+    let Some(rep) = crate::view::Map3dRepresentation::from_label(&s.representation) else {
+        return;
+    };
+    let m = &mut v.map_3d;
+    m.enabled = s.enabled;
+    m.representation = rep;
+    m.volume_render = s.render;
+    m.vertical_exaggeration = s.vertical_exaggeration;
+    m.opacity = s.opacity.clamp(0.0, 1.0);
+    m.quality_steps = s.quality_steps;
+    m.product = s.product.clone();
+    m.roi = None;
+}
+
 /// Put a scene's time on a pane: back to live, or a seek to the archived instant (the pane's
 /// listing for that day loads through the normal path, as an opened case does).
 pub(crate) fn apply_scene_time(t: SceneTime, v: &mut MapView) {
@@ -193,6 +243,23 @@ pub(crate) fn apply_scene_time(t: SceneTime, v: &mut MapView) {
             v.timeline.seek_target = Some(utc);
         }
     }
+}
+
+/// A copy of scene `i` right after it, named so it reads as the copy ("Moore (2)", then
+/// "Moore (3)").
+pub(crate) fn duplicate_scene(scenes: &mut Vec<Scene>, i: usize) {
+    let Some(src) = scenes.get(i).cloned() else {
+        return;
+    };
+    let base = match src.name.rsplit_once(" (") {
+        Some((b, n)) if n.trim_end_matches(')').parse::<u32>().is_ok() => b.to_string(),
+        _ => src.name.clone(),
+    };
+    let name = (2..)
+        .map(|n| format!("{base} ({n})"))
+        .find(|n| !scenes.iter().any(|s| &s.name == n))
+        .expect("an unused name");
+    scenes.insert(i + 1, Scene { name, ..src });
 }
 
 /// Which scene an Alt+1..9 press this frame asks for (0-based), consuming the key.
@@ -221,6 +288,7 @@ impl HookEchoApp {
             version: SCENE_VERSION,
             product: Some(scene_product(v)),
             time: scene_time(v),
+            view3d: Some(scene_view3d(v)),
             name,
             site: v.site.clone(),
             lon,
@@ -294,6 +362,10 @@ impl HookEchoApp {
         if let Some(p) = &scene.product {
             apply_scene_product(p, v);
         }
+        // After the product: a 3D mode is checked against the moment the pane now shows.
+        if let Some(v3) = &scene.view3d {
+            apply_scene_view3d(v3, v);
+        }
         if let Some(t) = scene.time {
             apply_scene_time(t, v);
             if self.link_times {
@@ -346,6 +418,9 @@ impl HookEchoApp {
             }
             let mut go = None;
             let mut remove = None;
+            let mut duplicate = None;
+            let mut swap = None;
+            let count = self.settings.scenes.len();
             for (i, s) in self.settings.scenes.iter().enumerate() {
                 ui.horizontal(|ui| {
                     let key = if i < 9 {
@@ -364,6 +439,27 @@ impl HookEchoApp {
                     }
                     if ui.small_button("\u{d7}").on_hover_text("Delete").clicked() {
                         remove = Some(i);
+                    }
+                    if ui
+                        .small_button("\u{29c9}")
+                        .on_hover_text("Duplicate, to make a variation of this scene")
+                        .clicked()
+                    {
+                        duplicate = Some(i);
+                    }
+                    if ui
+                        .add_enabled(i > 0, egui::Button::new("\u{25b2}").small())
+                        .on_hover_text("Move up (Alt+1..9 follow the order)")
+                        .clicked()
+                    {
+                        swap = Some((i - 1, i));
+                    }
+                    if ui
+                        .add_enabled(i + 1 < count, egui::Button::new("\u{25bc}").small())
+                        .on_hover_text("Move down (Alt+1..9 follow the order)")
+                        .clicked()
+                    {
+                        swap = Some((i, i + 1));
                     }
                 });
             }
@@ -425,6 +521,10 @@ impl HookEchoApp {
             }
             if let Some(i) = remove {
                 self.settings.scenes.remove(i);
+            } else if let Some(i) = duplicate {
+                duplicate_scene(&mut self.settings.scenes, i);
+            } else if let Some((a, b)) = swap {
+                self.settings.scenes.swap(a, b);
             }
         });
     }
@@ -632,6 +732,101 @@ mod tests {
         // A saved scene round-trips whole.
         let back: Scene = serde_json::from_str(&serde_json::to_string(&newer).unwrap()).unwrap();
         assert_eq!(back, newer);
+    }
+
+    #[test]
+    fn a_scene_puts_back_its_3d_map_and_clears_a_storm_region() {
+        use crate::view::Map3dRepresentation as R;
+        let mut saved = pane();
+        saved.map_3d.enabled = true;
+        saved.map_3d.representation = R::SmoothVolume;
+        saved.map_3d.volume_render = crate::render3d::VolumeRender::TranslucentLit;
+        saved.map_3d.vertical_exaggeration = 3.0;
+        saved.map_3d.opacity = 0.5;
+        saved.map_3d.quality_steps = 96;
+        let v3 = scene_view3d(&saved);
+        assert_eq!(v3.representation, "Smooth reflectivity");
+        let mut on_air = pane();
+        on_air.map_3d.roi = Some(crate::view::VolumeRoi {
+            center: [-97.0, 35.0],
+            half_km: 20.0,
+            storm: Some("Q4".into()),
+            follow: true,
+            lost: false,
+        });
+        apply_scene_view3d(&v3, &mut on_air);
+        assert_eq!(scene_view3d(&on_air), v3);
+        assert!(
+            on_air.map_3d.roi.is_none(),
+            "a region belonged to another time's storm"
+        );
+        // A mode this build lacks leaves the 3D map alone, and readiness says so.
+        let unknown = SceneView3d {
+            representation: "Hologram".into(),
+            ..v3.clone()
+        };
+        let before = on_air.map_3d.clone();
+        apply_scene_view3d(&unknown, &mut on_air);
+        assert_eq!(
+            on_air.map_3d.vertical_exaggeration,
+            before.vertical_exaggeration
+        );
+        let base: Scene =
+            serde_json::from_str(r#"{"name":"3D","lon":-97.0,"lat":35.0,"zoom":8.0}"#).unwrap();
+        assert!(base.view3d.is_none(), "an older scene leaves 3D as it is");
+        let settings = crate::settings::Settings::default();
+        let r = scene_readiness(
+            &Scene {
+                view3d: Some(unknown),
+                ..base.clone()
+            },
+            &settings,
+            Ok(0),
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("Hologram")),
+            "{:?}",
+            r.notes
+        );
+        // A user-product volume whose product is gone is not substituted.
+        let product = SceneView3d {
+            representation: "User product".into(),
+            product: Some("Hail depth".into()),
+            ..v3
+        };
+        let r = scene_readiness(
+            &Scene {
+                view3d: Some(product),
+                ..base
+            },
+            &settings,
+            Ok(0),
+        );
+        assert!(
+            r.blocking.iter().any(|b| b.contains("Hail depth")),
+            "{:?}",
+            r.blocking
+        );
+    }
+
+    #[test]
+    fn a_duplicate_lands_after_its_original_with_a_free_name() {
+        let scene = |name: &str| -> Scene {
+            serde_json::from_value(serde_json::json!({
+                "name": name, "lon": -97.0, "lat": 35.0, "zoom": 8.0
+            }))
+            .unwrap()
+        };
+        let mut scenes = vec![scene("Moore"), scene("Overview")];
+        duplicate_scene(&mut scenes, 0);
+        duplicate_scene(&mut scenes, 0);
+        let names: Vec<&str> = scenes.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Moore", "Moore (3)", "Moore (2)", "Overview"]);
+        // A copy of a copy counts on from the base name.
+        duplicate_scene(&mut scenes, 1);
+        assert_eq!(scenes[2].name, "Moore (4)");
+        duplicate_scene(&mut scenes, 99);
+        assert_eq!(scenes.len(), 5, "out of range does nothing");
     }
 
     #[test]

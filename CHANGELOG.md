@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: scenes remember the 3D map; duplicate and reorder scenes
+
+A broadcast scene now also restores the 3D map — on or off, its mode, translucent or lit
+rendering, vertical exaggeration, opacity and quality. Scenes can be duplicated to make a
+variation, and moved up or down the list, which is also the Alt+1..9 order.
+
 ### Changed: the 3D opacity curve takes up to eight stops
 
 The 3D opacity curve is no longer fixed at four points: double-click the plot (or press +) to

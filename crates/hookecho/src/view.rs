@@ -48,6 +48,22 @@ pub enum Map3dRepresentation {
 }
 
 impl Map3dRepresentation {
+    pub const ALL: [Self; 8] = [
+        Self::ObservedSweeps,
+        Self::SmoothVolume,
+        Self::SmoothDebris,
+        Self::SmoothSpectrumWidth,
+        Self::SmoothZdr,
+        Self::SmoothKdp,
+        Self::SmoothVelocity,
+        Self::SmoothProduct,
+    ];
+
+    /// The mode a [`Self::label`] names, for what is saved by name (scenes, presets).
+    pub fn from_label(label: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.label() == label)
+    }
+
     /// The moment a resampled representation is built from, and whether its index is inverted
     /// before raymarching (low CC is the interesting debris case); `None` for observed sweeps.
     pub fn smooth_moment(self) -> Option<(wxdata::level2::Moment, bool)> {

@@ -136,6 +136,24 @@ pub struct SceneProduct {
     pub column_product: Option<String>,
 }
 
+/// The 3D map as a scene keeps it (ROADMAP_PARITY M6.2): whether it is on and how it is drawn.
+/// The mode is saved by name so a build without it can say so; a region of interest is not kept
+/// (it follows a storm of its own time).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SceneView3d {
+    pub enabled: bool,
+    /// `Map3dRepresentation::label`.
+    pub representation: String,
+    #[serde(default)]
+    pub render: crate::render3d::VolumeRender,
+    pub vertical_exaggeration: f32,
+    pub opacity: f32,
+    pub quality_steps: u32,
+    /// The user product a "User product" volume draws, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
+}
+
 /// When a scene is (ROADMAP_PARITY M6.2): following live data, or one archived instant.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "policy", rename_all = "kebab-case")]
@@ -187,6 +205,9 @@ pub struct Scene {
     /// Live or a fixed archive time; `None` (an older scene) keeps the pane's time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time: Option<SceneTime>,
+    /// The 3D map; `None` (an older scene) leaves it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view3d: Option<SceneView3d>,
 }
 
 #[cfg(test)]
