@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the 3D opacity curve takes up to eight stops
+
+The 3D opacity curve is no longer fixed at four points: double-click the plot (or press +) to
+add a stop, right-click one (or press −) to remove it, anywhere from two to eight. A new stop
+lands on the existing curve, so adding one changes nothing until you drag it. Saved presets keep
+their exact stops, and a build from before this reads them as a four-point approximation.
+
 ### Added: every field a regional model run publishes
 
 **Model fields** (command palette) lists what the pane's HRRR, HRRR pressure-level, RAP, NAM,

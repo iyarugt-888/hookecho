@@ -424,7 +424,7 @@ impl HookEchoApp {
         // The opacity curve, its values into this volume's index space as the floor's are.
         let tf = state.tf_curves[state.representation as usize]
             .filter(|_| denoise_floor.is_some())
-            .map(|pts| pts.map(|[v, a]| [value_index(v, false), a]));
+            .map(|stops| stops.map_values(|v| value_index(v, false)));
         let view = crate::render3d::View3d {
             tf,
             render: state.volume_render,

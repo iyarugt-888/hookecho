@@ -47,29 +47,32 @@ struct Uniforms {
     // opacities 0..1 (tf_a), piecewise linear between and flat past the ends. tf_a.x < 0 is off.
     tf_x: vec4<f32>,
     tf_a: vec4<f32>,
+    // Stops five to eight (unused ones repeat the last), and x = how many stops there are.
+    tf_x2: vec4<f32>,
+    tf_a2: vec4<f32>,
+    tf_n: vec4<f32>,
     // Rendering mode: x 0 = MIP, 1 = translucent compositing; y and z the kilometres one world
     // unit spans horizontally and vertically (vertical exaggeration makes them differ), so a
     // step's path length is measured in real km; w 1 = gradient lighting (translucent only).
     render: vec4<f32>,
 };
 
-// The transfer function's opacity at volume index `i`.
+// The transfer function's opacity at volume index `i`: piecewise linear through up to eight
+// stops, flat past the ends. Mirrored on the CPU by `render3d::TfStops::alpha`.
 fn tf_alpha(i: f32) -> f32 {
-    let x = u.tf_x;
-    let a = u.tf_a;
-    if (i <= x.x) {
-        return a.x;
+    var xs = array<f32, 8>(u.tf_x.x, u.tf_x.y, u.tf_x.z, u.tf_x.w, u.tf_x2.x, u.tf_x2.y, u.tf_x2.z, u.tf_x2.w);
+    var as_ = array<f32, 8>(u.tf_a.x, u.tf_a.y, u.tf_a.z, u.tf_a.w, u.tf_a2.x, u.tf_a2.y, u.tf_a2.z, u.tf_a2.w);
+    // A curve written before the count existed has four stops.
+    let n = clamp(select(4, i32(u.tf_n.x), u.tf_n.x >= 2.0), 2, 8);
+    if (i <= xs[0]) {
+        return as_[0];
     }
-    if (i <= x.y) {
-        return mix(a.x, a.y, (i - x.x) / max(x.y - x.x, 0.001));
+    for (var k = 1; k < n; k = k + 1) {
+        if (i <= xs[k]) {
+            return mix(as_[k - 1], as_[k], (i - xs[k - 1]) / max(xs[k] - xs[k - 1], 0.001));
+        }
     }
-    if (i <= x.z) {
-        return mix(a.y, a.z, (i - x.y) / max(x.z - x.y, 0.001));
-    }
-    if (i <= x.w) {
-        return mix(a.z, a.w, (i - x.z) / max(x.w - x.z, 0.001));
-    }
-    return a.w;
+    return as_[n - 1];
 }
 
 // A kept voxel's opacity: the CC-anomaly ramp, the fixed ramp from the floor, or a drawn

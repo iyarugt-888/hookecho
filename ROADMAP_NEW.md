@@ -4662,8 +4662,8 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
   rendering a product as its own map layer is not built
 - [ ] maximum/minimum value trails
 - [ ] mature transfer-function 3D — translucent front-to-back compositing with per-km opacity
-  and gradient lighting now sits beside MIP (ROADMAP_PARITY M3.5 increment 1); an editable stop
-  list beyond the four-point curve remains
+  and gradient lighting now sits beside MIP (ROADMAP_PARITY M3.5 increment 1), and the opacity
+  curve takes two to eight editable stops (increment 2); colour stops remain
 - [ ] isosurfaces
 - [x] movable slicing planes / clip slabs — see H4: an arbitrary-bearing vertical plane plus the
   pre-existing axis-aligned box; a horizontal in-view CAPPI plane and a map-pane cross-section

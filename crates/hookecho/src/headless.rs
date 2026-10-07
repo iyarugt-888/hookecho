@@ -5070,7 +5070,7 @@ mod golden_tests {
             .build()
             .unwrap();
         let curve = |a: f32| crate::render3d::View3d {
-            tf: Some([[2.0, a], [100.0, a], [200.0, a], [255.0, a]]),
+            tf: Some([[2.0, a], [100.0, a], [200.0, a], [255.0, a]].into()),
             ..Default::default()
         };
         let Ok(ramp) = render_volume_once(&rt, &upload, crate::render3d::View3d::default()) else {
@@ -5086,6 +5086,69 @@ mod golden_tests {
         assert!(
             s >= r,
             "a curve at full opacity draws at least what the ramp did"
+        );
+    }
+
+    /// Stops five to eight reach the shader (M3.5 increment 2): a curve solid up to 40 dBZ and
+    /// clear from 45 dBZ hides a 50 dBZ block only if its fifth and sixth stops are read; a
+    /// four-stop reading would hold the fourth stop's opacity and draw it.
+    #[test]
+    #[ignore = "gpu"]
+    fn stops_past_the_fourth_decide_what_draws() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let idx_of = |dbz: f32| 2.0 + ((dbz - lo) / (hi - lo)) * 253.0;
+        let (n, nz) = (24usize, 12usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 3..9 {
+            for j in 8..16 {
+                for i in 8..16 {
+                    data[i + n * j + n * n * k] = idx_of(50.0) as u8;
+                }
+            }
+        }
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 20.0,
+            center_km: [0.0, 0.0],
+            top_km: 10.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let with = |stops: &[[f32; 2]]| crate::render3d::View3d {
+            tf: crate::render3d::TfStops::new(stops),
+            ..Default::default()
+        };
+        let six = [
+            [idx_of(0.0), 1.0],
+            [idx_of(10.0), 1.0],
+            [idx_of(20.0), 1.0],
+            [idx_of(40.0), 1.0],
+            [idx_of(45.0), 0.0],
+            [255.0, 0.0],
+        ];
+        let Ok(hidden) = render_volume_once(&rt, &upload, with(&six)) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let first_four = render_volume_once(&rt, &upload, with(&six[..4])).unwrap();
+        let (h, f) = (echo_pixels(&hidden), echo_pixels(&first_four));
+        println!("six stops: {h} px, first four only: {f} px");
+        assert_eq!(h, 0, "the fifth and sixth stops clear the 50 dBZ block");
+        assert!(
+            f > 0,
+            "with four stops it stays at the fourth's full opacity"
         );
     }
 

@@ -30,10 +30,14 @@ pub struct Uniforms {
     /// spare, enabled]` in the same world units as `box_min`/`box_max`. See
     /// [`cappi_marker_uniform`]; all-zero means off, same convention as `plane`/`cc`.
     cappi_marker: [f32; 4],
-    /// Opacity transfer function (Phase H2's curve): the four control points' volume indices,
+    /// Opacity transfer function (Phase H2's curve): the first four stops' volume indices,
     /// ascending, and their opacities 0..1. `tf_a[0] < 0` means off. See [`tf_uniform`].
     tf_x: [f32; 4],
     tf_a: [f32; 4],
+    /// Stops five to eight, and `[count, 0, 0, 0]` (M3.5 increment 2).
+    tf_x2: [f32; 4],
+    tf_a2: [f32; 4],
+    tf_n: [f32; 4],
     /// Rendering mode: `[mode, km per world unit horizontally, km per world unit vertically,
     /// lit]`. See [`render_uniform`].
     render: [f32; 4],
@@ -133,16 +137,148 @@ pub fn composite_ray(samples: &[([f32; 3], f32)], dt_km: f32) -> ([f32; 3], f32)
     (rgb, a)
 }
 
-/// The transfer-function uniform pair for `tf` (four `[index, opacity]` points): the indices and
-/// opacities, sorted by index; `None` gives the "off" pair.
-pub fn tf_uniform(tf: Option<[[f32; 2]; 4]>) -> ([f32; 4], [f32; 4]) {
-    match tf {
-        Some(mut pts) => {
-            pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
-            (pts.map(|p| p[0]), pts.map(|p| p[1].clamp(0.0, 1.0)))
+/// Most stops an opacity curve can have.
+pub const MAX_STOPS: usize = 8;
+
+/// An opacity curve (Phase H2, M3.5 increment 2): two to eight `[value, opacity]` stops in a
+/// product's own units (or, once mapped, in volume index space), ascending in value, opacity
+/// 0..1, piecewise linear between them and flat past the ends. `Copy`, so a view stays cheap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TfStops {
+    n: u8,
+    pts: [[f32; 2]; MAX_STOPS],
+}
+
+impl TfStops {
+    /// From any points: sorted by value, opacities clamped, at most [`MAX_STOPS`] kept (the
+    /// first ones by value). `None` with fewer than two.
+    pub fn new(points: &[[f32; 2]]) -> Option<Self> {
+        let mut v: Vec<[f32; 2]> = points
+            .iter()
+            .filter(|p| p[0].is_finite() && p[1].is_finite())
+            .map(|p| [p[0], p[1].clamp(0.0, 1.0)])
+            .collect();
+        v.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        v.truncate(MAX_STOPS);
+        if v.len() < 2 {
+            return None;
         }
-        None => ([0.0; 4], [-1.0; 4]),
+        let mut pts = [[0.0; 2]; MAX_STOPS];
+        pts[..v.len()].copy_from_slice(&v);
+        Some(Self {
+            n: v.len() as u8,
+            pts,
+        })
     }
+
+    pub fn points(&self) -> &[[f32; 2]] {
+        &self.pts[..self.n as usize]
+    }
+
+    pub fn points_mut(&mut self) -> &mut [[f32; 2]] {
+        &mut self.pts[..self.n as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.n as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// The opacity at `v`: what the shader computes.
+    pub fn alpha(&self, v: f32) -> f32 {
+        let p = self.points();
+        if v <= p[0][0] {
+            return p[0][1];
+        }
+        for w in p.windows(2) {
+            if v <= w[1][0] {
+                let t = (v - w[0][0]) / (w[1][0] - w[0][0]).max(0.001);
+                return w[0][1] + (w[1][1] - w[0][1]) * t;
+            }
+        }
+        p[p.len() - 1][1]
+    }
+
+    /// A stop at `v` on the current curve (so adding one changes nothing until it is moved).
+    /// `false` when the curve is full.
+    pub fn insert(&mut self, v: f32) -> bool {
+        if self.len() >= MAX_STOPS {
+            return false;
+        }
+        let a = self.alpha(v);
+        let mut pts = self.points().to_vec();
+        pts.push([v, a]);
+        *self = Self::new(&pts).expect("at least two");
+        true
+    }
+
+    /// Remove stop `i`; `false` when only two are left.
+    pub fn remove(&mut self, i: usize) -> bool {
+        if self.len() <= 2 || i >= self.len() {
+            return false;
+        }
+        let mut pts = self.points().to_vec();
+        pts.remove(i);
+        *self = Self::new(&pts).expect("at least two");
+        true
+    }
+
+    /// The same curve with every value mapped (into a volume's index space, say).
+    pub fn map_values(&self, f: impl Fn(f32) -> f32) -> Self {
+        let pts: Vec<[f32; 2]> = self.points().iter().map(|p| [f(p[0]), p[1]]).collect();
+        Self::new(&pts).unwrap_or(*self)
+    }
+
+    /// The legacy four-point form: these stops when there are four, otherwise four samples of
+    /// the curve at its ends and thirds — what a build that only reads four points shows.
+    pub fn as_four(&self) -> [[f32; 2]; 4] {
+        let p = self.points();
+        if p.len() == 4 {
+            return [p[0], p[1], p[2], p[3]];
+        }
+        let (lo, hi) = (p[0][0], p[p.len() - 1][0]);
+        let at = |t: f32| {
+            let v = lo + (hi - lo) * t;
+            [v, self.alpha(v)]
+        };
+        [at(0.0), at(1.0 / 3.0), at(2.0 / 3.0), at(1.0)]
+    }
+}
+
+impl From<[[f32; 2]; 4]> for TfStops {
+    fn from(p: [[f32; 2]; 4]) -> Self {
+        Self::new(&p).expect("four points")
+    }
+}
+
+/// The transfer-function uniforms for `tf`: values and opacities of stops one to four and five
+/// to eight, and the count; `None` gives the "off" form (`tf_a[0] < 0`).
+pub fn tf_uniform(tf: Option<TfStops>) -> [[f32; 4]; 5] {
+    let Some(tf) = tf else {
+        return [[0.0; 4], [-1.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]];
+    };
+    let p = tf.points();
+    let last = p[p.len() - 1];
+    // Unused slots repeat the last stop, so the curve stays flat past it whatever the count.
+    let get = |i: usize| p.get(i).copied().unwrap_or(last);
+    let x = |r: std::ops::Range<usize>| {
+        let v: Vec<f32> = r.map(|i| get(i)[0]).collect();
+        [v[0], v[1], v[2], v[3]]
+    };
+    let a = |r: std::ops::Range<usize>| {
+        let v: Vec<f32> = r.map(|i| get(i)[1]).collect();
+        [v[0], v[1], v[2], v[3]]
+    };
+    [
+        x(0..4),
+        a(0..4),
+        x(4..8),
+        a(4..8),
+        [p.len() as f32, 0.0, 0.0, 0.0],
+    ]
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` interleaved (value index, valid) byte pairs —
@@ -247,7 +383,7 @@ pub struct View3d {
     /// Opacity transfer function: four `[volume index, opacity]` points, opacity drawn piecewise
     /// linear between them (and flat past the ends), replacing the fixed ramp. `None` keeps the
     /// ramp.
-    pub tf: Option<[[f32; 2]; 4]>,
+    pub tf: Option<TfStops>,
     /// MIP or translucent compositing (M3.5). With translucent rendering the opacity from the
     /// ramp, CC ramp or `tf` is read as opacity per kilometre of path.
     pub render: VolumeRender,
@@ -395,8 +531,11 @@ pub fn orbit_uniform(
         plane_slab: plane_slab_uniform(v3.plane, BOX_MIN, BOX_MAX),
         cc: v3.cc,
         cappi_marker: cappi_marker_uniform(v3.cappi_km, top_km, BOX_MIN, BOX_MAX),
-        tf_x: tf_uniform(v3.tf).0,
-        tf_a: tf_uniform(v3.tf).1,
+        tf_x: tf_uniform(v3.tf)[0],
+        tf_a: tf_uniform(v3.tf)[1],
+        tf_x2: tf_uniform(v3.tf)[2],
+        tf_a2: tf_uniform(v3.tf)[3],
+        tf_n: tf_uniform(v3.tf)[4],
         render: render_uniform(v3.render, BOX_MIN, BOX_MAX, half_km, top_km),
     }
 }
@@ -474,8 +613,11 @@ pub fn map_uniform(
         plane_slab: plane_slab_uniform(view.plane, box_min, box_max),
         cc: view.cc,
         cappi_marker: cappi_marker_uniform(view.cappi_km, upload.top_km, box_min, box_max),
-        tf_x: tf_uniform(view.tf).0,
-        tf_a: tf_uniform(view.tf).1,
+        tf_x: tf_uniform(view.tf)[0],
+        tf_a: tf_uniform(view.tf)[1],
+        tf_x2: tf_uniform(view.tf)[2],
+        tf_a2: tf_uniform(view.tf)[3],
+        tf_n: tf_uniform(view.tf)[4],
         render: render_uniform(view.render, box_min, box_max, upload.half_km, upload.top_km),
     }
 }
@@ -2039,6 +2181,86 @@ mod plane_tests {
             (half_thickness_wide - 0.5).abs() < 1e-5,
             "half_thickness_wide: {half_thickness_wide}"
         );
+    }
+}
+
+#[cfg(test)]
+mod tf_stops_tests {
+    use super::{tf_uniform, TfStops, MAX_STOPS};
+
+    #[test]
+    fn stops_sort_clamp_and_keep_between_two_and_eight() {
+        let t = TfStops::new(&[[50.0, 1.4], [10.0, 0.0], [30.0, 0.5]]).unwrap();
+        assert_eq!(t.points(), [[10.0, 0.0], [30.0, 0.5], [50.0, 1.0]]);
+        assert!(
+            TfStops::new(&[[1.0, 0.0]]).is_none(),
+            "one stop is not a curve"
+        );
+        let many: Vec<[f32; 2]> = (0..12).map(|i| [i as f32, 0.5]).collect();
+        assert_eq!(TfStops::new(&many).unwrap().len(), MAX_STOPS);
+    }
+
+    #[test]
+    fn the_curve_is_piecewise_linear_and_flat_past_its_ends() {
+        let t = TfStops::new(&[[10.0, 0.0], [20.0, 1.0], [30.0, 0.2]]).unwrap();
+        assert_eq!(t.alpha(0.0), 0.0);
+        assert!((t.alpha(15.0) - 0.5).abs() < 1e-6);
+        assert!((t.alpha(25.0) - 0.6).abs() < 1e-6);
+        assert_eq!(t.alpha(99.0), 0.2);
+    }
+
+    #[test]
+    fn adding_a_stop_changes_nothing_until_it_moves_and_two_always_remain() {
+        let mut t = TfStops::from([[0.0, 0.0], [10.0, 0.2], [20.0, 0.8], [30.0, 1.0]]);
+        let before: Vec<f32> = (0..=30).map(|v| t.alpha(v as f32)).collect();
+        assert!(t.insert(15.0));
+        assert_eq!(t.len(), 5);
+        let after: Vec<f32> = (0..=30).map(|v| t.alpha(v as f32)).collect();
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a - b).abs() < 1e-5);
+        }
+        while t.len() > 2 {
+            assert!(t.remove(1));
+        }
+        assert!(!t.remove(0), "a curve keeps two stops");
+        for _ in 0..10 {
+            t.insert(5.0);
+        }
+        assert_eq!(t.len(), MAX_STOPS, "full at eight");
+    }
+
+    #[test]
+    fn the_uniform_carries_every_stop_and_pads_with_the_last() {
+        let six = TfStops::new(&[
+            [2.0, 0.0],
+            [20.0, 0.1],
+            [40.0, 0.2],
+            [60.0, 0.3],
+            [80.0, 0.4],
+            [100.0, 0.9],
+        ])
+        .unwrap();
+        let [x, a, x2, a2, n] = tf_uniform(Some(six));
+        assert_eq!((x, a), ([2.0, 20.0, 40.0, 60.0], [0.0, 0.1, 0.2, 0.3]));
+        assert_eq!(
+            (x2, a2),
+            ([80.0, 100.0, 100.0, 100.0], [0.4, 0.9, 0.9, 0.9])
+        );
+        assert_eq!(n[0], 6.0);
+        // Off is still `tf_a[0] < 0`.
+        assert!(tf_uniform(None)[1][0] < 0.0);
+        // A four-point curve is the legacy four-point uniform.
+        let four = TfStops::from([[2.0, 0.0], [100.0, 0.2], [200.0, 0.6], [255.0, 1.0]]);
+        let [x, a, ..] = tf_uniform(Some(four));
+        assert_eq!((x, a), ([2.0, 100.0, 200.0, 255.0], [0.0, 0.2, 0.6, 1.0]));
+        assert_eq!(
+            four.as_four(),
+            [[2.0, 0.0], [100.0, 0.2], [200.0, 0.6], [255.0, 1.0]]
+        );
+        // Six stops sample to four at the ends and thirds, on the curve.
+        let s = six.as_four();
+        assert_eq!((s[0][0], s[3][0]), (2.0, 100.0));
+        assert!((s[1][1] - six.alpha(s[1][0])).abs() < 1e-6);
     }
 }
 

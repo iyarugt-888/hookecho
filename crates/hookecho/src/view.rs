@@ -327,9 +327,10 @@ pub struct Map3dState {
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
     pub ceilings: [Option<f32>; 8],
-    /// An opacity curve per representation (same indexing as `ceilings`), four `[value,
-    /// opacity]` points in that representation's own units (Phase H2); `None` keeps the ramp.
-    pub tf_curves: [Option<[[f32; 2]; 4]>; 8],
+    /// An opacity curve per representation (same indexing as `ceilings`), two to eight
+    /// `[value, opacity]` stops in that representation's own units (Phase H2, M3.5); `None`
+    /// keeps the ramp.
+    pub tf_curves: [Option<crate::render3d::TfStops>; 8],
     /// MIP or translucent compositing for the Smooth volumes (ROADMAP_PARITY M3.5). Display only.
     pub volume_render: crate::render3d::VolumeRender,
     /// A region of interest the Smooth volumes are built over instead of the whole radar
