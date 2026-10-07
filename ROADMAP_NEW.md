@@ -3303,7 +3303,8 @@ Export:
   coverage so an echo's edge closes where it ends, each line with site, product, elevation, scan
   time, threshold, unit and whether it closes. On the Mayfield 2021 corpus volume: 291 lines
   (216/73/2), 289 closed; read back independently as a WGS84 FeatureCollection of LineStrings.
-- [ ] route geometry — L1's route engine is not started, so there is nothing to export
+- [x] route geometry — the planned routes as the routing provider returned them, with distance,
+  duration, summary, engine and which was chosen (ROADMAP_PARITY M4.4 increment 4)
 
 ### Acceptance criteria
 
