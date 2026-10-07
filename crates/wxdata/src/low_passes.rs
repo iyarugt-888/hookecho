@@ -3,9 +3,9 @@
 //! volumes have two to four velocity passes there, a median 1.8 minutes apart in volumes 5.7
 //! minutes long. The Tornado ID's columns are built and tracked at each of them, each pass at the
 //! lowest tilt under the volume's own upper tilts, so a tornado is marked at the pass that first
-//! shows it rather than at the volume's last. On four random tornado samples that found 6-10
-//! points more of the tornadoes and moved the first marker's median lead from about +1 to +3
-//! minutes.
+//! shows it rather than at the volume's last. On four random tornado samples that found 8-10
+//! points more of the tornadoes and moved the first marker's median lead from +0 to +2 minutes to
+//! +3 to +5.
 //!
 //! [`passes`] lists them; [`at_pass`] gives the sweeps one pass reads.
 

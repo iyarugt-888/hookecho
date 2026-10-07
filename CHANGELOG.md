@@ -52,6 +52,17 @@ were often left folded. Sweeps are unfolded at the Nyquist velocity the radar re
 gives one value for the sweep. The inspector shows the value used and whether it was decoded or
 estimated.
 
+### Changed: Tornado detection reads every low-level scan
+
+In severe weather the radar rescans its lowest tilt two to four times a volume. Tornado
+detection used to read only the last of them; it now updates at each, about every two minutes,
+so a tornado is marked at the scan that first shows it. On random tornadoes from 2013 to 2025 it
+found 8-10 points more of them, marked them a median one and a half to four minutes earlier, and marked
+twice as many ten minutes or more before touchdown. A marker now reaches *likely*, and alerts,
+only after two scans read it so, which cut the false alerts by a third to three quarters; a tornado report or an observed
+warning still confirms at once. *Possible* markers, which don't alert, come and go more often.
+Live tracks also no longer restart partway through each volume.
+
 ### Changed: Tornado detection reads the air around the storm
 
 A *possible* Tornado detection marker is no longer drawn where the air feeding the storm cannot

@@ -264,9 +264,9 @@ pub fn circulations_with(
 /// How many low-level passes a column's track must read *likely* or stronger on, by radar
 /// evidence alone, before a verdict of that tier is shown so and alerts ([`LikelyConfirmation`]).
 /// With markers drawn at every pass ([`crate::low_passes`]), one pass's *likely* doubled the false
-/// alerts on four random tornado samples (0.16-0.24 to 0.19-0.47 per radar-hour); a second pass
-/// took them below what one verdict a volume gave (0.07-0.13), with about the same POD at that
-/// tier (detectionplan.md, "Every low-level pass").
+/// alerts on four random tornado samples (0.13-0.24 to 0.19-0.47 per radar-hour); a second pass
+/// took them below what one verdict a volume gave (0.04-0.11 against 0.13-0.20), with POD at that
+/// tier within four points (detectionplan.md, "Every low-level pass").
 pub const LIKELY_PASSES: u32 = 2;
 
 /// The passes on which each track has read *likely* or stronger ([`LIKELY_PASSES`]). Recorded
