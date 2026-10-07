@@ -75,7 +75,8 @@ The card says which pipeline made the verdict and when the sweeps behind it were
 scanned. It
 updates at every low-level scan (two to four a volume in severe weather) and
 alerts when a marker reaches *likely* or higher on two scans; *possible* is drawn
-but stays quiet. *Possible* also marks strong rotation that has no debris yet, which finds
+but stays quiet, and for strong rotation with no debris it waits for a second scan
+unless Layer options → Detectors → **Show it at its first scan** is on. *Possible* also marks strong rotation that has no debris yet, which finds
 more of the weak tornadoes ordinary severe days bring; set the bar, or turn it
 off, in Layer options → Detectors. Wind turbines make rotation-like clutter, so
 a *possible* marker within 2 km of a turbine that stood in the scan's year is

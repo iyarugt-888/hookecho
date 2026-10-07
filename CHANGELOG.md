@@ -57,11 +57,15 @@ estimated.
 In severe weather the radar rescans its lowest tilt two to four times a volume. Tornado
 detection used to read only the last of them; it now updates at each, about every two minutes,
 so a tornado is marked at the scan that first shows it. On random tornadoes from 2013 to 2025 it
-found 8-10 points more of them, marked them a median one and a half to four minutes earlier, and marked
-twice as many ten minutes or more before touchdown. A marker now reaches *likely*, and alerts,
-only after two scans read it so, which cut the false alerts by a third to three quarters; a tornado report or an observed
-warning still confirms at once. *Possible* markers, which don't alert, come and go more often.
-Live tracks also no longer restart partway through each volume.
+found up to six points more of them, marked them a median two to four minutes earlier in three
+of four samples, and marked half again as many ten minutes or more before touchdown. A marker
+now reaches *likely*, and alerts, only after two scans read it so, which cut the false alerts by
+a third to three quarters; a tornado report or an observed warning still confirms at once. A
+*possible* marker for strong rotation with no debris waits for a second scan to follow it, which
+keeps false *possible* markers on ordinary severe days near where they were while finding 45% of
+the tornadoes there, up from 37%. Layer options → Detectors → **Show it at its first scan** draws
+it at once instead: about a tenth more of the tornadoes on tornado days, with about twice the
+false *possible* markers. Live tracks also no longer restart partway through each volume.
 
 ### Changed: Tornado detection reads the air around the storm
 
