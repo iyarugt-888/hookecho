@@ -691,7 +691,29 @@ pub(crate) fn show(
         ui.horizontal_wrapped(|ui| {
             ui.label("Show:");
             for kind in StatKind::ALL {
-                ui.selectable_value(&mut ensemble.kind, kind, kind.label());
+                let on = ensemble.member.is_none() && ensemble.kind == kind;
+                if ui.selectable_label(on, kind.label()).clicked() {
+                    ensemble.kind = kind;
+                    ensemble.member = None;
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if let Some(m) = ensemble.member {
+                ui.label(format!(
+                    "Showing {} alone",
+                    crate::ensemble_layer::member_label(m)
+                ));
+                if ui.small_button("Back to the statistic").clicked() {
+                    ensemble.member = None;
+                }
+            }
+            if ui
+                .small_button("Members\u{2026}")
+                .on_hover_text("Postage stamps of every member and the mean over the map view")
+                .clicked()
+            {
+                actions.palette = Some(crate::app::PaletteAction::EnsembleMembers);
             }
         });
         crate::ui::style::toggle(ui, &mut ensemble.spaghetti, "Spaghetti").on_hover_text(

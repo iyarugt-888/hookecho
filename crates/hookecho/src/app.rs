@@ -56,6 +56,7 @@ mod capture_upload;
 mod chase;
 mod construct;
 mod contours;
+mod ensemble_stamps;
 mod data_age;
 mod data_poll;
 mod detectors;
@@ -1494,14 +1495,12 @@ pub struct HookEchoApp {
     /// The `(field, hour)` the members were last fetched for, so a change refetches at once.
     ensemble_key: Option<(wxdata::ensemble::EnsembleField, u16)>,
     /// Which view the resident GPU upload represents (see `EnsembleView::display_key`).
-    ensemble_display_key: Option<(
-        wxdata::ensemble::EnsembleField,
-        crate::ensemble_layer::StatKind,
-        u32,
-    )>,
+    ensemble_display_key: Option<crate::ensemble_layer::DisplayKey>,
     ensemble_error: Option<String>,
     /// The members' contours at the ensemble level, when spaghetti is on (see
     /// `ensemble_layer::spaghetti_key`).
+    /// The ensemble's postage-stamp window (ROADMAP_NEW F7).
+    ensemble_stamps: ensemble_stamps::EnsembleStamps,
     ensemble_spaghetti: Option<(
         crate::ensemble_layer::SpaghettiKey,
         std::sync::Arc<crate::ensemble_layer::Spaghetti>,
@@ -7878,7 +7877,7 @@ impl HookEchoApp {
             return;
         };
         let view = self.ensemble;
-        match wxdata::ensemble::combine(&run.members, view.statistic()) {
+        match crate::ensemble_layer::display_grid(&run.members, &view) {
             Ok(grid) => {
                 let upload = crate::ensemble_layer::upload(&grid, &view);
                 let stamp = field_state::model_stamp(

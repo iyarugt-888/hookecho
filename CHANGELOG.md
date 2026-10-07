@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: ensemble postage stamps and single members
+
+"Ensemble members" shows the GEFS mean and all 31 members side by side over the map view, in the
+field's own colours. Click one to put it on the map by itself; "Back to the statistic" returns
+to the mean, spread or probability.
+
 ### Added: ensemble spaghetti
 
 The GEFS ensemble layer has a Spaghetti switch: every member's contour at one value (500 hPa at

@@ -631,6 +631,7 @@ impl HookEchoApp {
         self.goes_time_bar(ctx);
         self.sat_loop_bar(ctx);
         self.model_fields_window(ctx);
+        self.ensemble_stamps_window(ctx);
         self.beam_diagram_window(ctx);
         if let Some(act) = self
             .event_window

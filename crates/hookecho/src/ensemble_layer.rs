@@ -57,6 +57,9 @@ pub struct EnsembleView {
     pub threshold: f32,
     /// Every member's contour at `threshold` over whatever statistic is shown.
     pub spaghetti: bool,
+    /// One member shown on its own instead of a statistic (index into the members held, the
+    /// control first).
+    pub member: Option<usize>,
 }
 
 impl Default for EnsembleView {
@@ -67,6 +70,7 @@ impl Default for EnsembleView {
             kind: StatKind::Probability,
             threshold: field.default_threshold(),
             spaghetti: false,
+            member: None,
         }
     }
 }
@@ -78,6 +82,11 @@ impl EnsembleView {
             self.field = field;
             self.threshold = field.default_threshold();
         }
+    }
+
+    /// Whether what is shown is in the field's own units (a member, or a statistic that is).
+    pub fn in_field_units(&self) -> bool {
+        self.member.is_some() || uses_field_ramp(self.kind)
     }
 
     pub fn statistic(&self) -> Statistic {
@@ -95,17 +104,20 @@ impl EnsembleView {
     /// Everything that changes the displayed grid without changing the fetched members. The
     /// threshold only matters to the probability statistic, and is compared by bits so this stays
     /// `Eq`.
-    pub fn display_key(&self) -> (EnsembleField, StatKind, u32) {
-        let threshold = if self.kind == StatKind::Probability {
+    pub fn display_key(&self) -> DisplayKey {
+        let threshold = if self.kind == StatKind::Probability && self.member.is_none() {
             self.threshold.to_bits()
         } else {
             0
         };
-        (self.field, self.kind, threshold)
+        (self.field, self.kind, threshold, self.member)
     }
 
     /// A short name for the legend and the stamp.
     pub fn title(&self, temp_unit: TempUnit) -> String {
+        if let Some(i) = self.member {
+            return format!("GEFS {} — {}", self.field.label(), member_label(i));
+        }
         match self.kind {
             StatKind::Probability => {
                 let (value, unit) = self.threshold_display(temp_unit);
@@ -142,6 +154,75 @@ impl EnsembleView {
             shown
         };
         self.threshold = self.field.from_display(display);
+    }
+}
+
+/// What the resident ensemble texture shows: field, statistic, threshold (by bits, only where
+/// it matters) and the member shown alone, if one is.
+pub type DisplayKey = (EnsembleField, StatKind, u32, Option<usize>);
+
+/// A member's name: the control run first, then the perturbed members by position.
+pub fn member_label(i: usize) -> String {
+    if i == 0 {
+        "control".into()
+    } else {
+        format!("member {i}")
+    }
+}
+
+/// The grid the layer shows for `view`: a member as it is, or the statistic over all of them.
+pub fn display_grid(members: &[MrmsField], view: &EnsembleView) -> anyhow::Result<MrmsField> {
+    match view.member {
+        Some(i) => members
+            .get(i)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("only {} members are held", members.len())),
+        None => wxdata::ensemble::combine(members, view.statistic()),
+    }
+}
+
+/// A postage stamp of `grid` over `bounds` `(west, south, east, north)`, `w × h` pixels on the
+/// map's Mercator projection, in the field's own colours: each pixel the colour of the cell under
+/// its centre. Cells with no value are left dark.
+pub fn stamp_image(
+    grid: &MrmsField,
+    field: EnsembleField,
+    bounds: (f64, f64, f64, f64),
+    w: usize,
+    h: usize,
+) -> egui::ColorImage {
+    use crate::render::mercator::{lonlat_to_world, world_to_lonlat};
+    let upload = crate::app::field_upload_indexed(source_layer(field), grid);
+    let (west, south, east, north) = bounds;
+    let (wx0, wy0) = lonlat_to_world(west, north);
+    let (wx1, wy1) = lonlat_to_world(east, south);
+    let dlon = (grid.lon_east - grid.lon_west) / grid.nx as f64;
+    let dlat = (grid.lat_north - grid.lat_south) / grid.ny as f64;
+    let mut px = Vec::with_capacity(w * h);
+    for y in 0..h {
+        let wy = wy0 + (wy1 - wy0) * (y as f64 + 0.5) / h as f64;
+        for x in 0..w {
+            let wx = wx0 + (wx1 - wx0) * (x as f64 + 0.5) / w as f64;
+            let (lon, lat) = world_to_lonlat(wx, wy);
+            let c = ((lon - grid.lon_west) / dlon).floor();
+            let r = ((grid.lat_north - lat) / dlat).floor();
+            let inside =
+                c >= 0.0 && r >= 0.0 && (c as usize) < grid.nx && (r as usize) < grid.ny;
+            let idx = if inside {
+                upload.data[r as usize * grid.nx + c as usize] as usize
+            } else {
+                0
+            };
+            px.push(match upload.lut.get(idx * 4..idx * 4 + 4) {
+                Some(&[r, g, b, a]) if idx != 0 && a > 0 => egui::Color32::from_rgb(r, g, b),
+                _ => egui::Color32::from_gray(28),
+            });
+        }
+    }
+    egui::ColorImage {
+        size: [w, h],
+        pixels: px,
+        source_size: egui::vec2(w as f32, h as f32),
     }
 }
 
@@ -240,7 +321,7 @@ pub fn sequential_index(value: f32, full_scale: f32) -> u8 {
 
 /// The GPU upload for `grid`, the statistic `view` describes.
 pub fn upload(grid: &MrmsField, view: &EnsembleView) -> MrmsUpload {
-    if uses_field_ramp(view.kind) {
+    if view.in_field_units() {
         return crate::app::field_upload_indexed(source_layer(view.field), grid);
     }
     let full = sequential_full_scale(view);
@@ -258,7 +339,13 @@ pub fn format_value(view: &EnsembleView, raw: f32, temp_unit: TempUnit) -> Optio
         return None;
     }
     let field = view.field;
-    Some(match view.kind {
+    // A member is a value in the field's units, whatever statistic was last picked.
+    let kind = if view.member.is_some() {
+        StatKind::Mean
+    } else {
+        view.kind
+    };
+    Some(match kind {
         StatKind::Probability => format!("{raw:.0}%"),
         StatKind::Spread => {
             let native = field.spread_to_display(raw);
@@ -320,6 +407,7 @@ mod tests {
                 kind: StatKind::Probability,
                 threshold: 0.0,
                 spaghetti: false,
+                member: None,
             };
             let freezing = if unit == TempUnit::Fahrenheit {
                 32.0
@@ -344,6 +432,7 @@ mod tests {
             kind,
             threshold: 0.0,
             spaghetti: false,
+            member: None,
         };
         let f = TempUnit::Fahrenheit;
         assert_eq!(
@@ -462,5 +551,101 @@ mod tests {
         );
         assert!(points.iter().all(|&p| p > 100));
         assert!(!s.mean.is_empty());
+    }
+
+    #[test]
+    fn a_member_is_shown_as_it_is_in_the_fields_own_units() {
+        let members = [ramp(0.0), ramp(10.0)];
+        let mut v = EnsembleView {
+            field: EnsembleField::Height500,
+            kind: StatKind::Probability,
+            ..EnsembleView::default()
+        };
+        let stat = v.display_key();
+        v.member = Some(1);
+        assert_ne!(v.display_key(), stat, "showing a member is another texture");
+        assert_eq!(
+            display_grid(&members, &v).unwrap().values,
+            members[1].values
+        );
+        assert!(v.in_field_units());
+        assert!(
+            v.title(TempUnit::Celsius).contains("member 1"),
+            "{}",
+            v.title(TempUnit::Celsius)
+        );
+        // Read in metres, not as a percentage, though the statistic picked is a probability.
+        let read = format_value(&v, 5700.0, TempUnit::Celsius).unwrap();
+        assert!(!read.contains('%'), "{read}");
+        v.member = Some(5);
+        assert!(display_grid(&members, &v).is_err(), "no such member held");
+        assert_eq!(member_label(0), "control");
+    }
+
+    #[test]
+    fn a_stamp_colours_each_pixel_by_the_cell_under_it() {
+        // Heights rising west to east: the stamp's east edge is a different colour from its west,
+        // and outside the grid is the dark background.
+        let mut g = ramp(0.0);
+        for (i, v) in g.values.iter_mut().enumerate() {
+            *v = 5_200.0 + 20.0 * (i % g.nx) as f32;
+        }
+        let img = stamp_image(
+            &g,
+            EnsembleField::Height500,
+            (-110.0, 40.0, -90.0, 45.0),
+            40,
+            10,
+        );
+        assert_eq!(img.size, [40, 10]);
+        let (west, east) = (img.pixels[5 * 40], img.pixels[5 * 40 + 39]);
+        assert_ne!(west, east);
+        assert_ne!(west, egui::Color32::from_gray(28));
+        let outside = stamp_image(&g, EnsembleField::Height500, (-50.0, 0.0, -40.0, 5.0), 4, 4);
+        assert!(outside
+            .pixels
+            .iter()
+            .all(|&p| p == egui::Color32::from_gray(28)));
+    }
+
+    /// A sheet of GEFS 500 hPa stamps over the US, live, for review:
+    /// `cargo test -p hookecho --lib gefs_stamps_live -- --ignored` writes
+    /// `target/parity-review/f7/stamps-gh500.png`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn gefs_stamps_live() {
+        let http = reqwest::Client::new();
+        let run = wxdata::ensemble::fetch_gefs(&http, EnsembleField::Height500, 168)
+            .await
+            .unwrap();
+        let bounds = (-130.0, 22.0, -60.0, 55.0);
+        let (w, h) = (132usize, 80usize);
+        let mean = wxdata::ensemble::combine(&run.members, Statistic::Mean).unwrap();
+        let grids: Vec<&MrmsField> = std::iter::once(&mean).chain(&run.members).collect();
+        let cols = 8;
+        let rows = grids.len().div_ceil(cols);
+        let mut sheet = image::RgbaImage::new((cols * (w + 4)) as u32, (rows * (h + 4)) as u32);
+        for (i, g) in grids.iter().enumerate() {
+            let img = stamp_image(g, EnsembleField::Height500, bounds, w, h);
+            let (ox, oy) = ((i % cols) * (w + 4), (i / cols) * (h + 4));
+            for (k, p) in img.pixels.iter().enumerate() {
+                let [r, gg, b, a] = p.to_array();
+                sheet.put_pixel(
+                    (ox + k % w) as u32,
+                    (oy + k / w) as u32,
+                    image::Rgba([r, gg, b, a]),
+                );
+            }
+        }
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity-review/f7");
+        std::fs::create_dir_all(&dir).unwrap();
+        sheet.save(dir.join("stamps-gh500.png")).unwrap();
+        println!(
+            "{} stamps, run {} F+{}",
+            grids.len(),
+            run.run,
+            run.fcst_hour
+        );
     }
 }

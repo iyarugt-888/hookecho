@@ -334,6 +334,15 @@ impl HookEchoApp {
             }
             PaletteAction::BeamDiagram => self.beam_diagram.open = !self.beam_diagram.open,
             PaletteAction::ModelFields => self.field_browser.open = !self.field_browser.open,
+            PaletteAction::EnsembleMembers => {
+                self.ensemble_stamps.open = !self.ensemble_stamps.open;
+                // The stamps are the ensemble layer's members: turn the layer on to have them.
+                if self.ensemble_stamps.open {
+                    self.views[self.active]
+                        .fields_on
+                        .insert(crate::render::FieldLayer::Ensemble);
+                }
+            }
             PaletteAction::GoLive => {
                 self.radar_timeline();
                 self.views[self.active].timeline.go_head();

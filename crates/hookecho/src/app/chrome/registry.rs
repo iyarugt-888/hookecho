@@ -1978,10 +1978,18 @@ impl HookEchoApp {
         push(
             "Model fields",
             "Tools",
-            "Browse every field a regional model run publishes (any level) and show one on the map",
+            "Browse every field a model run publishes (HRRR, RAP, NAM, NBM, GFS, ECMWF; any level) and show one on the map",
             false,
             PaletteAction::ModelFields,
             Some(self.field_browser.open),
+        );
+        push(
+            "Ensemble members",
+            "Tools",
+            "Postage stamps of every GEFS member and the mean over the map view; click one to show it",
+            false,
+            PaletteAction::EnsembleMembers,
+            Some(self.ensemble_stamps.open),
         );
         push(
             "Satellite loop",

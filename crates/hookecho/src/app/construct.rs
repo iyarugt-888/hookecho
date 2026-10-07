@@ -417,6 +417,7 @@ impl HookEchoApp {
             ensemble_display_key: None,
             ensemble_error: None,
             ensemble_spaghetti: None,
+            ensemble_stamps: Default::default(),
             compare_valid: None,
             compare_error: None,
             compare_grid: None,

@@ -2625,14 +2625,20 @@ mixed-layer CAPE, precipitable water and 6-hour rain (QPF). Wind gust, snow and 
 
 For GEFS/REFS and any supported ensemble:
 
-- [x] individual member view — `fetch_gefs` returns every member grid (engine only, no UI)
+- [x] individual member view — `fetch_gefs` returns every member grid; clicking a stamp in
+  "Ensemble members" (or the layer's member line) shows that member alone on the map in the
+  field's own colours and units, "Back to the statistic" returns (2026-10-07)
 - [x] ensemble mean
 - [x] ensemble spread / standard deviation — sample standard deviation
 - [x] min/max
 - [x] percentile fields — linearly interpolated between ranked members
 - [x] probability of threshold exceedance — percent of members strictly above, engine and headless
 - [ ] neighborhood probability when scientifically appropriate
-- member postage-stamp grid
+- [x] member postage-stamp grid — "Ensemble members" (command palette, or "Members…" in the
+  ensemble layer's options): the mean and all 31 members over the active pane's view, coloured on
+  the CPU from the members already held, remade only when the run, lead, field or view changes
+  (2026-10-07; review sheet `target/parity-review/f7/stamps-gh500.png` from
+  `gefs_stamps_live`)
 - [x] spaghetti contours — the ensemble layer's "Spaghetti" switch (2026-10-07): each member's
   contour at the layer's value (`wxdata::contour::contour_level`), one colour per member, the
   mean's in bold white and labelled, recontoured only when the run, lead, level or member count
