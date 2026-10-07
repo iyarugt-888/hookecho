@@ -167,6 +167,7 @@ fn build(
             nz: volume.nz as u32,
             lut,
             half_km: volume.half_km,
+            center_km: [0.0, 0.0],
             top_km: volume.top_km,
             outside: 0.0,
             value_range: None,

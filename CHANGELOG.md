@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: 3D around one storm
+
+The 3D map's smooth volumes can now be built around the selected storm instead of the whole
+radar (Slice → Region): the same number of voxels over a 30-120 km box gives much finer cells.
+"Follow the storm" keeps the box on it scan after scan, and stops where it is if the storm drops
+out of the table rather than jumping to another one.
+
 ### Added: loop exports say exactly what they captured
 
 The JSON written beside an exported GIF or MP4 is now a capture manifest: for every frame, the

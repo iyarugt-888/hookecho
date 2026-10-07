@@ -154,6 +154,9 @@ pub struct Volume3dUpload {
     pub nz: u32,
     pub lut: Vec<u8>,
     pub half_km: f32,
+    /// Where the box is centred, km east and north of the radar: zero for the whole-radar
+    /// volume, a storm's position for a region of interest (ROADMAP_PARITY M3.6).
+    pub center_km: [f32; 2],
     pub top_km: f32,
     /// Share (0..=1) of the scan's echo that lies beyond `half_km` and is therefore not in the
     /// volume. Shown in the UI so a cropped box is never mistaken for the whole scan.
@@ -419,18 +422,23 @@ pub fn map_uniform(
     let dy = camera.center.1 - radar_world.1;
     let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
     let half_px = upload.half_km as f64 * 1_000.0 * metres_to_px;
+    // A region of interest is centred off the radar: east is +x, north is +y in this box.
+    let (east_px, north_px) = (
+        upload.center_km[0] as f64 * 1_000.0 * metres_to_px,
+        upload.center_km[1] as f64 * 1_000.0 * metres_to_px,
+    );
     let z0 = antenna_altitude_m as f64 * metres_to_px * vertical_exaggeration as f64;
     let z1 = (antenna_altitude_m as f64 + upload.top_km as f64 * 1_000.0)
         * metres_to_px
         * vertical_exaggeration as f64;
     let box_min = Vec3::new(
-        (dx / wpp - half_px) as f32,
-        (dy / wpp - half_px) as f32,
+        (dx / wpp + east_px - half_px) as f32,
+        (dy / wpp + north_px - half_px) as f32,
         z0 as f32,
     );
     let box_max = Vec3::new(
-        (dx / wpp + half_px) as f32,
-        (dy / wpp + half_px) as f32,
+        (dx / wpp + east_px + half_px) as f32,
+        (dy / wpp + north_px + half_px) as f32,
         z1 as f32,
     );
     let eye = camera.eye_position(viewport);
@@ -2031,6 +2039,52 @@ mod plane_tests {
             (half_thickness_wide - 0.5).abs() < 1e-5,
             "half_thickness_wide: {half_thickness_wide}"
         );
+    }
+}
+
+#[cfg(test)]
+mod roi_box_tests {
+    #[test]
+    fn a_region_box_sits_east_and_north_of_the_radar_by_its_offset() {
+        let cam = crate::render::mercator::Camera::at_lonlat(-97.3, 35.3, 8.0);
+        let upload = |center_km: [f32; 2]| super::Volume3dUpload {
+            data: Vec::new(),
+            n: 64,
+            nz: 16,
+            lut: Vec::new(),
+            half_km: 20.0,
+            center_km,
+            top_km: 12.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let u = |c| {
+            super::map_uniform(
+                &cam,
+                (800.0, 600.0),
+                -97.3,
+                35.3,
+                370.0,
+                &upload(c),
+                128,
+                super::View3d::default(),
+                1.0,
+                1.0,
+            )
+        };
+        let (at_radar, offset) = (u([0.0, 0.0]), u([10.0, -5.0]));
+        let width = at_radar.box_max[0] - at_radar.box_min[0];
+        let px_per_km = width / 40.0;
+        let dx = offset.box_min[0] - at_radar.box_min[0];
+        let dy = offset.box_min[1] - at_radar.box_min[1];
+        assert!(
+            (dx - 10.0 * px_per_km).abs() < 1e-2 * px_per_km,
+            "{dx} vs {px_per_km}"
+        );
+        assert!((dy + 5.0 * px_per_km).abs() < 1e-2 * px_per_km, "{dy}");
+        // Same size, same vertical extent: only moved.
+        assert_eq!(offset.box_max[0] - offset.box_min[0], width);
+        assert_eq!(offset.box_min[2], at_radar.box_min[2]);
     }
 }
 

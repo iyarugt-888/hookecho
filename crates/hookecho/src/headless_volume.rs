@@ -165,6 +165,7 @@ fn upload(v3: &wxdata::volume3d::Volume3d) -> crate::render3d::Volume3dUpload {
         nz: v3.nz as u32,
         lut: crate::colormap::bake_lut(table, (v3.value_min, v3.value_max), None).to_vec(),
         half_km: v3.half_km,
+        center_km: [0.0, 0.0],
         top_km: v3.top_km,
         outside: 0.0,
         value_range: None,

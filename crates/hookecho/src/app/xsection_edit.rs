@@ -257,18 +257,14 @@ impl HookEchoApp {
         let Some(line) = self.xsection_line() else {
             return;
         };
-        let Some(site) = self.views[idx]
-            .site
-            .as_deref()
-            .and_then(wxdata::sites::site_by_id)
-        else {
+        let Some((_, _, half_km, _, _)) = self.smooth_vol_dims.get(idx).copied().flatten() else {
             return;
         };
-        let Some((.., half_km, _)) = self.smooth_vol_dims.get(idx).copied().flatten() else {
+        // Relative to the box's centre, which a region of interest moves off the radar.
+        let Some(center) = self.smooth_box_center(idx) else {
             return;
         };
-        let radar = [f64::from(site.longitude), f64::from(site.latitude)];
-        self.views[idx].map_3d.plane = Some(line.plane(radar, half_km));
+        self.views[idx].map_3d.plane = Some(line.plane(center, half_km));
     }
 
     /// One line about what the section samples: site, tilts, the span their radials were scanned

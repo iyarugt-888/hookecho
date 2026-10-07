@@ -259,6 +259,24 @@ impl Default for CcAnomaly {
 /// a legitimate thing to want and not a crash.
 pub const MIN_CC_SPAN: f32 = 0.005;
 
+/// A 3D region of interest (ROADMAP_PARITY M3.6): a box around a storm, its own finer grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VolumeRoi {
+    /// Centre, `[lon, lat]`.
+    pub center: [f64; 2],
+    /// Half-width, km.
+    pub half_km: f32,
+    /// The storm it was placed on, by SCIT ID at the time, for the label.
+    pub storm: Option<String>,
+    /// Move with that storm as new scans arrive.
+    pub follow: bool,
+    /// Following stopped because the storm left the table; the box stays where it was.
+    pub lost: bool,
+}
+
+/// Half-widths offered for a region of interest, km.
+pub const ROI_SIZES_KM: [f32; 4] = [15.0, 25.0, 40.0, 60.0];
+
 /// Geographic 3D controls belong to a map pane so they stay synchronized with that pane's
 /// product, timeline, site and camera rather than becoming another viewer.
 #[derive(Clone, Debug)]
@@ -314,6 +332,9 @@ pub struct Map3dState {
     pub tf_curves: [Option<[[f32; 2]; 4]>; 8],
     /// MIP or translucent compositing for the Smooth volumes (ROADMAP_PARITY M3.5). Display only.
     pub volume_render: crate::render3d::VolumeRender,
+    /// A region of interest the Smooth volumes are built over instead of the whole radar
+    /// (ROADMAP_PARITY M3.6); `None` is the whole radar.
+    pub roi: Option<VolumeRoi>,
     /// The name being typed for a new 3D preset.
     pub preset_name: String,
     /// The user-defined product `SmoothProduct` draws, by name.
@@ -413,6 +434,7 @@ impl Default for Map3dState {
             ceilings: [None; 8],
             tf_curves: [None; 8],
             volume_render: crate::render3d::VolumeRender::Mip,
+            roi: None,
             preset_name: String::new(),
             product: None,
             product_floor: f32::MIN,

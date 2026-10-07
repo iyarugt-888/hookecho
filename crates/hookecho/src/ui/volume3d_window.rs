@@ -881,6 +881,7 @@ mod tests {
             nz: 2,
             lut: vec![0; 1024],
             half_km: 50.0,
+            center_km: [0.0, 0.0],
             top_km: 20.0,
             outside: 0.0,
             value_range: None,

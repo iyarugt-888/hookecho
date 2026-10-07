@@ -826,6 +826,19 @@ fn volume_3d_rows(
             crate::render3d::VolumeRender::TranslucentLit => "Translucent, lit",
         };
         rows.push(("Render", render.to_string()));
+        if let Some(r) = &m.roi {
+            rows.push((
+                "Region",
+                format!(
+                    "{:.0} km box{}{}",
+                    r.half_km * 2.0,
+                    r.storm
+                        .as_deref()
+                        .map_or(String::new(), |s| format!(" around {s}")),
+                    if r.follow { ", following" } else { "" }
+                ),
+            ));
+        }
     }
     if m.vertical_exaggeration > 1.0 {
         rows.push(("Vertical", format!("{:.1}\u{d7}", m.vertical_exaggeration)));

@@ -826,6 +826,9 @@ struct LoopExport {
     timed_out: bool,
 }
 
+/// A pane's smooth volume grid: `n`, `nz`, half-width km, top km, centre km east/north.
+type SmoothDims = (u32, u32, f32, f32, [f32; 2]);
+
 /// A placefile the app has fetched and is tracking (mirrors a `PlacefileConfig` by URL).
 /// What the memoised placefile labels depend on: (placefile item/enabled/icon fingerprint,
 /// minute, view range in nmi).
@@ -2240,7 +2243,7 @@ pub struct HookEchoApp {
     /// The device's 3D texture edge limit, which caps the Smooth grid.
     vol3d_max_dim: usize,
     smooth_vol_pending: [Option<Arc<crate::render3d::Volume3dUpload>>; crate::view::MAX_PANES],
-    smooth_vol_dims: [Option<(u32, u32, f32, f32)>; crate::view::MAX_PANES],
+    smooth_vol_dims: [Option<SmoothDims>; crate::view::MAX_PANES],
     /// GPU 2D texture-size cap (device limit), used to clamp field-grid decimation on mobile GPUs.
     max_texture_dim: u32,
     /// Whether this device can hold the 3D texture the raymarch window needs. See its assignment
@@ -6555,18 +6558,12 @@ impl HookEchoApp {
         // ObservedSweeps raymarches real gate instances with no box for a plane to cut into.
         let map3d = &self.views[idx].map_3d;
         if map3d.enabled && map3d.representation != Map3dRepresentation::ObservedSweeps {
-            if let (Some(plane), Some((.., half_km, _))) = (map3d.plane, self.smooth_vol_dims[idx])
+            if let (Some(plane), Some((_, _, half_km, _, _))) =
+                (map3d.plane, self.smooth_vol_dims[idx])
             {
-                if let Some(site) = self.views[idx]
-                    .site
-                    .as_deref()
-                    .and_then(wxdata::sites::site_by_id)
-                {
-                    let (a, b) = crate::render3d::plane_ground_track(
-                        plane,
-                        [site.longitude as f64, site.latitude as f64],
-                        half_km,
-                    );
+                // The plane cuts the box, which a region of interest centres off the radar.
+                if let Some(center) = self.smooth_box_center(idx) {
+                    let (a, b) = crate::render3d::plane_ground_track(plane, center, half_km);
                     let col = egui::Color32::from_rgb(200, 130, 255);
                     let screen = |ll: [f64; 2]| {
                         let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);

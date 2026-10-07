@@ -3705,6 +3705,7 @@ pub fn run_3d(
         nz: v3.nz as u32,
         lut,
         half_km: v3.half_km,
+        center_km: [0.0, 0.0],
         top_km: v3.top_km,
         outside: 0.0,
         value_range: None,
@@ -3742,6 +3743,7 @@ fn run_3d_product(
 ) -> anyhow::Result<()> {
     let expr = wxdata::udp::parse(formula).map_err(|e| anyhow::anyhow!("{e}"))?;
     let spec = crate::loop3d::SmoothSpec {
+        roi: None,
         product: Some(crate::loop3d::ProductSpec {
             expr,
             range: None,
@@ -3802,6 +3804,7 @@ fn run_3d_velocity(
 ) -> anyhow::Result<()> {
     let table = crate::colormap::default_table(Moment::Velocity).clone();
     let spec = crate::loop3d::SmoothSpec {
+        roi: None,
         product: None,
         moment: Moment::Velocity,
         invert: false,
@@ -3839,6 +3842,7 @@ fn run_3d_velocity(
         nz: folded.nz,
         lut: crate::colormap::bake_lut(&table, (lo, hi), None).to_vec(),
         half_km: folded.half_km,
+        center_km: [0.0, 0.0],
         top_km: folded.top_km,
         outside: folded.outside,
         value_range: None,
@@ -4986,6 +4990,7 @@ mod golden_tests {
                 nz: nz as u32,
                 lut,
                 half_km: half,
+                center_km: [0.0, 0.0],
                 top_km: 18.0,
                 outside: 0.0,
                 value_range: None,
@@ -5055,6 +5060,7 @@ mod golden_tests {
             )
             .to_vec(),
             half_km: 20.0,
+            center_km: [0.0, 0.0],
             top_km: 10.0,
             outside: 0.0,
             value_range: None,
@@ -5114,6 +5120,7 @@ mod golden_tests {
             )
             .to_vec(),
             half_km: 40.0,
+            center_km: [0.0, 0.0],
             top_km: 16.0,
             outside: 0.0,
             value_range: None,
@@ -5232,6 +5239,7 @@ mod golden_tests {
                 nz: v3.nz as u32,
                 lut: lut.to_vec(),
                 half_km: v3.half_km,
+                center_km: [0.0, 0.0],
                 top_km: v3.top_km,
                 outside: 0.0,
                 value_range: None,

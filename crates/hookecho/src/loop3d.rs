@@ -85,6 +85,8 @@ pub struct SmoothKey {
     pub palette: u64,
     pub high_contrast: bool,
     pub max_dim: usize,
+    /// The region of interest, when one replaces the whole radar ([`Roi::key`]).
+    pub roi: Option<[u32; 3]>,
 }
 
 /// Mesh inputs; palette, opacity and lighting are applied at paint time.
@@ -413,6 +415,27 @@ pub struct SmoothSpec {
     pub storm_uv: Option<(f32, f32)>,
     /// A user-defined product to build instead of `moment` (ROADMAP_NEW H1).
     pub product: Option<ProductSpec>,
+    /// A region of interest instead of the whole radar (ROADMAP_PARITY M3.6).
+    pub roi: Option<Roi>,
+}
+
+/// A box around one storm or place: its centre, km east and north of the radar, and its
+/// half-width, km. Spending the voxel budget on it gives finer cells than the whole radar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Roi {
+    pub center_km: [f32; 2],
+    pub half_km: f32,
+}
+
+impl Roi {
+    /// Cache identity: the floats' bits.
+    pub fn key(self) -> [u32; 3] {
+        [
+            self.center_km[0].to_bits(),
+            self.center_km[1].to_bits(),
+            self.half_km.to_bits(),
+        ]
+    }
 }
 
 /// A user-defined product (`wxdata::udp`) to resample in 3D: its formula, the range its palette
@@ -551,7 +574,11 @@ pub fn build_smooth_covered(
     let full_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
     // Crop the box to where the echo is (and say how much that leaves out) unless the user asked
     // for every gate.
-    let (half_km, outside) = if spec.full_range {
+    // A region of interest sets the box itself: nothing outside it is claimed to be in view, and
+    // its smaller box is what buys the finer cells.
+    let (half_km, outside) = if let Some(roi) = spec.roi {
+        (roi.half_km.max(1.0), 0.0)
+    } else if spec.full_range {
         (full_km, 0.0)
     } else {
         let e = wxdata::volume3d::echo_extent_km(&sweeps, full_km);
@@ -564,11 +591,12 @@ pub fn build_smooth_covered(
         spec.max_voxels,
         spec.max_dim,
     );
-    let mut v3 = wxdata::volume3d::build(&sweeps, n, nz, half_km, spec.top_km)?;
+    let center = spec.roi.map_or([0.0, 0.0], |r| r.center_km);
+    let mut v3 = wxdata::volume3d::build_at(&sweeps, n, nz, center, half_km, spec.top_km)?;
     // ZDR and KDP are noise in weak echo, and a maximum-intensity raymarch finds the noise
     // first; they are masked by reflectivity on the same grid.
     if let Some(mask) = mask.as_deref() {
-        if let Some(refl) = wxdata::volume3d::build(mask, n, nz, half_km, spec.top_km) {
+        if let Some(refl) = wxdata::volume3d::build_at(mask, n, nz, center, half_km, spec.top_km) {
             wxdata::volume3d::mask_by(&mut v3, &refl, POLARIMETRIC_MASK_DBZ);
         }
     }
@@ -610,6 +638,7 @@ pub fn build_smooth_covered(
             nz: v3.nz as u32,
             lut: lut.to_vec(),
             half_km: v3.half_km,
+            center_km: center,
             top_km: v3.top_km,
             outside,
             value_range: product_range,
@@ -870,6 +899,7 @@ mod tests {
 
     fn smooth_spec(moment: Moment) -> SmoothSpec {
         SmoothSpec {
+            roi: None,
             moment,
             invert: false,
             full_range: true,
@@ -880,6 +910,69 @@ mod tests {
             storm_uv: None,
             product: None,
         }
+    }
+
+    #[test]
+    fn a_region_of_interest_builds_finer_cells_where_it_is_put() {
+        let inputs = mixed_inputs(Moment::Reflectivity);
+        let whole_spec = smooth_spec(Moment::Reflectivity);
+        let whole = build_smooth_covered(
+            Sweeps::Binned {
+                sweeps: inputs.clone(),
+                mask: None,
+            },
+            &whole_spec,
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        let roi = Roi {
+            center_km: [10.0, 5.0],
+            half_km: 8.0,
+        };
+        let spec = SmoothSpec {
+            roi: Some(roi),
+            ..smooth_spec(Moment::Reflectivity)
+        };
+        let region = build_smooth_covered(
+            Sweeps::Binned {
+                sweeps: inputs.clone(),
+                mask: None,
+            },
+            &spec,
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        let (w, r) = (&whole.upload, &region.upload);
+        assert_eq!(r.center_km, [10.0, 5.0]);
+        assert_eq!((w.center_km, r.half_km, r.outside), ([0.0, 0.0], 8.0, 0.0));
+        assert!(
+            r.cell_km() < w.cell_km() / 2.0,
+            "{} km cells vs {} km",
+            r.cell_km(),
+            w.cell_km()
+        );
+        // The grid is exactly the centred wxdata build.
+        let reference = wxdata::volume3d::build_at(
+            &inputs,
+            r.n as usize,
+            r.nz as usize,
+            roi.center_km,
+            roi.half_km,
+            spec.top_km,
+        )
+        .unwrap();
+        assert_eq!(r.data, crate::render3d::pack_rg8(&reference.data));
+        // Region and whole radar are different cache entries.
+        assert_ne!(Some(roi.key()), None::<[u32; 3]>);
+        assert_ne!(
+            Roi {
+                half_km: 9.0,
+                ..roi
+            }
+            .key(),
+            roi.key(),
+            "a resized region rebuilds"
+        );
     }
 
     #[test]
@@ -1070,6 +1163,7 @@ mod tests {
 
     fn smooth_key(scan: &Arc<Scan>, policy: TemporalPolicy) -> SmoothKey {
         SmoothKey {
+            roi: None,
             source: source(scan, policy),
             moment: Moment::Reflectivity,
             full_range: true,
