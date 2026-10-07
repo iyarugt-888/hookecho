@@ -443,7 +443,9 @@ pub(crate) fn map_3d_panel(
                 let gap = ui.spacing().item_spacing.x;
                 ui.spacing_mut().slider_width =
                     ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
-                ws::slider(ui, &t, 
+                ws::slider(
+                    ui,
+                    &t,
                     egui::Slider::new(&mut view.camera.bearing, -180.0..=180.0)
                         .suffix("°")
                         .max_decimals(0),
@@ -629,7 +631,9 @@ pub(crate) fn map_3d_panel(
                 let mut on = view.map_3d.denoise_enabled;
                 ws::prop_toggle(ui, &t, &mut on, "Denoise", |ui| {
                     ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                    ws::slider(ui, &t, 
+                    ws::slider(
+                        ui,
+                        &t,
                         egui::Slider::new(&mut floor, lo..=hi)
                             .suffix(suffix)
                             .max_decimals(floor_decimals(suffix)),
@@ -647,7 +651,9 @@ pub(crate) fn map_3d_panel(
                 ui.add_enabled_ui(on, |ui| {
                     ws::prop_toggle(ui, &t, &mut capped, "Ceiling", |ui| {
                         ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                        ws::slider(ui, &t, 
+                        ws::slider(
+                            ui,
+                            &t,
                             egui::Slider::new(&mut top, floor..=hi)
                                 .suffix(suffix)
                                 .max_decimals(floor_decimals(suffix)),
@@ -665,6 +671,17 @@ pub(crate) fn map_3d_panel(
             if rep == Map3dRepresentation::SmoothDebris {
                 cc_anomaly_rows(ui, &t, &mut view.map_3d.cc_anomaly);
             }
+            ws::prop_row(ui, &t, "Render", |ui| {
+                let modes = crate::render3d::VolumeRender::ALL;
+                let segments: Vec<ws::Segment<'_>> =
+                    modes.iter().map(|m| ws::Segment::new(m.label())).collect();
+                let at = modes.iter().position(|m| *m == view.map_3d.volume_render);
+                if let Some(i) = ws::segmented_full(ui, &t, &segments, at, true) {
+                    view.map_3d.volume_render = modes[i];
+                }
+            })
+            .response
+            .on_hover_text(view.map_3d.volume_render.describe());
             ws::prop_row(ui, &t, "Quality", |ui| {
                 let labels: Vec<&str> = crate::view::QUALITY_PRESETS
                     .iter()
@@ -742,6 +759,7 @@ pub(crate) fn map_3d_panel(
                     &mut view.map_3d.denoise_enabled,
                     &mut view.map_3d.ceilings[rep_i],
                     &mut view.map_3d.tf_curves[rep_i],
+                    &mut view.map_3d.volume_render,
                     &mut view.map_3d.preset_name,
                 );
                 *floor_value(&mut view.map_3d, rep) = floor;

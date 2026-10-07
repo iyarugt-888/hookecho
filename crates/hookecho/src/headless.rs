@@ -3888,6 +3888,16 @@ fn render_volume_once(
     upload: &crate::render3d::Volume3dUpload,
     view: crate::render3d::View3d,
 ) -> anyhow::Result<Vec<u8>> {
+    render_volume_steps(rt, upload, view, 256)
+}
+
+/// [`render_volume_once`] with an explicit raymarch step count.
+fn render_volume_steps(
+    rt: &tokio::runtime::Runtime,
+    upload: &crate::render3d::Volume3dUpload,
+    view: crate::render3d::View3d,
+    steps: u32,
+) -> anyhow::Result<Vec<u8>> {
     let uniform = crate::render3d::orbit_uniform(
         30.0,
         25.0,
@@ -3895,8 +3905,9 @@ fn render_volume_once(
         1.0,
         upload.n,
         upload.nz,
+        upload.half_km,
         upload.top_km,
-        256,
+        steps,
         view,
     );
     let (device, queue, adapter) = init_gpu(rt)?;
@@ -4984,7 +4995,7 @@ mod golden_tests {
                 ..Default::default()
             };
             let uniform = crate::render3d::orbit_uniform(
-                30.0, 35.0, 2.6, 1.0, n as u32, nz as u32, 18.0, steps, view3,
+                30.0, 35.0, 2.6, 1.0, n as u32, nz as u32, half, 18.0, steps, view3,
             );
             let mut res = crate::render3d::Volume3dResources::new(&device, format);
             let target = new_target(&device, format, size);
@@ -5069,6 +5080,86 @@ mod golden_tests {
         assert!(
             s >= r,
             "a curve at full opacity draws at least what the ramp did"
+        );
+    }
+
+    /// Translucent compositing (M3.5) on the GPU: a 60 dBZ core inside a 25 dBZ shell. MIP shows
+    /// the core's colour wherever a ray reaches it; compositing shows it through the shell, so
+    /// the two frames must differ; and the per-km opacity must give the same frame at 64 and 256
+    /// steps where MIP-era fixed opacity would not.
+    #[test]
+    #[ignore = "gpu"]
+    fn translucent_rendering_is_stable_across_steps_and_differs_from_mip() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let enc = |dbz: f32| 2 + (((dbz - lo) / (hi - lo)) * 253.0) as u8;
+        let (n, nz) = (32usize, 16usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 1..14 {
+            for j in 4..28 {
+                for i in 4..28 {
+                    let core =
+                        (12..20).contains(&i) && (12..20).contains(&j) && (4..11).contains(&k);
+                    data[i + n * j + n * n * k] = if core { enc(60.0) } else { enc(25.0) };
+                }
+            }
+        }
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 40.0,
+            top_km: 16.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mode = |render| crate::render3d::View3d {
+            render,
+            ..Default::default()
+        };
+        use crate::render3d::VolumeRender;
+        let Ok(mip) = render_volume_once(&rt, &upload, mode(VolumeRender::Mip)) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let coarse =
+            render_volume_steps(&rt, &upload, mode(VolumeRender::Translucent), 64).unwrap();
+        let fine = render_volume_steps(&rt, &upload, mode(VolumeRender::Translucent), 256).unwrap();
+        let lit = render_volume_once(&rt, &upload, mode(VolumeRender::TranslucentLit)).unwrap();
+        let diff = |a: &[u8], b: &[u8]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (*x as i32 - *y as i32).unsigned_abs() as u64)
+                .sum::<u64>() as f64
+                / a.len() as f64
+        };
+        let (steps_diff, mode_diff, lit_diff) =
+            (diff(&coarse, &fine), diff(&mip, &fine), diff(&lit, &fine));
+        println!(
+            "mean |Δ| per channel: 64 vs 256 steps {steps_diff:.2}, MIP vs translucent \
+             {mode_diff:.2}, lit vs unlit {lit_diff:.2}; echo px {} / {}",
+            echo_pixels(&fine),
+            echo_pixels(&mip)
+        );
+        for (name, px) in [("mip", &mip), ("translucent", &fine), ("lit", &lit)] {
+            let out = std::env::temp_dir().join(format!("hookecho_volume_{name}.png"));
+            image::save_buffer(&out, px, size(), size(), image::ColorType::Rgba8).unwrap();
+        }
+        assert!(echo_pixels(&fine) > 0, "translucent draws the volume");
+        assert!(mode_diff > 2.0, "compositing is not MIP");
+        assert!(lit_diff > 0.5, "lighting shades the surface");
+        assert!(
+            steps_diff < 1.5,
+            "opacity per km keeps the frame stable across step counts"
         );
     }
 
@@ -6570,7 +6661,10 @@ fn backtest_event(
         }
         if use_env {
             let had = env_hours.values().filter(|h| h.is_some()).count();
-            println!("  {site}: HRRR environment for {had} of {} hour(s)", env_hours.len());
+            println!(
+                "  {site}: HRRR environment for {had} of {} hour(s)",
+                env_hours.len()
+            );
         }
         anyhow::Ok((
             tds,

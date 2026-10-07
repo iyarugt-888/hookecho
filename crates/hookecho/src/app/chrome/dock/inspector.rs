@@ -819,6 +819,13 @@ fn volume_3d_rows(
         let q = crate::view::quality_label(m.quality_steps)
             .map_or_else(|| format!("{} steps", m.quality_steps), str::to_string);
         rows.push(("Quality", q));
+        // A display transformation, recorded so a translucent picture is not read as MIP.
+        let render = match m.volume_render {
+            crate::render3d::VolumeRender::Mip => "Maximum (MIP)",
+            crate::render3d::VolumeRender::Translucent => "Translucent, per km",
+            crate::render3d::VolumeRender::TranslucentLit => "Translucent, lit",
+        };
+        rows.push(("Render", render.to_string()));
     }
     if m.vertical_exaggeration > 1.0 {
         rows.push(("Vertical", format!("{:.1}\u{d7}", m.vertical_exaggeration)));
@@ -1591,6 +1598,10 @@ mod tests {
         assert_eq!(rows[0].1, "Smooth reflectivity");
         assert!(rows.contains(&("Quality", "Medium".to_string())));
         assert!(rows.iter().any(|(k, _)| *k == "Vertical"));
+        assert!(rows.contains(&("Render", "Maximum (MIP)".to_string())));
+        m.volume_render = crate::render3d::VolumeRender::TranslucentLit;
+        let rows = volume_3d_rows(&m, None);
+        assert!(rows.contains(&("Render", "Translucent, lit".to_string())));
     }
 
     #[test]

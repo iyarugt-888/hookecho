@@ -266,6 +266,7 @@ impl HookEchoApp {
         match self.vol3d_build.accept(delivery, actual.as_ref()) {
             Some(Ok(built)) => {
                 // Publish source, coverage, layer summaries and GPU staging together.
+                self.vol3d.half_km = built.upload.half_km;
                 self.vol3d_pending = Some(built.upload);
                 self.vol3d_range = built.range;
                 self.vol3d.layers = built.layers;

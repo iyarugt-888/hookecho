@@ -312,6 +312,8 @@ pub struct Map3dState {
     /// An opacity curve per representation (same indexing as `ceilings`), four `[value,
     /// opacity]` points in that representation's own units (Phase H2); `None` keeps the ramp.
     pub tf_curves: [Option<[[f32; 2]; 4]>; 8],
+    /// MIP or translucent compositing for the Smooth volumes (ROADMAP_PARITY M3.5). Display only.
+    pub volume_render: crate::render3d::VolumeRender,
     /// The name being typed for a new 3D preset.
     pub preset_name: String,
     /// The user-defined product `SmoothProduct` draws, by name.
@@ -410,6 +412,7 @@ impl Default for Map3dState {
             velocity_floor_ms: 15.0,
             ceilings: [None; 8],
             tf_curves: [None; 8],
+            volume_render: crate::render3d::VolumeRender::Mip,
             preset_name: String::new(),
             product: None,
             product_floor: f32::MIN,

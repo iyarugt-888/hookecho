@@ -424,6 +424,7 @@ impl HookEchoApp {
             .map(|pts| pts.map(|[v, a]| [value_index(v, false), a]));
         let view = crate::render3d::View3d {
             tf,
+            render: state.volume_render,
             threshold_idx,
             ceiling_idx,
             clip: state.clip,

@@ -303,6 +303,11 @@ pub struct Volume3dPreset {
     pub ceiling: Option<f32>,
     /// Four `[value, opacity]` points.
     pub curve: Option<[[f32; 2]; 4]>,
+    /// The rendering the curve was drawn for (M3.5): with translucent rendering its opacities
+    /// are per kilometre of path. Absent in presets saved before translucent rendering existed,
+    /// which were all drawn for MIP and load as MIP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render: Option<crate::render3d::VolumeRender>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2676,6 +2681,28 @@ mod tests {
     }
 
     #[test]
+    fn a_3d_preset_saved_before_translucent_rendering_loads_as_mip() {
+        let legacy = r#"{"name":"Hail core","representation":"Smooth reflectivity",
+            "floor":45.0,"ceiling":70.0,"curve":[[45,0.1],[55,0.4],[62,0.8],[70,1.0]]}"#;
+        let p: Volume3dPreset = serde_json::from_str(legacy).unwrap();
+        assert_eq!(p.render, None);
+        assert_eq!(
+            p.render.unwrap_or_default(),
+            crate::render3d::VolumeRender::Mip
+        );
+        // A preset without a mode writes no field, so older builds read it unchanged.
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(!json.contains("render"), "{json}");
+        let lit = Volume3dPreset {
+            render: Some(crate::render3d::VolumeRender::TranslucentLit),
+            ..p
+        };
+        let back: Volume3dPreset =
+            serde_json::from_str(&serde_json::to_string(&lit).unwrap()).unwrap();
+        assert_eq!(back, lit);
+    }
+
+    #[test]
     fn quiet_pending_round_trips_and_defaults_empty() {
         let old: Settings = serde_json::from_str(r#"{"default_site":"KTLX"}"#).unwrap();
         assert!(old.quiet_pending.is_empty());
@@ -3058,6 +3085,7 @@ mod tests {
                 floor: 45.0,
                 ceiling: Some(70.0),
                 curve: Some([[45.0, 0.1], [55.0, 0.4], [62.0, 0.8], [70.0, 1.0]]),
+                render: Some(crate::render3d::VolumeRender::TranslucentLit),
             }],
             radar_relay_url: "http://relay.local:8080".to_string(),
             radar_provider_override: RadarProviderOverride::Backup,

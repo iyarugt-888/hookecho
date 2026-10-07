@@ -34,6 +34,103 @@ pub struct Uniforms {
     /// ascending, and their opacities 0..1. `tf_a[0] < 0` means off. See [`tf_uniform`].
     tf_x: [f32; 4],
     tf_a: [f32; 4],
+    /// Rendering mode: `[mode, km per world unit horizontally, km per world unit vertically,
+    /// lit]`. See [`render_uniform`].
+    render: [f32; 4],
+}
+
+/// How the raymarch turns a ray's samples into a pixel (ROADMAP_PARITY M3.5). A display choice
+/// only: it never changes which voxels exist, their values, or anything sampled or exported.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum VolumeRender {
+    /// Maximum-intensity projection: each pixel is the strongest kept value along its ray. The
+    /// original mode, unchanged.
+    #[default]
+    Mip,
+    /// Front-to-back alpha compositing: every kept sample adds its colour, weighted by its
+    /// opacity per kilometre of path, so what lies in front partly hides what lies behind.
+    Translucent,
+    /// Translucent, shaded by the echo's own gradient so a core's shape reads.
+    TranslucentLit,
+}
+
+impl VolumeRender {
+    pub const ALL: [Self; 3] = [Self::Mip, Self::Translucent, Self::TranslucentLit];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mip => "Maximum",
+            Self::Translucent => "Translucent",
+            Self::TranslucentLit => "Lit",
+        }
+    }
+
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Mip => "Each pixel shows the strongest value along its line of sight (MIP)",
+            Self::Translucent => {
+                "Values blend front to back; the opacity is per kilometre of path, so the \
+                 Quality setting does not change how solid the storm looks"
+            }
+            Self::TranslucentLit => {
+                "Translucent, shaded by the echo's own gradient: display shading only, the \
+                 values are unchanged"
+            }
+        }
+    }
+
+    pub fn translucent(self) -> bool {
+        self != Self::Mip
+    }
+}
+
+/// The `render` uniform: the mode, and the km one world unit spans horizontally and vertically
+/// in this box (`half_km` across half its width, `top_km` up its height), so the shader measures
+/// each step in real kilometres whatever the vertical exaggeration.
+fn render_uniform(
+    render: VolumeRender,
+    box_min: Vec3,
+    box_max: Vec3,
+    half_km: f32,
+    top_km: f32,
+) -> [f32; 4] {
+    let half_w = ((box_max.x - box_min.x) * 0.5).abs().max(1e-9);
+    let height = (box_max.z - box_min.z).abs().max(1e-9);
+    [
+        if render.translucent() { 1.0 } else { 0.0 },
+        half_km.max(0.0) / half_w,
+        top_km.max(0.0) / height,
+        if render == VolumeRender::TranslucentLit {
+            1.0
+        } else {
+            0.0
+        },
+    ]
+}
+
+/// One step's opacity through a medium of opacity `a_km` per kilometre: `1 - (1 - a)^dt_km`.
+/// The CPU mirror of `raymarch.wgsl`'s `step_alpha`.
+pub fn step_alpha(a_km: f32, dt_km: f32) -> f32 {
+    let clear = (1.0 - a_km).clamp(1e-4, 1.0);
+    1.0 - clear.powf(dt_km)
+}
+
+/// Front-to-back composite of `(rgb, opacity per km)` samples spaced `dt_km` apart, with the
+/// shader's early termination: premultiplied `(rgb, alpha)`. The CPU reference the translucent
+/// mode's opacity tests run against.
+pub fn composite_ray(samples: &[([f32; 3], f32)], dt_km: f32) -> ([f32; 3], f32) {
+    let (mut rgb, mut a) = ([0.0f32; 3], 0.0f32);
+    for (c, a_km) in samples {
+        let s = step_alpha(*a_km, dt_km);
+        for k in 0..3 {
+            rgb[k] += (1.0 - a) * s * c[k];
+        }
+        a += (1.0 - a) * s;
+        if a > 0.995 {
+            break;
+        }
+    }
+    (rgb, a)
 }
 
 /// The transfer-function uniform pair for `tf` (four `[index, opacity]` points): the indices and
@@ -148,6 +245,9 @@ pub struct View3d {
     /// linear between them (and flat past the ends), replacing the fixed ramp. `None` keeps the
     /// ramp.
     pub tf: Option<[[f32; 2]; 4]>,
+    /// MIP or translucent compositing (M3.5). With translucent rendering the opacity from the
+    /// ramp, CC ramp or `tf` is read as opacity per kilometre of path.
+    pub render: VolumeRender,
 }
 
 impl Default for View3d {
@@ -160,6 +260,7 @@ impl Default for View3d {
             cc: [0.0; 4],
             cappi_km: None,
             tf: None,
+            render: VolumeRender::Mip,
         }
     }
 }
@@ -255,8 +356,9 @@ pub fn plane_ground_track(
 }
 
 /// Orbit-camera uniforms: azimuth/elevation in degrees, `dist` from the box center, view `aspect`.
-/// `top_km` is the volume's own vertical span (`wxdata::volume3d::Volume3d::top_km`), needed only
-/// to place `v3.cappi_km`'s reference plane at the right fraction of the fixed orbit box.
+/// `half_km` and `top_km` are the volume's own half-width and vertical span
+/// (`wxdata::volume3d::Volume3d`), which place `v3.cappi_km`'s reference plane at the right
+/// fraction of the fixed orbit box and give translucent rendering its kilometre scale.
 #[allow(clippy::too_many_arguments)]
 pub fn orbit_uniform(
     az_deg: f32,
@@ -265,6 +367,7 @@ pub fn orbit_uniform(
     aspect: f32,
     n: u32,
     nz: u32,
+    half_km: f32,
     top_km: f32,
     steps: u32,
     v3: View3d,
@@ -291,6 +394,7 @@ pub fn orbit_uniform(
         cappi_marker: cappi_marker_uniform(v3.cappi_km, top_km, BOX_MIN, BOX_MAX),
         tf_x: tf_uniform(v3.tf).0,
         tf_a: tf_uniform(v3.tf).1,
+        render: render_uniform(v3.render, BOX_MIN, BOX_MAX, half_km, top_km),
     }
 }
 
@@ -364,6 +468,7 @@ pub fn map_uniform(
         cappi_marker: cappi_marker_uniform(view.cappi_km, upload.top_km, box_min, box_max),
         tf_x: tf_uniform(view.tf).0,
         tf_a: tf_uniform(view.tf).1,
+        render: render_uniform(view.render, box_min, box_max, upload.half_km, upload.top_km),
     }
 }
 
@@ -1926,6 +2031,71 @@ mod plane_tests {
             (half_thickness_wide - 0.5).abs() < 1e-5,
             "half_thickness_wide: {half_thickness_wide}"
         );
+    }
+}
+
+#[cfg(test)]
+mod translucent_tests {
+    use super::{composite_ray, render_uniform, step_alpha, VolumeRender, BOX_MAX, BOX_MIN};
+
+    /// A uniform medium of opacity `a` per km, `len_km` deep, marched in `steps` steps.
+    fn uniform(a: f32, len_km: f32, steps: usize) -> f32 {
+        let dt = len_km / steps as f32;
+        composite_ray(&vec![([1.0, 1.0, 1.0], a); steps], dt).1
+    }
+
+    #[test]
+    fn opacity_does_not_depend_on_the_step_count() {
+        // The analytic answer is 1 - (1 - a)^L; 0.1 per km through 12 km is 0.7176.
+        let want = 1.0 - 0.9f32.powf(12.0);
+        for steps in [8, 32, 96, 160, 256, 1024] {
+            let got = uniform(0.1, 12.0, steps);
+            assert!((got - want).abs() < 1e-4, "{steps} steps: {got} vs {want}");
+        }
+        // One km of the medium is exactly its per-km opacity, whatever it is split into.
+        for steps in [1, 4, 64] {
+            assert!((uniform(0.35, 1.0, steps) - 0.35).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn a_fully_opaque_or_empty_value_composes_as_expected() {
+        assert_eq!(step_alpha(0.0, 3.0), 0.0);
+        assert!(step_alpha(1.0, 1.0) > 0.999);
+        // Front to back: an opaque red sample hides the blue one behind it.
+        let (rgb, a) = composite_ray(&[([1.0, 0.0, 0.0], 1.0), ([0.0, 0.0, 1.0], 1.0)], 1.0);
+        assert!(a > 0.99 && rgb[0] > 0.99 && rgb[2] < 0.01, "{rgb:?} {a}");
+    }
+
+    #[test]
+    fn compositing_differs_from_mip_where_a_weak_shell_hides_a_core() {
+        // A ray through 10 km of weak echo (0.05/km) before 2 km of a core (0.8/km): MIP would
+        // show the core's colour at full strength; compositing shows the core seen through the
+        // haze in front of it — the defining difference between the modes.
+        let haze = ([0.2, 0.2, 0.2], 0.05);
+        let core = ([1.0, 0.0, 0.0], 0.8);
+        let mut ray = vec![haze; 40];
+        ray.extend(vec![core; 8]);
+        let (rgb, a) = composite_ray(&ray, 0.25);
+        let haze_a = 1.0 - 0.95f32.powf(10.0);
+        let core_a = 1.0 - 0.2f32.powf(2.0);
+        assert!((a - (haze_a + (1.0 - haze_a) * core_a)).abs() < 1e-4);
+        assert!((rgb[0] - (haze_a * 0.2 + (1.0 - haze_a) * core_a)).abs() < 1e-4);
+        assert!(
+            rgb[0] < 0.9,
+            "the core is dimmed by the haze in front of it"
+        );
+    }
+
+    #[test]
+    fn the_render_uniform_measures_both_axes_in_real_km() {
+        // The orbit box is 2 units wide and 0.5 tall: a 150 km half-width volume 18 km deep.
+        let [mode, h, v, lit] =
+            render_uniform(VolumeRender::TranslucentLit, BOX_MIN, BOX_MAX, 150.0, 18.0);
+        assert_eq!((mode, lit), (1.0, 1.0));
+        assert!((h - 150.0).abs() < 1e-4 && (v - 36.0).abs() < 1e-4);
+        let [mode, _, _, lit] = render_uniform(VolumeRender::Mip, BOX_MIN, BOX_MAX, 150.0, 18.0);
+        assert_eq!((mode, lit), (0.0, 0.0));
     }
 }
 

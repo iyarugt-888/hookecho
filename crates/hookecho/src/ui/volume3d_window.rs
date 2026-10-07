@@ -34,6 +34,10 @@ pub struct Volume3dState {
     /// Raymarch samples per pixel. The cost of the window is almost entirely this number, so it
     /// is the one knob worth exposing on a phone or an integrated GPU.
     pub steps: u32,
+    /// MIP or translucent compositing (ROADMAP_PARITY M3.5).
+    pub render: crate::render3d::VolumeRender,
+    /// The accepted grid's half-width, km: the kilometre scale translucent opacity is per.
+    pub half_km: f32,
     /// The volume's tilts, for the layer-by-layer list (set by the app with each build).
     pub layers: Vec<wxdata::level2::ObservedLayer>,
     /// Tilts pulled out, by elevation: when any are, the window shows just those tilts' beams
@@ -64,6 +68,8 @@ impl Default for Volume3dState {
             // ponytail: a phone is the one place the full march reliably misses frame budget, so
             // pick by platform rather than benchmarking the GPU.
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
+            render: crate::render3d::VolumeRender::Mip,
+            half_km: 50.0,
             layers: Vec::new(),
             selected_elevs: Vec::new(),
             frame: None,
@@ -289,6 +295,7 @@ pub(crate) fn presets_row(
     denoise: &mut bool,
     ceiling: &mut Option<f32>,
     curve: &mut Option<Curve>,
+    render: &mut crate::render3d::VolumeRender,
     name_buf: &mut String,
 ) -> bool {
     let mut changed = false;
@@ -310,6 +317,8 @@ pub(crate) fn presets_row(
                         *denoise = true;
                         *ceiling = p.ceiling;
                         *curve = p.curve;
+                        // Presets from before translucent rendering were drawn for MIP.
+                        *render = p.render.unwrap_or_default();
                         changed = true;
                     }
                 }
@@ -331,7 +340,7 @@ pub(crate) fn presets_row(
         );
         if ui
             .add_enabled(!name_buf.trim().is_empty(), egui::Button::new("Save"))
-            .on_hover_text("Save this floor, ceiling and curve for this 3D product")
+            .on_hover_text("Save this floor, ceiling, curve and rendering for this 3D product")
             .clicked()
         {
             let name = name_buf.trim().to_string();
@@ -342,6 +351,7 @@ pub(crate) fn presets_row(
                 floor: *floor,
                 ceiling: *ceiling,
                 curve: *curve,
+                render: Some(*render),
             });
             name_buf.clear();
             changed = true;
@@ -373,7 +383,8 @@ pub(crate) fn plane_controls(
     if let Some(p) = plane {
         ui.horizontal(|ui| {
             ui.label("Bearing");
-            crate::theme::slider(ui,
+            crate::theme::slider(
+                ui,
                 egui::Slider::new(&mut p.bearing_deg, 0.0..=360.0)
                     .suffix("\u{b0}")
                     .custom_formatter(|v, _| format!("{v:.0}")),
@@ -381,7 +392,10 @@ pub(crate) fn plane_controls(
         });
         ui.horizontal(|ui| {
             ui.label("Offset");
-            crate::theme::slider(ui, egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false));
+            crate::theme::slider(
+                ui,
+                egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false),
+            );
         })
         .response
         .on_hover_text(
@@ -412,6 +426,17 @@ pub(crate) fn plane_controls(
 /// its own separate 2D tool but nothing showed *where* until now. Shares the CAPPI window's own
 /// altitude (`alt_km`) rather than keeping a second value here, so dragging its slider moves this
 /// marker live. Shared with the main map's own "3D map" Slice section, same as `plane_controls`.
+/// MIP / Translucent / Lit, shared by the 3D window and the 3D map (ROADMAP_PARITY M3.5).
+pub(crate) fn render_mode_row(ui: &mut egui::Ui, render: &mut crate::render3d::VolumeRender) {
+    ui.horizontal(|ui| {
+        ui.label("Render");
+        for mode in crate::render3d::VolumeRender::ALL {
+            ui.selectable_value(render, mode, mode.label())
+                .on_hover_text(mode.describe());
+        }
+    });
+}
+
 pub(crate) fn cappi_marker_controls(ui: &mut egui::Ui, on: &mut bool, alt_km: f32) {
     ui.checkbox(on, "CAPPI altitude").on_hover_text(format!(
         "Show a reference plane at the CAPPI window's altitude ({alt_km:.1} km)"
@@ -488,7 +513,8 @@ pub fn body(
     let previous_selection = st.selected_elevs.clone();
     {
         let _ = source_status(ui, st);
-        ui.weak("Drag to orbit · scroll to zoom · max-intensity projection");
+        ui.weak("Drag to orbit · scroll to zoom");
+        render_mode_row(ui, &mut st.render);
         ui.horizontal(|ui| {
             let mut on = st.threshold_dbz.is_finite();
             if ui
@@ -603,6 +629,7 @@ pub fn body(
         // texture.
         let view = View3d {
             tf: None,
+            render: st.render,
             threshold_idx: if st.threshold_dbz.is_finite() {
                 threshold_index(st.threshold_dbz, range)
             } else {
@@ -623,6 +650,7 @@ pub fn body(
             aspect,
             n,
             nz,
+            st.half_km,
             top_km,
             effective_steps(st.steps, degraded),
             view,

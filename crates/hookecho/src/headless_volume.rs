@@ -143,6 +143,7 @@ impl Gpu {
             1.0,
             upload.n,
             upload.nz,
+            upload.half_km,
             upload.top_km,
             256,
             view,
