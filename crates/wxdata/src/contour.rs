@@ -18,6 +18,29 @@ pub struct ContourLine {
     pub bbox: (f64, f64, f64, f64),
 }
 
+/// The polylines of `f` at exactly `level` (shorter than 3 points dropped), as
+/// [`contour_lines`] draws each of its levels.
+pub fn contour_level(f: &MrmsField, level: f32) -> Vec<ContourLine> {
+    if f.nx < 2 || f.ny < 2 || !level.is_finite() {
+        return Vec::new();
+    }
+    lines_at(f, level)
+}
+
+fn lines_at(f: &MrmsField, level: f32) -> Vec<ContourLine> {
+    stitch(level_segments(f, level))
+        .into_iter()
+        .filter(|line| line.len() >= 3)
+        .map(|pts| {
+            let bbox = pts.iter().fold(
+                (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                |(x0, y0, x1, y1), p| (x0.min(p.0), y0.min(p.1), x1.max(p.0), y1.max(p.1)),
+            );
+            ContourLine { level, pts, bbox }
+        })
+        .collect()
+}
+
 /// Extract contour polylines from `f` at every multiple of `interval` inside the data's value
 /// range (capped at 40 levels). Polylines shorter than 3 points are dropped. `NaN` grid corners
 /// skip their cell, so masked regions leave gaps rather than spurious lines.
@@ -42,30 +65,21 @@ pub fn contour_lines(f: &MrmsField, interval: f32) -> Vec<ContourLine> {
     let mut k = first;
     while k <= last && levels < 40 {
         let level = k as f32 * interval;
-        for line in stitch(level_segments(f, level)) {
-            if line.len() >= 3 {
-                let bbox = line.iter().fold(
-                    (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
-                    |(x0, y0, x1, y1), p| (x0.min(p.0), y0.min(p.1), x1.max(p.0), y1.max(p.1)),
-                );
-                out.push(ContourLine {
-                    level,
-                    pts: line,
-                    bbox,
-                });
-            }
-        }
+        out.extend(lines_at(f, level));
         levels += 1;
         k += 1;
     }
     out
 }
 
+// A value sits at its cell's centre, half a cell in from the field's outer edges: the convention
+// `MrmsField::sample_bilinear`, `max_within_km` and the renderer share, so a contour lands where
+// the drawn field and the probe read its level.
 fn lon_at(f: &MrmsField, c: usize) -> f64 {
-    f.lon_west + (f.lon_east - f.lon_west) * c as f64 / (f.nx - 1) as f64
+    f.lon_west + (f.lon_east - f.lon_west) * (c as f64 + 0.5) / f.nx as f64
 }
 fn lat_at(f: &MrmsField, r: usize) -> f64 {
-    f.lat_north + (f.lat_south - f.lat_north) * r as f64 / (f.ny - 1) as f64
+    f.lat_north + (f.lat_south - f.lat_north) * (r as f64 + 0.5) / f.ny as f64
 }
 
 /// Linear crossing point on the edge from corner `pa` (value `a`) to `pb` (value `b`) at `level`.
@@ -226,5 +240,32 @@ mod tests {
             (hi90 - lo90) < (hi80 - lo80),
             "inner ring should be tighter"
         );
+    }
+
+    #[test]
+    fn a_contour_lies_where_the_field_reads_its_level() {
+        // A west-east ramp on a coarse grid whose corners are the outer cell edges, like every
+        // decoded field: 10 cells of 0.5° from -110 to -105, value = cell index.
+        let nx = 10;
+        let f = MrmsField {
+            values: (0..3).flat_map(|_| (0..nx).map(|c| c as f32)).collect(),
+            nx,
+            ny: 3,
+            lon_west: -110.0,
+            lon_east: -105.0,
+            lat_north: 41.5,
+            lat_south: 40.0,
+            time: chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap(),
+        };
+        // Off the middle, where the edge and centre conventions disagree.
+        let lines = contour_level(&f, 1.5);
+        assert!(!lines.is_empty());
+        for &(lon, lat) in lines.iter().flat_map(|l| &l.pts) {
+            let v = f.sample_bilinear(lon, lat).unwrap();
+            assert!((v - 1.5).abs() < 1e-4, "{lon},{lat} reads {v}");
+            // Between the centres of cells 1 and 2: -109.25 and -108.75.
+            assert!((lon + 109.0).abs() < 1e-9, "{lon}");
+        }
+        assert!(contour_level(&f, f32::NAN).is_empty());
     }
 }
