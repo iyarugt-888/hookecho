@@ -6261,6 +6261,8 @@ fn backtest_event(
                 track_age_volumes: None,
                 azshear_trend: None,
                 env_stp: None,
+                zdr_kdp_km: None,
+                zdr_kdp_angle: None,
                 features: None,
                 vrot_ms: None,
                 g2g_ms: None,
@@ -6442,6 +6444,15 @@ fn backtest_event(
                     )
                 });
             }
+            // The lowest tilt's reflectivity, ZDR, KDP and CC, for the size sorting beside each
+            // column with some evidence (`wxdata::size_sorting`).
+            let lowest_dp = [
+                Moment::Reflectivity,
+                Moment::DifferentialReflectivity,
+                Moment::SpecificDifferentialPhase,
+                Moment::CorrelationCoefficient,
+            ]
+            .map(|m| level2::bin_scan(&scan, m, 0).ok());
             // Every tracked column fused (detectionplan.md Phase 7): its features, for fitting
             // offline, and its evidence score from the current weights.
             for tc in &llsd_columns {
@@ -6450,7 +6461,15 @@ fn backtest_event(
                     wxdata::tornado_fusion::fuse(&features, &wxdata::tornado_fusion::WEIGHTS);
                 let c = &tc.column;
                 let o = &c.members[0].object;
+                let sorting = match (&lowest_dp, fused.score >= 0.1) {
+                    ([Some(z), Some(zdr), Some(kdp), Some(cc)], true) => {
+                        wxdata::size_sorting::measure(z, zdr, kdp, cc, o.lon, o.lat, tc.motion_ms)
+                    }
+                    _ => None,
+                };
                 candidates.push(Candidate {
+                    zdr_kdp_km: sorting.map(|s| s.separation_km),
+                    zdr_kdp_angle: sorting.and_then(|s| s.angle_deg),
                     beam_base_km: Some(c.base_km),
                     beam_top_km: Some(c.top_km),
                     tilts: Some(c.tilts()),

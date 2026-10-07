@@ -129,6 +129,10 @@ pub struct Candidate {
     /// (`near_storm::EnvSample::stp`); `None` when the backtest ran without one
     /// (`HOOKECHO_BACKTEST_HRRR`) or the hour could not be had.
     pub env_stp: Option<f32>,
+    /// The ZDR arc's distance from the KDP foot beside it (km), and the angle of the line between
+    /// them to the storm's motion (degrees, 0-90), at the lowest tilt (`size_sorting`).
+    pub zdr_kdp_km: Option<f32>,
+    pub zdr_kdp_angle: Option<f32>,
     /// The fusion's features, in `tornado_fusion::FEATURE_NAMES` order (fused candidates only).
     pub features: Option<Vec<f32>>,
     /// Inside a tornado warning marked observed at its own volume. Recorded, never scored: an
@@ -627,7 +631,8 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
     const HEADER: &str = "event,site,volume,minute,detector,lon,lat,range_km,beam_base_km,\
         beam_top_km,raw_score,final_score,gates,tilts,vrot_ms,g2g_ms,min_cc,mean_cc,mean_z,max_z,\
         zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey,\
-        azshear_s,track_id,track_age_volumes,azshear_trend,env_stp,matched_truths";
+        azshear_s,track_id,track_age_volumes,azshear_trend,env_stp,zdr_kdp_km,zdr_kdp_angle,\
+        matched_truths";
     fn cell(s: &str) -> String {
         if s.contains([',', '"', '\n']) {
             format!("\"{}\"", s.replace('"', "\"\""))
@@ -683,6 +688,8 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             o(c.track_age_volumes),
             f(c.azshear_trend),
             f(c.env_stp),
+            f(c.zdr_kdp_km),
+            f(c.zdr_kdp_angle),
             c.matched_truths.join(";"),
         ];
         let features = c.features.as_deref().unwrap_or(&[]);
@@ -736,6 +743,8 @@ mod tests {
             track_age_volumes: None,
             azshear_trend: None,
             env_stp: None,
+            zdr_kdp_km: None,
+            zdr_kdp_angle: None,
             features: None,
         }
     }

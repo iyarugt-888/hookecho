@@ -101,6 +101,7 @@ pub mod rtma;
 pub mod scan_age;
 pub mod scoretrack;
 pub mod severe;
+pub mod size_sorting;
 pub mod shapefile;
 pub mod sounding;
 pub mod spc;
