@@ -23,6 +23,11 @@ annotations.geojson   Drawings, markers and watch zones, for QGIS/ArcGIS or any 
 provenance.json       Which radar volume each pane showed (the NOAA object name and scan time),\n\
                       its VCP, tilt and elevation, the detector algorithm versions, Tornado ID's\n\
                       lineage (pipeline, versions, input scan times) and the melting level in use.\n\
+impacts.csv           Every manual storm motion's estimated arrival at each saved place, watch
+                      zone, imported impact target and town found in its path: time (UTC),
+                      minutes after the motion's analysis time, closest approach, in path or not.
+impacts.md            The same as a readable report, motion by motion, with the people counted in
+                      each hour's swath and which lookups were not made or failed.
 detections.csv        The debris signatures, rotation couplets and Tornado ID verdicts on the active\n\
                       pane's volume, as shown, with their score and algorithm version. Tornado ID\n\
                       rows say which pipeline made them and when their input sweeps were scanned\n\
@@ -453,6 +458,9 @@ impl HookEchoApp {
                 .into_bytes(),
         ));
         entries.push(("detections.csv".into(), self.detections_csv().into_bytes()));
+        let (impacts_csv, impacts_md) = self.impact_report(now);
+        entries.push(("impacts.csv".into(), impacts_csv.into_bytes()));
+        entries.push(("impacts.md".into(), impacts_md.into_bytes()));
         if let Some(s) = self.region.samples() {
             entries.push(("probes/region.csv".into(), s.to_csv().into_bytes()));
         }

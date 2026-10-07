@@ -28,6 +28,7 @@ mod goes_context;
 mod goes_timeline;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
+mod impact_report;
 mod layer_probe;
 mod live_session;
 #[cfg(not(target_arch = "wasm32"))]
