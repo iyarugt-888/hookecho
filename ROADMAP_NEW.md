@@ -2422,9 +2422,12 @@ Create common APIs for:
 
 - [x] HRRR — migrated onto the F1 catalogue (definition + field mappings; fetch/regrid unchanged)
 - [x] RAP — migrated onto the same catalogue, including its analysis use at f00
-- [ ] GFS — expand beyond current comparison fields. Still on its own path in `global.rs`, which
+- [x] GFS — expand beyond current comparison fields. Still on its own path in `global.rs`, which
   fetches from a different bucket layout with a different index scheme; folding it in needs the
   per-model byte-range strategy F1 deliberately did not invent yet.
+  Done (2026-10-07, ROADMAP_PARITY M5.3): the Model fields browser reads the run's own `.idx`
+  through `wxdata::model_inventory` and offers every field with vetted units (390 of 743 at F+24
+  live), winds as barbs; the comparison fields keep their existing path.
 - [ ] RRFSv1 deterministic
 - [ ] REFS / RRFS ensemble members
 - [x] GEFS — found already fully built while surveying this section, the same pattern as A1/C3/D1's
@@ -2433,7 +2436,9 @@ Create common APIs for:
   (`app/chrome/ribbon.rs`) and the layer-options global-model list, and is covered by the
   `global_live`/`point_series_live` network tests. Re-verified live this pass: `global_live`
   fetched real GEFS-mean MSLP (600×300, 100% finite) alongside GFS/ECMWF/GDPS in the same run.
-- [ ] NBM — genuinely open, not stale: `wxdata::hrrr::Model::Nbm` already has real GRIB mappings
+- [x] NBM — browsable since ROADMAP_PARITY M5.3 increment 1: the Model fields browser is exactly
+  the field-based surface asked for below, and lists the NBM's own `.idx` fields with vetted units
+  (its `WIND` speed scalar included). Original note: genuinely open, not stale: `wxdata::hrrr::Model::Nbm` already has real GRIB mappings
   for the fields it publishes (confirmed live against `blend.t18z.core.f001.co.grib2.idx`:
   `TMP`/`DPT` at "2 m above ground" match the existing generic key exactly), and explicit `None`
   opt-outs for the fields it genuinely doesn't (composite reflectivity, mixed-layer CAPE, SRH,
@@ -2452,7 +2457,10 @@ As of 2026-09-12, NOAA’s current published implementation schedule lists RRFS/
 
 ### Tier 2
 
-- [ ] ECMWF open IFS fields useful over the U.S. if current licensing/access remains compatible
+- [x] ECMWF open IFS fields useful over the U.S. if current licensing/access remains compatible —
+  the Model fields browser reads the open-data IFS 0.25° `.index` (ROADMAP_PARITY M5.3 increment
+  6): pressure-level temperature/height/humidity/wind, 2 m temperature/dew point, 10/100 m wind,
+  pressure, precipitable water and precipitation since the run, mapped only where units match.
 - [ ] ECMWF ensemble products only where openly and legally retrievable
 - [ ] NOAA-accessible AI guidance such as GraphCast products where stable public feeds exist
 - [ ] experimental guidance behind an explicit EXPERIMENTAL label
@@ -2617,15 +2625,25 @@ mixed-layer CAPE, precipitable water and 6-hour rain (QPF). Wind gust, snow and 
 
 For GEFS/REFS and any supported ensemble:
 
-- [x] individual member view — `fetch_gefs` returns every member grid (engine only, no UI)
+- [x] individual member view — `fetch_gefs` returns every member grid; clicking a stamp in
+  "Ensemble members" (or the layer's member line) shows that member alone on the map in the
+  field's own colours and units, "Back to the statistic" returns (2026-10-07)
 - [x] ensemble mean
 - [x] ensemble spread / standard deviation — sample standard deviation
 - [x] min/max
 - [x] percentile fields — linearly interpolated between ranked members
 - [x] probability of threshold exceedance — percent of members strictly above, engine and headless
 - [ ] neighborhood probability when scientifically appropriate
-- member postage-stamp grid
-- spaghetti contours
+- [x] member postage-stamp grid — "Ensemble members" (command palette, or "Members…" in the
+  ensemble layer's options): the mean and all 31 members over the active pane's view, coloured on
+  the CPU from the members already held, remade only when the run, lead, field or view changes
+  (2026-10-07; review sheet `target/parity-review/f7/stamps-gh500.png` from
+  `gefs_stamps_live`)
+- [x] spaghetti contours — the ensemble layer's "Spaghetti" switch (2026-10-07): each member's
+  contour at the layer's value (`wxdata::contour::contour_level`), one colour per member, the
+  mean's in bold white and labelled, recontoured only when the run, lead, level or member count
+  changes. Live: GEFS 500 hPa 5700 m at F+48 and F+168, all 31 members drawn
+  (`HOOKECHO_ENSEMBLE_SPAGHETTI=5700 hookecho --headless-ensemble gh500 spread 168 out.png`).
 - [x] point plume/time series — the forecast window's "Ensemble plume (GEFS)": the mean with a one-standard-deviation band at the tapped point, from the ready-made mean and spread files (so it shows the spread, not individual members or percentiles)
 - ensemble sounding overlay
 
@@ -3279,9 +3297,14 @@ Export:
   ProbSevere, fire perimeters, imported shapes), each with its kind and title
 - [x] markers and watch zones — not in this list originally, but they are the other two things a
   user draws and would expect to get back out
-- [ ] sampled/threshold contours — no contour geometry is generated in a form that could be
-  exported; the contour overlays draw directly rather than producing vector features
-- [ ] route geometry — L1's route engine is not started, so there is nothing to export
+- [x] sampled/threshold contours — model contours (earlier), and now the displayed reflectivity
+  sweep's 35/50/60 dBZ outlines (2026-10-07, `app/radar_outlines.rs`): the sweep sampled gate by
+  gate onto a 0.01° lattice over its coverage, no echo inside coverage kept distinct from no
+  coverage so an echo's edge closes where it ends, each line with site, product, elevation, scan
+  time, threshold, unit and whether it closes. On the Mayfield 2021 corpus volume: 291 lines
+  (216/73/2), 289 closed; read back independently as a WGS84 FeatureCollection of LineStrings.
+- [x] route geometry — the planned routes as the routing provider returned them, with distance,
+  duration, summary, engine and which was chosen (ROADMAP_PARITY M4.4 increment 4)
 
 ### Acceptance criteria
 
@@ -3573,10 +3596,23 @@ At a point or region compare forecasts against:
 New this pass, see the Unreleased CHANGELOG entry: `wxdata::gridverify` scores a forecast run against
 the RTMA for the same valid hours, and the "Model verification…" window shows it by lead.
 
-- [ ] METAR — not wired; would need matching the forecast at each station point
+- [x] METAR — "Against: METAR stations" in the Model verification window (2026-10-07): each
+  station's report within 15 min of the valid time (`wxdata::metar::fetch_near`, the
+  aviationweather.gov archive, boxes split when a reply fills the API's 400-report cap), the
+  forecast read bilinearly at the station, every station counted once
+  (`gridverify::compare_points`). Live: HRRR F+01 over the southern Plains, 136 stations, MAE
+  0.85 K; a whole-CONUS hour returns 2,030 stations. No terrain-height correction: the window
+  says so.
 - [ ] RAOB — not wired
 - [x] RTMA/URMA — RTMA only (real-time analysis); URMA is not read
-- [ ] MRMS precip/reflectivity where scientifically appropriate — not wired
+- [x] MRMS precip/reflectivity where scientifically appropriate — reflectivity (2026-10-07):
+  "Composite reflectivity" in the Model verification window, scored only against the MRMS
+  mosaic within 5 min of the valid time. The mosaic's in-coverage no-echo code (−99, which
+  display decoding turns into a gap like the outside-coverage −999) reads 0 dBZ for scoring
+  (`mrms::decode_grib2_scoring`), and forecast values below 0 dBZ are floored the same way, so a
+  forecast storm where nothing happened is a false alarm rather than an unscored cell. Live: HRRR
+  F+01 over CONUS, 920,627 cells, 35 dBZ POD 0.34 / FAR 0.84 / frequency bias 2.14. MRMS
+  precipitation (QPE) is still not wired.
 
 Metrics:
 
@@ -3587,7 +3623,7 @@ Metrics:
 - [x] categorical hit/miss/false alarm for thresholds — area-weighted, with POD, FAR, CSI and frequency bias
 
 Scope today: HRRR, RAP and the NAMs, for 2 m temperature and dewpoint, over the whole domain or the
-map view. It is a region score, not a point series.
+map view. It is a region score (grid cells or stations), not a point series.
 
 ## K2. Radar algorithm verification — partly done
 
@@ -4463,7 +4499,8 @@ This is the explicit “what are we still missing?” list for agents.
 ## WeatherFront-class gaps
 
 - [ ] native full-resolution GOES ABI
-- [ ] 1-minute mesoscale satellite
+- [x] 1-minute mesoscale satellite — a satellite loop plays every listed mesoscale scan (or
+  CONUS), with missing scans as gaps and bounded disk prefetch (ROADMAP_PARITY M5.2 increment 1)
 - [ ] broad RGB/channel suite
 - [ ] generic 80+-class MRMS catalog coverage
 - [ ] RRFS/REFS
@@ -4489,9 +4526,15 @@ This is the explicit “what are we still missing?” list for agents.
 - [x] progressive in-progress sweep display — per-chunk radial merge/GPU updates, retained previous
   pass shading, scan progress and the data-triggered 2D live sweep bar are all implemented in B2
 - [ ] measured ultra-low-latency pipeline where provider permits
-- [ ] explicit beam-rise visualization
+- [x] explicit beam-rise visualization — the cross-section's beam-rise overlay, the 3D beam guides
+  (H5), and the Beam diagram window: every tilt against range, read at the cursor with the
+  heights no beam samples (ROADMAP_PARITY M3.6 increment 7)
 - [ ] more polished 3D cross-section workflow
-- [ ] impact/analysis report workflow
+- [x] impact/analysis report workflow — the analysis export (K4) carries `impacts.csv` and a
+  readable `impacts.md`: every manual storm motion's arrivals at saved places, watch zones,
+  imported impact targets and towns in its path, with the people counted in its swath and which
+  lookups were not made (ROADMAP_PARITY M2.3 increment 3). SCIT-only storms and alert population
+  summaries are not in it yet
 
 ## WeatherWise Plus / Pro feature parity (checklist, 2026-09-27)
 
@@ -4646,7 +4689,9 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
   the sweep edge, labelled with the sweep's time span. Ages are relative to the sweep's own newest
   data, not the wall clock. Tested; not yet exercised on screen.
 - [x] Shapefile GIS import — see I1 item 2
-- [ ] stronger broadcast output/capture workflows
+- [ ] stronger broadcast output/capture workflows — program pinned/held with cue and Take
+  (M6.1); scenes now keep product, tilt, thresholds and live/fixed time (M6.2 increment 1);
+  palettes, thumbnails and capture manifests remain
 - [ ] multi-provider operational redundancy
 
 ## GR2Analyst-class gaps
@@ -4654,7 +4699,9 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
 - [x] user-defined radar product system — formula evaluation + a live gate-side readout (see C1);
   rendering a product as its own map layer is not built
 - [ ] maximum/minimum value trails
-- [ ] mature transfer-function 3D
+- [ ] mature transfer-function 3D — translucent front-to-back compositing with per-km opacity
+  and gradient lighting now sits beside MIP (ROADMAP_PARITY M3.5 increment 1), and the opacity
+  curve takes two to eight editable stops (increment 2); colour stops remain
 - [ ] isosurfaces
 - [x] movable slicing planes / clip slabs — see H4: an arbitrary-bearing vertical plane plus the
   pre-existing axis-aligned box; a horizontal in-view CAPPI plane and a map-pane cross-section

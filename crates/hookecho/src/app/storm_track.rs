@@ -20,7 +20,7 @@ pub(crate) const HORIZON_MIN: f64 = 60.0;
 const DEFAULT_MARK_INTERVAL_MIN: u32 = 15;
 /// Beyond this, a marker is too far ahead for the motion to say anything about it.
 const ETA_MAX_MIN: f64 = 120.0;
-const KMH_PER_KT: f64 = 1.852;
+pub(crate) const KMH_PER_KT: f64 = 1.852;
 /// A pointer this close (points) to a handle grabs it rather than starting a new track.
 const GRAB_PT: f32 = 12.0;
 /// A fingertip covers far more than a cursor tip: on a touch screen a handle is grabbed from twice
@@ -80,7 +80,7 @@ pub(crate) struct TrackSource {
 }
 
 impl ManualTrack {
-    fn new(origin: [f64; 2], t0: DateTime<Utc>) -> Self {
+    pub(crate) fn new(origin: [f64; 2], t0: DateTime<Utc>) -> Self {
         Self {
             origin,
             bearing_deg: 0.0,

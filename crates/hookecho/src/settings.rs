@@ -301,8 +301,18 @@ pub struct Volume3dPreset {
     pub representation: String,
     pub floor: f32,
     pub ceiling: Option<f32>,
-    /// Four `[value, opacity]` points.
+    /// Four `[value, opacity]` points: the curve itself when it has four stops, otherwise a
+    /// four-point sampling of it, which is what a build that predates `stops` reads.
     pub curve: Option<[[f32; 2]; 4]>,
+    /// The curve's stops when it does not have exactly four (M3.5 increment 2); preferred over
+    /// `curve` by builds that read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stops: Option<Vec<[f32; 2]>>,
+    /// The rendering the curve was drawn for (M3.5): with translucent rendering its opacities
+    /// are per kilometre of path. Absent in presets saved before translucent rendering existed,
+    /// which were all drawn for MIP and load as MIP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render: Option<crate::render3d::VolumeRender>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -722,6 +732,10 @@ pub struct Settings {
     /// quietly polls less often than it says it does is the wrong kind of surprise.
     #[serde(default)]
     pub battery_saver: bool,
+    /// Draw the wind layer as barbs on a screen lattice as well as (or with particles off,
+    /// instead of) the particles.
+    #[serde(default)]
+    pub wind_barbs: bool,
     /// Record a breadcrumb track of the session's GPS fixes, exportable as GPX. Off by default:
     /// where you drove is yours, and nothing records it unless you say so. The track lives in
     /// memory only until you save it.
@@ -1798,6 +1812,22 @@ fn default_local_api_port() -> u16 {
     47_914
 }
 
+impl Volume3dPreset {
+    /// The preset's curve: its exact stops when it has them, else the four-point curve.
+    pub fn tf(&self) -> Option<crate::render3d::TfStops> {
+        match &self.stops {
+            Some(s) => crate::render3d::TfStops::new(s),
+            None => self.curve.map(Into::into),
+        }
+    }
+
+    /// Store `tf` so both this build and older ones read it (see `curve` and `stops`).
+    pub fn set_tf(&mut self, tf: Option<crate::render3d::TfStops>) {
+        self.curve = tf.map(|t| t.as_four());
+        self.stops = tf.filter(|t| t.len() != 4).map(|t| t.points().to_vec());
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -1940,6 +1970,7 @@ impl Default for Settings {
             route_engine: Default::default(),
             route_url: String::new(),
             battery_saver: false,
+            wind_barbs: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,
@@ -2684,6 +2715,70 @@ mod tests {
     }
 
     #[test]
+    fn a_3d_preset_saved_before_translucent_rendering_loads_as_mip() {
+        let legacy = r#"{"name":"Hail core","representation":"Smooth reflectivity",
+            "floor":45.0,"ceiling":70.0,"curve":[[45,0.1],[55,0.4],[62,0.8],[70,1.0]]}"#;
+        let p: Volume3dPreset = serde_json::from_str(legacy).unwrap();
+        assert_eq!(p.render, None);
+        assert_eq!(
+            p.render.unwrap_or_default(),
+            crate::render3d::VolumeRender::Mip
+        );
+        // A preset without a mode writes no field, so older builds read it unchanged.
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(!json.contains("render"), "{json}");
+        let lit = Volume3dPreset {
+            render: Some(crate::render3d::VolumeRender::TranslucentLit),
+            ..p
+        };
+        assert_eq!(lit.stops, None);
+        let back: Volume3dPreset =
+            serde_json::from_str(&serde_json::to_string(&lit).unwrap()).unwrap();
+        assert_eq!(back, lit);
+    }
+
+    #[test]
+    fn a_preset_with_more_than_four_stops_stays_readable_by_older_builds() {
+        let six = crate::render3d::TfStops::new(&[
+            [40.0, 0.0],
+            [45.0, 0.1],
+            [55.0, 0.4],
+            [60.0, 0.6],
+            [62.0, 0.8],
+            [70.0, 1.0],
+        ])
+        .unwrap();
+        let mut p = Volume3dPreset {
+            name: "Hail".into(),
+            representation: "Smooth reflectivity".into(),
+            floor: 40.0,
+            ceiling: None,
+            curve: None,
+            stops: None,
+            render: None,
+        };
+        p.set_tf(Some(six));
+        let json = serde_json::to_value(&p).unwrap();
+        // An older build reads `curve` (four samples of it) and ignores `stops`.
+        assert_eq!(json["curve"].as_array().unwrap().len(), 4);
+        assert_eq!(json["stops"].as_array().unwrap().len(), 6);
+        let back: Volume3dPreset = serde_json::from_value(json).unwrap();
+        assert_eq!(back.tf(), Some(six), "this build reads the exact stops");
+        // Four stops write only `curve`, exactly as before.
+        let four: crate::render3d::TfStops =
+            [[45.0, 0.1], [55.0, 0.4], [62.0, 0.8], [70.0, 1.0]].into();
+        p.set_tf(Some(four));
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(!json.contains("stops"), "{json}");
+        assert_eq!(
+            serde_json::from_str::<Volume3dPreset>(&json).unwrap().tf(),
+            Some(four)
+        );
+        p.set_tf(None);
+        assert_eq!((p.curve, p.stops.clone(), p.tf()), (None, None, None));
+    }
+
+    #[test]
     fn quiet_pending_round_trips_and_defaults_empty() {
         let old: Settings = serde_json::from_str(r#"{"default_site":"KTLX"}"#).unwrap();
         assert!(old.quiet_pending.is_empty());
@@ -3066,6 +3161,15 @@ mod tests {
                 floor: 45.0,
                 ceiling: Some(70.0),
                 curve: Some([[45.0, 0.1], [55.0, 0.4], [62.0, 0.8], [70.0, 1.0]]),
+                render: Some(crate::render3d::VolumeRender::TranslucentLit),
+                stops: Some(vec![
+                    [40.0, 0.0],
+                    [45.0, 0.1],
+                    [55.0, 0.4],
+                    [60.0, 0.6],
+                    [62.0, 0.8],
+                    [70.0, 1.0],
+                ]),
             }],
             radar_relay_url: "http://relay.local:8080".to_string(),
             radar_provider_override: RadarProviderOverride::Backup,
@@ -3140,6 +3244,7 @@ mod tests {
             route_engine: Default::default(),
             route_url: String::new(),
             battery_saver: false,
+            wind_barbs: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,

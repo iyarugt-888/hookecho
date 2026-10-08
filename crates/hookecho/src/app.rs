@@ -28,6 +28,7 @@ mod goes_context;
 mod goes_timeline;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
+mod impact_report;
 mod layer_probe;
 mod live_session;
 #[cfg(not(target_arch = "wasm32"))]
@@ -37,7 +38,10 @@ mod overlay_health;
 mod pane_time;
 mod radar_wind;
 mod region_stats;
+pub(crate) mod model_field;
 mod report;
+mod beam_diagram;
+mod sat_loop;
 pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
 pub(crate) use contours::{summarize_contours, ContourEntry, ContourKind};
 use fetch_schedule::field_refresh_secs;
@@ -52,6 +56,8 @@ mod capture_upload;
 mod chase;
 mod construct;
 mod contours;
+mod ensemble_stamps;
+mod radar_outlines;
 mod data_age;
 mod data_poll;
 mod detectors;
@@ -817,7 +823,15 @@ struct LoopExport {
     volumes: Vec<Option<(String, DateTime<Utc>)>>,
     /// Hold each frame for its real scan gap (`Settings::loop_real_timing`) or all alike.
     real_timing: bool,
+    /// What each captured frame asked for and found (ROADMAP_PARITY M6.3), for the manifest.
+    records: Vec<crate::capture_manifest::FrameRecord>,
+    /// The frame being captured: the scan asked for, and whether the wait for it ran out.
+    asked: Option<String>,
+    timed_out: bool,
 }
+
+/// A pane's smooth volume grid: `n`, `nz`, half-width km, top km, centre km east/north.
+type SmoothDims = (u32, u32, f32, f32, [f32; 2]);
 
 /// A placefile the app has fetched and is tracking (mirrors a `PlacefileConfig` by URL).
 /// What the memoised placefile labels depend on: (placefile item/enabled/icon fingerprint,
@@ -1482,12 +1496,16 @@ pub struct HookEchoApp {
     /// The `(field, hour)` the members were last fetched for, so a change refetches at once.
     ensemble_key: Option<(wxdata::ensemble::EnsembleField, u16)>,
     /// Which view the resident GPU upload represents (see `EnsembleView::display_key`).
-    ensemble_display_key: Option<(
-        wxdata::ensemble::EnsembleField,
-        crate::ensemble_layer::StatKind,
-        u32,
-    )>,
+    ensemble_display_key: Option<crate::ensemble_layer::DisplayKey>,
     ensemble_error: Option<String>,
+    /// The members' contours at the ensemble level, when spaghetti is on (see
+    /// `ensemble_layer::spaghetti_key`).
+    /// The ensemble's postage-stamp window (ROADMAP_NEW F7).
+    ensemble_stamps: ensemble_stamps::EnsembleStamps,
+    ensemble_spaghetti: Option<(
+        crate::ensemble_layer::SpaghettiKey,
+        std::sync::Arc<crate::ensemble_layer::Spaghetti>,
+    )>,
     /// The compare panes' shared valid time and distinct source runs.
     compare_valid: Option<crate::fielddiff::ComparisonTimes>,
     compare_error: Option<String>,
@@ -1668,6 +1686,12 @@ pub struct HookEchoApp {
     goes_time_idx: Option<usize>,
     /// Keep the GOES frame on the active pane's radar clock rather than on a hand-picked frame.
     goes_follow_radar: bool,
+    /// Satellite-native playback (ROADMAP_PARITY M5.2); drives the GOES clock while on.
+    sat_loop: sat_loop::SatLoop,
+    /// The model field browser (ROADMAP_PARITY M5.3).
+    field_browser: model_field::ModelFieldBrowser,
+    /// The range-height beam diagram (WeatherWise-class beam rise).
+    beam_diagram: beam_diagram::BeamDiagram,
     goes_times_rx: Option<std::sync::mpsc::Receiver<Vec<chrono::DateTime<chrono::Utc>>>>,
     /// The archive hour the loaded frame times cover (`None` = the live window ending now).
     /// Scrubbing far enough back to cross into another hour refetches; staying inside one does
@@ -1718,6 +1742,8 @@ pub struct HookEchoApp {
     /// whichever pane the mouse is actually over and cleared when the pointer leaves every pane.
     /// Not persisted — a live hover position, not a saved preference.
     linked_probe: Option<(usize, (f64, f64))>,
+    /// The map point under the pointer and its pane, whatever the cursor links (beam diagram).
+    hover_lonlat: Option<(usize, (f64, f64))>,
     linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
@@ -2231,7 +2257,7 @@ pub struct HookEchoApp {
     /// The device's 3D texture edge limit, which caps the Smooth grid.
     vol3d_max_dim: usize,
     smooth_vol_pending: [Option<Arc<crate::render3d::Volume3dUpload>>; crate::view::MAX_PANES],
-    smooth_vol_dims: [Option<(u32, u32, f32, f32)>; crate::view::MAX_PANES],
+    smooth_vol_dims: [Option<SmoothDims>; crate::view::MAX_PANES],
     /// GPU 2D texture-size cap (device limit), used to clamp field-grid decimation on mobile GPUs.
     max_texture_dim: u32,
     /// Whether this device can hold the 3D texture the raymarch window needs. See its assignment
@@ -5584,6 +5610,28 @@ impl HookEchoApp {
             }
         }
 
+        // Wind barbs, when asked for: the same east/north grid the particles fly on.
+        if self.show_wind && self.settings.wind_barbs {
+            let alpha = self.wind_alpha(idx, cam.zoom);
+            if let (Some(field), true) = (self.wind.as_ref(), alpha > 0.01) {
+                let barbs =
+                    crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX);
+                crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, alpha);
+            }
+        }
+        // A wind picked in the model field browser draws as barbs over its speed, from the
+        // components staged with that speed (so the two never disagree on run or lead).
+        if let Some(uv) = self.model_wind_for(idx) {
+            let barbs = crate::wind_draw::barbs_uv(
+                &uv.0,
+                &uv.1,
+                &cam,
+                vp,
+                crate::wind_draw::BARB_SPACING_PX,
+            );
+            crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, 0.95);
+        }
+
         // Animated wind particles, when they are being drawn on the CPU. The GPU path draws
         // inside the map callback instead (see `wind_gpu_frame`), which is also what puts it
         // under the warning polygons rather than over them.
@@ -5679,6 +5727,7 @@ impl HookEchoApp {
         // fetched and colored — overlaying, say, MSLP and CAPE together rather than one exclusive
         // choice.
         self.paint_model_contours(&painter, prect, cam, vp, idx);
+        self.paint_ensemble_spaghetti(&painter, prect, cam, vp, idx);
 
         // The tornado markers' click targets are this frame's, or none (set again below).
         ui.ctx()
@@ -6546,18 +6595,12 @@ impl HookEchoApp {
         // ObservedSweeps raymarches real gate instances with no box for a plane to cut into.
         let map3d = &self.views[idx].map_3d;
         if map3d.enabled && map3d.representation != Map3dRepresentation::ObservedSweeps {
-            if let (Some(plane), Some((.., half_km, _))) = (map3d.plane, self.smooth_vol_dims[idx])
+            if let (Some(plane), Some((_, _, half_km, _, _))) =
+                (map3d.plane, self.smooth_vol_dims[idx])
             {
-                if let Some(site) = self.views[idx]
-                    .site
-                    .as_deref()
-                    .and_then(wxdata::sites::site_by_id)
-                {
-                    let (a, b) = crate::render3d::plane_ground_track(
-                        plane,
-                        [site.longitude as f64, site.latitude as f64],
-                        half_km,
-                    );
+                // The plane cuts the box, which a region of interest centres off the radar.
+                if let Some(center) = self.smooth_box_center(idx) {
+                    let (a, b) = crate::render3d::plane_ground_track(plane, center, half_km);
                     let col = egui::Color32::from_rgb(200, 130, 255);
                     let screen = |ll: [f64; 2]| {
                         let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
@@ -6921,7 +6964,9 @@ impl HookEchoApp {
     /// already the filtered, toggled set `rebuild_overlays` assembled for display, so an export
     /// matches what the user is looking at instead of quietly carrying layers they had turned off.
     fn export_map_geojson(&mut self) {
-        let features = self.map_export_features();
+        let mut features = self.map_export_features();
+        // The displayed reflectivity sweep's threshold edges, as lines with their scan's metadata.
+        features.extend(self.radar_outline_features());
         let count = features.len();
         if count == 0 {
             self.toast(
@@ -7835,7 +7880,7 @@ impl HookEchoApp {
             return;
         };
         let view = self.ensemble;
-        match wxdata::ensemble::combine(&run.members, view.statistic()) {
+        match crate::ensemble_layer::display_grid(&run.members, &view) {
             Ok(grid) => {
                 let upload = crate::ensemble_layer::upload(&grid, &view);
                 let stamp = field_state::model_stamp(

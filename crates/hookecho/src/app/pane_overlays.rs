@@ -394,6 +394,107 @@ impl HookEchoApp {
         );
         painter.galley(at + egui::vec2(7.0, 4.0), galley, color);
     }
+
+    /// The GEFS spaghetti over pane `idx`: each member's contour at the ensemble level, thin and
+    /// one colour per member, then the mean's, bold and labelled.
+    pub(crate) fn paint_ensemble_spaghetti(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+        idx: usize,
+    ) {
+        if !self.ensemble.spaghetti
+            || !self.views[idx]
+                .fields_on
+                .contains(&crate::render::FieldLayer::Ensemble)
+        {
+            return;
+        }
+        let Some((key, lines)) = &self.ensemble_spaghetti else {
+            return;
+        };
+        // Only lines made from the members held now, at the level asked for now.
+        if self
+            .ensemble_run
+            .as_ref()
+            .is_none_or(|run| crate::ensemble_layer::spaghetti_key(&self.ensemble, run) != *key)
+        {
+            return;
+        }
+        let to_screen = |lon: f64, lat: f64| {
+            let w = crate::render::mercator::lonlat_to_world(lon, lat);
+            let (sx, sy) = cam.world_to_screen(w, vp);
+            egui::pos2(prect.left() + sx, prect.top() + sy)
+        };
+        let (vmin_lon, vmin_lat, vmax_lon, vmax_lat) = {
+            use crate::render::mercator::world_to_lonlat;
+            let (wx0, wy0) = cam.screen_to_world((0.0, 0.0), vp);
+            let (wx1, wy1) = cam.screen_to_world((vp.0, vp.1), vp);
+            let (lon0, lat0) = world_to_lonlat(wx0, wy0);
+            let (lon1, lat1) = world_to_lonlat(wx1, wy1);
+            (
+                lon0.min(lon1),
+                lat0.min(lat1),
+                lon0.max(lon1),
+                lat0.max(lat1),
+            )
+        };
+        let visible = |l: &&wxdata::contour::ContourLine| {
+            let (x0, y0, x1, y1) = l.bbox;
+            !(x1 < vmin_lon || x0 > vmax_lon || y1 < vmin_lat || y0 > vmax_lat)
+        };
+        let points = |l: &wxdata::contour::ContourLine| -> Vec<egui::Pos2> {
+            l.pts
+                .iter()
+                .map(|&(lon, lat)| to_screen(lon, lat))
+                .collect()
+        };
+        let n = lines.members.len();
+        for (i, member) in lines.members.iter().enumerate() {
+            let stroke = egui::Stroke::new(1.0, crate::ensemble_layer::member_color(i, n));
+            for l in member.iter().filter(visible) {
+                painter.add(egui::Shape::line(points(l), stroke));
+            }
+        }
+        let (value, unit) = {
+            let mut v = self.ensemble;
+            v.threshold = lines.level;
+            v.threshold_display(self.settings.temp_unit)
+        };
+        let label = format!("{value:.0} {unit}");
+        for l in lines.mean.iter().filter(visible) {
+            let pts = points(l);
+            painter.add(egui::Shape::line(
+                pts.clone(),
+                egui::Stroke::new(4.0, egui::Color32::from_black_alpha(170)),
+            ));
+            let seg = longest_segment(&pts);
+            painter.add(egui::Shape::line(
+                pts,
+                egui::Stroke::new(2.2, egui::Color32::WHITE),
+            ));
+            if let Some((a, b)) = seg.filter(|(a, b)| a.distance(*b) > 60.0) {
+                let mid = a + (b - a) * 0.5;
+                let font = egui::FontId::proportional(11.0);
+                painter.text(
+                    mid + egui::vec2(1.0, 1.0),
+                    egui::Align2::CENTER_CENTER,
+                    &label,
+                    font.clone(),
+                    egui::Color32::BLACK,
+                );
+                painter.text(
+                    mid,
+                    egui::Align2::CENTER_CENTER,
+                    &label,
+                    font,
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+    }
 }
 
 /// The badge a live pane shows for its newest scan's age: Aging from 80% of the stale threshold

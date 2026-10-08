@@ -55,6 +55,7 @@ impl HookEchoApp {
                 Some(a) => column_product::column_upload(f, &a.table, a.range),
                 None => field_upload_indexed(FL::UserColumn, f),
             },
+            FL::ModelField => model_field::model_field_upload(f),
             other => field_upload_indexed(other, f),
         }
     }

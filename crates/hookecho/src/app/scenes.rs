@@ -2,9 +2,13 @@
 //! on it, the colour scale, the dressing, the title strap and the output size — as a named scene,
 //! and switch to it with Alt+1..9 (in the order saved) or from the list beside the output window's
 //! settings. Applying a scene flies the camera there (`app::camera_flight`) rather than cutting.
+//!
+//! Since scene format 2 (ROADMAP_PARITY M6.2) a scene also keeps the pane's product, tilt, SRV,
+//! field layers, thresholds and column product, and whether it is live or one archived instant;
+//! an older scene keeps the pane's current product and time for the parts it never stored.
 
 use super::*;
-use crate::broadcast::Scene;
+use crate::broadcast::{Scene, SceneProduct, SceneTime, SceneView3d, SCENE_VERSION};
 use output_window::{program_pane, OutputSize};
 
 /// Whether a scene going into pane `target` sets program's held camera rather than the pane's:
@@ -37,6 +41,62 @@ pub(crate) fn scene_readiness(
     let mut r = Readiness::default();
     if let Err(why) = target {
         r.blocking.push(format!("program has no pane: {why}"));
+    }
+    if scene.version > SCENE_VERSION {
+        r.blocking.push(format!(
+            "saved by a newer HookEcho (scene format {}, this build reads up to {SCENE_VERSION})",
+            scene.version
+        ));
+    }
+    if let Some(p) = &scene.product {
+        // A missing product is not swapped for another one: that would put different science
+        // on air under the scene's name.
+        if let Some(name) = &p.column_product {
+            if !settings.udp_products.iter().any(|d| &d.name == name) {
+                r.blocking.push(format!(
+                    "column product \u{201c}{name}\u{201d} is not defined here"
+                ));
+            }
+        }
+        let unknown = p
+            .fields_on
+            .iter()
+            .filter(|s| {
+                !crate::render::FieldLayer::DRAW_ORDER
+                    .iter()
+                    .any(|l| l.slug() == *s)
+            })
+            .count();
+        if unknown > 0 {
+            r.notes.push(format!(
+                "{unknown} field layer{} this build doesn't have will be skipped",
+                if unknown == 1 { "" } else { "s" }
+            ));
+        }
+    }
+    if let Some(v3) = &scene.view3d {
+        match crate::view::Map3dRepresentation::from_label(&v3.representation) {
+            None => r.notes.push(format!(
+                "3D mode \u{201c}{}\u{201d} isn't in this build; the 3D map is left as it is",
+                v3.representation
+            )),
+            Some(crate::view::Map3dRepresentation::SmoothProduct) => {
+                if let Some(name) = &v3.product {
+                    if !settings.udp_products.iter().any(|d| &d.name == name) {
+                        r.blocking.push(format!(
+                            "3D product \u{201c}{name}\u{201d} is not defined here"
+                        ));
+                    }
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    if let Some(SceneTime::Fixed { utc }) = scene.time {
+        r.notes.push(format!(
+            "archive scene: Take loads {} UTC",
+            utc.format("%Y-%m-%d %H:%M")
+        ));
     }
     let unknown = scene
         .overlays_on
@@ -80,6 +140,128 @@ impl OutputSize {
     }
 }
 
+/// The product a pane shows, as a scene keeps it. Model layers are left out (see
+/// [`SceneProduct::fields_on`]).
+pub(crate) fn scene_product(v: &MapView) -> SceneProduct {
+    SceneProduct {
+        moment: v.moment,
+        tilt: v.tilt,
+        srv: v.srv,
+        fields_on: crate::render::FieldLayer::DRAW_ORDER
+            .iter()
+            .filter(|l| v.fields_on.contains(l) && !model_context::MODEL_LAYERS.contains(l))
+            .map(|l| l.slug().to_string())
+            .collect(),
+        thresholds: Moment::ALL
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| v.threshold_enabled[i])
+            .filter_map(|(i, m)| v.thresholds[i].map(|t| (*m, t)))
+            .collect(),
+        column_product: v.column_product.clone(),
+    }
+}
+
+/// The pane's time as a scene keeps it: live while following the newest frame, else the
+/// instant of the frame on screen; `None` when a scrubbed pane has no frame to name.
+pub(crate) fn scene_time(v: &MapView) -> Option<SceneTime> {
+    if v.timeline.following {
+        return Some(SceneTime::Live);
+    }
+    let utc = v.timeline.current().and_then(|id| id.date_time())?;
+    Some(SceneTime::Fixed { utc })
+}
+
+/// Put a scene's product on a pane. Its model layers stay as they are; everything else it
+/// names replaces what the pane had, thresholds included, so no filter from the previous view
+/// stays on air.
+pub(crate) fn apply_scene_product(p: &SceneProduct, v: &mut MapView) {
+    v.moment = p.moment;
+    v.tilt = p.tilt;
+    v.srv = p.srv;
+    v.thresholds = Default::default();
+    v.threshold_enabled = Default::default();
+    for (m, t) in &p.thresholds {
+        v.thresholds[m.index()] = Some(*t);
+        v.threshold_enabled[m.index()] = true;
+    }
+    v.fields_on = crate::render::FieldLayer::DRAW_ORDER
+        .iter()
+        .copied()
+        .filter(|l| {
+            if model_context::MODEL_LAYERS.contains(l) {
+                v.fields_on.contains(l)
+            } else {
+                p.fields_on.iter().any(|s| s == l.slug())
+            }
+        })
+        .collect();
+    v.column_product = p.column_product.clone();
+}
+
+/// The pane's 3D map as a scene keeps it.
+pub(crate) fn scene_view3d(v: &MapView) -> SceneView3d {
+    let m = &v.map_3d;
+    SceneView3d {
+        enabled: m.enabled,
+        representation: m.representation.label().to_string(),
+        render: m.volume_render,
+        vertical_exaggeration: m.vertical_exaggeration,
+        opacity: m.opacity,
+        quality_steps: m.quality_steps,
+        product: m.product.clone(),
+    }
+}
+
+/// Put a scene's 3D map on a pane. A mode this build lacks leaves the 3D map as it is (the
+/// readiness check says so); a region of interest is cleared, since it belonged to a storm of
+/// another time.
+pub(crate) fn apply_scene_view3d(s: &SceneView3d, v: &mut MapView) {
+    let Some(rep) = crate::view::Map3dRepresentation::from_label(&s.representation) else {
+        return;
+    };
+    let m = &mut v.map_3d;
+    m.enabled = s.enabled;
+    m.representation = rep;
+    m.volume_render = s.render;
+    m.vertical_exaggeration = s.vertical_exaggeration;
+    m.opacity = s.opacity.clamp(0.0, 1.0);
+    m.quality_steps = s.quality_steps;
+    m.product = s.product.clone();
+    m.roi = None;
+}
+
+/// Put a scene's time on a pane: back to live, or a seek to the archived instant (the pane's
+/// listing for that day loads through the normal path, as an opened case does).
+pub(crate) fn apply_scene_time(t: SceneTime, v: &mut MapView) {
+    match t {
+        SceneTime::Live => v.timeline.go_head(),
+        SceneTime::Fixed { utc } => {
+            v.timeline.date = utc.date_naive();
+            v.timeline.following = false;
+            v.timeline.playing = false;
+            v.timeline.seek_target = Some(utc);
+        }
+    }
+}
+
+/// A copy of scene `i` right after it, named so it reads as the copy ("Moore (2)", then
+/// "Moore (3)").
+pub(crate) fn duplicate_scene(scenes: &mut Vec<Scene>, i: usize) {
+    let Some(src) = scenes.get(i).cloned() else {
+        return;
+    };
+    let base = match src.name.rsplit_once(" (") {
+        Some((b, n)) if n.trim_end_matches(')').parse::<u32>().is_ok() => b.to_string(),
+        _ => src.name.clone(),
+    };
+    let name = (2..)
+        .map(|n| format!("{base} ({n})"))
+        .find(|n| !scenes.iter().any(|s| &s.name == n))
+        .expect("an unused name");
+    scenes.insert(i + 1, Scene { name, ..src });
+}
+
 /// Which scene an Alt+1..9 press this frame asks for (0-based), consuming the key.
 fn scene_key(ctx: &egui::Context) -> Option<usize> {
     use egui::Key::*;
@@ -103,6 +285,10 @@ impl HookEchoApp {
         let (lon, lat) =
             crate::render::mercator::world_to_lonlat(v.camera.center.0, v.camera.center.1);
         Scene {
+            version: SCENE_VERSION,
+            product: Some(scene_product(v)),
+            time: scene_time(v),
+            view3d: Some(scene_view3d(v)),
             name,
             site: v.site.clone(),
             lon,
@@ -150,8 +336,8 @@ impl HookEchoApp {
         self.output.cued = None;
     }
 
-    /// Put a scene on pane `target`: camera (flown to), layers, colour scale, dressing, strap,
-    /// output size, GIS layers.
+    /// Put a scene on pane `target`: camera (flown to), product and time, layers, colour scale,
+    /// dressing, strap, output size, GIS layers.
     fn apply_scene_to(&mut self, target: usize, scene: &Scene) {
         let camera = crate::render::mercator::Camera {
             center: crate::render::mercator::lonlat_to_world(scene.lon, scene.lat),
@@ -172,6 +358,27 @@ impl HookEchoApp {
         v.show_legend = scene.legend;
         if let Some(site) = &scene.site {
             v.site = Some(site.clone());
+        }
+        if let Some(p) = &scene.product {
+            apply_scene_product(p, v);
+        }
+        // After the product: a 3D mode is checked against the moment the pane now shows.
+        if let Some(v3) = &scene.view3d {
+            apply_scene_view3d(v3, v);
+        }
+        if let Some(t) = scene.time {
+            apply_scene_time(t, v);
+            if self.link_times {
+                let time = match t {
+                    SceneTime::Live => None,
+                    SceneTime::Fixed { utc } => Some(utc),
+                };
+                self.linked_analysis.select_explicit(
+                    target,
+                    self.views[target].site.as_deref(),
+                    time,
+                );
+            }
         }
         for t in OverlayToggle::ALL {
             if t.session_only() {
@@ -211,6 +418,9 @@ impl HookEchoApp {
             }
             let mut go = None;
             let mut remove = None;
+            let mut duplicate = None;
+            let mut swap = None;
+            let count = self.settings.scenes.len();
             for (i, s) in self.settings.scenes.iter().enumerate() {
                 ui.horizontal(|ui| {
                     let key = if i < 9 {
@@ -230,6 +440,27 @@ impl HookEchoApp {
                     if ui.small_button("\u{d7}").on_hover_text("Delete").clicked() {
                         remove = Some(i);
                     }
+                    if ui
+                        .small_button("\u{29c9}")
+                        .on_hover_text("Duplicate, to make a variation of this scene")
+                        .clicked()
+                    {
+                        duplicate = Some(i);
+                    }
+                    if ui
+                        .add_enabled(i > 0, egui::Button::new("\u{25b2}").small())
+                        .on_hover_text("Move up (Alt+1..9 follow the order)")
+                        .clicked()
+                    {
+                        swap = Some((i - 1, i));
+                    }
+                    if ui
+                        .add_enabled(i + 1 < count, egui::Button::new("\u{25bc}").small())
+                        .on_hover_text("Move down (Alt+1..9 follow the order)")
+                        .clicked()
+                    {
+                        swap = Some((i, i + 1));
+                    }
                 });
             }
             if ui.button("Save the current view as a scene").clicked() {
@@ -246,8 +477,18 @@ impl HookEchoApp {
                 ui.separator();
                 ui.label(egui::RichText::new(format!("Preview: {}", scene.name)).strong());
                 ui.weak(format!(
-                    "{} · zoom {:.1}{}",
+                    "{} · {} · {} · zoom {:.1}{}",
                     scene.site.as_deref().unwrap_or("current radar"),
+                    scene.product.as_ref().map_or_else(
+                        || "current product".to_string(),
+                        |p| format!("{} tilt {}", p.moment.short_name(), p.tilt + 1)
+                    ),
+                    match scene.time {
+                        None => "current time".to_string(),
+                        Some(SceneTime::Live) => "live".to_string(),
+                        Some(SceneTime::Fixed { utc }) =>
+                            format!("{} UTC", utc.format("%Y-%m-%d %H:%M")),
+                    },
                     scene.zoom,
                     if scene.strap.trim().is_empty() {
                         String::new()
@@ -280,6 +521,10 @@ impl HookEchoApp {
             }
             if let Some(i) = remove {
                 self.settings.scenes.remove(i);
+            } else if let Some(i) = duplicate {
+                duplicate_scene(&mut self.settings.scenes, i);
+            } else if let Some((a, b)) = swap {
+                self.settings.scenes.swap(a, b);
             }
         });
     }
@@ -288,6 +533,7 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn a_held_program_takes_the_scene_camera_and_the_operator_keeps_theirs() {
@@ -344,6 +590,243 @@ mod tests {
             r.notes
         );
         assert_eq!(settings, before);
+    }
+
+    fn pane() -> MapView {
+        MapView::new(
+            Some("KTLX".into()),
+            crate::render::mercator::Camera::at_lonlat(-97.3, 35.3, 8.0),
+        )
+    }
+
+    #[test]
+    fn a_scene_puts_back_the_product_it_was_saved_with() {
+        use crate::render::FieldLayer;
+        let mut saved = pane();
+        saved.moment = Moment::Velocity;
+        saved.tilt = 2;
+        saved.srv = true;
+        saved.thresholds[Moment::Velocity.index()] = Some(20.0);
+        saved.threshold_enabled[Moment::Velocity.index()] = true;
+        let radar_layer = FieldLayer::DRAW_ORDER
+            .iter()
+            .copied()
+            .find(|l| !model_context::MODEL_LAYERS.contains(l))
+            .unwrap();
+        let model_layer = model_context::MODEL_LAYERS[0];
+        saved.fields_on = [radar_layer, model_layer].into_iter().collect();
+        saved.column_product = Some("VIL".into());
+        let product = scene_product(&saved);
+        assert!(
+            !product.fields_on.contains(&model_layer.slug().to_string()),
+            "model layers need a model run a scene does not carry"
+        );
+
+        // A pane showing something else entirely, with its own model layer and a filter.
+        let mut on_air = pane();
+        on_air.moment = Moment::Reflectivity;
+        on_air.thresholds[Moment::Reflectivity.index()] = Some(40.0);
+        on_air.threshold_enabled[Moment::Reflectivity.index()] = true;
+        let other_model = model_context::MODEL_LAYERS[1];
+        on_air.fields_on = [other_model].into_iter().collect();
+        apply_scene_product(&product, &mut on_air);
+        assert_eq!(scene_product(&on_air), product);
+        assert_eq!(
+            (on_air.moment, on_air.tilt, on_air.srv),
+            (Moment::Velocity, 2, true)
+        );
+        assert!(
+            !on_air.threshold_enabled[Moment::Reflectivity.index()],
+            "no filter from the previous view stays on air"
+        );
+        assert!(on_air.fields_on.contains(&radar_layer));
+        assert!(
+            on_air.fields_on.contains(&other_model) && !on_air.fields_on.contains(&model_layer),
+            "the pane's model layers stay as they were"
+        );
+        assert_eq!(on_air.column_product.as_deref(), Some("VIL"));
+    }
+
+    #[test]
+    fn a_scene_is_live_or_one_archived_instant() {
+        let mut v = pane();
+        assert_eq!(scene_time(&v), Some(SceneTime::Live));
+        let utc = chrono::Utc.with_ymd_and_hms(2013, 5, 20, 20, 1, 0).unwrap();
+        apply_scene_time(SceneTime::Fixed { utc }, &mut v);
+        assert!(!v.timeline.following && !v.timeline.playing);
+        assert_eq!(v.timeline.seek_target, Some(utc));
+        assert_eq!(v.timeline.date, utc.date_naive());
+        // Scrubbed with nothing loaded yet there is no frame to name, so nothing is claimed.
+        assert_eq!(scene_time(&v), None);
+        apply_scene_time(SceneTime::Live, &mut v);
+        assert!(v.timeline.following);
+        assert_eq!(v.timeline.seek_target, None);
+        // Round trip through JSON in both forms.
+        for t in [SceneTime::Live, SceneTime::Fixed { utc }] {
+            let json = serde_json::to_string(&t).unwrap();
+            assert_eq!(
+                serde_json::from_str::<SceneTime>(&json).unwrap(),
+                t,
+                "{json}"
+            );
+        }
+    }
+
+    #[test]
+    fn readiness_refuses_a_missing_product_and_a_newer_format() {
+        let mut settings = crate::settings::Settings::default();
+        let base: Scene =
+            serde_json::from_str(r#"{"name":"VIL","lon":-97.0,"lat":35.0,"zoom":8.0}"#).unwrap();
+        assert_eq!(base.version, 0, "an older scene");
+        assert!(
+            base.product.is_none() && base.time.is_none(),
+            "keeps the pane's product and time"
+        );
+        let scene = Scene {
+            version: SCENE_VERSION,
+            product: Some(SceneProduct {
+                moment: Moment::Reflectivity,
+                tilt: 0,
+                srv: false,
+                fields_on: vec!["no-such-field".into()],
+                thresholds: Vec::new(),
+                column_product: Some("Hail depth".into()),
+            }),
+            time: Some(SceneTime::Fixed {
+                utc: chrono::Utc.with_ymd_and_hms(2013, 5, 20, 20, 1, 0).unwrap(),
+            }),
+            ..base.clone()
+        };
+        let r = scene_readiness(&scene, &settings, Ok(0));
+        assert_eq!(r.blocking.len(), 1, "{:?}", r.blocking);
+        assert!(r.blocking[0].contains("Hail depth"), "{:?}", r.blocking);
+        assert!(
+            r.notes.iter().any(|n| n.contains("1 field layer")),
+            "{:?}",
+            r.notes
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("2013-05-20 20:01")),
+            "{:?}",
+            r.notes
+        );
+        settings.udp_products.push(
+            serde_json::from_value(
+                serde_json::json!({"name": "Hail depth", "units": "", "expression": "REF"}),
+            )
+            .unwrap(),
+        );
+        assert!(scene_readiness(&scene, &settings, Ok(0))
+            .blocking
+            .is_empty());
+        let newer = Scene {
+            version: SCENE_VERSION + 1,
+            ..scene
+        };
+        let r = scene_readiness(&newer, &settings, Ok(0));
+        assert!(
+            r.blocking.iter().any(|b| b.contains("newer HookEcho")),
+            "{:?}",
+            r.blocking
+        );
+        // A saved scene round-trips whole.
+        let back: Scene = serde_json::from_str(&serde_json::to_string(&newer).unwrap()).unwrap();
+        assert_eq!(back, newer);
+    }
+
+    #[test]
+    fn a_scene_puts_back_its_3d_map_and_clears_a_storm_region() {
+        use crate::view::Map3dRepresentation as R;
+        let mut saved = pane();
+        saved.map_3d.enabled = true;
+        saved.map_3d.representation = R::SmoothVolume;
+        saved.map_3d.volume_render = crate::render3d::VolumeRender::TranslucentLit;
+        saved.map_3d.vertical_exaggeration = 3.0;
+        saved.map_3d.opacity = 0.5;
+        saved.map_3d.quality_steps = 96;
+        let v3 = scene_view3d(&saved);
+        assert_eq!(v3.representation, "Smooth reflectivity");
+        let mut on_air = pane();
+        on_air.map_3d.roi = Some(crate::view::VolumeRoi {
+            center: [-97.0, 35.0],
+            half_km: 20.0,
+            storm: Some("Q4".into()),
+            follow: true,
+            lost: false,
+        });
+        apply_scene_view3d(&v3, &mut on_air);
+        assert_eq!(scene_view3d(&on_air), v3);
+        assert!(
+            on_air.map_3d.roi.is_none(),
+            "a region belonged to another time's storm"
+        );
+        // A mode this build lacks leaves the 3D map alone, and readiness says so.
+        let unknown = SceneView3d {
+            representation: "Hologram".into(),
+            ..v3.clone()
+        };
+        let before = on_air.map_3d.clone();
+        apply_scene_view3d(&unknown, &mut on_air);
+        assert_eq!(
+            on_air.map_3d.vertical_exaggeration,
+            before.vertical_exaggeration
+        );
+        let base: Scene =
+            serde_json::from_str(r#"{"name":"3D","lon":-97.0,"lat":35.0,"zoom":8.0}"#).unwrap();
+        assert!(base.view3d.is_none(), "an older scene leaves 3D as it is");
+        let settings = crate::settings::Settings::default();
+        let r = scene_readiness(
+            &Scene {
+                view3d: Some(unknown),
+                ..base.clone()
+            },
+            &settings,
+            Ok(0),
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("Hologram")),
+            "{:?}",
+            r.notes
+        );
+        // A user-product volume whose product is gone is not substituted.
+        let product = SceneView3d {
+            representation: "User product".into(),
+            product: Some("Hail depth".into()),
+            ..v3
+        };
+        let r = scene_readiness(
+            &Scene {
+                view3d: Some(product),
+                ..base
+            },
+            &settings,
+            Ok(0),
+        );
+        assert!(
+            r.blocking.iter().any(|b| b.contains("Hail depth")),
+            "{:?}",
+            r.blocking
+        );
+    }
+
+    #[test]
+    fn a_duplicate_lands_after_its_original_with_a_free_name() {
+        let scene = |name: &str| -> Scene {
+            serde_json::from_value(serde_json::json!({
+                "name": name, "lon": -97.0, "lat": 35.0, "zoom": 8.0
+            }))
+            .unwrap()
+        };
+        let mut scenes = vec![scene("Moore"), scene("Overview")];
+        duplicate_scene(&mut scenes, 0);
+        duplicate_scene(&mut scenes, 0);
+        let names: Vec<&str> = scenes.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Moore", "Moore (3)", "Moore (2)", "Overview"]);
+        // A copy of a copy counts on from the base name.
+        duplicate_scene(&mut scenes, 1);
+        assert_eq!(scenes[2].name, "Moore (4)");
+        duplicate_scene(&mut scenes, 99);
+        assert_eq!(scenes.len(), 5, "out of range does nothing");
     }
 
     #[test]

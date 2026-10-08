@@ -365,6 +365,15 @@ fn prepare_message(msg: OverlayMsg, cap: usize) -> OverlayMsg {
                 .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
             OverlayMsg::StampedField(layer, f.for_display(cap, kind))
         }
+        OverlayMsg::VectorField(speed, uv) => {
+            let speed = speed.for_display(cap, wxdata::field::ValueKind::Scalar);
+            let (u, v) = *uv;
+            let uv = (
+                super::model_field::resample_like(u, &speed.data),
+                super::model_field::resample_like(v, &speed.data),
+            );
+            OverlayMsg::VectorField(speed, Box::new(uv))
+        }
         OverlayMsg::MrmsField(layer, f, request) => {
             let kind = layer
                 .descriptor()

@@ -118,6 +118,99 @@ pub async fn fetch_bbox(
     Ok(obs)
 }
 
+/// How far from a valid time a report may be and still stand for it, minutes: a routine METAR
+/// goes out a few minutes before the hour it is filed for.
+pub const NEAR_VALID_MIN: i64 = 15;
+
+/// The most reports the API returns for one query: a reply this long may be cut short.
+const API_CAP: usize = 400;
+
+/// Most queries one [`fetch_near`] makes before giving up on an area too dense to cover.
+const MAX_QUERIES: usize = 48;
+
+/// Each reporting station's report nearest `valid` (within [`NEAR_VALID_MIN`]), over the area
+/// `(west, south, east, north)`, from the archive the API keeps. The API returns at most
+/// [`API_CAP`] reports per query, so a box that fills it is split in four and asked again;
+/// an area needing more than [`MAX_QUERIES`] queries is refused rather than scored on a part.
+pub async fn fetch_near(
+    client: &reqwest::Client,
+    area: (f64, f64, f64, f64),
+    valid: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<Vec<SurfaceOb>> {
+    // The API's `date` ends a window of `hours` before it.
+    let end = (valid + chrono::Duration::minutes(NEAR_VALID_MIN)).format("%Y-%m-%dT%H:%M:%SZ");
+    let end = end.to_string();
+    let mut todo = vec![area];
+    let mut all = Vec::new();
+    let mut queries = 0;
+    while let Some((w, s, e, n)) = todo.pop() {
+        queries += 1;
+        anyhow::ensure!(
+            queries <= MAX_QUERIES,
+            "too many stations to fetch for that area; score a smaller one (the map view)"
+        );
+        let bbox = format!("{s},{w},{n},{e}");
+        let resp = client
+            .get(crate::net::fetch_url(METAR_URL))
+            .timeout(crate::net::FEED_TIMEOUT)
+            .query(&[
+                ("bbox", bbox.as_str()),
+                ("format", "json"),
+                ("date", end.as_str()),
+                ("hours", "1"),
+            ])
+            .header("User-Agent", USER_AGENT)
+            .send()
+            .await?
+            .error_for_status()?;
+        if resp.status() == reqwest::StatusCode::NO_CONTENT {
+            continue;
+        }
+        let body = resp.text().await?;
+        if !serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|v| v.is_array()) {
+            anyhow::bail!("METARs: the reply is not a JSON array");
+        }
+        let got = parse(&body);
+        if got.len() >= API_CAP {
+            let (mx, my) = ((w + e) / 2.0, (s + n) / 2.0);
+            todo.extend([
+                (w, s, mx, my),
+                (mx, s, e, my),
+                (w, my, mx, n),
+                (mx, my, e, n),
+            ]);
+        } else {
+            all.extend(got);
+        }
+    }
+    Ok(nearest_per_station(all, valid))
+}
+
+/// One report per station: the one nearest `valid`, if within [`NEAR_VALID_MIN`]; the earlier on
+/// a tie. Sorted by station.
+pub fn nearest_per_station(
+    obs: Vec<SurfaceOb>,
+    valid: chrono::DateTime<chrono::Utc>,
+) -> Vec<SurfaceOb> {
+    let t = valid.timestamp();
+    let mut best: std::collections::BTreeMap<String, (i64, SurfaceOb)> = Default::default();
+    for o in obs {
+        let Some(at) = o.obs_time else { continue };
+        let off = at - t;
+        if off.abs() > NEAR_VALID_MIN * 60 {
+            continue;
+        }
+        let key = (off.abs(), off);
+        match best.get(&o.icao) {
+            Some((b, _)) if (b.abs(), *b) <= key => {}
+            _ => {
+                best.insert(o.icao.clone(), (off, o));
+            }
+        }
+    }
+    best.into_values().map(|(_, o)| o).collect()
+}
+
 /// Fetch the current TAFs over the same bbox as [`fetch_bbox`], as `ICAO -> raw TAF text`.
 ///
 /// Raw text, not the decoded `fcsts` array: a TAF is written to be read as a TAF, and every pilot
@@ -227,6 +320,60 @@ mod tests {
         assert!(tafs["KOKC"].contains("new"), "superseded bulletin won");
         assert!(tafs.contains_key("KTIK"));
         assert!(parse_tafs("not json").is_empty());
+    }
+
+    #[test]
+    fn each_station_keeps_its_report_nearest_the_hour() {
+        let valid = chrono::DateTime::from_timestamp(1_791_385_200, 0).unwrap(); // 15:00Z
+        let ob = |icao: &str, min: i64, t: f32| {
+            let mut o = parse(&format!(
+                r#"[{{"icaoId":"{icao}","lat":35.0,"lon":-97.0,"temp":{t}}}]"#
+            ))
+            .remove(0);
+            o.obs_time = Some(valid.timestamp() + min * 60);
+            o
+        };
+        let kept = nearest_per_station(
+            vec![
+                ob("KOKC", -25, 1.0), // too early
+                ob("KOKC", -7, 2.0),  // the routine report
+                ob("KOKC", 9, 3.0),
+                ob("KTIK", 5, 4.0),
+                ob("KTIK", -5, 5.0), // a tie goes to the earlier
+                ob("KLAW", 20, 6.0), // nothing near enough
+            ],
+            valid,
+        );
+        let got: Vec<(&str, Option<f32>)> =
+            kept.iter().map(|o| (o.icao.as_str(), o.temp_c)).collect();
+        assert_eq!(got, [("KOKC", Some(2.0)), ("KTIK", Some(5.0))]);
+    }
+
+    /// Reports around an hour six hours ago over Oklahoma and Kansas, live.
+    /// `cargo test -p wxdata metar_near_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn metar_near_live() {
+        use chrono::Timelike;
+        let http = reqwest::Client::new();
+        let valid = (chrono::Utc::now() - chrono::Duration::hours(6))
+            .with_minute(0)
+            .and_then(|t| t.with_second(0))
+            .and_then(|t| t.with_nanosecond(0))
+            .unwrap();
+        // A whole-CONUS box fills the API's cap several times over: the split must cover it.
+        let obs = fetch_near(&http, (-125.0, 24.0, -66.0, 50.0), valid)
+            .await
+            .unwrap();
+        let with_temp = obs.iter().filter(|o| o.temp_c.is_some()).count();
+        println!(
+            "{valid}: {} stations, {with_temp} with a temperature",
+            obs.len()
+        );
+        assert!(obs.len() > 1000, "{}", obs.len());
+        assert!(obs
+            .iter()
+            .all(|o| (o.obs_time.unwrap() - valid.timestamp()).abs() <= NEAR_VALID_MIN * 60));
     }
 
     #[test]

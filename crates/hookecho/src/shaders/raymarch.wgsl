@@ -1,8 +1,11 @@
-// Maximum-intensity-projection raymarch of a 3D reflectivity volume.
+// Raymarch of a 3D radar volume: maximum-intensity projection, or translucent compositing.
 //
 // A fullscreen triangle casts one ray per pixel from an orbit camera, intersects the volume's
-// axis-aligned box, marches it taking the max reflectivity index, and colors that via the
-// reflectivity LUT. Empty rays are transparent so the egui window background shows through.
+// axis-aligned box, and marches it. MIP keeps the max index along the ray and colors that via the
+// LUT. Translucent mode (ROADMAP_PARITY M3.5) composites every kept sample front to back instead,
+// each sample's opacity read as "opacity per kilometre of path" and corrected for the step's real
+// length, so changing the step count (Quality) does not change how opaque the storm looks. Empty
+// rays are transparent so the egui window background shows through.
 //
 // Phase H4: an optional vertical plane at any angle (not just the box's own axes) further clips
 // what the march can see, per-sample rather than by tightening the box intersection above — one
@@ -44,25 +47,79 @@ struct Uniforms {
     // opacities 0..1 (tf_a), piecewise linear between and flat past the ends. tf_a.x < 0 is off.
     tf_x: vec4<f32>,
     tf_a: vec4<f32>,
+    // Stops five to eight (unused ones repeat the last), and x = how many stops there are.
+    tf_x2: vec4<f32>,
+    tf_a2: vec4<f32>,
+    tf_n: vec4<f32>,
+    // Rendering mode: x 0 = MIP, 1 = translucent compositing; y and z the kilometres one world
+    // unit spans horizontally and vertically (vertical exaggeration makes them differ), so a
+    // step's path length is measured in real km; w 1 = gradient lighting (translucent only).
+    render: vec4<f32>,
 };
 
-// The transfer function's opacity at volume index `i`.
+// The transfer function's opacity at volume index `i`: piecewise linear through up to eight
+// stops, flat past the ends. Mirrored on the CPU by `render3d::TfStops::alpha`.
 fn tf_alpha(i: f32) -> f32 {
-    let x = u.tf_x;
-    let a = u.tf_a;
-    if (i <= x.x) {
-        return a.x;
+    var xs = array<f32, 8>(u.tf_x.x, u.tf_x.y, u.tf_x.z, u.tf_x.w, u.tf_x2.x, u.tf_x2.y, u.tf_x2.z, u.tf_x2.w);
+    var as_ = array<f32, 8>(u.tf_a.x, u.tf_a.y, u.tf_a.z, u.tf_a.w, u.tf_a2.x, u.tf_a2.y, u.tf_a2.z, u.tf_a2.w);
+    // A curve written before the count existed has four stops.
+    let n = clamp(select(4, i32(u.tf_n.x), u.tf_n.x >= 2.0), 2, 8);
+    if (i <= xs[0]) {
+        return as_[0];
     }
-    if (i <= x.y) {
-        return mix(a.x, a.y, (i - x.x) / max(x.y - x.x, 0.001));
+    for (var k = 1; k < n; k = k + 1) {
+        if (i <= xs[k]) {
+            return mix(as_[k - 1], as_[k], (i - xs[k - 1]) / max(xs[k] - xs[k - 1], 0.001));
+        }
     }
-    if (i <= x.z) {
-        return mix(a.y, a.z, (i - x.y) / max(x.z - x.y, 0.001));
+    return as_[n - 1];
+}
+
+// A kept voxel's opacity: the CC-anomaly ramp, the fixed ramp from the floor, or a drawn
+// transfer function, all times the layer opacity `ctl.y`. Shared by MIP (one value per ray) and
+// translucent compositing (where it is the opacity of one kilometre of that value).
+fn voxel_alpha(idx: u32, floor_idx: u32, ceil_idx: u32) -> f32 {
+    var alpha: f32;
+    if (u.cc.w > 0.5) {
+        // CC anomaly: opacity is a function of how far this voxel's correlation coefficient
+        // sits below ordinary meteorological scatter, so the background storm fades out and
+        // the low-CC pocket inside it is what stays solid. This *replaces* the generic ramp
+        // below rather than scaling it — the two are competing opacity models, and
+        // multiplying them drove background CC to invisible instead of to the faint trace
+        // that keeps a debris ball legibly embedded in the storm around it.
+        let t = clamp((f32(idx) - u.cc.x) / (u.cc.y - u.cc.x), 0.0, 1.0);
+        // Smoothstep, not a linear ramp: it flattens at both ends, which is what makes the
+        // progression read as the intended tiers without banding the volume into hard shells.
+        let shaped = t * t * (3.0 - 2.0 * t);
+        alpha = u.cc.z + (1.0 - u.cc.z) * shaped;
+    } else {
+        // With a ceiling the ramp spans the kept band, so a narrow window still reads solid.
+        let head = max(f32(ceil_idx) - f32(floor_idx), 1.0);
+        let t = clamp((f32(idx) - f32(floor_idx)) / head, 0.0, 1.0);
+        if (u.render.x > 0.5) {
+            // Translucent default: a cubic per-km ramp, so the weak echo a ray crosses for tens
+            // of kilometres stays a haze and the cores it reaches stay the solid part.
+            alpha = 0.02 + 0.9 * t * t * t;
+        } else {
+            // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the
+            // surviving cores read solid instead of uniformly hazy.
+            alpha = clamp(t * 1.6 + 0.15, 0.0, 1.0);
+        }
     }
-    if (i <= x.w) {
-        return mix(a.z, a.w, (i - x.z) / max(x.w - x.z, 0.001));
+    // A drawn transfer function replaces either ramp above.
+    if (u.tf_a.x >= 0.0) {
+        alpha = tf_alpha(f32(idx));
     }
-    return a.w;
+    return alpha * u.ctl.y;
+}
+
+// Opacity of a step `dt_km` long through a medium whose opacity over one kilometre is `a_km`:
+// 1 - (1 - a)^dt. Splitting a path into more, shorter steps composes to the same total, which is
+// what keeps translucent rendering stable when the step count changes. Mirrored on the CPU by
+// `render3d::step_alpha` for the tests.
+fn step_alpha(a_km: f32, dt_km: f32) -> f32 {
+    let clear = clamp(1.0 - a_km, 1e-4, 1.0);
+    return 1.0 - pow(clear, dt_km);
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -145,7 +202,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // ctl.w is an optional ceiling (Phase H2's value window): above it a voxel is empty too, so
     // floor and ceiling together keep one band of values. 0 means none.
     let ceil_idx = select(255u, u32(u.ctl.w), u.ctl.w >= 2.0);
+    let translucent = u.render.x > 0.5;
+    let lit = translucent && u.render.w > 0.5;
+    // One step's real path length in km: the step in world units, with the ray direction's
+    // horizontal and vertical parts each converted by their own scale.
+    let dt_world = (tmax - tmin) / f32(steps);
+    let km_dir = vec3<f32>(rd.x * u.render.y, rd.y * u.render.y, rd.z * u.render.z);
+    let dt_km = dt_world * length(km_dir);
+    // Gradient lighting's neighbour offset: one texel along each axis.
+    let texel = 1.0 / dims;
+    // Headlight from just above the camera: surfaces facing the viewer read bright and the far
+    // side of a core falls into shade, which is what shows its shape.
+    let light = normalize(-rd + vec3<f32>(0.0, 0.0, 0.6));
     var max_idx: u32 = 0u;
+    var acc_rgb = vec3<f32>(0.0);
+    var acc_a = 0.0;
     for (var s = 0; s < steps; s = s + 1) {
         let t = tmin + (tmax - tmin) * (f32(s) + 0.5) / f32(steps);
         let pos = ro + rd * t;
@@ -170,13 +241,44 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             if (samp.g > 0.5) {
                 idx = u32(round(samp.r * 255.0 / samp.g));
             }
-            if (idx >= floor_idx && idx <= ceil_idx && idx > max_idx) {
+            let kept = idx >= floor_idx && idx <= ceil_idx;
+            if (kept && idx > max_idx) {
                 max_idx = idx;
+            }
+            if (translucent && kept) {
+                let a = step_alpha(voxel_alpha(idx, floor_idx, ceil_idx), dt_km);
+                if (a > 0.0) {
+                    var rgb = textureLoad(lut, vec2<i32>(i32(idx), 0), 0).rgb;
+                    if (lit) {
+                        // Normal from the coverage-weighted value's central differences: the
+                        // echo's own boundary, not the palette, decides which way it faces.
+                        let gx = textureSampleLevel(vol, vol_samp, uvw + vec3<f32>(texel.x, 0.0, 0.0), 0.0).r
+                            - textureSampleLevel(vol, vol_samp, uvw - vec3<f32>(texel.x, 0.0, 0.0), 0.0).r;
+                        let gy = textureSampleLevel(vol, vol_samp, uvw + vec3<f32>(0.0, texel.y, 0.0), 0.0).r
+                            - textureSampleLevel(vol, vol_samp, uvw - vec3<f32>(0.0, texel.y, 0.0), 0.0).r;
+                        let gz = textureSampleLevel(vol, vol_samp, uvw + vec3<f32>(0.0, 0.0, texel.z), 0.0).r
+                            - textureSampleLevel(vol, vol_samp, uvw - vec3<f32>(0.0, 0.0, texel.z), 0.0).r;
+                        let g = vec3<f32>(gx, gy, gz);
+                        // Lighting changes the colour drawn, never which voxels are kept or the
+                        // value they hold: inside a uniform core there is no gradient and it
+                        // keeps its palette colour unshaded.
+                        if (length(g) > 1e-3) {
+                            let nrm = -normalize(g);
+                            rgb = rgb * (0.45 + 0.55 * abs(dot(nrm, light)));
+                        }
+                    }
+                    acc_rgb = acc_rgb + (1.0 - acc_a) * a * rgb;
+                    acc_a = acc_a + (1.0 - acc_a) * a;
+                    // Early ray termination: nothing behind this point can still show.
+                    if (acc_a > 0.995) {
+                        break;
+                    }
+                }
             }
         }
     }
 
-    let has_volume = max_idx >= floor_idx;
+    let has_volume = select(max_idx >= floor_idx, acc_a > 0.0, translucent);
     if (!has_volume && !marker_hit) {
         discard;
     }
@@ -194,32 +296,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         out_rgb = marker_rgb * marker_a;
         out_a = marker_a;
     }
-    if (has_volume) {
+    if (has_volume && translucent) {
+        // Already premultiplied by the march.
+        out_rgb = acc_rgb + out_rgb * (1.0 - acc_a);
+        out_a = acc_a + out_a * (1.0 - acc_a);
+    } else if (has_volume) {
         let color = textureLoad(lut, vec2<i32>(i32(max_idx), 0), 0);
-        var alpha: f32;
-        if (u.cc.w > 0.5) {
-            // CC anomaly: opacity is a function of how far this voxel's correlation coefficient
-            // sits below ordinary meteorological scatter, so the background storm fades out and
-            // the low-CC pocket inside it is what stays solid. This *replaces* the generic ramp
-            // below rather than scaling it — the two are competing opacity models, and
-            // multiplying them drove background CC to invisible instead of to the faint trace
-            // that keeps a debris ball legibly embedded in the storm around it.
-            let t = clamp((f32(max_idx) - u.cc.x) / (u.cc.y - u.cc.x), 0.0, 1.0);
-            // Smoothstep, not a linear ramp: it flattens at both ends, which is what makes the
-            // progression read as the intended tiers without banding the volume into hard shells.
-            let shaped = t * t * (3.0 - 2.0 * t);
-            alpha = (u.cc.z + (1.0 - u.cc.z) * shaped) * u.ctl.y;
-        } else {
-            // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving
-            // cores read solid instead of uniformly hazy.
-            // With a ceiling the ramp spans the kept band, so a narrow window still reads solid.
-            let head = max(f32(ceil_idx) - f32(floor_idx), 1.0);
-            alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
-        }
-        // A drawn transfer function replaces either ramp above.
-        if (u.tf_a.x >= 0.0) {
-            alpha = tf_alpha(f32(max_idx)) * u.ctl.y;
-        }
+        let alpha = voxel_alpha(max_idx, floor_idx, ceil_idx);
         if (alpha > 0.0) {
             out_rgb = color.rgb * alpha + out_rgb * (1.0 - alpha);
             out_a = alpha + out_a * (1.0 - alpha);

@@ -48,6 +48,22 @@ pub enum Map3dRepresentation {
 }
 
 impl Map3dRepresentation {
+    pub const ALL: [Self; 8] = [
+        Self::ObservedSweeps,
+        Self::SmoothVolume,
+        Self::SmoothDebris,
+        Self::SmoothSpectrumWidth,
+        Self::SmoothZdr,
+        Self::SmoothKdp,
+        Self::SmoothVelocity,
+        Self::SmoothProduct,
+    ];
+
+    /// The mode a [`Self::label`] names, for what is saved by name (scenes, presets).
+    pub fn from_label(label: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.label() == label)
+    }
+
     /// The moment a resampled representation is built from, and whether its index is inverted
     /// before raymarching (low CC is the interesting debris case); `None` for observed sweeps.
     pub fn smooth_moment(self) -> Option<(wxdata::level2::Moment, bool)> {
@@ -259,6 +275,24 @@ impl Default for CcAnomaly {
 /// a legitimate thing to want and not a crash.
 pub const MIN_CC_SPAN: f32 = 0.005;
 
+/// A 3D region of interest (ROADMAP_PARITY M3.6): a box around a storm, its own finer grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VolumeRoi {
+    /// Centre, `[lon, lat]`.
+    pub center: [f64; 2],
+    /// Half-width, km.
+    pub half_km: f32,
+    /// The storm it was placed on, by SCIT ID at the time, for the label.
+    pub storm: Option<String>,
+    /// Move with that storm as new scans arrive.
+    pub follow: bool,
+    /// Following stopped because the storm left the table; the box stays where it was.
+    pub lost: bool,
+}
+
+/// Half-widths offered for a region of interest, km.
+pub const ROI_SIZES_KM: [f32; 4] = [15.0, 25.0, 40.0, 60.0];
+
 /// Geographic 3D controls belong to a map pane so they stay synchronized with that pane's
 /// product, timeline, site and camera rather than becoming another viewer.
 #[derive(Clone, Debug)]
@@ -309,9 +343,15 @@ pub struct Map3dState {
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
     pub ceilings: [Option<f32>; 8],
-    /// An opacity curve per representation (same indexing as `ceilings`), four `[value,
-    /// opacity]` points in that representation's own units (Phase H2); `None` keeps the ramp.
-    pub tf_curves: [Option<[[f32; 2]; 4]>; 8],
+    /// An opacity curve per representation (same indexing as `ceilings`), two to eight
+    /// `[value, opacity]` stops in that representation's own units (Phase H2, M3.5); `None`
+    /// keeps the ramp.
+    pub tf_curves: [Option<crate::render3d::TfStops>; 8],
+    /// MIP or translucent compositing for the Smooth volumes (ROADMAP_PARITY M3.5). Display only.
+    pub volume_render: crate::render3d::VolumeRender,
+    /// A region of interest the Smooth volumes are built over instead of the whole radar
+    /// (ROADMAP_PARITY M3.6); `None` is the whole radar.
+    pub roi: Option<VolumeRoi>,
     /// The name being typed for a new 3D preset.
     pub preset_name: String,
     /// The user-defined product `SmoothProduct` draws, by name.
@@ -410,6 +450,8 @@ impl Default for Map3dState {
             velocity_floor_ms: 15.0,
             ceilings: [None; 8],
             tf_curves: [None; 8],
+            volume_render: crate::render3d::VolumeRender::Mip,
+            roi: None,
             preset_name: String::new(),
             product: None,
             product_floor: f32::MIN,

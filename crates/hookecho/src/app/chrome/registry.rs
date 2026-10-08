@@ -31,6 +31,7 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
                 | FL::GlobalDewpoint2m
                 | FL::GlobalWind10m
                 | FL::GlobalPrecip
+                | FL::ModelField
                 | FL::ThunderProb
                 | FL::GlmFed
                 | FL::ModelDiff
@@ -1957,6 +1958,46 @@ impl HookEchoApp {
             true,
             PaletteAction::GoLive,
             None,
+        );
+        push(
+            "Wind barbs",
+            "Model",
+            "Draw the HRRR wind as barbs (speed in knots, pointing where it comes from)",
+            false,
+            PaletteAction::ToggleWindBarbs,
+            Some(self.settings.wind_barbs),
+        );
+        push(
+            "Beam diagram",
+            "Radar",
+            "Every tilt's beam height against range, read at the cursor, with the heights no beam samples",
+            false,
+            PaletteAction::BeamDiagram,
+            Some(self.beam_diagram.open),
+        );
+        push(
+            "Model fields",
+            "Tools",
+            "Browse every field a model run publishes (HRRR, RAP, NAM, NBM, GFS, ECMWF; any level) and show one on the map",
+            false,
+            PaletteAction::ModelFields,
+            Some(self.field_browser.open),
+        );
+        push(
+            "Ensemble members",
+            "Tools",
+            "Postage stamps of every GEFS member and the mean over the map view; click one to show it",
+            false,
+            PaletteAction::EnsembleMembers,
+            Some(self.ensemble_stamps.open),
+        );
+        push(
+            "Satellite loop",
+            "Tools",
+            "Loop every satellite scan, one-minute mesoscale frames included, with missing scans shown",
+            false,
+            PaletteAction::ToggleSatLoop,
+            Some(self.sat_loop.on),
         );
         push(
             "Instant replay (DVR)",

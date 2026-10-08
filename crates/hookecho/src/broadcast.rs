@@ -111,11 +111,67 @@ pub fn crawl_applies(valid: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     (now - valid).num_minutes().abs() <= CRAWL_MAX_AGE_MIN
 }
 
+/// The scene format this build writes. 0 (absent) is a scene saved before scenes kept their
+/// product and time (ROADMAP_PARITY M6.2); those load with the old keep-current behaviour for both.
+pub const SCENE_VERSION: u32 = 2;
+
+/// What a scene shows on its pane (ROADMAP_PARITY M6.2): the radar product, tilt and SRV, the
+/// field layers, the display thresholds and a column user product, so Take puts the same
+/// science on air that was saved rather than whatever the pane happens to show.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SceneProduct {
+    pub moment: wxdata::level2::Moment,
+    pub tilt: usize,
+    #[serde(default)]
+    pub srv: bool,
+    /// Field layers on, by slug, model layers excepted: those need the pane's model run, which
+    /// a scene does not carry, so Take leaves them as the pane has them.
+    #[serde(default)]
+    pub fields_on: Vec<String>,
+    /// Enabled display thresholds as `(moment, physical value)`, as a workspace pane keeps them.
+    #[serde(default)]
+    pub thresholds: Vec<(wxdata::level2::Moment, f32)>,
+    /// A column user product by name; the definition lives with the products in Settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_product: Option<String>,
+}
+
+/// The 3D map as a scene keeps it (ROADMAP_PARITY M6.2): whether it is on and how it is drawn.
+/// The mode is saved by name so a build without it can say so; a region of interest is not kept
+/// (it follows a storm of its own time).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SceneView3d {
+    pub enabled: bool,
+    /// `Map3dRepresentation::label`.
+    pub representation: String,
+    #[serde(default)]
+    pub render: crate::render3d::VolumeRender,
+    pub vertical_exaggeration: f32,
+    pub opacity: f32,
+    pub quality_steps: u32,
+    /// The user product a "User product" volume draws, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
+}
+
+/// When a scene is (ROADMAP_PARITY M6.2): following live data, or one archived instant.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "policy", rename_all = "kebab-case")]
+pub enum SceneTime {
+    /// The newest frame, following new ones as they arrive.
+    Live,
+    /// The archived frame nearest this instant.
+    Fixed { utc: DateTime<Utc> },
+}
+
 /// A saved broadcast scene (ROADMAP_2 §6.3): where the map looks, what is on it, how it is
 /// dressed, and the output window's title strap and size. Switched with Alt+1..9 in the order
 /// saved; applying one flies the camera there.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Scene {
+    /// The format it was written in; see [`SCENE_VERSION`].
+    #[serde(default)]
+    pub version: u32,
     pub name: String,
     /// The radar the scene looks through; `None` keeps whatever is selected.
     #[serde(default)]
@@ -143,6 +199,15 @@ pub struct Scene {
     /// they were kept, or with none imported, which leaves the layers as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gis: Option<crate::settings::GisSnapshot>,
+    /// The product on the pane; `None` (an older scene) keeps whatever the pane shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<SceneProduct>,
+    /// Live or a fixed archive time; `None` (an older scene) keeps the pane's time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<SceneTime>,
+    /// The 3D map; `None` (an older scene) leaves it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view3d: Option<SceneView3d>,
 }
 
 #[cfg(test)]

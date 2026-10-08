@@ -362,7 +362,7 @@ pub async fn fetch_latest_stamped(
     product: &str,
 ) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let key = latest_key(http, product).await?;
-    fetch_key_stamped(http, product, &key).await
+    fetch_key_stamped(http, product, &key, None).await
 }
 
 /// Fetch the nearest archived MRMS object within a strict valid-time tolerance.
@@ -372,6 +372,29 @@ pub async fn fetch_nearest_stamped(
     product: &str,
     target: DateTime<Utc>,
     tolerance: Duration,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
+    fetch_nearest(http, product, target, tolerance, None).await
+}
+
+/// [`fetch_nearest_stamped`] for scoring a forecast against: a cell inside radar coverage with
+/// no echo (MRMS's −99) reads `no_echo` instead of missing, so "nothing there" counts against a
+/// forecast echo. Outside coverage (−999) stays missing.
+pub async fn fetch_nearest_for_scoring(
+    http: &reqwest::Client,
+    product: &str,
+    target: DateTime<Utc>,
+    tolerance: Duration,
+    no_echo: f32,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
+    fetch_nearest(http, product, target, tolerance, Some(no_echo)).await
+}
+
+async fn fetch_nearest(
+    http: &reqwest::Client,
+    product: &str,
+    target: DateTime<Utc>,
+    tolerance: Duration,
+    no_echo: Option<f32>,
 ) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     anyhow::ensure!(
         tolerance >= Duration::zero() && tolerance <= Duration::minutes(120),
@@ -411,7 +434,7 @@ pub async fn fetch_nearest_stamped(
     let candidates: Vec<_> = lists.into_iter().flatten().collect();
     let key = nearest_archive_key(&candidates, target, tolerance)
         .ok_or_else(|| anyhow::anyhow!("no {product} MRMS frame within {tolerance} of {target}"))?;
-    let field = fetch_key_stamped(http, product, key).await?;
+    let field = fetch_key_stamped(http, product, key, no_echo).await?;
     anyhow::ensure!(
         !crate::time_align::TimeOffset::between(field.stamp.valid_time, target, tolerance)
             .outside_tolerance,
@@ -483,6 +506,7 @@ async fn fetch_key_stamped(
     http: &reqwest::Client,
     product: &str,
     key: &str,
+    no_echo: Option<f32>,
 ) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let url = format!("{BUCKET}/{key}");
     // A key names one minute's file for good, so it is kept (`objcache`) and a re-read — scrubbing
@@ -507,8 +531,11 @@ async fn fetch_key_stamped(
     let raw = gunzip(&gz)?;
     // gribberish can panic on some MRMS product packings (a slice off-by-one on rotation-track /
     // AzShear grids). Contain it so a bad product surfaces as an error, never a process abort.
-    let mut data = crate::task::guarded(|| decode_grib2(&raw))
-        .unwrap_or_else(|_| anyhow::bail!("grib decode panicked for {product}"))?;
+    let mut data = crate::task::guarded(|| match no_echo {
+        None => decode_grib2(&raw),
+        Some(floor) => decode_grib2_scoring(&raw, floor),
+    })
+    .unwrap_or_else(|_| anyhow::bail!("grib decode panicked for {product}"))?;
     if let Some(descriptor) = catalog::find_by_path(product) {
         descriptor.field.normalize_missing(&mut data.values);
     }
@@ -590,6 +617,28 @@ fn gunzip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
 // production `catch_unwind` — hidden from the docs because it is not part of the API.
 #[doc(hidden)]
 pub fn decode_grib2(raw: &[u8]) -> anyhow::Result<MrmsField> {
+    // Neither sentinel draws: very negative is NaN.
+    decode_grib2_mapped(raw, |v| if v < -90.0 { f32::NAN } else { v as f32 })
+}
+
+/// [`decode_grib2`] keeping the difference between no echo and no coverage: MRMS's −99 (inside
+/// radar coverage, nothing above its floor) reads `no_echo`; −999 (outside coverage) stays NaN.
+pub fn decode_grib2_scoring(raw: &[u8], no_echo: f32) -> anyhow::Result<MrmsField> {
+    decode_grib2_mapped(raw, move |v| {
+        if v < -500.0 {
+            f32::NAN
+        } else if v < -90.0 {
+            no_echo
+        } else {
+            v as f32
+        }
+    })
+}
+
+fn decode_grib2_mapped(
+    raw: &[u8],
+    mask: impl Fn(f64) -> f32 + Sync + Send,
+) -> anyhow::Result<MrmsField> {
     // Section 0 is 16 bytes: "GRIB", two reserved, discipline, edition, then the total message
     // length. A length that disagrees with what we hold means the message is truncated or forged,
     // and the decoder grinds through the whole claimed length looking for sections that are not
@@ -614,8 +663,9 @@ pub fn decode_grib2(raw: &[u8]) -> anyhow::Result<MrmsField> {
     let (lat0, lon0) = dm.metadata.projector.latlng_start();
     let (lat1, lon1) = dm.metadata.projector.latlng_end();
 
-    // MRMS encodes missing as -999 and no-coverage as -99; treat anything very negative as NaN.
-    let mask = |&v: &f64| if v < -90.0 { f32::NAN } else { v as f32 };
+    // MRMS encodes outside radar coverage as -999 and, inside it, no echo as -99 (checked on a
+    // live composite: -99 fills the interior of the US, -999 the oceans and beyond).
+    let mask = |v: &f64| mask(*v);
     // 7000x3500 elements on the CONUS mosaics — worth the split. `map` is order-preserving in
     // rayon, so the output is identical to the serial version.
     #[cfg(not(target_arch = "wasm32"))]

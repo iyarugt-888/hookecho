@@ -34,6 +34,10 @@ pub struct Volume3dState {
     /// Raymarch samples per pixel. The cost of the window is almost entirely this number, so it
     /// is the one knob worth exposing on a phone or an integrated GPU.
     pub steps: u32,
+    /// MIP or translucent compositing (ROADMAP_PARITY M3.5).
+    pub render: crate::render3d::VolumeRender,
+    /// The accepted grid's half-width, km: the kilometre scale translucent opacity is per.
+    pub half_km: f32,
     /// The volume's tilts, for the layer-by-layer list (set by the app with each build).
     pub layers: Vec<wxdata::level2::ObservedLayer>,
     /// Tilts pulled out, by elevation: when any are, the window shows just those tilts' beams
@@ -64,6 +68,8 @@ impl Default for Volume3dState {
             // ponytail: a phone is the one place the full march reliably misses frame budget, so
             // pick by platform rather than benchmarking the GPU.
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
+            render: crate::render3d::VolumeRender::Mip,
+            half_km: 50.0,
             layers: Vec::new(),
             selected_elevs: Vec::new(),
             frame: None,
@@ -181,8 +187,8 @@ fn axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
     }
 }
 
-/// A transfer function's four `[value, opacity]` points, in a moment's own units.
-pub(crate) type Curve = [[f32; 2]; 4];
+/// A transfer function's stops, in a moment's own units.
+pub(crate) type Curve = crate::render3d::TfStops;
 
 /// A starting curve over `lo..hi`: clear at the bottom, rising to solid at the top.
 pub(crate) fn default_curve((lo, hi): (f32, f32)) -> Curve {
@@ -193,10 +199,13 @@ pub(crate) fn default_curve((lo, hi): (f32, f32)) -> Curve {
         [at(0.65), 0.55],
         [at(1.0), 1.0],
     ]
+    .into()
 }
 
-/// Phase H2's opacity curve: a checkbox, and when on a small plot of four points (value across,
-/// opacity up) to drag. Each point stays between its neighbours, so the curve never folds.
+/// Phase H2's opacity curve (M3.5): a checkbox, and when on a small plot of its stops (value
+/// across, opacity up) to drag. Two to eight stops: double-click the plot or "+" adds one on the
+/// curve, right-click a stop or "−" removes one. Each stop stays between its neighbours, so the
+/// curve never folds.
 pub(crate) fn opacity_curve(
     ui: &mut egui::Ui,
     curve: &mut Option<Curve>,
@@ -207,18 +216,18 @@ pub(crate) fn opacity_curve(
     if ui
         .checkbox(&mut on, "Opacity curve")
         .on_hover_text(
-            "Draw how see-through each value is: drag the four points. Replaces the fixed \
-             ramp from the floor",
+            "Draw how see-through each value is: drag the stops, double-click to add one, \
+             right-click one to remove it. Replaces the fixed ramp from the floor",
         )
         .changed()
     {
         *curve = on.then(|| default_curve((lo, hi)));
     }
-    let Some(pts) = curve else {
+    let Some(tf) = curve else {
         return;
     };
     let w = ui.available_width().clamp(160.0, 300.0);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 84.0), egui::Sense::hover());
+    let (rect, plot_resp) = ui.allocate_exact_size(egui::vec2(w, 84.0), egui::Sense::click());
     let plot = rect.shrink(6.0);
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
@@ -237,31 +246,46 @@ pub(crate) fn opacity_curve(
             plot.bottom() - p[1] * plot.height(),
         )
     };
+    let value_at = |x: f32| lo + ((x - plot.left()) / plot.width()).clamp(0.0, 1.0) * span;
     let id = ui.id().with("opacity_curve");
-    for i in 0..4 {
+    let n = tf.len();
+    let mut remove = None;
+    for i in 0..n {
+        let pts = tf.points_mut();
         let handle = egui::Rect::from_center_size(to_screen(pts[i]), egui::vec2(14.0, 14.0));
-        let resp = ui.interact(handle, id.with(i), egui::Sense::drag());
+        let resp = ui.interact(handle, id.with(i), egui::Sense::click_and_drag());
         if resp.dragged() {
             if let Some(p) = resp.interact_pointer_pos() {
-                let v = lo + ((p.x - plot.left()) / plot.width()).clamp(0.0, 1.0) * span;
                 let left = if i > 0 { pts[i - 1][0] } else { lo };
-                let right = if i < 3 { pts[i + 1][0] } else { hi };
-                pts[i][0] = v.clamp(left, right);
+                let right = if i + 1 < n { pts[i + 1][0] } else { hi };
+                pts[i][0] = value_at(p.x).clamp(left, right);
                 pts[i][1] = ((plot.bottom() - p.y) / plot.height()).clamp(0.0, 1.0);
             }
         }
+        if resp.secondary_clicked() {
+            remove = Some(i);
+        }
         resp.on_hover_text(format!(
-            "{:.1}{suffix} \u{2192} {:.0}% opaque",
+            "{:.1}{suffix} \u{2192} {:.0}% opaque (right-click removes)",
             pts[i][0],
             pts[i][1] * 100.0
         ));
     }
+    if let Some(i) = remove {
+        tf.remove(i);
+    }
+    if plot_resp.double_clicked() {
+        if let Some(p) = plot_resp.interact_pointer_pos() {
+            tf.insert(value_at(p.x));
+        }
+    }
+    let pts = tf.points().to_vec();
     let accent = ui.visuals().selection.bg_fill;
     let line: Vec<egui::Pos2> = std::iter::once(egui::pos2(plot.left(), to_screen(pts[0]).y))
         .chain(pts.iter().map(|p| to_screen(*p)))
         .chain(std::iter::once(egui::pos2(
             plot.right(),
-            to_screen(pts[3]).y,
+            to_screen(pts[pts.len() - 1]).y,
         )))
         .collect();
     painter.add(egui::Shape::line(line, egui::Stroke::new(2.0, accent)));
@@ -273,9 +297,39 @@ pub(crate) fn opacity_curve(
             egui::Stroke::new(1.0, egui::Color32::WHITE),
         );
     }
-    ui.weak(format!(
-        "{lo:.0}{suffix} \u{2192} {hi:.0}{suffix} across, clear to solid up"
-    ));
+    // Buttons too, for touch: a stop in the widest gap, or the last interior one removed.
+    ui.horizontal(|ui| {
+        let gap = pts
+            .windows(2)
+            .enumerate()
+            .max_by(|a, b| (a.1[1][0] - a.1[0][0]).total_cmp(&(b.1[1][0] - b.1[0][0])))
+            .map(|(i, w)| (i, (w[0][0] + w[1][0]) / 2.0));
+        if ui
+            .add_enabled(
+                tf.len() < crate::render3d::MAX_STOPS,
+                egui::Button::new("+"),
+            )
+            .on_hover_text("Add a stop in the widest gap")
+            .clicked()
+        {
+            if let Some((_, v)) = gap {
+                tf.insert(v);
+            }
+        }
+        if ui
+            .add_enabled(tf.len() > 2, egui::Button::new("\u{2212}"))
+            .on_hover_text("Remove the last stop before the end")
+            .clicked()
+        {
+            tf.remove(tf.len() - 2);
+        }
+        ui.weak(format!(
+            "{} of {} stops \u{b7} {lo:.0}{suffix} \u{2192} {hi:.0}{suffix} across, clear to \
+             solid up",
+            tf.len(),
+            crate::render3d::MAX_STOPS
+        ));
+    });
 }
 
 /// Saved 3D looks (Phase H2's presets): pick one for this representation to set its floor,
@@ -289,6 +343,7 @@ pub(crate) fn presets_row(
     denoise: &mut bool,
     ceiling: &mut Option<f32>,
     curve: &mut Option<Curve>,
+    render: &mut crate::render3d::VolumeRender,
     name_buf: &mut String,
 ) -> bool {
     let mut changed = false;
@@ -309,7 +364,9 @@ pub(crate) fn presets_row(
                         *floor = p.floor;
                         *denoise = true;
                         *ceiling = p.ceiling;
-                        *curve = p.curve;
+                        *curve = p.tf();
+                        // Presets from before translucent rendering were drawn for MIP.
+                        *render = p.render.unwrap_or_default();
                         changed = true;
                     }
                 }
@@ -331,18 +388,22 @@ pub(crate) fn presets_row(
         );
         if ui
             .add_enabled(!name_buf.trim().is_empty(), egui::Button::new("Save"))
-            .on_hover_text("Save this floor, ceiling and curve for this 3D product")
+            .on_hover_text("Save this floor, ceiling, curve and rendering for this 3D product")
             .clicked()
         {
             let name = name_buf.trim().to_string();
             presets.retain(|p| !(p.representation == representation && p.name == name));
-            presets.push(crate::settings::Volume3dPreset {
+            let mut preset = crate::settings::Volume3dPreset {
                 name,
                 representation: representation.to_string(),
                 floor: *floor,
                 ceiling: *ceiling,
-                curve: *curve,
-            });
+                curve: None,
+                stops: None,
+                render: Some(*render),
+            };
+            preset.set_tf(*curve);
+            presets.push(preset);
             name_buf.clear();
             changed = true;
         }
@@ -373,7 +434,8 @@ pub(crate) fn plane_controls(
     if let Some(p) = plane {
         ui.horizontal(|ui| {
             ui.label("Bearing");
-            crate::theme::slider(ui,
+            crate::theme::slider(
+                ui,
                 egui::Slider::new(&mut p.bearing_deg, 0.0..=360.0)
                     .suffix("\u{b0}")
                     .custom_formatter(|v, _| format!("{v:.0}")),
@@ -381,7 +443,10 @@ pub(crate) fn plane_controls(
         });
         ui.horizontal(|ui| {
             ui.label("Offset");
-            crate::theme::slider(ui, egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false));
+            crate::theme::slider(
+                ui,
+                egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false),
+            );
         })
         .response
         .on_hover_text(
@@ -412,6 +477,17 @@ pub(crate) fn plane_controls(
 /// its own separate 2D tool but nothing showed *where* until now. Shares the CAPPI window's own
 /// altitude (`alt_km`) rather than keeping a second value here, so dragging its slider moves this
 /// marker live. Shared with the main map's own "3D map" Slice section, same as `plane_controls`.
+/// MIP / Translucent / Lit, shared by the 3D window and the 3D map (ROADMAP_PARITY M3.5).
+pub(crate) fn render_mode_row(ui: &mut egui::Ui, render: &mut crate::render3d::VolumeRender) {
+    ui.horizontal(|ui| {
+        ui.label("Render");
+        for mode in crate::render3d::VolumeRender::ALL {
+            ui.selectable_value(render, mode, mode.label())
+                .on_hover_text(mode.describe());
+        }
+    });
+}
+
 pub(crate) fn cappi_marker_controls(ui: &mut egui::Ui, on: &mut bool, alt_km: f32) {
     ui.checkbox(on, "CAPPI altitude").on_hover_text(format!(
         "Show a reference plane at the CAPPI window's altitude ({alt_km:.1} km)"
@@ -488,7 +564,8 @@ pub fn body(
     let previous_selection = st.selected_elevs.clone();
     {
         let _ = source_status(ui, st);
-        ui.weak("Drag to orbit · scroll to zoom · max-intensity projection");
+        ui.weak("Drag to orbit · scroll to zoom");
+        render_mode_row(ui, &mut st.render);
         ui.horizontal(|ui| {
             let mut on = st.threshold_dbz.is_finite();
             if ui
@@ -603,6 +680,7 @@ pub fn body(
         // texture.
         let view = View3d {
             tf: None,
+            render: st.render,
             threshold_idx: if st.threshold_dbz.is_finite() {
                 threshold_index(st.threshold_dbz, range)
             } else {
@@ -623,6 +701,7 @@ pub fn body(
             aspect,
             n,
             nz,
+            st.half_km,
             top_km,
             effective_steps(st.steps, degraded),
             view,
@@ -853,6 +932,7 @@ mod tests {
             nz: 2,
             lut: vec![0; 1024],
             half_km: 50.0,
+            center_km: [0.0, 0.0],
             top_km: 20.0,
             outside: 0.0,
             value_range: None,

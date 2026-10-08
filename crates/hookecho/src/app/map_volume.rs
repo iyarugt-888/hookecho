@@ -103,6 +103,7 @@ impl HookEchoApp {
             palette: self.palettes.gen,
             high_contrast: crate::theme::is_high_contrast(self.settings.theme),
             max_dim: self.vol3d_max_dim,
+            roi: self.volume_roi_km(idx).map(crate::loop3d::Roi::key),
         })
     }
 
@@ -163,6 +164,126 @@ impl HookEchoApp {
                 Map3dRepresentation::SmoothProduct => Some(self.product_spec(idx)?),
                 _ => None,
             },
+            roi: self.volume_roi_km(idx),
         })
+    }
+
+    /// The pane's region of interest in the radar's frame: km east and north of the site, and
+    /// its half-width. `None` without one (the whole radar) or without a site.
+    pub(crate) fn volume_roi_km(&self, idx: usize) -> Option<crate::loop3d::Roi> {
+        let v = &self.views[idx];
+        let roi = v.map_3d.roi.as_ref()?;
+        let site = v.site.as_deref().and_then(wxdata::sites::site_by_id)?;
+        Some(roi_in_radar_frame(
+            [f64::from(site.longitude), f64::from(site.latitude)],
+            roi,
+        ))
+    }
+
+    /// Where the pane's smooth volume box is centred, `[lon, lat]`: the radar, or the region's
+    /// centre as the built grid has it.
+    pub(crate) fn smooth_box_center(&self, idx: usize) -> Option<[f64; 2]> {
+        let site = self.views[idx]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)?;
+        let radar = [f64::from(site.longitude), f64::from(site.latitude)];
+        let [east, north] = self.smooth_vol_dims[idx].map_or([0.0, 0.0], |d| d.4);
+        let km = f64::from(east).hypot(f64::from(north));
+        Some(if km < 1e-6 {
+            radar
+        } else {
+            crate::geo::destination_point(
+                radar,
+                f64::from(east).atan2(f64::from(north)).to_degrees(),
+                km,
+            )
+        })
+    }
+
+    /// Put a region of interest around the selected storm (or clear it).
+    pub(crate) fn set_volume_roi(&mut self, idx: usize, half_km: Option<f32>) {
+        let Some(half_km) = half_km else {
+            self.views[idx].map_3d.roi = None;
+            return;
+        };
+        let Some((cell, _)) = self.selected_storm_live() else {
+            return;
+        };
+        self.views[idx].map_3d.roi = Some(crate::view::VolumeRoi {
+            center: [cell.lon, cell.lat],
+            half_km,
+            storm: self.cell_popup.as_ref().map(|c| c.id.clone()),
+            follow: true,
+            lost: false,
+        });
+    }
+
+    /// A following region moves to its storm's newest position. It stops following, and stays
+    /// put, when that storm leaves the table or another storm is selected: it never jumps to an
+    /// unrelated storm.
+    pub(crate) fn follow_volume_roi(&mut self, idx: usize) {
+        let Some(roi) = self.views[idx].map_3d.roi.as_ref() else {
+            return;
+        };
+        if !roi.follow {
+            return;
+        }
+        let picked = self.cell_popup.as_ref().map(|c| c.id.clone());
+        let live = self.selected_storm_live();
+        let roi = self.views[idx].map_3d.roi.as_mut().expect("checked above");
+        match (picked == roi.storm, live) {
+            (true, Some((cell, true))) => {
+                // Moves only when the storm does, so an unchanged table never rebuilds.
+                roi.center = [cell.lon, cell.lat];
+            }
+            (true, _) => {
+                roi.follow = false;
+                roi.lost = true;
+            }
+            (false, _) => roi.follow = false,
+        }
+    }
+}
+
+/// A region's centre as km east and north of `radar` (`[lon, lat]`), by the great-circle range
+/// and bearing every voxel's gate lookup also uses.
+pub(crate) fn roi_in_radar_frame(
+    radar: [f64; 2],
+    roi: &crate::view::VolumeRoi,
+) -> crate::loop3d::Roi {
+    let (km, bearing) = crate::geo::great_circle(radar, roi.center);
+    let b = bearing.to_radians();
+    crate::loop3d::Roi {
+        center_km: [(km * b.sin()) as f32, (km * b.cos()) as f32],
+        half_km: roi.half_km,
+    }
+}
+
+#[cfg(test)]
+mod roi_tests {
+    use super::roi_in_radar_frame;
+
+    #[test]
+    fn a_region_lands_where_its_storm_is_from_the_radar() {
+        let radar = [-97.278, 35.333];
+        let east = crate::geo::destination_point(radar, 90.0, 50.0);
+        let roi = crate::view::VolumeRoi {
+            center: east,
+            half_km: 25.0,
+            storm: None,
+            follow: false,
+            lost: false,
+        };
+        let r = roi_in_radar_frame(radar, &roi);
+        assert!((r.center_km[0] - 50.0).abs() < 0.05, "{:?}", r.center_km);
+        assert!(r.center_km[1].abs() < 0.5, "{:?}", r.center_km);
+        let ne = crate::view::VolumeRoi {
+            center: crate::geo::destination_point(radar, 45.0, 30.0),
+            ..roi
+        };
+        let r = roi_in_radar_frame(radar, &ne);
+        let s = 30.0 / 2f32.sqrt();
+        assert!((r.center_km[0] - s).abs() < 0.1 && (r.center_km[1] - s).abs() < 0.1);
     }
 }

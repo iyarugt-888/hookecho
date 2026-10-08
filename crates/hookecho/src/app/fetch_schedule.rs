@@ -95,6 +95,7 @@ impl HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::SnowBands);
             }
         }
+        self.update_sat_loop(ctx);
         self.schedule_goes(ctx);
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
         // bundle and this always shows the message valid nearest to now.
@@ -188,6 +189,19 @@ impl HookEchoApp {
                 && self.ensemble_display_key != Some(self.ensemble.display_key())
             {
                 self.rebuild_ensemble_display();
+            }
+            // Spaghetti: recontoured only when the run, lead, level or member count changes.
+            if on && self.ensemble.spaghetti {
+                if let Some(run) = &self.ensemble_run {
+                    let key = crate::ensemble_layer::spaghetti_key(&self.ensemble, run);
+                    if self.ensemble_spaghetti.as_ref().map(|(k, _)| *k) != Some(key) {
+                        let lines =
+                            crate::ensemble_layer::spaghetti(&run.members, self.ensemble.threshold);
+                        self.ensemble_spaghetti = Some((key, std::sync::Arc::new(lines)));
+                    }
+                }
+            } else {
+                self.ensemble_spaghetti = None;
             }
             if stale || changed {
                 if changed {
@@ -648,6 +662,8 @@ pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         // Bands are cut from the ~2-min mosaic, so they are as fresh as it is.
         FL::SnowBands => 120,
         FL::Hrrr | FL::UpdraftHelicity => 600,
+        // A regional model field: hourly cycles, so ten minutes catches a new run promptly.
+        FL::ModelField => 600,
         // Snowfall accumulates over a whole model run; it moves as slowly as the run does.
         FL::Snowfall => 600,
         // The analysis is reissued four times a day; half an hour is plenty.

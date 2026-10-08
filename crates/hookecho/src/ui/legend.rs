@@ -218,7 +218,7 @@ pub fn draw_ensemble(
 ) -> f32 {
     use crate::ensemble_layer as el;
     let title = view.title(temp_unit);
-    if el::uses_field_ramp(view.kind) {
+    if view.in_field_units() {
         let used = draw_compare_label(painter, map_rect, y_offset, &title);
         return used
             + draw_field(

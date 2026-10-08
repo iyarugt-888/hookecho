@@ -353,15 +353,38 @@ pub(crate) fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         .map(|dt| dt.and_utc())
 }
 
-/// Every CMIP key for `band` on `satellite` in the UTC hour `t` falls in — one listing request,
-/// silently empty (not an error) for an hour nothing has landed in yet, or ever will have.
-async fn keys_in_hour(
+/// Hour listings already read, by listing URL: `(when read, keys)`. A listing for an hour that had
+/// ended well before it was read never changes (scan keys are immutable), so it is kept; one for
+/// the hour still filling is reused only for a few seconds. Bounded; a satellite loop steps through
+/// the same few hours once per frame, which without this would be three S3 listings a frame.
+type ListingCache = std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, Vec<String>)>;
+static LISTINGS: std::sync::Mutex<Option<ListingCache>> = std::sync::Mutex::new(None);
+const LISTING_CACHE_MAX: usize = 256;
+/// How long a listing of an hour that may still be filling is reused.
+const OPEN_HOUR_REUSE_SECS: i64 = 20;
+/// How long after an hour ends before its listing is treated as complete: late files land a
+/// couple of minutes after their scan.
+const HOUR_SETTLE_SECS: i64 = 15 * 60;
+
+/// Whether a listing of the hour starting `hour_start`, read at `read_at`, can still be used at
+/// `now`.
+fn listing_fresh(
+    hour_start: chrono::DateTime<chrono::Utc>,
+    read_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let settled = hour_start + chrono::Duration::seconds(3600 + HOUR_SETTLE_SECS);
+    read_at >= settled || (now - read_at).num_seconds() < OPEN_HOUR_REUSE_SECS
+}
+
+/// Every CMIP key for every band on `satellite`'s `sector` in the UTC hour `t` falls in: one
+/// listing request (or the cached one), empty for an hour nothing has landed in.
+async fn list_hour(
     client: &reqwest::Client,
     satellite: Satellite,
     sector: Sector,
-    band: u8,
     t: chrono::DateTime<chrono::Utc>,
-) -> Vec<String> {
+) -> anyhow::Result<Vec<String>> {
     use chrono::{Datelike, Timelike};
     // Through the scan mode letter only: scans before April 2019 are mode 3 (`-M3C13_`), later
     // ones mode 6, so the band is picked out of the listing rather than the prefix.
@@ -378,17 +401,166 @@ async fn keys_in_hour(
         "{}/?list-type=2&prefix={prefix}&max-keys=1000",
         satellite.bucket_at(t)
     );
-    let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await else {
-        return Vec::new();
-    };
-    let Ok(xml) = resp.text().await else {
-        return Vec::new();
-    };
+    let hour_start = t
+        .with_minute(0)
+        .and_then(|t| t.with_second(0))
+        .and_then(|t| t.with_nanosecond(0))
+        .unwrap_or(t);
+    let now = chrono::Utc::now();
+    if let Some((read_at, keys)) = LISTINGS
+        .lock()
+        .ok()
+        .and_then(|c| c.as_ref().and_then(|c| c.get(&url).cloned()))
+    {
+        if listing_fresh(hour_start, read_at, now) {
+            return Ok(keys);
+        }
+    }
+    let xml = client
+        .get(crate::net::fetch_url(&url))
+        .timeout(crate::net::FEED_TIMEOUT)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let keys = all_keys(&xml);
+    if let Ok(mut cache) = LISTINGS.lock() {
+        let cache = cache.get_or_insert_with(Default::default);
+        if cache.len() >= LISTING_CACHE_MAX {
+            // Drop the oldest reads first.
+            let mut by_age: Vec<_> = cache.iter().map(|(k, (at, _))| (*at, k.clone())).collect();
+            by_age.sort();
+            for (_, k) in by_age.into_iter().take(LISTING_CACHE_MAX / 4) {
+                cache.remove(&k);
+            }
+        }
+        cache.insert(url, (now, keys.clone()));
+    }
+    Ok(keys)
+}
+
+/// Every CMIP key for `band` on `satellite` in the UTC hour `t` falls in — silently empty (not an
+/// error) for an hour nothing has landed in yet, or ever will have.
+async fn keys_in_hour(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    sector: Sector,
+    band: u8,
+    t: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
     let band_tag = format!("C{band:02}_G");
-    all_keys(&xml)
+    list_hour(client, satellite, sector, t)
+        .await
+        .unwrap_or_default()
         .into_iter()
         .filter(|k| k.contains(&band_tag))
         .collect()
+}
+
+/// One scan of one band in a native listing (ROADMAP_PARITY M5.2): when it began, and its object.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanFrame {
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub key: String,
+}
+
+/// `band`'s scans among `keys`, oldest first, one per scan start (a re-delivered file keeps the
+/// first key).
+pub fn scan_frames_from_keys(keys: &[String], band: u8) -> Vec<ScanFrame> {
+    let band_tag = format!("C{band:02}_G");
+    let mut frames: Vec<ScanFrame> = keys
+        .iter()
+        .filter(|k| k.contains(&band_tag))
+        .filter_map(|k| {
+            key_time(k).map(|start| ScanFrame {
+                start,
+                key: k.clone(),
+            })
+        })
+        .collect();
+    frames.sort_by_key(|f| f.start);
+    frames.dedup_by_key(|f| f.start);
+    frames
+}
+
+/// A hole in a scan sequence: no scan between `after` and `before` although the sector's cadence
+/// says `missing` should have landed there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScanGap {
+    pub after: chrono::DateTime<chrono::Utc>,
+    pub before: chrono::DateTime<chrono::Utc>,
+    pub missing: u32,
+}
+
+/// The holes in `frames` (oldest first) for a sector scanning every `cadence_secs`: any step
+/// longer than one and a half cadences, counted in whole missing scans. Shown on the timeline as
+/// gaps rather than closed up, so a loop never implies continuity it does not have.
+pub fn scan_gaps(frames: &[ScanFrame], cadence_secs: u64) -> Vec<ScanGap> {
+    let cadence = cadence_secs.max(1) as f64;
+    frames
+        .windows(2)
+        .filter_map(|w| {
+            let step = (w[1].start - w[0].start).num_seconds() as f64;
+            (step > 1.5 * cadence).then(|| ScanGap {
+                after: w[0].start,
+                before: w[1].start,
+                missing: ((step / cadence).round() as u32).saturating_sub(1).max(1),
+            })
+        })
+        .collect()
+}
+
+/// `band`'s scans on `satellite`'s `sector` that began in `from..=to`, oldest first, from one
+/// listing per UTC hour (cached, see [`list_hour`]). An error only when every hour's listing
+/// failed: a quiet hour is an empty answer, not a failure.
+pub async fn scan_frames(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    sector: Sector,
+    band: u8,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<Vec<ScanFrame>> {
+    use chrono::Timelike;
+    anyhow::ensure!(to >= from, "the window ends before it starts");
+    anyhow::ensure!(
+        to - from <= chrono::Duration::hours(6),
+        "a scan listing covers at most six hours"
+    );
+    let mut hour = from
+        .with_minute(0)
+        .and_then(|t| t.with_second(0))
+        .and_then(|t| t.with_nanosecond(0))
+        .unwrap_or(from);
+    let (mut keys, mut ok, mut last_err) = (Vec::new(), false, None);
+    while hour <= to {
+        match list_hour(client, satellite, sector, hour).await {
+            Ok(k) => {
+                ok = true;
+                keys.extend(k);
+            }
+            Err(e) => last_err = Some(e),
+        }
+        hour += chrono::Duration::hours(1);
+    }
+    if !ok {
+        return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no listing")));
+    }
+    Ok(scan_frames_from_keys(&keys, band)
+        .into_iter()
+        .filter(|f| f.start >= from && f.start <= to)
+        .collect())
+}
+
+/// Download `key` into the object cache without decoding it, so a loop's later frames load from
+/// disk (IndexedDB in the browser) instead of the network.
+pub async fn prefetch_key(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    key: &str,
+) -> anyhow::Result<()> {
+    granule_bytes(client, satellite, key).await.map(|_| ())
 }
 
 /// The newest CONUS CMIP key for `band` on `satellite`, checking this UTC hour and falling back to
@@ -437,17 +609,16 @@ async fn key_near(
         .ok_or_else(|| anyhow::anyhow!("no ABI CMIP band {band} objects found near {target}"))
 }
 
-async fn fetch_key(
+/// A granule's bytes, through the object cache (a scan's key carries its start time, so the
+/// file never changes).
+async fn granule_bytes(
     client: &reqwest::Client,
     satellite: Satellite,
     key: &str,
-    out_nx: usize,
-    out_ny: usize,
-) -> anyhow::Result<MrmsField> {
+) -> anyhow::Result<Vec<u8>> {
     let when = key_time(key).unwrap_or_else(chrono::Utc::now);
     let url = format!("{}/{key}", satellite.bucket_at(when));
-    // A scan's key carries its start time, so the file never changes: keep it (`objcache`).
-    let bytes = crate::objcache::cached(
+    crate::objcache::cached(
         &crate::objcache::GOES,
         &url,
         crate::objcache::is_whole_hdf5,
@@ -465,7 +636,17 @@ async fn fetch_key(
             Ok(bytes)
         },
     )
-    .await?;
+    .await
+}
+
+async fn fetch_key(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    key: &str,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    let bytes = granule_bytes(client, satellite, key).await?;
     decode(bytes, out_nx, out_ny)
 }
 
@@ -771,6 +952,43 @@ mod tests {
         assert!((f.time - at).num_minutes().abs() <= 10);
     }
 
+    /// The last hour of Mesoscale 1 band 13 scans, live: about sixty one-minute frames, a second
+    /// listing served from the cache, and one granule prefetched into the object cache.
+    /// `cargo test -p wxdata meso_loop_listing_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn meso_loop_listing_live() {
+        let client = reqwest::Client::new();
+        let to = chrono::Utc::now();
+        let from = to - chrono::Duration::minutes(60);
+        let t0 = std::time::Instant::now();
+        let frames = scan_frames(&client, Satellite::East, Sector::Meso1, 13, from, to)
+            .await
+            .unwrap();
+        let cold = t0.elapsed();
+        let t1 = std::time::Instant::now();
+        let again = scan_frames(&client, Satellite::East, Sector::Meso1, 13, from, to)
+            .await
+            .unwrap();
+        let warm = t1.elapsed();
+        let gaps = scan_gaps(&frames, Sector::Meso1.cadence_secs());
+        println!(
+            "{} frames {} .. {}, {} gaps ({} missing); listed in {cold:?}, again in {warm:?}",
+            frames.len(),
+            frames.first().map(|f| f.start).unwrap(),
+            frames.last().map(|f| f.start).unwrap(),
+            gaps.len(),
+            gaps.iter().map(|g| g.missing).sum::<u32>()
+        );
+        assert!(frames.len() >= 45, "one-minute scans over an hour");
+        assert_eq!(frames, again);
+        let t2 = std::time::Instant::now();
+        prefetch_key(&client, Satellite::East, &frames.last().unwrap().key)
+            .await
+            .unwrap();
+        println!("prefetched the newest granule in {:?}", t2.elapsed());
+    }
+
     fn goes_east_projection() -> Projection {
         // GOES-19's real goes_imager_projection values (WGS84-flavoured GRS80 ellipsoid).
         Projection {
@@ -827,6 +1045,68 @@ mod tests {
         assert_eq!(keys.len(), 2);
         assert!(keys[0].ends_with("s20262621801173_e20262621803558_c20262621804022.nc"));
         assert!(keys[1].ends_with("s20262621806173_e20262621808558_c20262621809040.nc"));
+    }
+
+    /// A mesoscale key in the live naming, for scan start `hhmmss` on 2026 day 262.
+    fn meso_key(band: u8, hhmmss: &str) -> String {
+        format!(
+            "ABI-L2-CMIPM/2026/262/18/OR_ABI-L2-CMIPM1-M6C{band:02}_G19_s2026262{hhmmss}2_e2026262{hhmmss}9_c2026262{hhmmss}9.nc"
+        )
+    }
+
+    #[test]
+    fn a_listing_becomes_one_bands_scans_in_order_with_its_gaps() {
+        // Band 13 every minute 18:00-18:06 except 18:03 and 18:04, listed out of order, with a
+        // band 2 key and a duplicate delivery mixed in.
+        let keys: Vec<String> = ["180517", "180017", "180117", "180217", "180617"]
+            .iter()
+            .map(|t| meso_key(13, t))
+            .chain([meso_key(2, "180117"), meso_key(13, "180017")])
+            .collect();
+        let frames = scan_frames_from_keys(&keys, 13);
+        let mins: Vec<u32> = frames
+            .iter()
+            .map(|f| chrono::Timelike::minute(&f.start))
+            .collect();
+        assert_eq!(mins, [0, 1, 2, 5, 6], "band 13 only, sorted, one per scan");
+        assert!(frames.iter().all(|f| f.key.contains("C13_G")));
+        let gaps = scan_gaps(&frames, Sector::Meso1.cadence_secs());
+        assert_eq!(gaps.len(), 1, "{gaps:?}");
+        assert_eq!(chrono::Timelike::minute(&gaps[0].after), 2);
+        assert_eq!(chrono::Timelike::minute(&gaps[0].before), 5);
+        assert_eq!(gaps[0].missing, 2, "18:03 and 18:04");
+        // A CONUS cadence over the same frames sees no gap a minute apart could make.
+        assert!(scan_gaps(&frames[..3], Sector::Conus.cadence_secs()).is_empty());
+        // Ordinary jitter (a scan 70 s after the last) is not a gap.
+        let jitter = vec![
+            ScanFrame {
+                start: frames[0].start,
+                key: String::new(),
+            },
+            ScanFrame {
+                start: frames[0].start + chrono::Duration::seconds(70),
+                key: String::new(),
+            },
+        ];
+        assert!(scan_gaps(&jitter, 60).is_empty());
+    }
+
+    #[test]
+    fn a_finished_hours_listing_is_kept_and_an_open_ones_is_not() {
+        use chrono::TimeZone;
+        let hour = chrono::Utc.with_ymd_and_hms(2026, 9, 19, 18, 0, 0).unwrap();
+        let mins = |m| hour + chrono::Duration::minutes(m);
+        // Read long after the hour settled: good forever.
+        assert!(listing_fresh(hour, mins(90), mins(10_000)));
+        // Read while the hour was filling: good for seconds only.
+        assert!(listing_fresh(
+            hour,
+            mins(30),
+            mins(30) + chrono::Duration::seconds(5)
+        ));
+        assert!(!listing_fresh(hour, mins(30), mins(31)));
+        // Read just after the hour ended, before late files settle: still reread.
+        assert!(!listing_fresh(hour, mins(65), mins(67)));
     }
 
     #[test]

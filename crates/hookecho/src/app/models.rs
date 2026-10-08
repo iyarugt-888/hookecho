@@ -273,7 +273,11 @@ impl HookEchoApp {
             .zip(w.leads_on)
             .filter_map(|(lead, on)| on.then_some(*lead))
             .collect();
-        let threshold = w.threshold_on.then_some(w.threshold_k);
+        let threshold = w.threshold_on.then_some(if w.field.is_temperature() {
+            w.threshold_k
+        } else {
+            w.threshold_dbz
+        });
         let region = w.region_is_view.then(|| {
             let (west, south, east, north) = self.view_bounds();
             (west, south, east, north)
@@ -282,10 +286,11 @@ impl HookEchoApp {
             model: w.model,
             field: w.field,
             run,
-            threshold_k: threshold,
+            threshold,
             region_is_view: w.region_is_view,
+            truth: w.truth,
         };
-        let field = w.field;
+        let (field, truth) = (w.field, w.truth);
         self.model_verify.busy = true;
         self.model_verify.error = None;
         let (tx, rx) = std::sync::mpsc::channel();
@@ -293,7 +298,7 @@ impl HookEchoApp {
         let http = self.http.clone();
         self.spawner.spawn(async move {
             let res = wxdata::gridverify::verify_run(
-                &http, regional, field, run, &leads, region, threshold,
+                &http, regional, field, run, &leads, region, threshold, truth,
             )
             .await
             .map(|rows| (meta, rows))

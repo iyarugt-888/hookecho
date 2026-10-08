@@ -249,6 +249,22 @@ pub fn build(
     half_km: f32,
     top_km: f32,
 ) -> Option<Volume3d> {
+    build_at(sweeps, n, nz, [0.0, 0.0], half_km, top_km)
+}
+
+/// [`build`] over a box centred `center_km` (east, north) from the radar instead of on it: a
+/// region of interest around one storm (ROADMAP_PARITY M3.6), whose smaller box gives finer cells
+/// for the same voxel budget. Every voxel still reads its gate by its own range and azimuth from
+/// the radar, so a region and the whole-radar volume agree wherever they overlap.
+pub fn build_at(
+    sweeps: &[BinnedSweep],
+    n: usize,
+    nz: usize,
+    center_km: [f32; 2],
+    half_km: f32,
+    top_km: f32,
+) -> Option<Volume3d> {
+    let (cx, cy) = (center_km[0] as f64, center_km[1] as f64);
     let s0 = sweeps.first()?;
     let (value_min, value_max) = (s0.value_min, s0.value_max);
     let span = (value_max - value_min).max(f32::EPSILON);
@@ -260,9 +276,9 @@ pub fn build(
     // native build spread them across threads.
     let row = |j: usize| -> Vec<u8> {
         let mut out = vec![0u8; n * nz];
-        let y = -half_km as f64 + 2.0 * half_km as f64 * j as f64 / (n - 1) as f64;
+        let y = cy - half_km as f64 + 2.0 * half_km as f64 * j as f64 / (n - 1) as f64;
         for i in 0..n {
-            let x = -half_km as f64 + 2.0 * half_km as f64 * i as f64 / (n - 1) as f64;
+            let x = cx - half_km as f64 + 2.0 * half_km as f64 * i as f64 / (n - 1) as f64;
             let ground = (x * x + y * y).sqrt();
             if ground < 0.5 {
                 continue; // cone of silence at the radar
@@ -721,6 +737,42 @@ mod tests {
             value_max,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_region_around_a_storm_agrees_with_the_whole_volume_and_is_finer() {
+        // The echo wedge sits east of the radar at 40-60 km. A whole-radar box 80 km each way
+        // with 1 km cells, and a region 10 km each way centred 50 km east, also 1 km cells:
+        // their grid points coincide, so every shared voxel must hold the same value.
+        let sweeps = vec![sweep(0.5), sweep(1.5), sweep(2.4)];
+        let nz = 12;
+        let whole = build(&sweeps, 161, nz, 80.0, 6.0).unwrap();
+        let roi = build_at(&sweeps, 21, nz, [50.0, 0.0], 10.0, 6.0).unwrap();
+        let mut shared_echo = 0;
+        for k in 0..nz {
+            for j in 0..21 {
+                for i in 0..21 {
+                    // ROI point (i, j) is x = 40 + i km, y = -10 + j km; in the whole grid that
+                    // is index x + 80, y + 80.
+                    let (wi, wj) = (40 + i + 80, j + 70);
+                    let a = roi.data[i + 21 * j + 21 * 21 * k];
+                    let b = whole.data[wi + 161 * wj + 161 * 161 * k];
+                    assert_eq!(a, b, "voxel ({i},{j},{k})");
+                    shared_echo += usize::from(a >= 2);
+                }
+            }
+        }
+        assert!(shared_echo > 0, "the region holds the storm");
+        // The same budget spent on the region: four times finer and still on the storm.
+        let fine = build_at(&sweeps, 81, nz, [50.0, 0.0], 10.0, 6.0).unwrap();
+        assert!(fine.data.iter().any(|&v| v >= 2));
+        // Centred on the radar, `build_at` is `build`.
+        assert_eq!(
+            build_at(&sweeps, 41, nz, [0.0, 0.0], 80.0, 6.0)
+                .unwrap()
+                .data,
+            build(&sweeps, 41, nz, 80.0, 6.0).unwrap().data
+        );
     }
 
     #[test]

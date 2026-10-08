@@ -482,31 +482,61 @@ pub async fn fetch_wind(
     level: WindLevel,
     fcst_hour: u8,
 ) -> anyhow::Result<(DateTime<Utc>, MrmsField, MrmsField)> {
+    let mut last = None;
+    for run in recent_cycles(Model::Hrrr, Utc::now()) {
+        let fh = clamp_lead(Model::Hrrr, run, fcst_hour);
+        match fetch_wind_at_run(http, run, fh, level).await {
+            Ok((u, v)) => return Ok((run, u, v)),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+}
+
+/// [`fetch_wind`] from exactly `run` at lead `fh`, as east and north components. The HRRR's u/v
+/// are relative to its Lambert grid ([`crate::grid_winds`]); they are turned on the native grid,
+/// before the regrid, from the message's own grid definition. The two components are fetched as
+/// separate messages and kept in order explicitly, so they can never swap.
+pub(crate) async fn fetch_wind_at_run(
+    http: &reqwest::Client,
+    run: DateTime<Utc>,
+    fh: u8,
+    level: WindLevel,
+) -> anyhow::Result<(MrmsField, MrmsField)> {
+    let model = Model::Hrrr;
     let lvl = level.idx_level();
-    let (run, mut fields) = fetch_fields_one_run(
-        http,
-        Model::Hrrr,
-        fcst_hour,
-        &[
-            ("UGRD", lvl, f64::NEG_INFINITY),
-            ("VGRD", lvl, f64::NEG_INFINITY),
-        ],
-    )
-    .await?;
-    anyhow::ensure!(fields.len() == 2, "expected u and v, got {}", fields.len());
-    // `.buffered` preserves input order, but a wind field is unreadable if u and v ever swap, so
-    // pop them back-to-front explicitly rather than trusting that at a distance.
-    let v = fields.pop().unwrap();
-    let u = fields.pop().unwrap();
-    anyhow::ensure!(
-        u.nx == v.nx && u.ny == v.ny,
-        "u/v grid mismatch: {}x{} vs {}x{}",
-        u.nx,
-        u.ny,
-        v.nx,
-        v.ny
-    );
-    Ok((run, u, v))
+    let idx = fetch_idx(http, model, run, fh).await?;
+    let range = |var: &str| {
+        field_byte_range(&idx, var, lvl).ok_or_else(|| anyhow::anyhow!("no {var}:{lvl} in idx"))
+    };
+    let (ur, vr) = (range("UGRD")?, range("VGRD")?);
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let base = model.url(&date, run.hour(), fh);
+    let (ub, vb) = futures_util::try_join!(
+        crate::gribcache::fetch_range(http, &base, ur, USER_AGENT),
+        crate::gribcache::fetch_range(http, &base, vr, USER_AGENT),
+    )?;
+    let res = model.res_deg();
+    crate::task::blocking(move || {
+        crate::task::guarded(|| {
+            let mut u = decode_native(&ub)?;
+            let mut v = decode_native(&vb)?;
+            anyhow::ensure!(
+                u.data.len() == v.data.len(),
+                "u/v grid mismatch: {} vs {} points",
+                u.data.len(),
+                v.data.len()
+            );
+            if let Some(frame) = crate::grid_winds::from_message(&ub) {
+                frame.rotate(&mut u.data, &mut v.data, &u.lons);
+            }
+            let uf = regrid(&u.lats, &u.lons, &u.data, u.time, res, f64::NEG_INFINITY)?;
+            let vf = regrid(&v.lats, &v.lons, &v.data, v.time, res, f64::NEG_INFINITY)?;
+            anyhow::Ok((uf, vf))
+        })
+        .unwrap_or_else(|_| anyhow::bail!("HRRR wind decode panicked"))
+    })
+    .await?
 }
 
 /// Fetch one field across forecast hours `1..=through_hour` from a SINGLE model cycle and fold
@@ -618,6 +648,157 @@ pub fn run_choices(model: Model, now: DateTime<Utc>, count: usize) -> Vec<DateTi
     (0..count)
         .map(|i| floored - chrono::Duration::hours((i as u32 * step) as i64))
         .collect()
+}
+
+/// The fields one run's file holds at `fcst_hour` (ROADMAP_PARITY M5.3), read from its `.idx`:
+/// from exactly `run`, or the newest cycle that has the lead posted. Returns the run and lead
+/// actually read.
+pub async fn fetch_inventory(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+) -> anyhow::Result<(DateTime<Utc>, u8, Vec<crate::model_inventory::Field>)> {
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        match fetch_idx(http, model, run, fh).await {
+            Ok(idx) => return Ok((run, fh, crate::model_inventory::discover(&idx))),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
+}
+
+/// One discovered field (ROADMAP_PARITY M5.3): the message for `var` at `level_text` whose timing
+/// is `kind` at `fcst_hour`, from exactly `run` or the newest cycle that has it, converted to its
+/// vetted display units. A parameter without vetted units is refused, never drawn with guessed
+/// ones; a run without that exact message is an error, never another lead's or interval's field.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_inventory_field(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+    var: &str,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<HrrrForecast> {
+    let quantity = crate::model_inventory::vetted(var)
+        .ok_or_else(|| anyhow::anyhow!("{var} has no vetted units"))?;
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        let attempt = async {
+            let idx = fetch_idx(http, model, run, fh).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let (start, end, part) =
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
+                    })?;
+            let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+            let base = model.url(&date, run.hour(), fh);
+            let bytes =
+                crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
+            // RAP packs u and v as two fields of one message: decode the one asked for.
+            let bytes = crate::model_inventory::field_bytes(bytes, part)?;
+            let mut field =
+                crate::task::guarded(|| decode_regrid(&bytes, model, f64::NEG_INFINITY))
+                    .unwrap_or_else(|_| anyhow::bail!("{} grib decode panicked", model.label()))?;
+            for v in &mut field.values {
+                if v.is_finite() {
+                    *v = quantity.to_display(*v);
+                }
+            }
+            anyhow::Ok(field)
+        };
+        match attempt.await {
+            Ok(field) => {
+                return Ok(HrrrForecast {
+                    field,
+                    run,
+                    fcst_hour: fh,
+                    fcst_minutes: None,
+                })
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
+}
+
+/// A wind pair from a run's inventory (ROADMAP_PARITY M5.3): `UGRD` and `VGRD` at `level_text`
+/// with timing `kind` at `fcst_hour`, from exactly `run` or the newest cycle that has both, as
+/// east and north components in m/s on one regridded lattice. Grid-relative Lambert components
+/// are turned on the native grid ([`crate::grid_winds`]); a message packing both (RAP) is split,
+/// so the pair can never be one field read twice.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_inventory_vector(
+    http: &reqwest::Client,
+    model: Model,
+    run: Option<DateTime<Utc>>,
+    fcst_hour: u8,
+    level_text: &str,
+    kind: crate::model_inventory::TimingKind,
+) -> anyhow::Result<(DateTime<Utc>, u8, MrmsField, MrmsField)> {
+    let runs = match run {
+        Some(r) => vec![r],
+        None => recent_cycles(model, Utc::now()),
+    };
+    let mut last = None;
+    for run in runs {
+        let fh = clamp_lead(model, run, fcst_hour);
+        let attempt = async {
+            let idx = fetch_idx(http, model, run, fh).await?;
+            let entries = crate::model_inventory::parse_idx(&idx);
+            let locate = |var: &str| {
+                crate::model_inventory::find(&entries, var, level_text, kind, u32::from(fh))
+                    .ok_or_else(|| anyhow::anyhow!("no {var}:{level_text} at F+{fh}"))
+            };
+            let (u_at, v_at) = (locate("UGRD")?, locate("VGRD")?);
+            let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+            let base = model.url(&date, run.hour(), fh);
+            let ub =
+                crate::gribcache::fetch_range(http, &base, (u_at.0, u_at.1), USER_AGENT).await?;
+            let vb = if (v_at.0, v_at.1) == (u_at.0, u_at.1) {
+                ub.clone()
+            } else {
+                crate::gribcache::fetch_range(http, &base, (v_at.0, v_at.1), USER_AGENT).await?
+            };
+            let ub = crate::model_inventory::field_bytes(ub, u_at.2)?;
+            let vb = crate::model_inventory::field_bytes(vb, v_at.2)?;
+            let res = model.res_deg();
+            crate::task::blocking(move || {
+                crate::task::guarded(|| {
+                    let mut u = decode_native(&ub)?;
+                    let mut v = decode_native(&vb)?;
+                    anyhow::ensure!(u.data.len() == v.data.len(), "u/v grid mismatch");
+                    if let Some(frame) = crate::grid_winds::from_message(&ub) {
+                        frame.rotate(&mut u.data, &mut v.data, &u.lons);
+                    }
+                    let uf = regrid(&u.lats, &u.lons, &u.data, u.time, res, f64::NEG_INFINITY)?;
+                    let vf = regrid(&v.lats, &v.lons, &v.data, v.time, res, f64::NEG_INFINITY)?;
+                    anyhow::Ok((uf, vf))
+                })
+                .unwrap_or_else(|_| anyhow::bail!("{} wind decode panicked", model.label()))
+            })
+            .await?
+        };
+        match attempt.await {
+            Ok((u, v)) => return Ok((run, fh, u, v)),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
 }
 
 /// Fetch `var`/`level` at `fcst_hour` from exactly `run`. Unlike [`fetch_field`] this never walks
@@ -919,6 +1100,61 @@ pub(crate) fn regrid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The newest HRRR run's F+6 inventory, live, and its 500 hPa temperature as a discovered
+    /// field in °C. `cargo test -p wxdata inventory_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn inventory_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, fh, fields) = fetch_inventory(&http, Model::Hrrr, None, 6).await.unwrap();
+        let supported = fields.iter().filter(|f| f.supported()).count();
+        println!(
+            "HRRR {run} F+{fh}: {} fields, {supported} supported, {} vector pairs",
+            fields.len(),
+            crate::model_inventory::vector_pairs(&fields).len()
+        );
+        assert!(supported >= 25 && fields.len() > supported);
+        let t = fetch_inventory_field(
+            &http,
+            Model::Hrrr,
+            Some(run),
+            fh,
+            "TMP",
+            "500 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let finite: Vec<f32> = t
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        let (lo, hi) = finite
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        println!(
+            "500 hPa temperature {lo:.1}..{hi:.1} °C over {} cells",
+            finite.len()
+        );
+        assert!(lo > -60.0 && hi < 5.0, "{lo}..{hi}");
+        // A parameter without vetted units is refused.
+        assert!(fetch_inventory_field(
+            &http,
+            Model::Hrrr,
+            Some(run),
+            fh,
+            "POT",
+            "2 m above ground",
+            TimingKind::Instant
+        )
+        .await
+        .is_err());
+    }
 
     #[test]
     fn aligned_candidates_use_exact_valid_time_and_newest_cycle_first() {
@@ -1267,25 +1503,185 @@ mod tests {
             "u and v are the same field — submessage aliasing"
         );
 
-        // `fetch_wind` pops the pair off a `.buffered()` stream assuming input order. A silent
-        // swap there would point every vector 90 degrees wrong and still look like weather, so
-        // pin it against single-field fetches that cannot be reordered. Same run, same hour.
+        // The pair must not be swapped. `u` is now turned to east/north, so compare it with the
+        // raw UGRD only near the central meridian (97.5°W), where the grid's axes are east and
+        // north and the turn is a fraction of a degree.
         let lvl = WindLevel::Surface.idx_level();
         let solo_u = fetch_run_field(&http, Model::Hrrr, run, 1, "UGRD", lvl, f64::NEG_INFINITY)
             .await
             .expect("solo UGRD");
         assert_eq!((solo_u.nx, solo_u.ny), (u.nx, u.ny));
-        let diff = solo_u
-            .values
-            .iter()
-            .zip(&u.values)
-            .filter(|(a, b)| a.is_finite() && b.is_finite())
-            .filter(|(a, b)| (*a - *b).abs() > 0.01)
-            .count();
-        assert_eq!(
-            diff, 0,
-            "fetch_wind's `u` is not UGRD — the pair is swapped"
+        let mut checked = 0;
+        for lat in (30..=45).map(f64::from) {
+            for lon in [-97.6, -97.5, -97.4] {
+                let (Some(a), Some(b)) = (
+                    solo_u.sample_bilinear(lon, lat),
+                    u.sample_bilinear(lon, lat),
+                ) else {
+                    continue;
+                };
+                checked += 1;
+                assert!(
+                    (a - b).abs() < 0.2 + 0.02 * a.abs(),
+                    "{lon},{lat}: {a} vs {b}"
+                );
+            }
+        }
+        assert!(checked > 20, "{checked} points on the central meridian");
+    }
+
+    /// The RAP packs u and v as two fields of one message: a discovered pair and a discovered
+    /// single VGRD must both read the second field, not the first twice.
+    /// `cargo test -p wxdata rap_packed_winds_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn rap_packed_winds_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let lvl = "500 mb";
+        let (run, fh, u, v) =
+            fetch_inventory_vector(&http, Model::Rap, None, 3, lvl, TimingKind::Instant)
+                .await
+                .unwrap();
+        let differ = |a: &MrmsField, b: &MrmsField| {
+            a.values
+                .iter()
+                .zip(&b.values)
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .filter(|(x, y)| (*x - *y).abs() > 0.5)
+                .count()
+        };
+        let n = differ(&u, &v);
+        println!("RAP {run} F+{fh} {lvl}: u and v differ at {n} cells");
+        assert!(n > 1000, "the pair is one field read twice");
+        let vs = fetch_inventory_field(
+            &http,
+            Model::Rap,
+            Some(run),
+            fh,
+            "VGRD",
+            lvl,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let us = fetch_inventory_field(
+            &http,
+            Model::Rap,
+            Some(run),
+            fh,
+            "UGRD",
+            lvl,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        assert!(
+            differ(&us.field, &vs.field) > 1000,
+            "a single VGRD decoded as UGRD"
         );
+        let idx = fetch_idx(&http, Model::Rap, run, fh).await.unwrap();
+        let packed = crate::model_inventory::parse_idx(&idx)
+            .iter()
+            .any(|e| e.var == "VGRD" && e.level_text == lvl && e.sub > 0);
+        println!("RAP {lvl} VGRD is a second field of its message: {packed}");
+    }
+
+    /// Rotation, checked against an earth-relative model: the HRRR's raw 10 m winds disagree in
+    /// direction with the GFS's by roughly the Lambert convergence angle (measured 2026-10-07 12Z
+    /// F+6: median +16.3° over the east coast and −17.4° over the west, counterclockwise
+    /// positive), and the turned ones do not (+3.1° and −1.0°).
+    /// `cargo test -p wxdata wind_rotation_agrees_with_gfs_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn wind_rotation_agrees_with_gfs_live() {
+        use crate::model_inventory::TimingKind;
+        let http = reqwest::Client::new();
+        let (run, _) =
+            crate::global::fetch_global_inventory(&http, crate::global::GlobalModel::Gfs, None, 6)
+                .await
+                .unwrap();
+        let gfs = |var: &'static str| {
+            let http = http.clone();
+            async move {
+                crate::global::fetch_global_inventory_field(
+                    &http,
+                    crate::global::GlobalModel::Gfs,
+                    Some(run),
+                    6,
+                    var,
+                    "10 m above ground",
+                    TimingKind::Instant,
+                )
+                .await
+                .unwrap()
+                .field
+            }
+        };
+        let (gu, gv) = (gfs("UGRD").await, gfs("VGRD").await);
+        let (ru, rv) = futures_util::try_join!(
+            fetch_run_field(
+                &http,
+                Model::Hrrr,
+                run,
+                6,
+                "UGRD",
+                "10 m above ground",
+                f64::NEG_INFINITY
+            ),
+            fetch_run_field(
+                &http,
+                Model::Hrrr,
+                run,
+                6,
+                "VGRD",
+                "10 m above ground",
+                f64::NEG_INFINITY
+            ),
+        )
+        .unwrap();
+        let (eu, ev) = fetch_wind_at_run(&http, run, 6, WindLevel::Surface)
+            .await
+            .unwrap();
+        let dir = |u: f32, v: f32| f64::from(v).atan2(f64::from(u)).to_degrees();
+        let bias = |lons: std::ops::Range<i32>, hu: &MrmsField, hv: &MrmsField| {
+            let mut diffs = Vec::new();
+            for lat in 33..=44 {
+                for lon in lons.clone() {
+                    let (lon, lat) = (f64::from(lon), f64::from(lat));
+                    let s = |f: &MrmsField| f.sample_bilinear(lon, lat);
+                    let (Some(a), Some(b), Some(c), Some(d)) = (s(hu), s(hv), s(&gu), s(&gv))
+                    else {
+                        continue;
+                    };
+                    // Only winds strong enough for their direction to mean something.
+                    if a.hypot(b) < 4.0 || c.hypot(d) < 4.0 {
+                        continue;
+                    }
+                    let delta = (dir(a, b) - dir(c, d) + 540.0).rem_euclid(360.0) - 180.0;
+                    diffs.push(delta);
+                }
+            }
+            diffs.sort_by(f64::total_cmp);
+            (
+                diffs.get(diffs.len() / 2).copied().unwrap_or(f64::NAN),
+                diffs.len(),
+            )
+        };
+        let east_raw = bias(-80..-70, &ru, &rv);
+        let east_rot = bias(-80..-70, &eu, &ev);
+        let west_raw = bias(-124..-114, &ru, &rv);
+        let west_rot = bias(-124..-114, &eu, &ev);
+        println!(
+            "run {run} F+6, median HRRR-GFS direction difference (deg, n): east raw {east_raw:?} \
+             rotated {east_rot:?}; west raw {west_raw:?} rotated {west_rot:?}"
+        );
+        assert!(
+            east_raw.1 >= 10 && west_raw.1 >= 10,
+            "enough wind to compare"
+        );
+        assert!(east_rot.0.abs() < east_raw.0.abs() && west_rot.0.abs() < west_raw.0.abs());
+        assert!(east_rot.0.abs() < 6.0 && west_rot.0.abs() < 6.0);
     }
 
     #[test]

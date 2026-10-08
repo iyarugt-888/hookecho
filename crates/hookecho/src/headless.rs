@@ -2630,7 +2630,81 @@ pub fn run_ensemble(
         wind_upload: None,
         wind: None,
     };
-    render_to_png(&rt, cb, out_path)
+    render_to_png(&rt, cb, out_path)?;
+    // `HOOKECHO_ENSEMBLE_SPAGHETTI=<level in native units>`: the map layer's spaghetti, the same
+    // member and mean contours, drawn over the picture on the CPU.
+    if let Some(level) = std::env::var("HOOKECHO_ENSEMBLE_SPAGHETTI")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+    {
+        let lines = crate::ensemble_layer::spaghetti(&run.members, level);
+        let mut img = image::open(out_path)?.to_rgba8();
+        let px = (size() as f32, size() as f32);
+        let to_px = |&(lon, lat): &(f64, f64)| {
+            camera.world_to_screen(crate::render::mercator::lonlat_to_world(lon, lat), px)
+        };
+        let n = lines.members.len();
+        for (i, member) in lines.members.iter().enumerate() {
+            let c = crate::ensemble_layer::member_color(i, n).to_srgba_unmultiplied();
+            for l in member {
+                draw_polyline(&mut img, l.pts.iter().map(to_px), c, 0);
+            }
+        }
+        for l in &lines.mean {
+            draw_polyline(&mut img, l.pts.iter().map(to_px), [0, 0, 0, 200], 1);
+            draw_polyline(&mut img, l.pts.iter().map(to_px), [255, 255, 255, 255], 0);
+        }
+        img.save(out_path)?;
+        println!(
+            "spaghetti at {level}: {} member line sets, {} mean lines",
+            n,
+            lines.mean.len()
+        );
+    }
+    Ok(())
+}
+
+/// A polyline in pixel coordinates over `img`, blended at `rgba`'s alpha, `halo` pixels thick
+/// either side of the centre line.
+fn draw_polyline(
+    img: &mut image::RgbaImage,
+    pts: impl Iterator<Item = (f32, f32)>,
+    rgba: [u8; 4],
+    halo: i32,
+) {
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let a = f32::from(rgba[3]) / 255.0;
+    let mut plot = |x: i32, y: i32| {
+        for dy in -halo..=halo {
+            for dx in -halo..=halo {
+                let (x, y) = (x + dx, y + dy);
+                if x < 0 || y < 0 || x >= w || y >= h {
+                    continue;
+                }
+                let p = img.get_pixel_mut(x as u32, y as u32);
+                for (c, &v) in p.0.iter_mut().zip(&rgba[..3]) {
+                    *c = (f32::from(*c) * (1.0 - a) + f32::from(v) * a) as u8;
+                }
+            }
+        }
+    };
+    let mut prev: Option<(f32, f32)> = None;
+    for p in pts {
+        if let Some(q) = prev {
+            let steps = (p.0 - q.0).abs().max((p.1 - q.1).abs()).ceil().max(1.0) as i32;
+            // A segment that leaps the picture (a dateline wrap) is not drawn.
+            if steps < w.max(h) {
+                for s in 0..=steps {
+                    let t = s as f32 / steps as f32;
+                    plot(
+                        (q.0 + (p.0 - q.0) * t).round() as i32,
+                        (q.1 + (p.1 - q.1) * t).round() as i32,
+                    );
+                }
+            }
+        }
+        prev = Some(p);
+    }
 }
 
 /// Render an RTMA analysis field from live data (ROADMAP_NEW G1):
@@ -3705,6 +3779,7 @@ pub fn run_3d(
         nz: v3.nz as u32,
         lut,
         half_km: v3.half_km,
+        center_km: [0.0, 0.0],
         top_km: v3.top_km,
         outside: 0.0,
         value_range: None,
@@ -3742,6 +3817,7 @@ fn run_3d_product(
 ) -> anyhow::Result<()> {
     let expr = wxdata::udp::parse(formula).map_err(|e| anyhow::anyhow!("{e}"))?;
     let spec = crate::loop3d::SmoothSpec {
+        roi: None,
         product: Some(crate::loop3d::ProductSpec {
             expr,
             range: None,
@@ -3802,6 +3878,7 @@ fn run_3d_velocity(
 ) -> anyhow::Result<()> {
     let table = crate::colormap::default_table(Moment::Velocity).clone();
     let spec = crate::loop3d::SmoothSpec {
+        roi: None,
         product: None,
         moment: Moment::Velocity,
         invert: false,
@@ -3839,6 +3916,7 @@ fn run_3d_velocity(
         nz: folded.nz,
         lut: crate::colormap::bake_lut(&table, (lo, hi), None).to_vec(),
         half_km: folded.half_km,
+        center_km: [0.0, 0.0],
         top_km: folded.top_km,
         outside: folded.outside,
         value_range: None,
@@ -3888,6 +3966,16 @@ fn render_volume_once(
     upload: &crate::render3d::Volume3dUpload,
     view: crate::render3d::View3d,
 ) -> anyhow::Result<Vec<u8>> {
+    render_volume_steps(rt, upload, view, 256)
+}
+
+/// [`render_volume_once`] with an explicit raymarch step count.
+fn render_volume_steps(
+    rt: &tokio::runtime::Runtime,
+    upload: &crate::render3d::Volume3dUpload,
+    view: crate::render3d::View3d,
+    steps: u32,
+) -> anyhow::Result<Vec<u8>> {
     let uniform = crate::render3d::orbit_uniform(
         30.0,
         25.0,
@@ -3895,8 +3983,9 @@ fn render_volume_once(
         1.0,
         upload.n,
         upload.nz,
+        upload.half_km,
         upload.top_km,
-        256,
+        steps,
         view,
     );
     let (device, queue, adapter) = init_gpu(rt)?;
@@ -4975,6 +5064,7 @@ mod golden_tests {
                 nz: nz as u32,
                 lut,
                 half_km: half,
+                center_km: [0.0, 0.0],
                 top_km: 18.0,
                 outside: 0.0,
                 value_range: None,
@@ -4984,7 +5074,7 @@ mod golden_tests {
                 ..Default::default()
             };
             let uniform = crate::render3d::orbit_uniform(
-                30.0, 35.0, 2.6, 1.0, n as u32, nz as u32, 18.0, steps, view3,
+                30.0, 35.0, 2.6, 1.0, n as u32, nz as u32, half, 18.0, steps, view3,
             );
             let mut res = crate::render3d::Volume3dResources::new(&device, format);
             let target = new_target(&device, format, size);
@@ -5044,6 +5134,7 @@ mod golden_tests {
             )
             .to_vec(),
             half_km: 20.0,
+            center_km: [0.0, 0.0],
             top_km: 10.0,
             outside: 0.0,
             value_range: None,
@@ -5053,7 +5144,7 @@ mod golden_tests {
             .build()
             .unwrap();
         let curve = |a: f32| crate::render3d::View3d {
-            tf: Some([[2.0, a], [100.0, a], [200.0, a], [255.0, a]]),
+            tf: Some([[2.0, a], [100.0, a], [200.0, a], [255.0, a]].into()),
             ..Default::default()
         };
         let Ok(ramp) = render_volume_once(&rt, &upload, crate::render3d::View3d::default()) else {
@@ -5069,6 +5160,150 @@ mod golden_tests {
         assert!(
             s >= r,
             "a curve at full opacity draws at least what the ramp did"
+        );
+    }
+
+    /// Stops five to eight reach the shader (M3.5 increment 2): a curve solid up to 40 dBZ and
+    /// clear from 45 dBZ hides a 50 dBZ block only if its fifth and sixth stops are read; a
+    /// four-stop reading would hold the fourth stop's opacity and draw it.
+    #[test]
+    #[ignore = "gpu"]
+    fn stops_past_the_fourth_decide_what_draws() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let idx_of = |dbz: f32| 2.0 + ((dbz - lo) / (hi - lo)) * 253.0;
+        let (n, nz) = (24usize, 12usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 3..9 {
+            for j in 8..16 {
+                for i in 8..16 {
+                    data[i + n * j + n * n * k] = idx_of(50.0) as u8;
+                }
+            }
+        }
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 20.0,
+            center_km: [0.0, 0.0],
+            top_km: 10.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let with = |stops: &[[f32; 2]]| crate::render3d::View3d {
+            tf: crate::render3d::TfStops::new(stops),
+            ..Default::default()
+        };
+        let six = [
+            [idx_of(0.0), 1.0],
+            [idx_of(10.0), 1.0],
+            [idx_of(20.0), 1.0],
+            [idx_of(40.0), 1.0],
+            [idx_of(45.0), 0.0],
+            [255.0, 0.0],
+        ];
+        let Ok(hidden) = render_volume_once(&rt, &upload, with(&six)) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let first_four = render_volume_once(&rt, &upload, with(&six[..4])).unwrap();
+        let (h, f) = (echo_pixels(&hidden), echo_pixels(&first_four));
+        println!("six stops: {h} px, first four only: {f} px");
+        assert_eq!(h, 0, "the fifth and sixth stops clear the 50 dBZ block");
+        assert!(
+            f > 0,
+            "with four stops it stays at the fourth's full opacity"
+        );
+    }
+
+    /// Translucent compositing (M3.5) on the GPU: a 60 dBZ core inside a 25 dBZ shell. MIP shows
+    /// the core's colour wherever a ray reaches it; compositing shows it through the shell, so
+    /// the two frames must differ; and the per-km opacity must give the same frame at 64 and 256
+    /// steps where MIP-era fixed opacity would not.
+    #[test]
+    #[ignore = "gpu"]
+    fn translucent_rendering_is_stable_across_steps_and_differs_from_mip() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let enc = |dbz: f32| 2 + (((dbz - lo) / (hi - lo)) * 253.0) as u8;
+        let (n, nz) = (32usize, 16usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 1..14 {
+            for j in 4..28 {
+                for i in 4..28 {
+                    let core =
+                        (12..20).contains(&i) && (12..20).contains(&j) && (4..11).contains(&k);
+                    data[i + n * j + n * n * k] = if core { enc(60.0) } else { enc(25.0) };
+                }
+            }
+        }
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 40.0,
+            center_km: [0.0, 0.0],
+            top_km: 16.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mode = |render| crate::render3d::View3d {
+            render,
+            ..Default::default()
+        };
+        use crate::render3d::VolumeRender;
+        let Ok(mip) = render_volume_once(&rt, &upload, mode(VolumeRender::Mip)) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let coarse =
+            render_volume_steps(&rt, &upload, mode(VolumeRender::Translucent), 64).unwrap();
+        let fine = render_volume_steps(&rt, &upload, mode(VolumeRender::Translucent), 256).unwrap();
+        let lit = render_volume_once(&rt, &upload, mode(VolumeRender::TranslucentLit)).unwrap();
+        let diff = |a: &[u8], b: &[u8]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (*x as i32 - *y as i32).unsigned_abs() as u64)
+                .sum::<u64>() as f64
+                / a.len() as f64
+        };
+        let (steps_diff, mode_diff, lit_diff) =
+            (diff(&coarse, &fine), diff(&mip, &fine), diff(&lit, &fine));
+        println!(
+            "mean |Δ| per channel: 64 vs 256 steps {steps_diff:.2}, MIP vs translucent \
+             {mode_diff:.2}, lit vs unlit {lit_diff:.2}; echo px {} / {}",
+            echo_pixels(&fine),
+            echo_pixels(&mip)
+        );
+        for (name, px) in [("mip", &mip), ("translucent", &fine), ("lit", &lit)] {
+            let out = std::env::temp_dir().join(format!("hookecho_volume_{name}.png"));
+            image::save_buffer(&out, px, size(), size(), image::ColorType::Rgba8).unwrap();
+        }
+        assert!(echo_pixels(&fine) > 0, "translucent draws the volume");
+        assert!(mode_diff > 2.0, "compositing is not MIP");
+        assert!(lit_diff > 0.5, "lighting shades the surface");
+        assert!(
+            steps_diff < 1.5,
+            "opacity per km keeps the frame stable across step counts"
         );
     }
 
@@ -5141,6 +5376,7 @@ mod golden_tests {
                 nz: v3.nz as u32,
                 lut: lut.to_vec(),
                 half_km: v3.half_km,
+                center_km: [0.0, 0.0],
                 top_km: v3.top_km,
                 outside: 0.0,
                 value_range: None,
@@ -6593,7 +6829,10 @@ fn backtest_event(
         }
         if use_env {
             let had = env_hours.values().filter(|h| h.is_some()).count();
-            println!("  {site}: HRRR environment for {had} of {} hour(s)", env_hours.len());
+            println!(
+                "  {site}: HRRR environment for {had} of {} hour(s)",
+                env_hours.len()
+            );
         }
         anyhow::Ok((
             tds,

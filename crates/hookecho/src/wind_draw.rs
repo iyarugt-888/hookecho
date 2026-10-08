@@ -78,6 +78,105 @@ impl WindField {
     }
 }
 
+/// Spacing of wind barbs on screen, px.
+pub const BARB_SPACING_PX: f32 = 56.0;
+
+/// One barb to draw: where (pane pixels), the unit screen vector from there toward where the wind
+/// comes from, and the speed in knots.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Barb {
+    pub at: Pos2,
+    pub toward_source: Vec2,
+    pub kt: f32,
+}
+
+/// Barbs on a screen lattice `spacing` px apart over a `vp` pane: each samples `field` at its
+/// point and points at the wind's source as the camera projects it (so a rotated or pitched map
+/// still reads true). Points off the grid, or with either component missing, get none.
+pub fn barbs(field: &WindField, cam: &Camera, vp: (f32, f32), spacing: f32) -> Vec<Barb> {
+    barbs_uv(&field.u, &field.v, cam, vp, spacing)
+}
+
+/// [`barbs`] from any east/north component grids (m/s), such as a wind picked in the model
+/// field browser.
+pub fn barbs_uv(
+    u: &MrmsField,
+    v: &MrmsField,
+    cam: &Camera,
+    vp: (f32, f32),
+    spacing: f32,
+) -> Vec<Barb> {
+    let spacing = spacing.max(8.0);
+    let mut out = Vec::new();
+    let mut y = spacing / 2.0;
+    while y < vp.1 {
+        let mut x = spacing / 2.0;
+        while x < vp.0 {
+            let w = cam.screen_to_world((x, y), vp);
+            let (lon, lat) = world_to_lonlat(w.0, w.1);
+            let sample = u.sample_bilinear(lon, lat).zip(v.sample_bilinear(lon, lat));
+            if let Some((u, v)) = sample.filter(|(u, v)| u.is_finite() && v.is_finite()) {
+                // Meteorological "from" bearing: the wind blows from there toward (u, v).
+                let from = f64::from(-u).atan2(f64::from(-v)).to_degrees();
+                let src = crate::geo::destination_point([lon, lat], from, 10.0);
+                let s = cam
+                    .world_to_screen(crate::render::mercator::lonlat_to_world(src[0], src[1]), vp);
+                let d = Vec2::new(s.0 - x, s.1 - y);
+                if d.length() > 1e-3 {
+                    out.push(Barb {
+                        at: Pos2::new(x, y),
+                        toward_source: d.normalized(),
+                        kt: u.hypot(v) * 1.943_844,
+                    });
+                }
+            }
+            x += spacing;
+        }
+        y += spacing;
+    }
+    out
+}
+
+/// Draw `barbs` (pane pixels from `origin`) with a dark halo, coloured by speed; calm points
+/// get a circle.
+pub fn paint_barbs(painter: &egui::Painter, origin: Pos2, barbs: &[Barb], alpha: f32) {
+    for b in barbs {
+        let at = Barb {
+            at: origin + b.at.to_vec2(),
+            ..*b
+        };
+        let col = barb_color(b.kt).gamma_multiply(alpha);
+        let halo = Color32::from_black_alpha((140.0 * alpha) as u8);
+        let lines = barb_lines(&at, 20.0);
+        for l in &lines {
+            painter.line_segment(*l, egui::Stroke::new(3.0, halo));
+        }
+        for l in &lines {
+            painter.line_segment(*l, egui::Stroke::new(1.4, col));
+        }
+        if b.kt < 2.5 {
+            painter.circle_stroke(at.at, 3.0, egui::Stroke::new(1.2, col));
+        }
+    }
+}
+
+/// A barb's line segments in pane pixels, `len` px long: the shaft toward the source and the
+/// METAR barb/pennant convention along it ([`wxdata::metar::barb_segments`]).
+pub fn barb_lines(b: &Barb, len: f32) -> Vec<[Pos2; 2]> {
+    let up = b.toward_source;
+    let right = Vec2::new(-up.y, up.x);
+    let map = |p: [f32; 2]| b.at + (right * p[0] + up * p[1]) * len;
+    wxdata::metar::barb_segments(b.kt)
+        .into_iter()
+        .map(|(a, c)| [map(a), map(c)])
+        .collect()
+}
+
+/// A barb's colour: the wind ramp, as the particles and legend use.
+pub fn barb_color(kt: f32) -> Color32 {
+    speed_color(kt / 1.943_844)
+}
+
 /// Speed (m/s) → color, through the shared [`WIND`] ramp so the legend and the particles cannot
 /// disagree. The LUT is baked once; `FieldRamp::index` already applies the m/s→kt conversion.
 fn speed_color(ms: f32) -> Color32 {
@@ -268,6 +367,81 @@ impl Particles {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn barbs_point_where_the_wind_comes_from_on_the_screen() {
+        let cam = Camera::at_lonlat(-100.0, 40.0, 6.0);
+        let vp = (400.0, 300.0);
+        // A 20 m/s westerly: from the west, so toward the source is screen-left.
+        let w = super::barbs(&uniform(20.0, 0.0), &cam, vp, 56.0);
+        assert!(!w.is_empty());
+        for b in &w {
+            assert!(b.toward_source.x < -0.99, "{:?}", b.toward_source);
+            assert!((b.kt - 38.9).abs() < 0.1, "{}", b.kt);
+        }
+        // A northerly (blowing south): toward the source is screen-up.
+        let n = super::barbs(&uniform(0.0, -10.0), &cam, vp, 56.0);
+        assert!(n.iter().all(|b| b.toward_source.y < -0.99), "{:?}", n[0]);
+        // Turn the map so east is up (bearing 90): the westerly's source is now screen-down.
+        let mut turned = cam;
+        turned.bearing = 90.0;
+        let t = super::barbs(&uniform(20.0, 0.0), &turned, vp, 56.0);
+        assert!(!t.is_empty());
+        assert!(
+            t.iter().all(|b| b.toward_source.y > 0.99),
+            "{:?}",
+            t[0].toward_source
+        );
+        // The glyph: a 39 kt barb is a shaft, three full barbs and a half.
+        let lines = super::barb_lines(&w[0], 20.0);
+        assert_eq!(lines.len(), 1 + 4);
+        let shaft = lines[0];
+        assert!(
+            (shaft[1].x - shaft[0].x + 20.0).abs() < 0.01,
+            "shaft drawn toward the source"
+        );
+    }
+
+    /// Barbs over a synthetic speed gradient (5 to 75 kt westerly, south to north), written for
+    /// review under `target/parity-review/wind-barbs`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the wind barb capture for review"]
+    fn gpu_wind_barb_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/wind-barbs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut field = uniform(0.0, 0.0);
+        for j in 0..4 {
+            for i in 0..4 {
+                // Row 0 is the north edge: fastest there, veering from southwesterly to westerly.
+                let kt = 75.0 - 23.0 * j as f32;
+                let ms = kt / 1.943_844;
+                let (s, c) = (0.35 * j as f32).sin_cos();
+                field.u.values[j * 4 + i] = ms * c;
+                field.v.values[j * 4 + i] = ms * s;
+            }
+        }
+        let cam = Camera::at_lonlat(-100.0, 40.0, 6.0);
+        gpu.save(&dir.join("barbs.png"), 420, 320, |ui| {
+            let rect = ui.max_rect();
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(28, 32, 40));
+            for b in super::barbs(&field, &cam, (420.0, 320.0), super::BARB_SPACING_PX) {
+                for l in super::barb_lines(&b, 20.0) {
+                    painter.line_segment(l, egui::Stroke::new(1.4, super::barb_color(b.kt)));
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn no_barb_where_there_is_no_wind_grid() {
+        let cam = Camera::at_lonlat(-60.0, 10.0, 6.0);
+        assert!(super::barbs(&uniform(20.0, 0.0), &cam, (400.0, 300.0), 56.0).is_empty());
+    }
     use super::*;
     use wxdata::mrms::MrmsField;
 

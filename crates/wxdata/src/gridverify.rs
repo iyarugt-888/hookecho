@@ -107,18 +107,7 @@ pub fn compare(
     let dx = (forecast.lon_east - forecast.lon_west) / forecast.nx as f64;
     let dy = (forecast.lat_north - forecast.lat_south) / forecast.ny as f64;
 
-    // Weighted sums for the moments.
-    let (mut w_sum, mut sum_err, mut sum_abs, mut sum_sq) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-    let (mut sum_f, mut sum_a, mut sum_ff, mut sum_aa, mut sum_fa) =
-        (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-    let mut cells = 0usize;
-    let mut table = threshold.map(|_| Contingency {
-        hits: 0.0,
-        misses: 0.0,
-        false_alarms: 0.0,
-        correct_negatives: 0.0,
-    });
-
+    let mut acc = Accum::new(threshold);
     for row in 0..forecast.ny {
         let lat = forecast.lat_north - (row as f64 + 0.5) * dy;
         // Cells shrink toward the poles: a degree of longitude is cos(lat) as wide.
@@ -132,60 +121,168 @@ pub fn compare(
                 continue;
             }
             let lon = forecast.lon_west + (col as f64 + 0.5) * dx;
-            if let Some((west, south, east, north)) = region {
-                if lon < west || lon > east || lat < south || lat > north {
-                    continue;
-                }
+            if !inside(region, lon, lat) {
+                continue;
             }
             let Some(a) = analysis.sample_bilinear(lon, lat).filter(|a| a.is_finite()) else {
                 continue;
             };
-            let (f, a) = (f64::from(f), f64::from(a));
-            let err = f - a;
-            cells += 1;
-            w_sum += w;
-            sum_err += w * err;
-            sum_abs += w * err.abs();
-            sum_sq += w * err * err;
-            sum_f += w * f;
-            sum_a += w * a;
-            sum_ff += w * f * f;
-            sum_aa += w * a * a;
-            sum_fa += w * f * a;
-            if let (Some(t), Some(c)) = (threshold, table.as_mut()) {
-                let t = f64::from(t);
-                match (f > t, a > t) {
-                    (true, true) => c.hits += w,
-                    (false, true) => c.misses += w,
-                    (true, false) => c.false_alarms += w,
-                    (false, false) => c.correct_negatives += w,
-                }
+            acc.add(f64::from(f), f64::from(a), w);
+        }
+    }
+    acc.finish("the forecast and the analysis share no cells in that area")
+}
+
+fn inside(region: Option<Region>, lon: f64, lat: f64) -> bool {
+    region.is_none_or(|(west, south, east, north)| {
+        (west..=east).contains(&lon) && (south..=north).contains(&lat)
+    })
+}
+
+/// One station's observed value, in the forecast's units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Point {
+    pub lon: f64,
+    pub lat: f64,
+    pub value: f32,
+}
+
+/// Compare `forecast` with station observations valid at its time: the forecast sampled
+/// (bilinearly) at each station inside `region`, every station counted once. `Scores::cells` is
+/// then the number of stations.
+///
+/// The forecast is a grid-box value at the model's terrain height and the station is a point at
+/// its own: in rough terrain some of the difference is that, not forecast error.
+pub fn compare_points(
+    forecast: &MrmsField,
+    points: &[Point],
+    region: Option<Region>,
+    threshold: Option<f32>,
+) -> anyhow::Result<GridScore> {
+    let mut acc = Accum::new(threshold);
+    for p in points.iter().filter(|p| p.value.is_finite()) {
+        if !inside(region, p.lon, p.lat) {
+            continue;
+        }
+        let Some(f) = forecast
+            .sample_bilinear(p.lon, p.lat)
+            .filter(|f| f.is_finite())
+        else {
+            continue;
+        };
+        acc.add(f64::from(f), f64::from(p.value), 1.0);
+    }
+    acc.finish("no reporting station inside the forecast in that area")
+}
+
+/// Weighted sums for the scores.
+struct Accum {
+    cells: usize,
+    w_sum: f64,
+    sum_err: f64,
+    sum_abs: f64,
+    sum_sq: f64,
+    sum_f: f64,
+    sum_a: f64,
+    sum_ff: f64,
+    sum_aa: f64,
+    sum_fa: f64,
+    threshold: Option<f32>,
+    table: Option<Contingency>,
+}
+
+impl Accum {
+    fn new(threshold: Option<f32>) -> Self {
+        Self {
+            cells: 0,
+            w_sum: 0.0,
+            sum_err: 0.0,
+            sum_abs: 0.0,
+            sum_sq: 0.0,
+            sum_f: 0.0,
+            sum_a: 0.0,
+            sum_ff: 0.0,
+            sum_aa: 0.0,
+            sum_fa: 0.0,
+            threshold,
+            table: threshold.map(|_| Contingency {
+                hits: 0.0,
+                misses: 0.0,
+                false_alarms: 0.0,
+                correct_negatives: 0.0,
+            }),
+        }
+    }
+
+    fn add(&mut self, f: f64, a: f64, w: f64) {
+        let err = f - a;
+        self.cells += 1;
+        self.w_sum += w;
+        self.sum_err += w * err;
+        self.sum_abs += w * err.abs();
+        self.sum_sq += w * err * err;
+        self.sum_f += w * f;
+        self.sum_a += w * a;
+        self.sum_ff += w * f * f;
+        self.sum_aa += w * a * a;
+        self.sum_fa += w * f * a;
+        if let (Some(t), Some(c)) = (self.threshold, self.table.as_mut()) {
+            let t = f64::from(t);
+            match (f > t, a > t) {
+                (true, true) => c.hits += w,
+                (false, true) => c.misses += w,
+                (true, false) => c.false_alarms += w,
+                (false, false) => c.correct_negatives += w,
             }
         }
     }
-    anyhow::ensure!(
-        cells > 0 && w_sum > 0.0,
-        "the forecast and the analysis share no cells in that area"
-    );
 
-    let mean_f = sum_f / w_sum;
-    let mean_a = sum_a / w_sum;
-    let var_f = sum_ff / w_sum - mean_f * mean_f;
-    let var_a = sum_aa / w_sum - mean_a * mean_a;
-    let cov = sum_fa / w_sum - mean_f * mean_a;
-    // Variances this small are rounding noise, not a pattern to correlate.
-    let correlation =
-        (var_f > 1e-9 && var_a > 1e-9).then(|| (cov / (var_f * var_a).sqrt()).clamp(-1.0, 1.0));
-    Ok(GridScore {
-        scores: Scores {
-            cells,
-            bias: sum_err / w_sum,
-            mae: sum_abs / w_sum,
-            rmse: (sum_sq / w_sum).sqrt(),
-            correlation,
-        },
-        contingency: table,
-    })
+    fn finish(self, empty: &str) -> anyhow::Result<GridScore> {
+        anyhow::ensure!(self.cells > 0 && self.w_sum > 0.0, "{empty}");
+        let w = self.w_sum;
+        let mean_f = self.sum_f / w;
+        let mean_a = self.sum_a / w;
+        let var_f = self.sum_ff / w - mean_f * mean_f;
+        let var_a = self.sum_aa / w - mean_a * mean_a;
+        let cov = self.sum_fa / w - mean_f * mean_a;
+        // Variances this small are rounding noise, not a pattern to correlate.
+        let correlation =
+            (var_f > 1e-9 && var_a > 1e-9).then(|| (cov / (var_f * var_a).sqrt()).clamp(-1.0, 1.0));
+        Ok(GridScore {
+            scores: Scores {
+                cells: self.cells,
+                bias: self.sum_err / w,
+                mae: self.sum_abs / w,
+                rmse: (self.sum_sq / w).sqrt(),
+                correlation,
+            },
+            contingency: self.table,
+        })
+    }
+}
+
+/// What a forecast is scored against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Truth {
+    /// The RTMA analysis grid, area-weighted.
+    #[default]
+    Rtma,
+    /// METAR station reports nearest the valid time, each station once.
+    Metar,
+    /// The MRMS reflectivity mosaic nearest the valid time, area-weighted.
+    Mrms,
+}
+
+impl Truth {
+    pub const ALL: [Truth; 3] = [Truth::Rtma, Truth::Metar, Truth::Mrms];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Truth::Rtma => "RTMA analysis",
+            Truth::Metar => "METAR stations",
+            Truth::Mrms => "MRMS radar mosaic",
+        }
+    }
 }
 
 /// Which surface field to verify.
@@ -193,29 +290,57 @@ pub fn compare(
 pub enum VerifyField {
     Temp2m,
     Dewpoint2m,
+    /// Composite reflectivity, scored against the MRMS mosaic with both floored at
+    /// [`NO_ECHO_DBZ`].
+    CompositeReflectivity,
 }
 
+/// What "no echo" scores as, dBZ: MRMS's in-coverage no-echo cells and anything a model forecasts
+/// below it. Without a floor the clear-air values a model writes (down to −20 or so) would count
+/// as error against cells the radar mosaic leaves empty.
+pub const NO_ECHO_DBZ: f32 = 0.0;
+
 impl VerifyField {
-    pub const ALL: [VerifyField; 2] = [VerifyField::Temp2m, VerifyField::Dewpoint2m];
+    pub const ALL: [VerifyField; 3] = [
+        VerifyField::Temp2m,
+        VerifyField::Dewpoint2m,
+        VerifyField::CompositeReflectivity,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             VerifyField::Temp2m => "2 m temperature",
             VerifyField::Dewpoint2m => "2 m dewpoint",
+            VerifyField::CompositeReflectivity => "Composite reflectivity",
         }
     }
 
-    fn rtma(self) -> crate::rtma::RtmaField {
+    /// What it can be scored against: the first is the default.
+    pub fn truths(self) -> &'static [Truth] {
         match self {
-            VerifyField::Temp2m => crate::rtma::RtmaField::Temp2m,
-            VerifyField::Dewpoint2m => crate::rtma::RtmaField::Dewpoint2m,
+            VerifyField::Temp2m | VerifyField::Dewpoint2m => &[Truth::Rtma, Truth::Metar],
+            VerifyField::CompositeReflectivity => &[Truth::Mrms],
         }
     }
 
-    fn model_field(self) -> crate::model::ModelField {
+    /// Whether values are temperatures in Kelvin (else dBZ).
+    pub fn is_temperature(self) -> bool {
+        !matches!(self, VerifyField::CompositeReflectivity)
+    }
+
+    fn rtma(self) -> Option<crate::rtma::RtmaField> {
+        match self {
+            VerifyField::Temp2m => Some(crate::rtma::RtmaField::Temp2m),
+            VerifyField::Dewpoint2m => Some(crate::rtma::RtmaField::Dewpoint2m),
+            VerifyField::CompositeReflectivity => None,
+        }
+    }
+
+    pub fn model_field(self) -> crate::model::ModelField {
         match self {
             VerifyField::Temp2m => crate::model::ModelField::Temperature2m,
             VerifyField::Dewpoint2m => crate::model::ModelField::Dewpoint2m,
+            VerifyField::CompositeReflectivity => crate::model::ModelField::CompositeReflectivity,
         }
     }
 }
@@ -231,11 +356,22 @@ pub struct LeadResult {
 /// How long after its hour an RTMA analysis is typically posted, in minutes, plus a margin.
 const ANALYSIS_LATENCY_MIN: i64 = 60;
 
+/// Reports up to [`crate::metar::NEAR_VALID_MIN`] after the hour count, and reach the feed within
+/// minutes.
+const METAR_LATENCY_MIN: i64 = 30;
+
+/// The mosaic posts every two minutes, a few minutes behind.
+const MRMS_LATENCY_MIN: i64 = 10;
+
+/// How far from the valid time an MRMS mosaic may be and still stand for it.
+const MRMS_TOLERANCE_MIN: i64 = 5;
+
 /// Score one model run against the RTMA at each of `leads` (whole forecast hours).
 ///
 /// A lead whose valid time has not yet got an analysis (it is in the future, or too recent to have
 /// posted) is reported as such rather than fetched to fail, and one lead failing never stops the
 /// rest. Thresholds are in the field's native units (Kelvin).
+#[allow(clippy::too_many_arguments)]
 pub async fn verify_run(
     http: &reqwest::Client,
     model: crate::hrrr::Model,
@@ -244,21 +380,40 @@ pub async fn verify_run(
     leads: &[u8],
     region: Option<Region>,
     threshold: Option<f32>,
+    truth: Truth,
 ) -> anyhow::Result<Vec<LeadResult>> {
     let key = field
         .model_field()
         .grib(model)
         .ok_or_else(|| anyhow::anyhow!("{} does not publish {}", model.label(), field.label()))?;
+    anyhow::ensure!(
+        field.truths().contains(&truth),
+        "{} is not scored against the {}",
+        field.label(),
+        truth.label()
+    );
     let now = Utc::now();
     let mut out = Vec::with_capacity(leads.len());
     for &lead in leads {
         let valid = run + Duration::hours(i64::from(lead));
-        let score = if valid > now - Duration::minutes(ANALYSIS_LATENCY_MIN) {
-            Err("no analysis yet: this lead is not far enough in the past".to_string())
+        let latency = match truth {
+            Truth::Rtma => ANALYSIS_LATENCY_MIN,
+            Truth::Metar => METAR_LATENCY_MIN,
+            Truth::Mrms => MRMS_LATENCY_MIN,
+        };
+        let score = if valid > now - Duration::minutes(latency) {
+            Err(match truth {
+                Truth::Rtma => "no analysis yet: this lead is not far enough in the past",
+                Truth::Metar => "no reports yet: this lead is not far enough in the past",
+                Truth::Mrms => "no mosaic yet: this lead is not far enough in the past",
+            }
+            .to_string())
         } else {
-            score_lead(http, model, field, key, run, lead, valid, region, threshold)
-                .await
-                .map_err(|e| e.to_string())
+            score_lead(
+                http, model, field, key, run, lead, valid, region, threshold, truth,
+            )
+            .await
+            .map_err(|e| e.to_string())
         };
         out.push(LeadResult {
             lead_h: lead,
@@ -280,13 +435,83 @@ async fn score_lead(
     valid: DateTime<Utc>,
     region: Option<Region>,
     threshold: Option<f32>,
+    truth: Truth,
 ) -> anyhow::Result<GridScore> {
-    let (forecast, analysis) = futures_util::future::try_join(
-        crate::hrrr::fetch_field_at_run(http, model, run, key.var, key.level, lead, key.min_valid),
-        crate::rtma::fetch(http, field.rtma(), Some(valid)),
-    )
-    .await?;
-    compare(&forecast.field, &analysis.field, region, threshold)
+    let forecast =
+        crate::hrrr::fetch_field_at_run(http, model, run, key.var, key.level, lead, key.min_valid);
+    match truth {
+        Truth::Rtma => {
+            let rtma = field
+                .rtma()
+                .ok_or_else(|| anyhow::anyhow!("the RTMA has no {}", field.label()))?;
+            let (forecast, analysis) = futures_util::future::try_join(
+                forecast,
+                crate::rtma::fetch(http, rtma, Some(valid)),
+            )
+            .await?;
+            compare(&forecast.field, &analysis.field, region, threshold)
+        }
+        Truth::Mrms => {
+            let (forecast, mosaic) = futures_util::future::try_join(
+                forecast,
+                crate::mrms::fetch_nearest_for_scoring(
+                    http,
+                    crate::mrms::REFLECTIVITY,
+                    valid,
+                    Duration::minutes(MRMS_TOLERANCE_MIN),
+                    NO_ECHO_DBZ,
+                ),
+            )
+            .await?;
+            let mut forecast = forecast.field;
+            floor_echo(&mut forecast.values);
+            // The nearest mosaic stands for the valid time (checked within the tolerance).
+            let mut mosaic = mosaic.data;
+            mosaic.time = forecast.time;
+            compare(&forecast, &mosaic, region, threshold)
+        }
+        Truth::Metar => {
+            let forecast = forecast.await?.field;
+            anyhow::ensure!(
+                forecast.time == valid,
+                "the forecast is valid {}, not {valid}",
+                forecast.time
+            );
+            let area = region.unwrap_or((
+                forecast.lon_west,
+                forecast.lat_south,
+                forecast.lon_east,
+                forecast.lat_north,
+            ));
+            let obs = crate::metar::fetch_near(http, area, valid).await?;
+            compare_points(&forecast, &station_points(&obs, field), region, threshold)
+        }
+    }
+}
+
+/// Forecast reflectivity below [`NO_ECHO_DBZ`] is no echo, as the mosaic reads it.
+pub fn floor_echo(values: &mut [f32]) {
+    for v in values.iter_mut().filter(|v| v.is_finite()) {
+        *v = v.max(NO_ECHO_DBZ);
+    }
+}
+
+/// The stations' reports of `field`, in Kelvin like the forecast.
+pub fn station_points(obs: &[crate::metar::SurfaceOb], field: VerifyField) -> Vec<Point> {
+    obs.iter()
+        .filter_map(|o| {
+            let c = match field {
+                VerifyField::Temp2m => o.temp_c,
+                VerifyField::Dewpoint2m => o.dewp_c,
+                VerifyField::CompositeReflectivity => None,
+            }?;
+            Some(Point {
+                lon: o.lon,
+                lat: o.lat,
+                value: c + 273.15,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -325,6 +550,54 @@ mod tests {
             lat_south,
             time: t(),
         }
+    }
+
+    #[test]
+    fn stations_are_scored_once_each_at_their_own_point() {
+        // The forecast is warmer by 2 K everywhere: a linear field sampled exactly at stations.
+        let fc = grid(20, 20, 40.0, 30.0, |lon, lat| {
+            (280.0 + lon + 100.0 + lat - 30.0) as f32
+        });
+        let truth = |lon: f64, lat: f64| (278.0 + lon + 100.0 + lat - 30.0) as f32;
+        let points: Vec<Point> = [(-99.0, 31.0), (-95.0, 35.0), (-91.0, 39.0), (-80.0, 35.0)]
+            .iter()
+            .map(|&(lon, lat)| Point {
+                lon,
+                lat,
+                value: truth(lon, lat),
+            })
+            .collect();
+        let s = compare_points(&fc, &points, None, Some(281.0)).unwrap();
+        // The station east of the grid is not counted.
+        assert_eq!(s.scores.cells, 3);
+        assert!((s.scores.bias - 2.0).abs() < 1e-4 && (s.scores.mae - 2.0).abs() < 1e-4);
+        let c = s.contingency.unwrap();
+        // Truths 280, 288, 296 against forecasts 282, 290, 298 over 281 K: one false alarm.
+        assert_eq!(
+            (c.hits, c.false_alarms, c.misses, c.correct_negatives),
+            (2.0, 1.0, 0.0, 0.0)
+        );
+        let west = compare_points(&fc, &points, Some((-100.0, 30.0, -97.0, 40.0)), None).unwrap();
+        assert_eq!(west.scores.cells, 1);
+        assert!(compare_points(&fc, &points[3..], None, None).is_err());
+    }
+
+    #[test]
+    fn a_station_reports_the_field_asked_for_in_kelvin() {
+        let obs = crate::metar::parse(
+            r#"[{"icaoId":"KOKC","lat":35.4,"lon":-97.6,"temp":20.0,"dewp":10.0},
+                {"icaoId":"KTIK","lat":35.4,"lon":-97.4,"temp":21.0}]"#,
+        );
+        let t = station_points(&obs, VerifyField::Temp2m);
+        assert_eq!(t.len(), 2);
+        assert!((t[0].value - 293.15).abs() < 1e-3);
+        let d = station_points(&obs, VerifyField::Dewpoint2m);
+        assert_eq!(
+            d.len(),
+            1,
+            "a station without a dew point is not scored for it"
+        );
+        assert!((d[0].value - 283.15).abs() < 1e-3);
     }
 
     #[test]
@@ -509,6 +782,7 @@ mod tests {
             &[1, 3, 6],
             None,
             Some(273.15),
+            Truth::Rtma,
         )
         .await
         .expect("verification");
@@ -537,5 +811,129 @@ mod tests {
             assert!(s.correlation.unwrap() > 0.9, "the pattern should match");
             assert!(g.contingency.is_some());
         }
+    }
+
+    /// Live: the HRRR against METARs over the southern Plains, the same hours as above.
+    /// Network test: `--ignored live_hrrr_temperature_against_stations`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_hrrr_temperature_against_stations() {
+        let http = reqwest::Client::new();
+        let run = crate::hrrr::run_choices(crate::hrrr::Model::Hrrr, Utc::now(), 12)
+            .into_iter()
+            .nth(8)
+            .unwrap();
+        let results = verify_run(
+            &http,
+            crate::hrrr::Model::Hrrr,
+            VerifyField::Temp2m,
+            run,
+            &[1, 6],
+            Some((-104.0, 33.0, -94.0, 40.0)),
+            None,
+            Truth::Metar,
+        )
+        .await
+        .expect("verification");
+        for r in &results {
+            let s = r
+                .score
+                .as_ref()
+                .unwrap_or_else(|e| panic!("F+{}: {e}", r.lead_h))
+                .scores;
+            println!(
+                "F+{:02} valid {} · {} stations · bias {:+.2} K · MAE {:.2} · RMSE {:.2} · r {:.3}",
+                r.lead_h,
+                r.valid,
+                s.cells,
+                s.bias,
+                s.mae,
+                s.rmse,
+                s.correlation.unwrap_or(f64::NAN)
+            );
+            // How many report within a quarter hour of the hour varies with the feed.
+            assert!(s.cells > 50, "{}", s.cells);
+            assert!(
+                s.mae < 5.0,
+                "an hourly model is not this far off its stations"
+            );
+        }
+    }
+
+    #[test]
+    fn reflectivity_is_scored_only_against_the_mosaic_with_a_no_echo_floor() {
+        assert_eq!(VerifyField::CompositeReflectivity.truths(), [Truth::Mrms]);
+        assert!(!VerifyField::Temp2m.truths().contains(&Truth::Mrms));
+        let mut v = vec![-15.0, 5.0, f32::NAN, 42.0];
+        floor_echo(&mut v);
+        assert_eq!(v[..2], [0.0, 5.0]);
+        assert!(v[2].is_nan(), "a gap stays a gap");
+        // A forecast echo over a no-echo cell is a false alarm, not skipped.
+        let fc = grid(
+            4,
+            4,
+            40.0,
+            30.0,
+            |lon, _| if lon < -95.0 { 40.0 } else { 0.0 },
+        );
+        let obs = grid(4, 4, 40.0, 30.0, |_, _| NO_ECHO_DBZ);
+        let c = compare(&fc, &obs, None, Some(35.0))
+            .unwrap()
+            .contingency
+            .unwrap();
+        assert!(c.false_alarms > 0.0 && c.hits == 0.0);
+    }
+
+    /// Live: the HRRR's composite reflectivity against the MRMS mosaic.
+    /// Network test: `--ignored live_hrrr_reflectivity_against_mrms`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_hrrr_reflectivity_against_mrms() {
+        let http = reqwest::Client::new();
+        let run = crate::hrrr::run_choices(crate::hrrr::Model::Hrrr, Utc::now(), 12)
+            .into_iter()
+            .nth(4)
+            .unwrap();
+        // The archive has gaps (whole missing hours); a lead whose hour is missing says so, and
+        // at least one of three should land on frames.
+        let results = verify_run(
+            &http,
+            crate::hrrr::Model::Hrrr,
+            VerifyField::CompositeReflectivity,
+            run,
+            &[1, 2, 3],
+            None,
+            Some(35.0),
+            Truth::Mrms,
+        )
+        .await
+        .expect("verification");
+        let mut scored = 0;
+        for r in &results {
+            let g = match &r.score {
+                Ok(g) => g,
+                Err(e) => {
+                    println!("F+{:02}: {e}", r.lead_h);
+                    continue;
+                }
+            };
+            scored += 1;
+            let (s, c) = (g.scores, g.contingency.unwrap());
+            println!(
+                "F+{:02} valid {} · {} cells · bias {:+.2} dBZ · MAE {:.2} · POD {:.2} FAR {:.2} CSI {:.2} freq bias {:.2}",
+                r.lead_h,
+                r.valid,
+                s.cells,
+                s.bias,
+                s.mae,
+                c.pod().unwrap_or(f64::NAN),
+                c.far().unwrap_or(f64::NAN),
+                c.csi().unwrap_or(f64::NAN),
+                c.frequency_bias().unwrap_or(f64::NAN)
+            );
+            assert!(s.cells > 500_000, "no-echo cells are scored: {}", s.cells);
+            assert!(s.mae < 15.0);
+        }
+        assert!(scored > 0, "no lead landed on a mosaic");
     }
 }

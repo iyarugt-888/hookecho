@@ -30,22 +30,255 @@ pub struct Uniforms {
     /// spare, enabled]` in the same world units as `box_min`/`box_max`. See
     /// [`cappi_marker_uniform`]; all-zero means off, same convention as `plane`/`cc`.
     cappi_marker: [f32; 4],
-    /// Opacity transfer function (Phase H2's curve): the four control points' volume indices,
+    /// Opacity transfer function (Phase H2's curve): the first four stops' volume indices,
     /// ascending, and their opacities 0..1. `tf_a[0] < 0` means off. See [`tf_uniform`].
     tf_x: [f32; 4],
     tf_a: [f32; 4],
+    /// Stops five to eight, and `[count, 0, 0, 0]` (M3.5 increment 2).
+    tf_x2: [f32; 4],
+    tf_a2: [f32; 4],
+    tf_n: [f32; 4],
+    /// Rendering mode: `[mode, km per world unit horizontally, km per world unit vertically,
+    /// lit]`. See [`render_uniform`].
+    render: [f32; 4],
 }
 
-/// The transfer-function uniform pair for `tf` (four `[index, opacity]` points): the indices and
-/// opacities, sorted by index; `None` gives the "off" pair.
-pub fn tf_uniform(tf: Option<[[f32; 2]; 4]>) -> ([f32; 4], [f32; 4]) {
-    match tf {
-        Some(mut pts) => {
-            pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
-            (pts.map(|p| p[0]), pts.map(|p| p[1].clamp(0.0, 1.0)))
+/// How the raymarch turns a ray's samples into a pixel (ROADMAP_PARITY M3.5). A display choice
+/// only: it never changes which voxels exist, their values, or anything sampled or exported.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum VolumeRender {
+    /// Maximum-intensity projection: each pixel is the strongest kept value along its ray. The
+    /// original mode, unchanged.
+    #[default]
+    Mip,
+    /// Front-to-back alpha compositing: every kept sample adds its colour, weighted by its
+    /// opacity per kilometre of path, so what lies in front partly hides what lies behind.
+    Translucent,
+    /// Translucent, shaded by the echo's own gradient so a core's shape reads.
+    TranslucentLit,
+}
+
+impl VolumeRender {
+    pub const ALL: [Self; 3] = [Self::Mip, Self::Translucent, Self::TranslucentLit];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mip => "Maximum",
+            Self::Translucent => "Translucent",
+            Self::TranslucentLit => "Lit",
         }
-        None => ([0.0; 4], [-1.0; 4]),
     }
+
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Mip => "Each pixel shows the strongest value along its line of sight (MIP)",
+            Self::Translucent => {
+                "Values blend front to back; the opacity is per kilometre of path, so the \
+                 Quality setting does not change how solid the storm looks"
+            }
+            Self::TranslucentLit => {
+                "Translucent, shaded by the echo's own gradient: display shading only, the \
+                 values are unchanged"
+            }
+        }
+    }
+
+    pub fn translucent(self) -> bool {
+        self != Self::Mip
+    }
+}
+
+/// The `render` uniform: the mode, and the km one world unit spans horizontally and vertically
+/// in this box (`half_km` across half its width, `top_km` up its height), so the shader measures
+/// each step in real kilometres whatever the vertical exaggeration.
+fn render_uniform(
+    render: VolumeRender,
+    box_min: Vec3,
+    box_max: Vec3,
+    half_km: f32,
+    top_km: f32,
+) -> [f32; 4] {
+    let half_w = ((box_max.x - box_min.x) * 0.5).abs().max(1e-9);
+    let height = (box_max.z - box_min.z).abs().max(1e-9);
+    [
+        if render.translucent() { 1.0 } else { 0.0 },
+        half_km.max(0.0) / half_w,
+        top_km.max(0.0) / height,
+        if render == VolumeRender::TranslucentLit {
+            1.0
+        } else {
+            0.0
+        },
+    ]
+}
+
+/// One step's opacity through a medium of opacity `a_km` per kilometre: `1 - (1 - a)^dt_km`.
+/// The CPU mirror of `raymarch.wgsl`'s `step_alpha`.
+pub fn step_alpha(a_km: f32, dt_km: f32) -> f32 {
+    let clear = (1.0 - a_km).clamp(1e-4, 1.0);
+    1.0 - clear.powf(dt_km)
+}
+
+/// Front-to-back composite of `(rgb, opacity per km)` samples spaced `dt_km` apart, with the
+/// shader's early termination: premultiplied `(rgb, alpha)`. The CPU reference the translucent
+/// mode's opacity tests run against.
+pub fn composite_ray(samples: &[([f32; 3], f32)], dt_km: f32) -> ([f32; 3], f32) {
+    let (mut rgb, mut a) = ([0.0f32; 3], 0.0f32);
+    for (c, a_km) in samples {
+        let s = step_alpha(*a_km, dt_km);
+        for k in 0..3 {
+            rgb[k] += (1.0 - a) * s * c[k];
+        }
+        a += (1.0 - a) * s;
+        if a > 0.995 {
+            break;
+        }
+    }
+    (rgb, a)
+}
+
+/// Most stops an opacity curve can have.
+pub const MAX_STOPS: usize = 8;
+
+/// An opacity curve (Phase H2, M3.5 increment 2): two to eight `[value, opacity]` stops in a
+/// product's own units (or, once mapped, in volume index space), ascending in value, opacity
+/// 0..1, piecewise linear between them and flat past the ends. `Copy`, so a view stays cheap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TfStops {
+    n: u8,
+    pts: [[f32; 2]; MAX_STOPS],
+}
+
+impl TfStops {
+    /// From any points: sorted by value, opacities clamped, at most [`MAX_STOPS`] kept (the
+    /// first ones by value). `None` with fewer than two.
+    pub fn new(points: &[[f32; 2]]) -> Option<Self> {
+        let mut v: Vec<[f32; 2]> = points
+            .iter()
+            .filter(|p| p[0].is_finite() && p[1].is_finite())
+            .map(|p| [p[0], p[1].clamp(0.0, 1.0)])
+            .collect();
+        v.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        v.truncate(MAX_STOPS);
+        if v.len() < 2 {
+            return None;
+        }
+        let mut pts = [[0.0; 2]; MAX_STOPS];
+        pts[..v.len()].copy_from_slice(&v);
+        Some(Self {
+            n: v.len() as u8,
+            pts,
+        })
+    }
+
+    pub fn points(&self) -> &[[f32; 2]] {
+        &self.pts[..self.n as usize]
+    }
+
+    pub fn points_mut(&mut self) -> &mut [[f32; 2]] {
+        &mut self.pts[..self.n as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.n as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// The opacity at `v`: what the shader computes.
+    pub fn alpha(&self, v: f32) -> f32 {
+        let p = self.points();
+        if v <= p[0][0] {
+            return p[0][1];
+        }
+        for w in p.windows(2) {
+            if v <= w[1][0] {
+                let t = (v - w[0][0]) / (w[1][0] - w[0][0]).max(0.001);
+                return w[0][1] + (w[1][1] - w[0][1]) * t;
+            }
+        }
+        p[p.len() - 1][1]
+    }
+
+    /// A stop at `v` on the current curve (so adding one changes nothing until it is moved).
+    /// `false` when the curve is full.
+    pub fn insert(&mut self, v: f32) -> bool {
+        if self.len() >= MAX_STOPS {
+            return false;
+        }
+        let a = self.alpha(v);
+        let mut pts = self.points().to_vec();
+        pts.push([v, a]);
+        *self = Self::new(&pts).expect("at least two");
+        true
+    }
+
+    /// Remove stop `i`; `false` when only two are left.
+    pub fn remove(&mut self, i: usize) -> bool {
+        if self.len() <= 2 || i >= self.len() {
+            return false;
+        }
+        let mut pts = self.points().to_vec();
+        pts.remove(i);
+        *self = Self::new(&pts).expect("at least two");
+        true
+    }
+
+    /// The same curve with every value mapped (into a volume's index space, say).
+    pub fn map_values(&self, f: impl Fn(f32) -> f32) -> Self {
+        let pts: Vec<[f32; 2]> = self.points().iter().map(|p| [f(p[0]), p[1]]).collect();
+        Self::new(&pts).unwrap_or(*self)
+    }
+
+    /// The legacy four-point form: these stops when there are four, otherwise four samples of
+    /// the curve at its ends and thirds — what a build that only reads four points shows.
+    pub fn as_four(&self) -> [[f32; 2]; 4] {
+        let p = self.points();
+        if p.len() == 4 {
+            return [p[0], p[1], p[2], p[3]];
+        }
+        let (lo, hi) = (p[0][0], p[p.len() - 1][0]);
+        let at = |t: f32| {
+            let v = lo + (hi - lo) * t;
+            [v, self.alpha(v)]
+        };
+        [at(0.0), at(1.0 / 3.0), at(2.0 / 3.0), at(1.0)]
+    }
+}
+
+impl From<[[f32; 2]; 4]> for TfStops {
+    fn from(p: [[f32; 2]; 4]) -> Self {
+        Self::new(&p).expect("four points")
+    }
+}
+
+/// The transfer-function uniforms for `tf`: values and opacities of stops one to four and five
+/// to eight, and the count; `None` gives the "off" form (`tf_a[0] < 0`).
+pub fn tf_uniform(tf: Option<TfStops>) -> [[f32; 4]; 5] {
+    let Some(tf) = tf else {
+        return [[0.0; 4], [-1.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]];
+    };
+    let p = tf.points();
+    let last = p[p.len() - 1];
+    // Unused slots repeat the last stop, so the curve stays flat past it whatever the count.
+    let get = |i: usize| p.get(i).copied().unwrap_or(last);
+    let x = |r: std::ops::Range<usize>| {
+        let v: Vec<f32> = r.map(|i| get(i)[0]).collect();
+        [v[0], v[1], v[2], v[3]]
+    };
+    let a = |r: std::ops::Range<usize>| {
+        let v: Vec<f32> = r.map(|i| get(i)[1]).collect();
+        [v[0], v[1], v[2], v[3]]
+    };
+    [
+        x(0..4),
+        a(0..4),
+        x(4..8),
+        a(4..8),
+        [p.len() as f32, 0.0, 0.0, 0.0],
+    ]
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` interleaved (value index, valid) byte pairs —
@@ -57,6 +290,9 @@ pub struct Volume3dUpload {
     pub nz: u32,
     pub lut: Vec<u8>,
     pub half_km: f32,
+    /// Where the box is centred, km east and north of the radar: zero for the whole-radar
+    /// volume, a storm's position for a region of interest (ROADMAP_PARITY M3.6).
+    pub center_km: [f32; 2],
     pub top_km: f32,
     /// Share (0..=1) of the scan's echo that lies beyond `half_km` and is therefore not in the
     /// volume. Shown in the UI so a cropped box is never mistaken for the whole scan.
@@ -147,7 +383,10 @@ pub struct View3d {
     /// Opacity transfer function: four `[volume index, opacity]` points, opacity drawn piecewise
     /// linear between them (and flat past the ends), replacing the fixed ramp. `None` keeps the
     /// ramp.
-    pub tf: Option<[[f32; 2]; 4]>,
+    pub tf: Option<TfStops>,
+    /// MIP or translucent compositing (M3.5). With translucent rendering the opacity from the
+    /// ramp, CC ramp or `tf` is read as opacity per kilometre of path.
+    pub render: VolumeRender,
 }
 
 impl Default for View3d {
@@ -160,6 +399,7 @@ impl Default for View3d {
             cc: [0.0; 4],
             cappi_km: None,
             tf: None,
+            render: VolumeRender::Mip,
         }
     }
 }
@@ -255,8 +495,9 @@ pub fn plane_ground_track(
 }
 
 /// Orbit-camera uniforms: azimuth/elevation in degrees, `dist` from the box center, view `aspect`.
-/// `top_km` is the volume's own vertical span (`wxdata::volume3d::Volume3d::top_km`), needed only
-/// to place `v3.cappi_km`'s reference plane at the right fraction of the fixed orbit box.
+/// `half_km` and `top_km` are the volume's own half-width and vertical span
+/// (`wxdata::volume3d::Volume3d`), which place `v3.cappi_km`'s reference plane at the right
+/// fraction of the fixed orbit box and give translucent rendering its kilometre scale.
 #[allow(clippy::too_many_arguments)]
 pub fn orbit_uniform(
     az_deg: f32,
@@ -265,6 +506,7 @@ pub fn orbit_uniform(
     aspect: f32,
     n: u32,
     nz: u32,
+    half_km: f32,
     top_km: f32,
     steps: u32,
     v3: View3d,
@@ -289,8 +531,12 @@ pub fn orbit_uniform(
         plane_slab: plane_slab_uniform(v3.plane, BOX_MIN, BOX_MAX),
         cc: v3.cc,
         cappi_marker: cappi_marker_uniform(v3.cappi_km, top_km, BOX_MIN, BOX_MAX),
-        tf_x: tf_uniform(v3.tf).0,
-        tf_a: tf_uniform(v3.tf).1,
+        tf_x: tf_uniform(v3.tf)[0],
+        tf_a: tf_uniform(v3.tf)[1],
+        tf_x2: tf_uniform(v3.tf)[2],
+        tf_a2: tf_uniform(v3.tf)[3],
+        tf_n: tf_uniform(v3.tf)[4],
+        render: render_uniform(v3.render, BOX_MIN, BOX_MAX, half_km, top_km),
     }
 }
 
@@ -315,18 +561,23 @@ pub fn map_uniform(
     let dy = camera.center.1 - radar_world.1;
     let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
     let half_px = upload.half_km as f64 * 1_000.0 * metres_to_px;
+    // A region of interest is centred off the radar: east is +x, north is +y in this box.
+    let (east_px, north_px) = (
+        upload.center_km[0] as f64 * 1_000.0 * metres_to_px,
+        upload.center_km[1] as f64 * 1_000.0 * metres_to_px,
+    );
     let z0 = antenna_altitude_m as f64 * metres_to_px * vertical_exaggeration as f64;
     let z1 = (antenna_altitude_m as f64 + upload.top_km as f64 * 1_000.0)
         * metres_to_px
         * vertical_exaggeration as f64;
     let box_min = Vec3::new(
-        (dx / wpp - half_px) as f32,
-        (dy / wpp - half_px) as f32,
+        (dx / wpp + east_px - half_px) as f32,
+        (dy / wpp + north_px - half_px) as f32,
         z0 as f32,
     );
     let box_max = Vec3::new(
-        (dx / wpp + half_px) as f32,
-        (dy / wpp + half_px) as f32,
+        (dx / wpp + east_px + half_px) as f32,
+        (dy / wpp + north_px + half_px) as f32,
         z1 as f32,
     );
     let eye = camera.eye_position(viewport);
@@ -362,8 +613,12 @@ pub fn map_uniform(
         plane_slab: plane_slab_uniform(view.plane, box_min, box_max),
         cc: view.cc,
         cappi_marker: cappi_marker_uniform(view.cappi_km, upload.top_km, box_min, box_max),
-        tf_x: tf_uniform(view.tf).0,
-        tf_a: tf_uniform(view.tf).1,
+        tf_x: tf_uniform(view.tf)[0],
+        tf_a: tf_uniform(view.tf)[1],
+        tf_x2: tf_uniform(view.tf)[2],
+        tf_a2: tf_uniform(view.tf)[3],
+        tf_n: tf_uniform(view.tf)[4],
+        render: render_uniform(view.render, box_min, box_max, upload.half_km, upload.top_km),
     }
 }
 
@@ -1926,6 +2181,197 @@ mod plane_tests {
             (half_thickness_wide - 0.5).abs() < 1e-5,
             "half_thickness_wide: {half_thickness_wide}"
         );
+    }
+}
+
+#[cfg(test)]
+mod tf_stops_tests {
+    use super::{tf_uniform, TfStops, MAX_STOPS};
+
+    #[test]
+    fn stops_sort_clamp_and_keep_between_two_and_eight() {
+        let t = TfStops::new(&[[50.0, 1.4], [10.0, 0.0], [30.0, 0.5]]).unwrap();
+        assert_eq!(t.points(), [[10.0, 0.0], [30.0, 0.5], [50.0, 1.0]]);
+        assert!(
+            TfStops::new(&[[1.0, 0.0]]).is_none(),
+            "one stop is not a curve"
+        );
+        let many: Vec<[f32; 2]> = (0..12).map(|i| [i as f32, 0.5]).collect();
+        assert_eq!(TfStops::new(&many).unwrap().len(), MAX_STOPS);
+    }
+
+    #[test]
+    fn the_curve_is_piecewise_linear_and_flat_past_its_ends() {
+        let t = TfStops::new(&[[10.0, 0.0], [20.0, 1.0], [30.0, 0.2]]).unwrap();
+        assert_eq!(t.alpha(0.0), 0.0);
+        assert!((t.alpha(15.0) - 0.5).abs() < 1e-6);
+        assert!((t.alpha(25.0) - 0.6).abs() < 1e-6);
+        assert_eq!(t.alpha(99.0), 0.2);
+    }
+
+    #[test]
+    fn adding_a_stop_changes_nothing_until_it_moves_and_two_always_remain() {
+        let mut t = TfStops::from([[0.0, 0.0], [10.0, 0.2], [20.0, 0.8], [30.0, 1.0]]);
+        let before: Vec<f32> = (0..=30).map(|v| t.alpha(v as f32)).collect();
+        assert!(t.insert(15.0));
+        assert_eq!(t.len(), 5);
+        let after: Vec<f32> = (0..=30).map(|v| t.alpha(v as f32)).collect();
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a - b).abs() < 1e-5);
+        }
+        while t.len() > 2 {
+            assert!(t.remove(1));
+        }
+        assert!(!t.remove(0), "a curve keeps two stops");
+        for _ in 0..10 {
+            t.insert(5.0);
+        }
+        assert_eq!(t.len(), MAX_STOPS, "full at eight");
+    }
+
+    #[test]
+    fn the_uniform_carries_every_stop_and_pads_with_the_last() {
+        let six = TfStops::new(&[
+            [2.0, 0.0],
+            [20.0, 0.1],
+            [40.0, 0.2],
+            [60.0, 0.3],
+            [80.0, 0.4],
+            [100.0, 0.9],
+        ])
+        .unwrap();
+        let [x, a, x2, a2, n] = tf_uniform(Some(six));
+        assert_eq!((x, a), ([2.0, 20.0, 40.0, 60.0], [0.0, 0.1, 0.2, 0.3]));
+        assert_eq!(
+            (x2, a2),
+            ([80.0, 100.0, 100.0, 100.0], [0.4, 0.9, 0.9, 0.9])
+        );
+        assert_eq!(n[0], 6.0);
+        // Off is still `tf_a[0] < 0`.
+        assert!(tf_uniform(None)[1][0] < 0.0);
+        // A four-point curve is the legacy four-point uniform.
+        let four = TfStops::from([[2.0, 0.0], [100.0, 0.2], [200.0, 0.6], [255.0, 1.0]]);
+        let [x, a, ..] = tf_uniform(Some(four));
+        assert_eq!((x, a), ([2.0, 100.0, 200.0, 255.0], [0.0, 0.2, 0.6, 1.0]));
+        assert_eq!(
+            four.as_four(),
+            [[2.0, 0.0], [100.0, 0.2], [200.0, 0.6], [255.0, 1.0]]
+        );
+        // Six stops sample to four at the ends and thirds, on the curve.
+        let s = six.as_four();
+        assert_eq!((s[0][0], s[3][0]), (2.0, 100.0));
+        assert!((s[1][1] - six.alpha(s[1][0])).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod roi_box_tests {
+    #[test]
+    fn a_region_box_sits_east_and_north_of_the_radar_by_its_offset() {
+        let cam = crate::render::mercator::Camera::at_lonlat(-97.3, 35.3, 8.0);
+        let upload = |center_km: [f32; 2]| super::Volume3dUpload {
+            data: Vec::new(),
+            n: 64,
+            nz: 16,
+            lut: Vec::new(),
+            half_km: 20.0,
+            center_km,
+            top_km: 12.0,
+            outside: 0.0,
+            value_range: None,
+        };
+        let u = |c| {
+            super::map_uniform(
+                &cam,
+                (800.0, 600.0),
+                -97.3,
+                35.3,
+                370.0,
+                &upload(c),
+                128,
+                super::View3d::default(),
+                1.0,
+                1.0,
+            )
+        };
+        let (at_radar, offset) = (u([0.0, 0.0]), u([10.0, -5.0]));
+        let width = at_radar.box_max[0] - at_radar.box_min[0];
+        let px_per_km = width / 40.0;
+        let dx = offset.box_min[0] - at_radar.box_min[0];
+        let dy = offset.box_min[1] - at_radar.box_min[1];
+        assert!(
+            (dx - 10.0 * px_per_km).abs() < 1e-2 * px_per_km,
+            "{dx} vs {px_per_km}"
+        );
+        assert!((dy + 5.0 * px_per_km).abs() < 1e-2 * px_per_km, "{dy}");
+        // Same size, same vertical extent: only moved.
+        assert_eq!(offset.box_max[0] - offset.box_min[0], width);
+        assert_eq!(offset.box_min[2], at_radar.box_min[2]);
+    }
+}
+
+#[cfg(test)]
+mod translucent_tests {
+    use super::{composite_ray, render_uniform, step_alpha, VolumeRender, BOX_MAX, BOX_MIN};
+
+    /// A uniform medium of opacity `a` per km, `len_km` deep, marched in `steps` steps.
+    fn uniform(a: f32, len_km: f32, steps: usize) -> f32 {
+        let dt = len_km / steps as f32;
+        composite_ray(&vec![([1.0, 1.0, 1.0], a); steps], dt).1
+    }
+
+    #[test]
+    fn opacity_does_not_depend_on_the_step_count() {
+        // The analytic answer is 1 - (1 - a)^L; 0.1 per km through 12 km is 0.7176.
+        let want = 1.0 - 0.9f32.powf(12.0);
+        for steps in [8, 32, 96, 160, 256, 1024] {
+            let got = uniform(0.1, 12.0, steps);
+            assert!((got - want).abs() < 1e-4, "{steps} steps: {got} vs {want}");
+        }
+        // One km of the medium is exactly its per-km opacity, whatever it is split into.
+        for steps in [1, 4, 64] {
+            assert!((uniform(0.35, 1.0, steps) - 0.35).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn a_fully_opaque_or_empty_value_composes_as_expected() {
+        assert_eq!(step_alpha(0.0, 3.0), 0.0);
+        assert!(step_alpha(1.0, 1.0) > 0.999);
+        // Front to back: an opaque red sample hides the blue one behind it.
+        let (rgb, a) = composite_ray(&[([1.0, 0.0, 0.0], 1.0), ([0.0, 0.0, 1.0], 1.0)], 1.0);
+        assert!(a > 0.99 && rgb[0] > 0.99 && rgb[2] < 0.01, "{rgb:?} {a}");
+    }
+
+    #[test]
+    fn compositing_differs_from_mip_where_a_weak_shell_hides_a_core() {
+        // A ray through 10 km of weak echo (0.05/km) before 2 km of a core (0.8/km): MIP would
+        // show the core's colour at full strength; compositing shows the core seen through the
+        // haze in front of it — the defining difference between the modes.
+        let haze = ([0.2, 0.2, 0.2], 0.05);
+        let core = ([1.0, 0.0, 0.0], 0.8);
+        let mut ray = vec![haze; 40];
+        ray.extend(vec![core; 8]);
+        let (rgb, a) = composite_ray(&ray, 0.25);
+        let haze_a = 1.0 - 0.95f32.powf(10.0);
+        let core_a = 1.0 - 0.2f32.powf(2.0);
+        assert!((a - (haze_a + (1.0 - haze_a) * core_a)).abs() < 1e-4);
+        assert!((rgb[0] - (haze_a * 0.2 + (1.0 - haze_a) * core_a)).abs() < 1e-4);
+        assert!(
+            rgb[0] < 0.9,
+            "the core is dimmed by the haze in front of it"
+        );
+    }
+
+    #[test]
+    fn the_render_uniform_measures_both_axes_in_real_km() {
+        // The orbit box is 2 units wide and 0.5 tall: a 150 km half-width volume 18 km deep.
+        let [mode, h, v, lit] =
+            render_uniform(VolumeRender::TranslucentLit, BOX_MIN, BOX_MAX, 150.0, 18.0);
+        assert_eq!((mode, lit), (1.0, 1.0));
+        assert!((h - 150.0).abs() < 1e-4 && (v - 36.0).abs() < 1e-4);
+        let [mode, _, _, lit] = render_uniform(VolumeRender::Mip, BOX_MIN, BOX_MAX, 150.0, 18.0);
+        assert_eq!((mode, lit), (0.0, 0.0));
     }
 }
 

@@ -289,6 +289,7 @@ impl HookEchoApp {
         // `&mut self` for the async-build bookkeeping, so holding a borrow of it across this
         // function would fight the borrow checker for no benefit — it's a few scalars and a small
         // `Option`, cheap to clone.
+        self.follow_volume_roi(idx);
         let state = self.views[idx].map_3d.clone();
         if !state.enabled {
             return None;
@@ -314,7 +315,8 @@ impl HookEchoApp {
             let job = JobKey::Smooth(idx, key.clone());
             if let Some(frame) = self.loop3d[idx].smooth.get(&key) {
                 let up = &frame.upload;
-                self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
+                self.smooth_vol_dims[idx] =
+                    Some((up.n, up.nz, up.half_km, up.top_km, up.center_km));
                 self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
                 self.smooth_vol_range[idx] = up.value_range;
                 self.smooth_vol_coverage[idx] = Some(frame.coverage.clone());
@@ -348,7 +350,7 @@ impl HookEchoApp {
             return None;
         }
 
-        let (n, nz, half_km, top_km) = self.smooth_vol_dims[idx]?;
+        let (n, nz, half_km, top_km, center_km) = self.smooth_vol_dims[idx]?;
         let antenna_altitude_m =
             (site.elevation_meters as f64 + wxdata::towers::tower_m(site.id)) as f32;
         // A geometry-only stand-in: `map_uniform` reads `n`/`nz`/`half_km`/`top_km` off it and
@@ -360,6 +362,7 @@ impl HookEchoApp {
             nz,
             lut: Vec::new(),
             half_km,
+            center_km,
             top_km,
             outside: 0.0,
             value_range: None,
@@ -421,9 +424,10 @@ impl HookEchoApp {
         // The opacity curve, its values into this volume's index space as the floor's are.
         let tf = state.tf_curves[state.representation as usize]
             .filter(|_| denoise_floor.is_some())
-            .map(|pts| pts.map(|[v, a]| [value_index(v, false), a]));
+            .map(|stops| stops.map_values(|v| value_index(v, false)));
         let view = crate::render3d::View3d {
             tf,
+            render: state.volume_render,
             threshold_idx,
             ceiling_idx,
             clip: state.clip,

@@ -247,6 +247,7 @@ impl HookEchoApp {
             loop_progress,
             products,
             cappi_alt_km: self.cappi_alt_km,
+            selected_storm: self.selected_storm().map(|c| c.id),
         };
         let out = map_3d_panel(
             ui,
@@ -267,6 +268,9 @@ impl HookEchoApp {
         if out.presets_changed {
             self.settings.save();
         }
+        if let Some(roi) = out.roi {
+            self.set_volume_roi(idx, roi);
+        }
     }
 }
 
@@ -285,6 +289,8 @@ pub(crate) struct Panel3dInputs {
     /// User products by name, and whether each has a value at a single gate.
     pub products: Vec<(String, bool)>,
     pub cappi_alt_km: f32,
+    /// The selected storm's ID, when one is selected (a region of interest goes around it).
+    pub selected_storm: Option<String>,
 }
 
 /// What the panel asks of the app after a frame.
@@ -292,6 +298,9 @@ pub(crate) struct Panel3dInputs {
 pub(crate) struct Panel3dOutcome {
     pub retry: bool,
     pub presets_changed: bool,
+    /// Build around the selected storm at this half-width (`Some(Some(km))`), or go back to the
+    /// whole radar (`Some(None)`).
+    pub roi: Option<Option<f32>>,
 }
 
 /// The 3D panel for pane `idx` over its own view and the settings it shares (display units, the
@@ -314,6 +323,7 @@ pub(crate) fn map_3d_panel(
         loop_progress,
         ref products,
         cappi_alt_km,
+        ref selected_storm,
     } = *inputs;
     let mut out = Panel3dOutcome::default();
     let moment = view.moment;
@@ -443,7 +453,9 @@ pub(crate) fn map_3d_panel(
                 let gap = ui.spacing().item_spacing.x;
                 ui.spacing_mut().slider_width =
                     ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
-                ws::slider(ui, &t, 
+                ws::slider(
+                    ui,
+                    &t,
                     egui::Slider::new(&mut view.camera.bearing, -180.0..=180.0)
                         .suffix("°")
                         .max_decimals(0),
@@ -629,7 +641,9 @@ pub(crate) fn map_3d_panel(
                 let mut on = view.map_3d.denoise_enabled;
                 ws::prop_toggle(ui, &t, &mut on, "Denoise", |ui| {
                     ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                    ws::slider(ui, &t, 
+                    ws::slider(
+                        ui,
+                        &t,
                         egui::Slider::new(&mut floor, lo..=hi)
                             .suffix(suffix)
                             .max_decimals(floor_decimals(suffix)),
@@ -647,7 +661,9 @@ pub(crate) fn map_3d_panel(
                 ui.add_enabled_ui(on, |ui| {
                     ws::prop_toggle(ui, &t, &mut capped, "Ceiling", |ui| {
                         ui.spacing_mut().slider_width = ws::prop_slider_width(ui, 0.0);
-                        ws::slider(ui, &t, 
+                        ws::slider(
+                            ui,
+                            &t,
                             egui::Slider::new(&mut top, floor..=hi)
                                 .suffix(suffix)
                                 .max_decimals(floor_decimals(suffix)),
@@ -665,6 +681,76 @@ pub(crate) fn map_3d_panel(
             if rep == Map3dRepresentation::SmoothDebris {
                 cc_anomaly_rows(ui, &t, &mut view.map_3d.cc_anomaly);
             }
+            // Region of interest (M3.6): the same voxel budget spent around one storm.
+            ws::prop_row(ui, &t, "Region", |ui| {
+                let label = match &view.map_3d.roi {
+                    None => "Whole radar".to_string(),
+                    Some(r) => format!(
+                        "{:.0} km around {}",
+                        r.half_km * 2.0,
+                        r.storm
+                            .as_deref()
+                            .map_or("a point".into(), |s| format!("storm {s}"))
+                    ),
+                };
+                egui::ComboBox::from_id_salt(("map3d_roi", idx))
+                    .selected_text(label)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(view.map_3d.roi.is_none(), "Whole radar")
+                            .clicked()
+                        {
+                            out.roi = Some(None);
+                        }
+                        for km in crate::view::ROI_SIZES_KM {
+                            let on = view.map_3d.roi.as_ref().is_some_and(|r| r.half_km == km);
+                            let resp = ui.add_enabled(
+                                selected_storm.is_some(),
+                                egui::Button::selectable(
+                                    on,
+                                    format!("{:.0} km around the selected storm", km * 2.0),
+                                ),
+                            );
+                            if resp
+                                .on_disabled_hover_text("Select a storm first")
+                                .clicked()
+                            {
+                                out.roi = Some(Some(km));
+                            }
+                        }
+                    });
+            })
+            .response
+            .on_hover_text(
+                "Build the smooth volume around one storm instead of the whole radar: the same \
+                 number of voxels over a smaller box gives finer cells",
+            );
+            if let Some(roi) = view.map_3d.roi.as_mut() {
+                if roi.lost {
+                    ws::note(
+                        ui,
+                        &t,
+                        "The storm left the storm table: the region stays where it last was"
+                            .to_string(),
+                    );
+                } else if roi.storm.is_some() {
+                    ws::check(ui, &t, &mut roi.follow, "Follow the storm").on_hover_text(
+                        "Move the region with the storm as new scans arrive; it stops if the \
+                         storm is lost or another is selected",
+                    );
+                }
+            }
+            ws::prop_row(ui, &t, "Render", |ui| {
+                let modes = crate::render3d::VolumeRender::ALL;
+                let segments: Vec<ws::Segment<'_>> =
+                    modes.iter().map(|m| ws::Segment::new(m.label())).collect();
+                let at = modes.iter().position(|m| *m == view.map_3d.volume_render);
+                if let Some(i) = ws::segmented_full(ui, &t, &segments, at, true) {
+                    view.map_3d.volume_render = modes[i];
+                }
+            })
+            .response
+            .on_hover_text(view.map_3d.volume_render.describe());
             ws::prop_row(ui, &t, "Quality", |ui| {
                 let labels: Vec<&str> = crate::view::QUALITY_PRESETS
                     .iter()
@@ -742,6 +828,7 @@ pub(crate) fn map_3d_panel(
                     &mut view.map_3d.denoise_enabled,
                     &mut view.map_3d.ceilings[rep_i],
                     &mut view.map_3d.tf_curves[rep_i],
+                    &mut view.map_3d.volume_render,
                     &mut view.map_3d.preset_name,
                 );
                 *floor_value(&mut view.map_3d, rep) = floor;
@@ -1164,6 +1251,7 @@ mod tests {
                 loop_progress: None,
                 products: Vec::new(),
                 cappi_alt_km: 3.0,
+                selected_storm: None,
             };
             gpu.save(
                 &destination.join(format!("{name}-{width}.png")),

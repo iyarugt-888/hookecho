@@ -164,6 +164,16 @@ pub(crate) enum PaletteAction {
     DockWindow(chrome::DockWin),
     Reload,
     InstantReplay,
+    /// Start or stop the satellite-native loop (ROADMAP_PARITY M5.2).
+    ToggleSatLoop,
+    /// Open or close the model field browser (ROADMAP_PARITY M5.3).
+    ModelFields,
+    /// Open or close the ensemble's postage stamps (ROADMAP_NEW F7).
+    EnsembleMembers,
+    /// Open or close the range-height beam diagram.
+    BeamDiagram,
+    /// Draw the wind layer as barbs too.
+    ToggleWindBarbs,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),

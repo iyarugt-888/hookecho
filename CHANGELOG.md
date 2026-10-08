@@ -8,6 +8,157 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: radar outlines in the GeoJSON export
+
+"Export map as GeoJSON…" now includes the displayed reflectivity scan's 35, 50 and 60 dBZ
+outlines as lines, each labelled with the radar, tilt, scan time and threshold, ready for GIS
+tools.
+
+### Added: ensemble postage stamps and single members
+
+"Ensemble members" shows the GEFS mean and all 31 members side by side over the map view, in the
+field's own colours. Click one to put it on the map by itself; "Back to the statistic" returns
+to the mean, spread or probability.
+
+### Added: ensemble spaghetti
+
+The GEFS ensemble layer has a Spaghetti switch: every member's contour at one value (500 hPa at
+5700 m, freezing at 2 m, a CAPE or rain amount), one colour per member, with the ensemble mean's
+in bold white. Where the members agree the lines bunch; where they disagree they fan out. The
+value is the same one the exceedance probability uses.
+
+### Fixed: model contours a little out of place
+
+Contour lines treated a grid's outer edges as its first and last values, while the coloured field
+and the probe put each value at its cell's centre. On fine grids (the HRRR) the difference was
+invisible; on coarse global grids contours sat up to a quarter degree off the colours under them
+near the grid's edges. They now line up.
+
+### Added: verify forecast radar against the MRMS mosaic
+
+The Model verification window can now score a model's composite reflectivity against the MRMS
+radar mosaic for the same time, cell by cell, with an event threshold in dBZ (35 by default):
+how often a forecast storm was there, and how often it was not.
+
+### Added: verify a model against the METAR stations
+
+The Model verification window can now score a run against the airport weather stations as well
+as the RTMA analysis ("Against: METAR stations"): each station's report within a quarter hour of
+the forecast hour, compared with the forecast at that station, every station counted once.
+
+### Added: the ECMWF in the Model fields browser
+
+The Model fields browser now lists the ECMWF IFS (quarter degree): temperature, height, humidity
+and wind on its pressure levels, 2 m temperature and dew point, 10 m and 100 m wind, pressure,
+precipitable water and precipitation since the run began, in the same units as the GFS. Its
+other parameters are listed with the reason they are not shown yet.
+
+### Added: winds from the Model fields browser
+
+The Model fields browser now lists the wind at every level a run has both wind components
+(HRRR, RAP, NAM, GFS): picking one shows the wind speed in knots with barbs on top, the
+barbs always from the same run and lead as the speed under them.
+
+### Fixed: the RAP's v wind component in the Model fields browser
+
+The RAP stores both wind components in one record; picking its v component drew the u component
+instead. Each component is now read from its own part of the record.
+
+### Added: wind barbs
+
+The HRRR wind layer can now be drawn as barbs (command palette → Wind barbs): speed in knots
+with the usual barbs and pennants, pointing where the wind comes from, and staying correct when
+the map is rotated or tilted.
+
+### Fixed: HRRR wind directions near the coasts
+
+The HRRR (and RAP and NAM) give their winds along the model's own map grid, which leans away
+from true north the farther you are from the middle of the country. The wind particles and model
+soundings used them as if they were north and east, so winds near either coast were turned by
+about 15°. They are now turned back from each file's own grid description; checked against the
+GFS, the coast-to-coast direction bias went from about 16° to 1–3°.
+
+### Added: a beam diagram
+
+**Beam diagram** (command palette) draws every tilt of the current scan as it climbs with
+range, and reads them at the place under your pointer: how high each beam is there, from its
+bottom to its top, and which heights no beam samples at all — the gap below the lowest beam that
+grows with range, and the gaps between the higher tilts.
+
+### Added: scenes remember the 3D map; duplicate and reorder scenes
+
+A broadcast scene now also restores the 3D map — on or off, its mode, translucent or lit
+rendering, vertical exaggeration, opacity and quality. Scenes can be duplicated to make a
+variation, and moved up or down the list, which is also the Alt+1..9 order.
+
+### Changed: the 3D opacity curve takes up to eight stops
+
+The 3D opacity curve is no longer fixed at four points: double-click the plot (or press +) to
+add a stop, right-click one (or press −) to remove it, anywhere from two to eight. A new stop
+lands on the existing curve, so adding one changes nothing until you drag it. Saved presets keep
+their exact stops, and a build from before this reads them as a four-point approximation.
+
+### Added: every field a regional model run publishes
+
+The browser also covers the GFS at quarter degree: every field its run holds at the pane's
+global lead, out to 384 hours.
+
+**Model fields** (command palette) lists what the pane's HRRR, HRRR pressure-level, RAP, NAM,
+NAM nest or NBM run actually holds at its lead, read from the run's own index: temperatures,
+heights, winds and moisture at every pressure level, surface gusts, precipitation totals and more.
+Pick one to draw it, with its units, level, timing, run and valid time in the legend. Parameters
+whose units are not vetted are listed with the reason instead of being drawn with a guess, and
+precipitation totals keep their interval as the lead changes.
+
+### Added: 3D around one storm
+
+The 3D map's smooth volumes can now be built around the selected storm instead of the whole
+radar (Slice → Region): the same number of voxels over a 30-120 km box gives much finer cells.
+"Follow the storm" keeps the box on it scan after scan, and stops where it is if the storm drops
+out of the table rather than jumping to another one.
+
+### Added: loop exports say exactly what they captured
+
+The JSON written beside an exported GIF or MP4 is now a capture manifest: for every frame, the
+scan that was asked for and the one actually on screen, how long it took to appear, each layer's
+data time and whether it was ready, a SHA-256 of the picture, and which video frames it fills.
+A frame that came out as the wrong scan, repeated the previous one, or had a layer still loading
+is listed as a problem, and the save message says so instead of reporting plain success.
+
+### Added: a satellite loop at the satellite's own cadence
+
+"Loop satellite scans" (Satellite layer options, or the command palette) plays every scan the
+satellite made over the last 15 minutes to 2 hours: each one-minute frame in a mesoscale sector,
+each five-minute CONUS frame. Missing scans are shown as gaps on its strip instead of being
+closed up, the loop waits for each frame to appear rather than racing ahead into blank frames,
+and the next few frames are downloaded ahead to disk. Radar keeps its own time while it plays.
+
+### Added: a storm impact report in the analysis export
+
+"Export analysis…" now includes `impacts.md` and `impacts.csv`: for every storm motion you have
+drawn, when it reaches each saved place, watch zone, imported asset layer and town already found
+in its path, how close it passes and whether it is inside the path, plus the people counted in
+its swath. The report says when a lookup was never made or failed instead of leaving it out, and
+nothing is fetched while exporting.
+
+### Added: scenes keep their product and time
+
+A broadcast scene now remembers the radar product, tilt, SRV, field layers, display thresholds
+and column product it was saved with, and whether it was live or an archived moment. Take puts
+all of it on air together; a scene that names a column product this installation does not have
+is held back with the reason rather than shown with something else. Scenes saved before this
+keep the pane's current product and time, as they always did.
+
+### Added: translucent 3D volume rendering
+
+The 3D map's smooth volumes and the 3D Reflectivity window can now render **Translucent** or
+**Lit** as well as the original maximum-intensity projection. Translucent blends every value
+front to back, so a hail core is seen inside the weaker echo around it rather than pasted over
+it; Lit adds shading from the echo's own gradient. Opacity is per kilometre of path, so the
+Quality setting and vertical exaggeration do not change how solid a storm looks. Saved 3D
+presets remember the mode; presets saved before this load as Maximum, as they were drawn.
+Display only: probes, exports and values are unchanged.
+
 ### Changed: the whole interface in Dear ImGui's look
 
 Every surface — the workstation dock, tool windows, the timeline, the phone's sheet and pill, the

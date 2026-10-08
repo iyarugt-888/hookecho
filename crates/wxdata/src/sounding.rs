@@ -893,10 +893,11 @@ async fn fetch_run(
         futures_util::stream::iter(jobs.into_iter().map(|(hpa, slot, start, end, sub, is_rh)| {
             let (base, http) = (base.clone(), http.clone());
             async move {
-                let v = sample_message(&http, &base, start, end, sub, lon, lat)
+                let got = sample_message(&http, &base, start, end, sub, lon, lat)
                     .await
                     .ok();
-                (hpa, slot, v, is_rh)
+                let (v, frame) = (got.map(|g| g.0), got.and_then(|g| g.1));
+                (hpa, slot, v, is_rh, frame)
             }
         }))
         .buffered(SOUNDING_CONCURRENCY)
@@ -906,10 +907,16 @@ async fn fetch_run(
     let mut by_level: std::collections::BTreeMap<u32, [Option<f64>; 4]> =
         std::collections::BTreeMap::new();
     let mut rh_levels = std::collections::BTreeSet::new();
-    for (hpa, slot, val, is_rh) in results {
+    // The rotation grid-relative winds need, read from a wind message's own grid definition
+    // (HRRR, RAP and NAM publish u/v along their Lambert grid's axes; `crate::grid_winds`).
+    let mut frame = None;
+    for (hpa, slot, val, is_rh, f) in results {
         by_level.entry(hpa).or_insert([None; 4])[slot] = val;
         if is_rh {
             rh_levels.insert(hpa);
+        }
+        if slot >= 2 {
+            frame = frame.or(f);
         }
     }
 
@@ -917,6 +924,10 @@ async fn fetch_run(
     let mut levels: Vec<SoundingLevel> = Vec::new();
     for (&hpa, vals) in by_level.iter().rev() {
         if let [Some(t), Some(m), Some(u), Some(v)] = *vals {
+            let (u, v) = match frame {
+                Some(f) => f.to_earth(u, v, lon),
+                None => (u, v),
+            };
             let temp_c = t - 273.15; // grib TMP/DPT are Kelvin
             let dewpt_c = if rh_levels.contains(&hpa) {
                 dewpoint_from_rh(temp_c, m)
@@ -952,7 +963,7 @@ async fn sample_message(
     sub: usize,
     lon: f64,
     lat: f64,
-) -> anyhow::Result<f64> {
+) -> anyhow::Result<(f64, Option<crate::grid_winds::LambertWinds>)> {
     let range = match end {
         Some(e) => format!("bytes={start}-{}", e - 1),
         None => format!("bytes={start}-"),
@@ -973,13 +984,15 @@ async fn sample_message(
         crate::task::guarded(|| {
             // A later field of a multi-field message is rebuilt as a message of its own; the
             // decoder would otherwise hand back the first field (V read as U).
-            if sub == 0 {
+            let frame = crate::grid_winds::from_message(&bytes);
+            let value = if sub == 0 {
                 sample_nearest(&bytes, lon, lat)
             } else {
                 let one = crate::grib_split::extract_field(&bytes, sub)
                     .ok_or_else(|| anyhow::anyhow!("no field {sub} in that message"))?;
                 sample_nearest(&one, lon, lat)
-            }
+            }?;
+            anyhow::Ok((value, frame))
         })
         .unwrap_or_else(|_| anyhow::bail!("grib decode panicked"))
     })
@@ -1016,6 +1029,43 @@ fn sample_nearest(raw: &[u8], lon: f64, lat: f64) -> anyhow::Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model sounding's winds are east/north: its 500 hPa wind at the east coast, where the
+    /// HRRR grid's axes are turned about 14°, agrees with the rotated 500 hPa grid from the same
+    /// run (itself checked against the GFS in `hrrr`).
+    /// `cargo test -p wxdata sounding_winds_are_earth_relative_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn sounding_winds_are_earth_relative_live() {
+        let http = reqwest::Client::new();
+        let (lon, lat) = (-75.0, 40.0);
+        let snd = fetch_at(&http, lon, lat, 3).await.unwrap();
+        let l500 = snd
+            .levels
+            .iter()
+            .find(|l| (l.pressure_hpa - 500.0).abs() < 0.5)
+            .expect("a 500 hPa level");
+        let (u, v) = crate::hrrr::fetch_wind_at_run(
+            &http,
+            snd.run,
+            snd.fh,
+            crate::hrrr::WindLevel::Steering,
+        )
+        .await
+        .unwrap();
+        let (gu, gv) = (
+            f64::from(u.sample_bilinear(lon, lat).unwrap()),
+            f64::from(v.sample_bilinear(lon, lat).unwrap()),
+        );
+        let dir = |u: f64, v: f64| v.atan2(u).to_degrees();
+        let delta = (dir(l500.u_ms, l500.v_ms) - dir(gu, gv) + 540.0).rem_euclid(360.0) - 180.0;
+        println!(
+            "500 hPa at {lon},{lat}: sounding ({:.1},{:.1}) grid ({gu:.1},{gv:.1}), {delta:.1} deg apart",
+            l500.u_ms, l500.v_ms
+        );
+        assert!(gu.hypot(gv) > 3.0, "too calm to compare");
+        assert!(delta.abs() < 5.0, "{delta}");
+    }
 
     #[tokio::test]
     async fn fetch_rejects_locations_outside_hrrr_before_network() {

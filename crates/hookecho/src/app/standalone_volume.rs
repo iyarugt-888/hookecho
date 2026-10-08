@@ -167,6 +167,7 @@ fn build(
             nz: volume.nz as u32,
             lut,
             half_km: volume.half_km,
+            center_km: [0.0, 0.0],
             top_km: volume.top_km,
             outside: 0.0,
             value_range: None,
@@ -266,6 +267,7 @@ impl HookEchoApp {
         match self.vol3d_build.accept(delivery, actual.as_ref()) {
             Some(Ok(built)) => {
                 // Publish source, coverage, layer summaries and GPU staging together.
+                self.vol3d.half_km = built.upload.half_km;
                 self.vol3d_pending = Some(built.upload);
                 self.vol3d_range = built.range;
                 self.vol3d.layers = built.layers;

@@ -46,6 +46,12 @@ pub(crate) enum OverlayMsg {
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
     ),
+    /// A browsed model wind (`FieldLayer::ModelField`): its speed in knots as the shown field,
+    /// and the east/north components (m/s) on the same lattice for its barbs.
+    VectorField(
+        wxdata::field::Stamped<wxdata::mrms::MrmsField>,
+        Box<super::model_field::WindPair>,
+    ),
     MrmsField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
@@ -285,6 +291,9 @@ pub(crate) enum OverlaySource {
     Ndfd(crate::render::FieldLayer),
     /// An RTMA analysis field for one analysis hour (`None` = the newest that has posted).
     Rtma(crate::render::FieldLayer, Option<DateTime<Utc>>),
+    /// A field from a regional model's inventory (ROADMAP_PARITY M5.3) at a forecast hour, from
+    /// a pinned run.
+    ModelField(super::model_field::FieldPick, u16, Option<DateTime<Utc>>),
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -390,6 +399,7 @@ impl OverlaySource {
             | Self::Ndfd(layer)
             | Self::Rtma(layer, _) => RequestLane::Field(*layer),
             Self::GoesRgb(..) => RequestLane::Field(FL::GoesRgb),
+            Self::ModelField(..) => RequestLane::Field(FL::ModelField),
             Self::GoesFootprint(..) => RequestLane::Feed(FeedSource::GoesMesoSector),
             Self::GlmWindow(..) => RequestLane::Feed(FeedSource::GlmArchive),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
@@ -824,16 +834,8 @@ impl OverlaySource {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
-                let band = match layer {
-                    FL::GoesIr | FL::GoesColdTop => 13,
-                    FL::GoesVisible => 2,
-                    FL::GoesWaterVapor => 8,
-                    FL::GoesShortwaveIr => 7,
-                    FL::GoesMidWaterVapor => 9,
-                    FL::GoesLowWaterVapor => 10,
-                    FL::GoesDirtyIr => 15,
-                    FL::GoesLongwaveIr => 14,
-                    _ => anyhow::bail!("{layer:?} is not a GOES band"),
+                let Some(band) = super::sat_loop::goes_layer_band(layer) else {
+                    anyhow::bail!("{layer:?} is not a GOES band");
                 };
                 // A mesoscale box is about 1000 km a side: square, and finer per degree.
                 let (nx, ny) = goes_grid(sector);
@@ -916,6 +918,74 @@ impl OverlaySource {
                     _ => anyhow::bail!("{layer:?} is not an NDFD element"),
                 };
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
+            }
+            OverlaySource::ModelField(pick, fh, run) if pick.vector => {
+                use super::model_field::InventorySource;
+                let (run, lead, u, v) = match pick.model {
+                    InventorySource::Regional(m) => {
+                        let lead = fh.min(u16::from(u8::MAX)) as u8;
+                        let (run, lead, u, v) = wxdata::hrrr::fetch_inventory_vector(
+                            http, m, run, lead, pick.level, pick.kind,
+                        )
+                        .await?;
+                        (run, u16::from(lead), u, v)
+                    }
+                    InventorySource::Gfs | InventorySource::Ecmwf => {
+                        let model = pick.model.global().expect("a global source");
+                        let (run, u, v) = wxdata::global::fetch_global_inventory_vector(
+                            http, model, run, fh, pick.level, pick.kind,
+                        )
+                        .await?;
+                        (run, fh, u, v)
+                    }
+                };
+                let speed = super::model_field::wind_speed_kt(&u, &v)?;
+                let valid = run + chrono::Duration::hours(i64::from(lead));
+                OverlayMsg::VectorField(
+                    field_state::model_field(
+                        pick.model.source_id(),
+                        &pick.product_id(),
+                        speed,
+                        Some(run),
+                        valid,
+                        true,
+                    )?,
+                    Box::new((u, v)),
+                )
+            }
+            OverlaySource::ModelField(pick, fh, run) => {
+                use super::model_field::InventorySource;
+                let (field, run, valid) = match pick.model {
+                    InventorySource::Regional(m) => {
+                        let lead = fh.min(u16::from(u8::MAX)) as u8;
+                        let fc = wxdata::hrrr::fetch_inventory_field(
+                            http, m, run, lead, pick.var, pick.level, pick.kind,
+                        )
+                        .await?;
+                        let valid = fc.valid();
+                        (fc.field, fc.run, valid)
+                    }
+                    InventorySource::Gfs | InventorySource::Ecmwf => {
+                        let model = pick.model.global().expect("a global source");
+                        let fc = wxdata::global::fetch_global_inventory_field(
+                            http, model, run, fh, pick.var, pick.level, pick.kind,
+                        )
+                        .await?;
+                        let valid = fc.valid();
+                        (fc.field, fc.run, valid)
+                    }
+                };
+                OverlayMsg::StampedField(
+                    crate::render::FieldLayer::ModelField,
+                    field_state::model_field(
+                        pick.model.source_id(),
+                        &pick.product_id(),
+                        field,
+                        Some(run),
+                        valid,
+                        false,
+                    )?,
+                )
             }
             OverlaySource::Rtma(layer, hour) => {
                 let field = model_context::rtma_field(layer)
