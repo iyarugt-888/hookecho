@@ -18,6 +18,9 @@ pub(crate) struct Markers<'a> {
     pub couplets: &'a [wxdata::rotation::CoupletHit],
     pub tornado_ids: &'a [wxdata::tornado_id::TornadoId],
     pub circulations: &'a [wxdata::tornado_id::Circulation],
+    /// The original pipeline's circulations in Tornado ID's comparison mode (else empty): drawn
+    /// hollow under the fused markers, labelled Original, never opening a card or alerting.
+    pub original_circulations: &'a [wxdata::tornado_id::Circulation],
     /// Where the Tornado ID verdicts came from: pipeline, versions, volume and input scan times.
     pub tornado_lineage: Option<&'a wxdata::detection_lineage::DetectionLineage>,
     pub tied_tds: &'a [bool],
@@ -44,6 +47,7 @@ impl HookEchoApp {
             couplets,
             tornado_ids,
             circulations,
+            original_circulations,
             tornado_lineage,
             tied_tds,
             tied_couplet,
@@ -440,6 +444,66 @@ impl HookEchoApp {
                     .source(valid)
                     .map(|(run, hour)| (run, hour, (valid - run.timestamp()) / 3600))
             });
+            // Comparison mode: the original Tornado ID's verdicts, under the fused markers. A
+            // hollow triangle pointing down, so the two read apart where they sit together, and
+            // a label above saying whose verdict it is.
+            let mut original_labels: Vec<egui::Rect> = Vec::new();
+            for o in original_circulations {
+                let t = &o.id;
+                let p = to_screen(t.lon, t.lat);
+                if !prect.contains(p) {
+                    continue;
+                }
+                let col = tier_colour(t.tier);
+                let tri = vec![
+                    p + egui::vec2(0.0, 14.0),
+                    p + egui::vec2(12.5, -7.5),
+                    p + egui::vec2(-12.5, -7.5),
+                ];
+                painter.add(egui::Shape::convex_polygon(
+                    tri,
+                    egui::Color32::from_black_alpha(150),
+                    egui::Stroke::new(2.0, col),
+                ));
+                painter.text(
+                    p + egui::vec2(0.0, -1.0),
+                    egui::Align2::CENTER_CENTER,
+                    t.tier.glyph(),
+                    egui::FontId::proportional(11.0),
+                    col,
+                );
+                halo_label(
+                    painter,
+                    &mut original_labels,
+                    false,
+                    p + egui::vec2(0.0, -10.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    format!(
+                        "Original \u{b7} {} \u{b7} {}",
+                        t.tier.label(),
+                        wxdata::evidence::out_of_100(t.score)
+                    ),
+                    egui::FontId::proportional(if touch { 12.5 } else { 11.0 }),
+                    col,
+                );
+                let hit = egui::Rect::from_center_size(p, egui::vec2(marker_hit, marker_hit));
+                if hover.is_some_and(|hp| hit.contains(hp)) {
+                    response.clone().show_tooltip_ui(|ui| {
+                        ui.strong(format!(
+                            "Original Tornado ID \u{b7} {} \u{b7} {}",
+                            t.tier.label(),
+                            wxdata::evidence::out_of_100(t.score)
+                        ));
+                        for r in &t.reasons {
+                            ui.label(r);
+                        }
+                        ui.weak(
+                            "Comparison mode: the original pipeline's verdict, beside the fused \
+                             one. It never alerts.",
+                        );
+                    });
+                }
+            }
             for (ci, c) in circulations.iter().enumerate() {
                 let t = &c.id;
                 let p = to_screen(t.lon, t.lat);

@@ -17,6 +17,9 @@ pub(crate) struct PaneDetections {
     pub local_tracks: Vec<wxdata::celltrack::Track>,
     pub tornado_ids: Vec<wxdata::tornado_id::TornadoId>,
     pub circulations: Vec<wxdata::tornado_id::Circulation>,
+    /// With Tornado ID's comparison mode (`TornadoIdSource::Compare`), the original pipeline's
+    /// circulations, drawn beside the fused ones and never alerting; else empty.
+    pub original_circulations: Vec<wxdata::tornado_id::Circulation>,
     /// Where this pane's Tornado ID verdicts came from, when it shows any.
     pub tornado_lineage: Option<wxdata::detection_lineage::DetectionLineage>,
     pub tied_couplet: Vec<bool>,
@@ -121,6 +124,13 @@ impl HookEchoApp {
         } else {
             (Vec::new(), Vec::new(), None)
         };
+        let compare =
+            self.settings.detectors.tornado_id_source == crate::settings::TornadoIdSource::Compare;
+        let original_circulations = if compare && idx == self.active && !tdwr && tornado {
+            wxdata::tornado_id::circulations(&couplets, &tds_hits)
+        } else {
+            Vec::new()
+        };
         let mut tied_couplet = vec![false; couplets.len()];
         let mut tied_tds = vec![false; tds_hits.len()];
         for c in &circulations {
@@ -163,6 +173,7 @@ impl HookEchoApp {
             local_tracks,
             tornado_ids,
             circulations,
+            original_circulations,
             tornado_lineage,
             tied_couplet,
             tied_tds,

@@ -236,11 +236,10 @@ impl HookEchoApp {
         Vec<wxdata::tornado_id::Circulation>,
         wxdata::detection_lineage::DetectionLineage,
     ) {
-        use crate::settings::TornadoIdSource;
         use wxdata::detection_lineage::{DetectionLineage, Pipeline};
         // The fusion's verdict once this volume's columns are ready; until then, and for a light
         // loop frame (one tilt), the original's, so the markers never blink out.
-        let fused = self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion;
+        let fused = self.settings.detectors.tornado_id_source.fused();
         let environment = if fused {
             self.near_storm_hour(idx, ctx)
         } else {
@@ -328,8 +327,7 @@ impl HookEchoApp {
         couplets: &[wxdata::rotation::CoupletHit],
         tds: &[wxdata::tds::TdsHit],
     ) -> Vec<wxdata::tornado_id::Circulation> {
-        use crate::settings::TornadoIdSource;
-        if self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion {
+        if self.settings.detectors.tornado_id_source.fused() {
             if let Some((key, analysed, _)) = &self.llsd_cache {
                 if key.1 == volume_name {
                     let idx = key.0;

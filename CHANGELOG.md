@@ -203,6 +203,13 @@ were often left folded. Sweeps are unfolded at the Nyquist velocity the radar re
 gives one value for the sweep. The inspector shows the value used and whether it was decoded or
 estimated.
 
+### Added: compare the fused and original Tornado ID side by side
+
+Layer options → Detectors → Tornado ID has a third choice, **Both (test)**. The fused Tornado ID
+draws, alerts and opens its card as usual, and the original's verdicts are drawn beside it as
+hollow triangles pointing down, labelled *Original* with their tier and score, so the two can be
+compared storm by storm. The original's markers never alert; hover one for its reasons.
+
 ### Changed: Tornado detection reads every low-level scan
 
 In severe weather the radar rescans its lowest tilt two to four times a volume. Tornado

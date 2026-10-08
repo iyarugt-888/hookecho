@@ -1017,6 +1017,17 @@ pub enum TornadoIdSource {
     Fusion,
     /// The original: legacy couplets and debris signatures (`wxdata::tornado_id`).
     Legacy,
+    /// Both at once, to compare them (a test mode): the fused pipeline's markers as with
+    /// [`Self::Fusion`] (they alert and open the card), and the original's beside them, drawn
+    /// hollow and labelled "Original", which never alert.
+    Compare,
+}
+
+impl TornadoIdSource {
+    /// Whether the fused pipeline makes the verdicts that are shown and alert.
+    pub fn fused(self) -> bool {
+        !matches!(self, TornadoIdSource::Legacy)
+    }
 }
 
 /// Where Tornado detection's rotation-only Possible bar starts (s⁻¹). On 259 random ordinary
@@ -2828,6 +2839,10 @@ mod tests {
         );
         // Choosing the original survives a save and reload, under a readable name.
         let mut s = Settings::default();
+        let mut compare = s.clone();
+        compare.detectors.tornado_id_source = TornadoIdSource::Compare;
+        let text = serde_json::to_string(&compare).unwrap();
+        assert!(text.contains(r#""tornado_id_source":"compare""#), "{text}");
         s.detectors.tornado_id_source = TornadoIdSource::Legacy;
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""tornado_id_source":"legacy""#), "{json}");

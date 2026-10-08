@@ -1331,8 +1331,14 @@ pub(crate) fn tornado_id_controls(
             .on_hover_text(
                 "The original Tornado ID, from the rotation-couplet and debris-signature detectors.",
             );
+        ui.radio_value(&mut detectors.tornado_id_source, S::Compare, "Both (test)")
+            .on_hover_text(
+                "A test mode for comparing the two: the fused Tornado ID's markers as usual, and \
+                 the original's beside them, drawn hollow and labelled Original. Only the fused \
+                 markers alert.",
+            );
     });
-    if detectors.tornado_id_source == crate::settings::TornadoIdSource::Fusion {
+    if detectors.tornado_id_source.fused() {
         let label = |bar: Option<f32>| match bar {
             None => "Off".to_string(),
             Some(b) => format!("{b:.3} s\u{207b}\u{b9}"),

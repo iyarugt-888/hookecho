@@ -5353,6 +5353,7 @@ impl HookEchoApp {
             local_tracks,
             tornado_ids,
             circulations,
+            original_circulations,
             tornado_lineage,
             tied_couplet,
             tied_tds,
@@ -5742,6 +5743,7 @@ impl HookEchoApp {
             || !couplets.is_empty()
             || !tornado_ids.is_empty()
             || !circulations.is_empty()
+            || !original_circulations.is_empty()
             || !nowcast_pts.is_empty()
             || !local_tracks.is_empty()
             || (self.filters.show_zdr_columns && idx == self.active);
@@ -5761,6 +5763,7 @@ impl HookEchoApp {
                     couplets: &couplets,
                     tornado_ids: &tornado_ids,
                     circulations: &circulations,
+                    original_circulations: &original_circulations,
                     tornado_lineage: tornado_lineage.as_ref(),
                     tied_tds: &tied_tds,
                     tied_couplet: &tied_couplet,
