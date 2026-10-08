@@ -89,7 +89,7 @@ impl HookEchoApp {
             .resizable(false)
             .frame(
                 egui::Frame::NONE
-                    .fill(t.panel)
+                    .fill(t.bg)
                     .stroke(egui::Stroke::new(1.0, t.line))
                     .inner_margin(egui::Margin::symmetric(4, 8)),
             )

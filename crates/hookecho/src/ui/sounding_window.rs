@@ -430,7 +430,7 @@ fn skewt(
     let w = ui.available_width().clamp(220.0, 300.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+    p.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
     let grid = ui
         .visuals()
         .widgets
@@ -579,7 +579,7 @@ fn hodograph(
     let w = ui.available_width().clamp(200.0, 240.0);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::click());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+    p.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
     let grid = ui
         .visuals()
         .widgets

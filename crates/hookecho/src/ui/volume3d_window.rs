@@ -230,7 +230,7 @@ pub(crate) fn opacity_curve(
     let (rect, plot_resp) = ui.allocate_exact_size(egui::vec2(w, 84.0), egui::Sense::click());
     let plot = rect.shrink(6.0);
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
     for f in [0.25, 0.5, 0.75] {
         let y = plot.bottom() - plot.height() * f;
         painter.hline(

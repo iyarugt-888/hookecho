@@ -35,7 +35,7 @@ pub(crate) fn show(
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(rect, 0.0, egui::Color32::from_rgb(c[0], c[1], c[2]));
+                    .rect_filled(rect, 2.0, egui::Color32::from_rgb(c[0], c[1], c[2]));
                 ui.heading(&detail.title);
             });
             ui.separator();

@@ -135,11 +135,11 @@ impl Drawer {
         egui::Area::new(egui::Id::new("drawer_header"))
             .fixed_pos(head.min)
             .show(ctx, |ui| {
-                // An ImGui title bar: the focused-window colour, square, the window's padding.
                 let header = egui::Frame::NONE
-                    .fill(crate::theme::current().title_bg_active)
+                    .fill(ui.visuals().window_fill)
                     .stroke(ui.visuals().window_stroke)
-                    .inner_margin(egui::Margin::symmetric(8, 3));
+                    .corner_radius(0)
+                    .inner_margin(egui::Margin::symmetric(6, 5));
                 header.show(ui, |ui| {
                     ui.set_width(head.width() - 24.0);
                     ui.horizontal(|ui| {
@@ -153,7 +153,7 @@ impl Drawer {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new(glyph).size(crate::theme::FONT),
+                                    egui::RichText::new(glyph).size(crate::ui::style::FONT_LG),
                                 )
                                 .fill(egui::Color32::TRANSPARENT)
                                 .stroke(egui::Stroke::NONE),
@@ -163,7 +163,10 @@ impl Drawer {
                         {
                             close = true;
                         }
-                        ui.label(egui::RichText::new(title).size(crate::theme::FONT));
+                        let title = egui::RichText::new(title)
+                            .size(crate::ui::style::FONT_LG)
+                            .strong();
+                        ui.label(title.monospace());
                         if gear {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -172,7 +175,7 @@ impl Drawer {
                                         .add(
                                             egui::Button::new(
                                                 egui::RichText::new(egui_phosphor::regular::GEAR)
-                                                    .size(crate::theme::FONT),
+                                                    .size(crate::ui::style::FONT_LG),
                                             )
                                             .fill(egui::Color32::TRANSPARENT)
                                             .stroke(egui::Stroke::NONE),
@@ -197,7 +200,7 @@ impl Drawer {
         let frame = egui::Frame::window(&ctx.style_of(ctx.theme()))
             .corner_radius(0)
             .shadow(egui::epaint::Shadow::NONE)
-            .inner_margin(egui::Margin::same(8));
+            .inner_margin(egui::Margin::same(7));
         Some(
             w.title_bar(false)
                 .fixed_rect(body)

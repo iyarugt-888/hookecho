@@ -110,7 +110,7 @@ impl HookEchoApp {
             )
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, self.chrome_alpha(252))
-                    .corner_radius(0)
+                    .corner_radius(self.chrome_corner(crate::ui::style::RADIUS_LG))
                     .inner_margin(egui::Margin::symmetric(
                         if phone { 12 } else if compact_live { 10 } else { 12 },
                         if phone { 6 } else if compact_live { 4 } else { 9 },
@@ -134,7 +134,7 @@ impl HookEchoApp {
                             egui::RichText::new(&site)
                                 .size(crate::ui::style::FONT_BASE)
                                 .strong()
-                                .color(crate::theme::current().text),
+                                .color(egui::Color32::from_gray(238)),
                         );
                     }
                     let btn = |ui: &mut egui::Ui, glyph: &str, on: bool, name: &str| {
@@ -142,7 +142,7 @@ impl HookEchoApp {
                         let fg = if on {
                             accent
                         } else {
-                            crate::theme::current().text
+                            egui::Color32::from_gray(225)
                         };
                         ui.add(
                             egui::Button::new(egui::RichText::new(glyph).size(if primary && !narrow { 26.0 } else if phone { 22.0 } else { 16.0 }).color(fg))
@@ -151,7 +151,7 @@ impl HookEchoApp {
                                     if phone { 44.0 } else if narrow { 28.0 } else if primary { 48.0 } else { 32.0 },
                                 ))
                                 .fill(if primary && !narrow { accent.gamma_multiply(0.28) } else { egui::Color32::TRANSPARENT })
-                                .corner_radius(0)
+                                .corner_radius(24.0)
                                 .stroke(if primary && !narrow { egui::Stroke::new(1.0, accent) } else { egui::Stroke::NONE }),
                         )
                         .named_toggle(name, on)
@@ -209,7 +209,7 @@ impl HookEchoApp {
                             egui::RichText::new(readout)
                                 .size(if phone { 17.0 } else if narrow { 15.0 } else { 22.0 })
                                 .strong()
-                                .color(crate::theme::current().text),
+                                .color(egui::Color32::from_gray(238)),
                         ));
                     }
                     });
@@ -257,7 +257,7 @@ impl HookEchoApp {
                         )
                     } else {
                         (
-                            crate::theme::current().text_disabled,
+                            egui::Color32::from_gray(150),
                             if narrow { "Archive".to_string() } else { format!("Archive {}", t.date.format("%m/%d")) },
                             "Scrubbed to an archive day. Click to jump back to live.".to_string(),
                         )
@@ -282,7 +282,7 @@ impl HookEchoApp {
                         )
                         .min_size(if phone { egui::vec2(0.0, 40.0) } else { egui::Vec2::ZERO })
                         .fill(egui::Color32::TRANSPARENT)
-                        .corner_radius(0),
+                        .corner_radius(9.0),
                     )
                     .named(&hint);
                     if badge.clicked() {
@@ -306,7 +306,7 @@ impl HookEchoApp {
                             ui.label(
                                 egui::RichText::new(format!("\u{27f2} {dvr}"))
                                     .size(crate::ui::style::FONT_SM)
-                                    .color(crate::theme::current().text_disabled),
+                                    .color(egui::Color32::from_gray(150)),
                             )
                             .on_hover_text("Frames buffered in memory for instant replay (R)");
                         }
@@ -314,7 +314,7 @@ impl HookEchoApp {
                             ui.label(
                                 egui::RichText::new(r)
                                     .size(crate::ui::style::FONT_SM)
-                                    .color(crate::theme::current().text_link),
+                                    .color(egui::Color32::from_rgb(110, 180, 240)),
                             )
                             .on_hover_text(
                                 "Estimated from storm motion \u{2014} rough for backbuilding storms",
@@ -444,7 +444,7 @@ impl HookEchoApp {
                                 egui::Button::new(
                                     egui::RichText::new(ph::DOTS_THREE)
                                         .size(18.0)
-                                        .color(crate::theme::current().text),
+                                        .color(egui::Color32::from_gray(225)),
                                 )
                                 .min_size(egui::vec2(
                                     if compact_live { 24.0 } else { 30.0 },
@@ -470,13 +470,13 @@ impl HookEchoApp {
                             ui.label(
                                 egui::RichText::new(age)
                                     .size(crate::ui::style::FONT_SM)
-                                    .color(crate::theme::current().text_disabled),
+                                    .color(egui::Color32::from_gray(150)),
                             );
                         } else if loading && !narrow {
                             ui.label(
                                 egui::RichText::new("loading\u{2026}")
                                     .size(crate::ui::style::FONT_SM)
-                                    .color(crate::theme::current().text_disabled),
+                                    .color(egui::Color32::from_gray(150)),
                             );
                         }
                     });
@@ -500,7 +500,7 @@ impl HookEchoApp {
                                 egui::ProgressBar::new(fraction)
                                     .desired_height(4.0)
                                     .fill(accent)
-                                    .corner_radius(0),
+                                    .corner_radius(2.0),
                             )
                             .on_hover_text(format!(
                                 "Tilt {}/{} at {:.1}\u{b0} \u{2014} chunk {}/{} of the current \
@@ -558,7 +558,7 @@ impl HookEchoApp {
     /// `track()`'s own drag handler uses (see that function, below).
     fn scrubber_wsv3_style(&mut self, ctx: &egui::Context) {
         use egui_phosphor::regular as ph;
-        let accent = crate::theme::current().check_mark;
+        let accent = crate::theme::accent(self.settings.theme);
         let tz = self.active_tz();
         let displayed_time = self.views[self.active].displayed_radar_time();
         let newest_time = self.views[self.active]
@@ -584,8 +584,8 @@ impl HookEchoApp {
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -8.0))
             .show(ctx, |ui| {
                 egui::Frame::NONE
-                    .fill(wsv3::status_bg())
-                    .corner_radius(0)
+                    .fill(wsv3::STATUS_BG)
+                    .corner_radius(6.0)
                     .stroke(egui::Stroke::new(1.0, egui::Color32::from_black_alpha(170)))
                     .inner_margin(egui::Margin::symmetric(10, 8))
                     .show(ui, |ui| {
@@ -640,7 +640,7 @@ impl HookEchoApp {
                                 })
                                 .size(13.0)
                                 .strong()
-                                .color(wsv3::ink()),
+                                .color(wsv3::INK),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let (col, text) = if t.following && fresh {
@@ -648,7 +648,7 @@ impl HookEchoApp {
                                 } else if t.following {
                                     (crate::ui::freshness::Freshness::Stale.color(), "STALE")
                                 } else {
-                                    (crate::theme::current().text_disabled, "ARCHIVE")
+                                    (egui::Color32::from_gray(150), "ARCHIVE")
                                 };
                                 ui.label(
                                     egui::RichText::new(format!("\u{25cf} {text}"))
@@ -661,7 +661,7 @@ impl HookEchoApp {
                                     ui.label(
                                         egui::RichText::new("LOOP")
                                             .size(9.0)
-                                            .color(wsv3::status_fg().gamma_multiply(0.7)),
+                                            .color(wsv3::STATUS_FG.gamma_multiply(0.7)),
                                     );
                                     egui::ComboBox::from_id_salt("wsv3_timeline_loop_frames")
                                         .selected_text(format!("{loop_frames}"))
@@ -776,7 +776,7 @@ impl HookEchoApp {
                             } else if t.following {
                                 crate::ui::freshness::Freshness::Stale.color()
                             } else {
-                                crate::theme::current().text_disabled
+                                egui::Color32::from_gray(150)
                             };
                             let badge = ui
                                 .add(
@@ -949,7 +949,7 @@ fn live_progress_ring(ui: &mut egui::Ui, p: wxdata::live::ScanProgress, accent: 
     painter.circle_stroke(
         center,
         radius,
-        egui::Stroke::new(1.4, crate::theme::current().separator),
+        egui::Stroke::new(1.4, egui::Color32::from_gray(90)),
     );
     let fraction = if p.total_elevations > 0 {
         (p.elevation_number as f32 / p.total_elevations as f32).clamp(0.0, 1.0)
@@ -974,7 +974,7 @@ fn live_progress_ring(ui: &mut egui::Ui, p: wxdata::live::ScanProgress, accent: 
             radius,
             phase,
             0.5,
-            egui::Stroke::new(2.0, crate::theme::current().text),
+            egui::Stroke::new(2.0, egui::Color32::WHITE.gamma_multiply(0.9)),
         );
         ui.ctx().request_repaint();
     }
@@ -1177,7 +1177,7 @@ fn track(
     };
     // Slot centres, so the first and last frames sit inside the track instead of half off it.
     let x_of = |i: usize| bar.left() + (i as f32 + 0.5) / slots as f32 * bar.width();
-    p.rect_filled(bar, 0.0, crate::theme::current().frame_bg);
+    p.rect_filled(bar, 3.0, egui::Color32::from_gray(60));
 
     let observed = t.frames.len();
     // The model tail is a different kind of time and says so, exactly as the old slider did.
@@ -1188,13 +1188,13 @@ fn track(
                 egui::pos2(x, bar.top()),
                 egui::pos2(bar.right(), bar.bottom()),
             ),
-            0.0,
-            crate::theme::current().header,
+            3.0,
+            egui::Color32::from_rgba_unmultiplied(120, 170, 240, 90),
         );
         if !compact {
             p.line_segment(
                 [egui::pos2(x, rect.top() + 6.0), egui::pos2(x, bar.bottom())],
-                egui::Stroke::new(1.0, crate::theme::current().text_link),
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 170, 240)),
             );
         }
     }
@@ -1207,7 +1207,7 @@ fn track(
                 egui::pos2(x_of(from), bar.top()),
                 egui::pos2(x_of(observed.saturating_sub(1)), bar.bottom()),
             ),
-            0.0,
+            3.0,
             accent.gamma_multiply(0.35),
         );
     }
@@ -1215,7 +1215,7 @@ fn track(
     // over — the axis a chaser reads to find "the 22Z scan" without scrubbing for it.
     p.rect_filled(
         egui::Rect::from_min_max(bar.left_top(), egui::pos2(x_of(t.playhead), bar.bottom())),
-        0.0,
+        3.0,
         accent.gamma_multiply(0.8),
     );
     if !compact {
@@ -1228,7 +1228,7 @@ fn track(
                     egui::pos2(x, bar.top() - 3.0),
                     egui::pos2(x, bar.top() - 1.0),
                 ],
-                egui::Stroke::new(1.0, crate::theme::current().separator),
+                egui::Stroke::new(1.0, egui::Color32::from_gray(120)),
             );
             let Some(dt) = id.date_time() else { continue };
             let hour = hour_key(dt, tz);
@@ -1249,14 +1249,14 @@ fn track(
                 egui::Align2::CENTER_TOP,
                 hour_label(dt, tz),
                 egui::FontId::proportional(crate::ui::style::FONT_SM),
-                crate::theme::current().text,
+                egui::Color32::from_gray(170),
             );
             p.line_segment(
                 [
                     egui::pos2(x, bar.top() - 6.0),
                     egui::pos2(x, bar.top() - 1.0),
                 ],
-                egui::Stroke::new(1.0, crate::theme::current().text_disabled),
+                egui::Stroke::new(1.0, egui::Color32::from_gray(150)),
             );
             last_label_x = x;
         }
@@ -1273,7 +1273,7 @@ fn track(
     p.circle_stroke(
         knob,
         knob_radius,
-        egui::Stroke::new(1.0, crate::theme::current().text),
+        egui::Stroke::new(1.0, egui::Color32::from_gray(230)),
     );
 
     // Click anywhere on the track, or drag the knob: both are the same "put the playhead here".

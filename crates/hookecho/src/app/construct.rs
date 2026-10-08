@@ -381,7 +381,7 @@ impl HookEchoApp {
             built_gen: u64::MAX,
             built_zoom_bucket: i32::MIN,
             built_imported_visible: 0,
-            built_theme: crate::settings::Theme::Dark,
+            built_theme: crate::settings::Theme::DearImGui,
             built_globe: false,
             pending_overlay: None,
             overlay_ready: false,

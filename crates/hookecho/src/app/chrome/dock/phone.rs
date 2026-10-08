@@ -165,8 +165,7 @@ fn fit_text(p: &egui::Painter, s: &str, font: &FontId, room: f32) -> String {
     "\u{2026}".to_string()
 }
 
-/// The view chip: the radar and tilt small above (in `TextDisabled`), the product below, a caret
-/// at the end; a flat ImGui button that lights up while pressed.
+/// The view chip: the radar and tilt small above, the product below, a caret at the end.
 fn view_chip(
     ui: &mut egui::Ui,
     t: &ws::Tokens,
@@ -176,7 +175,7 @@ fn view_chip(
 ) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 40.0), Sense::click());
     if resp.hovered() || resp.is_pointer_button_down_on() {
-        ui.painter().rect_filled(r, 0.0, t.im.button_hovered);
+        ui.painter().rect_filled(r, 10.0, t.field_hi);
     }
     let p = ui.painter_at(r);
     p.text(
@@ -184,7 +183,7 @@ fn view_chip(
         egui::Align2::LEFT_TOP,
         top,
         FontId::proportional(11.5),
-        t.text_faint,
+        t.text_dim,
     );
     let font = FontId::proportional(15.5);
     p.text(
@@ -192,7 +191,7 @@ fn view_chip(
         egui::Align2::LEFT_BOTTOM,
         fit_text(&p, product, &font, r.width() - 30.0),
         font,
-        t.text,
+        Color32::WHITE,
     );
     p.text(
         r.right_center() + egui::vec2(-8.0, 6.0),
@@ -204,19 +203,14 @@ fn view_chip(
     resp.named(&format!("{top}, {product}: radar, product and tilt"))
 }
 
-/// A pill icon: a glyph on an ImGui button with its resting fill pushed transparent, held in
-/// `ButtonActive` while on.
+/// A pill icon: a glyph with a round press state.
 fn bar_icon(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
     if on || resp.hovered() || resp.is_pointer_button_down_on() {
-        ui.painter().rect_filled(
-            r,
-            0.0,
-            if on || resp.is_pointer_button_down_on() {
-                t.im.button_active
-            } else {
-                t.im.button_hovered
-            },
+        ui.painter().circle_filled(
+            r.center(),
+            18.0,
+            if on { t.accent_soft() } else { t.field_hi },
         );
     }
     ui.painter().text(
@@ -224,7 +218,7 @@ fn bar_icon(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::R
         egui::Align2::CENTER_CENTER,
         glyph,
         FontId::proportional(22.0),
-        t.text,
+        if on { t.accent } else { t.text },
     );
     resp
 }
@@ -233,7 +227,7 @@ fn bar_icon(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::R
 fn logo_button(ui: &mut egui::Ui, t: &ws::Tokens) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(52.0, 40.0), Sense::click());
     if resp.hovered() || resp.is_pointer_button_down_on() {
-        ui.painter().rect_filled(r, 0.0, t.im.button_hovered);
+        ui.painter().rect_filled(r, 10.0, t.field_hi);
     }
     ui.painter().text(
         r.left_center() + egui::vec2(6.0, 0.0),
@@ -246,7 +240,7 @@ fn logo_button(ui: &mut egui::Ui, t: &ws::Tokens) -> egui::Response {
         r.right_center() + egui::vec2(-5.0, 1.0),
         egui::Align2::RIGHT_CENTER,
         ph::CARET_DOWN,
-        FontId::proportional(crate::theme::FONT),
+        FontId::proportional(12.0),
         t.text,
     );
     resp
@@ -260,34 +254,32 @@ fn pill_divider(ui: &mut egui::Ui, t: &ws::Tokens) {
             r.center_top() + egui::vec2(0.0, 9.0),
             r.center_bottom() - egui::vec2(0.0, 9.0),
         ],
-        Stroke::new(1.0, t.line_soft),
+        Stroke::new(1.0, t.line),
     );
 }
 
-/// A square map button: an ImGui frame on the window colour with its border (so it reads over any
-/// basemap), held in `ButtonActive` when on.
+/// A round button over the map: the panel colour, the accent when on.
 fn rail_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(RAIL_BTN, RAIL_BTN), Sense::click());
-    let fill = if on || resp.is_pointer_button_down_on() {
-        t.im.button_active
-    } else if resp.hovered() {
-        t.im.button_hovered
+    let fill = if on {
+        t.accent
+    } else if resp.hovered() || resp.is_pointer_button_down_on() {
+        t.field_hi
     } else {
-        t.panel
+        t.panel.gamma_multiply(0.96)
     };
-    ui.painter().rect(
-        r,
-        0.0,
+    ui.painter().circle(
+        r.center(),
+        RAIL_BTN / 2.0,
         fill,
-        Stroke::new(1.0, t.line),
-        egui::StrokeKind::Inside,
+        Stroke::new(1.0, if on { t.accent } else { t.line }),
     );
     ui.painter().text(
         r.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
         FontId::proportional(22.0),
-        t.text,
+        if on { Color32::WHITE } else { t.text },
     );
     resp
 }
@@ -295,8 +287,10 @@ fn rail_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui
 /// The menu behind the logo: settings, tools, forecasts, share and help.
 fn menu_rows(ui: &mut egui::Ui, t: &ws::Tokens, workspaces: &[String]) -> Option<MenuPick> {
     let mut pick = None;
-    let head = |ui: &mut egui::Ui, s: &str| ws::section_rule(ui, t, s);
-    head(ui, "Settings");
+    let head = |ui: &mut egui::Ui, s: &str| {
+        ui.label(ws::text(s, 10.5, t.text_faint));
+    };
+    head(ui, "SETTINGS");
     if ui.button("Preferences").clicked() {
         pick = Some(MenuPick::Prefs(PrefsPage::App, None));
     }
@@ -311,17 +305,17 @@ fn menu_rows(ui: &mut egui::Ui, t: &ws::Tokens, workspaces: &[String]) -> Option
         pick = Some(p);
     }
     ui.separator();
-    head(ui, "Forecasts");
+    head(ui, "FORECASTS");
     if let Some(p) = window_rows(ui, t, Menu::Discussion) {
         pick = Some(p);
     }
     ui.separator();
-    head(ui, "Share");
+    head(ui, "SHARE");
     if let Some(p) = share_rows(ui, t, workspaces) {
         pick = Some(p);
     }
     ui.separator();
-    head(ui, "Help");
+    head(ui, "HELP");
     if let Some(p) = window_rows(ui, t, Menu::Help) {
         pick = Some(p);
     }
@@ -540,11 +534,11 @@ impl HookEchoApp {
         use crate::app::{OverlayToggle as T, PaletteAction as A};
         let mut action = None;
         let v = &mut self.views[self.active];
-        ws::section_rule(ui, t, "View");
+        ui.label(ws::text("VIEW", 10.5, t.text_faint));
         ws::check(ui, t, &mut v.smooth, "Smoothing");
         ws::check(ui, t, &mut v.show_legend, "Colour scale");
         let follow = Follow::of(v.follow_lowest_cut, v.follow_live_sweep);
-        ws::section_rule(ui, t, "Follow while live");
+        ui.label(ws::text("FOLLOW WHILE LIVE", 10.5, t.text_faint));
         ui.horizontal(|ui| {
             for f in Follow::ALL {
                 if ui
@@ -581,7 +575,7 @@ impl HookEchoApp {
             None => {}
         }
         ui.separator();
-        ws::section_rule(ui, t, "Overlays");
+        ui.label(ws::text("OVERLAYS", 10.5, t.text_faint));
         for (tg, name) in [
             (T::RangeRings, "Range rings"),
             (T::Alerts, "Warnings"),
@@ -595,7 +589,7 @@ impl HookEchoApp {
             }
         }
         ui.separator();
-        ws::section_rule(ui, t, "Map");
+        ui.label(ws::text("MAP", 10.5, t.text_faint));
         let basemap = self.views[self.active].basemap.label();
         if ui.button(format!("Map style: {basemap}\u{2026}")).clicked() {
             self.basemap_open = true;
@@ -709,9 +703,9 @@ impl HookEchoApp {
             .show(ctx, |ui| {
                 ws::style_scope(ui, t);
                 egui::Frame::NONE
-                    .fill(t.panel)
+                    .fill(t.panel.gamma_multiply(0.96))
                     .stroke(Stroke::new(1.0, t.line))
-                    .corner_radius(0)
+                    .corner_radius(14)
                     .inner_margin(egui::Margin::symmetric(4, 4))
                     .show(ui, |ui| {
                         ui.set_height(PILL_H - 8.0);
@@ -745,14 +739,14 @@ impl HookEchoApp {
                                 };
                                 let g = ui.painter().layout_no_wrap(
                                     text,
-                                    FontId::proportional(11.5),
+                                    FontId::proportional(10.5),
                                     Color32::WHITE,
                                 );
                                 let r = Rect::from_center_size(
                                     at,
                                     egui::vec2((g.size().x + 8.0).max(16.0), 16.0),
                                 );
-                                ui.painter().rect_filled(r, 0.0, t.danger);
+                                ui.painter().rect_filled(r, 8.0, t.danger);
                                 ui.painter()
                                     .galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
                             }
@@ -766,8 +760,10 @@ impl HookEchoApp {
                                 egui::ScrollArea::vertical()
                                     .max_height(menu_h)
                                     .show(ui, |ui| {
-                                        let head = |ui: &mut egui::Ui, s: &str| ws::section_rule(ui, t, s);
-                                        head(ui, "Radar");
+                                        let head = |ui: &mut egui::Ui, s: &str| {
+                                            ui.label(ws::text(s, 10.5, t.text_faint));
+                                        };
+                                        head(ui, "RADAR");
                                         if ui
                                             .button(format!("{site_text}   Change radar\u{2026}"))
                                             .clicked()
@@ -776,7 +772,7 @@ impl HookEchoApp {
                                             ui.close();
                                         }
                                         ui.separator();
-                                        head(ui, "Product");
+                                        head(ui, "PRODUCT");
                                         for m in Moment::ALL {
                                             let on = m == moment && !(srv && m == Moment::Velocity);
                                             if ui
@@ -797,7 +793,7 @@ impl HookEchoApp {
                                             }
                                         }
                                         ui.separator();
-                                        head(ui, "Tilt");
+                                        head(ui, "TILT");
                                         for (i, a) in elevations.iter().enumerate() {
                                             let mut label = format!("{a:.1}\u{b0}");
                                             if sweeping == Some(i) {
@@ -814,7 +810,7 @@ impl HookEchoApp {
                                             action = Some(A::AllTilts);
                                         }
                                         ui.separator();
-                                        head(ui, "View");
+                                        head(ui, "VIEW");
                                         ui.horizontal(|ui| {
                                             for (label, three) in
                                                 [("2D map", false), ("3D map", true)]
@@ -902,7 +898,12 @@ impl HookEchoApp {
                 egui::Frame::NONE
                     .fill(t.panel)
                     .stroke(Stroke::new(1.0, t.line))
-                    .corner_radius(0),
+                    .corner_radius(egui::CornerRadius {
+                        nw: 16,
+                        ne: 16,
+                        sw: 0,
+                        se: 0,
+                    }),
             )
             .show(root, |ui| {
                 ws::style_scope(ui, &t);
@@ -914,7 +915,7 @@ impl HookEchoApp {
                 let pill = Rect::from_center_size(hr.center(), egui::vec2(40.0, 5.0));
                 ui.painter().rect_filled(
                     pill,
-                    0.0,
+                    3.0,
                     if handle.dragged() {
                         t.text
                     } else {

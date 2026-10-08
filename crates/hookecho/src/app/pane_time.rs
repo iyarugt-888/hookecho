@@ -328,7 +328,7 @@ impl HookEchoApp {
                 origin - egui::vec2(5.0, 3.0),
                 galley.size() + egui::vec2(10.0, 6.0),
             );
-            painter.rect_filled(background, 0.0, egui::Color32::from_black_alpha(210));
+            painter.rect_filled(background, 3.0, egui::Color32::from_black_alpha(210));
             painter.text(origin, egui::Align2::LEFT_TOP, caption, font, color);
         }
     }

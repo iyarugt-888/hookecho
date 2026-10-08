@@ -198,7 +198,7 @@ pub fn build_tile(
     palette: basemap_style::Palette,
     tess_zoom: f64,
 ) -> (Vec<OverlayVertex>, Vec<u32>, Vec<PlaceLabel>) {
-    build_tile_with_theme(bytes, id, palette, tess_zoom, crate::settings::Theme::Dark)
+    build_tile_with_theme(bytes, id, palette, tess_zoom, crate::settings::Theme::DearImGui)
 }
 
 /// Theme-aware variant: high-contrast scales stroke widths via `crate::theme::vector_stroke_scale`.
@@ -912,7 +912,7 @@ impl VectorTileManager {
             render_generation: 0,
             label_gen: 0,
             palette: basemap_style::Palette::Dark,
-            theme: crate::settings::Theme::Dark,
+            theme: crate::settings::Theme::DearImGui,
             cache_root,
             template: None,
             template_tx,
@@ -1266,7 +1266,7 @@ mod tests {
             render_generation: 0,
             label_gen: 0,
             palette: basemap_style::Palette::Dark,
-            theme: crate::settings::Theme::Dark,
+            theme: crate::settings::Theme::DearImGui,
             cache_root: None,
             template: None,
             template_tx,
@@ -1324,7 +1324,7 @@ mod tests {
     fn worker_tile_matches_inline_geometry_and_rejects_invalid_jobs() {
         let id = (8, 65, 95);
         let palette = basemap_style::Palette::Dark;
-        let theme = crate::settings::Theme::Dark;
+        let theme = crate::settings::Theme::DearImGui;
         let payload = postcard::to_allocvec(&(vec![] as Vec<u8>, id, palette, 8.0, theme)).unwrap();
         let encoded = build_worker_tile(&payload).unwrap();
         let result: FetchedVector = postcard::from_bytes(&encoded).unwrap();

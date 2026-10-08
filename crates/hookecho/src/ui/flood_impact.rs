@@ -360,10 +360,10 @@ impl FloodImpact {
                 galley.size(),
             )
             .expand2(egui::vec2(5.0, 2.0));
-            painter.rect_filled(r, 0.0, Color32::from_black_alpha(190));
+            painter.rect_filled(r, 3.0, Color32::from_black_alpha(190));
             painter.rect_stroke(
                 r,
-                0.0,
+                3.0,
                 egui::Stroke::new(1.0, edge),
                 egui::StrokeKind::Inside,
             );
@@ -397,7 +397,7 @@ impl FloodImpact {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .stroke(egui::Stroke::new(1.0, Self::colors(ask.cat).1))
-            .corner_radius(0)
+            .corner_radius(4.0)
             .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {

@@ -228,7 +228,7 @@ impl HookEchoApp {
                 egui::pos2(center_x - (galley.size().x + pad.x * 2.0) / 2.0, top),
                 galley.size() + pad * 2.0,
             );
-            painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(255, 170, 60));
+            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(255, 170, 60));
             painter.galley(rect.min + pad, galley, egui::Color32::BLACK);
         }
     }

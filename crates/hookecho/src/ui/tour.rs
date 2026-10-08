@@ -205,7 +205,7 @@ impl Tour {
                 }
                 p.rect_stroke(
                     h,
-                    0.0,
+                    6.0,
                     egui::Stroke::new(2.0, accent),
                     egui::StrokeKind::Middle,
                 );

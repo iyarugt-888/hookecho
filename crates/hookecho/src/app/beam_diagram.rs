@@ -104,7 +104,7 @@ pub(crate) fn diagram_ui(
     let range_km = match hovered {
         Some((km, _)) => km.min(f64::from(d.span_km)),
         None => {
-            ui.add(
+            crate::theme::slider(ui,
                 egui::Slider::new(&mut d.range_km, 0.0..=d.span_km)
                     .text("range")
                     .suffix(" km"),

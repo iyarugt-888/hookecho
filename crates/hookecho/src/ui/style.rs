@@ -1,9 +1,7 @@
 //! The one place the floating chrome gets its look and its position from.
 //!
-//! Desktop and mobile share the same card language, so the frame builders live here rather than
-//! in `app::mobile` (where desktop used to import them from). Since the Dear ImGui restyle a
-//! "glass" card is an ImGui window floated over the map: the style's `WindowBg`, a 1px border,
-//! square corners, no blur or shadow. The `LANE_*` constants are the
+//! Desktop and mobile share the same glass-card language, so the frame builders live here rather
+//! than in `app::mobile` (where desktop used to import them from). The `LANE_*` constants are the
 //! other half: every floating surface anchors to a named lane instead of a hand-picked offset, so
 //! two panels can't quietly land on top of each other.
 //!
@@ -21,20 +19,18 @@ pub const OMEGA_BLUE: Color32 = Color32::from_rgb(0x2D, 0x9C, 0xDB);
 /// Reserved for live/recording semantics only — the theme accent is the accent.
 pub const OMEGA_GREEN: Color32 = Color32::from_rgb(0x3D, 0xD5, 0x6B);
 
-/// Type scale for chrome text: ImGui has one font size, so the three text steps are the same;
-/// `FONT_TITLE` is the glyph size on a map button.
-pub const FONT_SM: f32 = crate::theme::FONT;
-pub const FONT_BASE: f32 = crate::theme::FONT;
-pub const FONT_LG: f32 = crate::theme::FONT;
+/// Type scale for chrome text.
+pub const FONT_SM: f32 = 11.0;
+pub const FONT_BASE: f32 = 13.0;
+pub const FONT_LG: f32 = 16.0;
 pub const FONT_TITLE: f32 = 20.0;
 
-/// Corner radii for chips and buttons (`SM`) and cards and panels (`LG`): ImGui rounds neither.
-pub const RADIUS_SM: f32 = 0.0;
-pub const RADIUS_LG: f32 = 0.0;
+/// Corner radii: `SM` for chips and buttons, `LG` for cards and panels.
+pub const RADIUS_SM: f32 = 9.0;
+pub const RADIUS_LG: f32 = 18.0;
 
-/// A dark card's fill before the per-call alpha: Dear ImGui Dark's `WindowBg` (0.06 at 0.94)
-/// over the map's ground.
-pub const CARD_FILL: (u8, u8, u8) = (15, 15, 16);
+/// Fill shared by every glass card, before the per-call alpha.
+pub const CARD_FILL: (u8, u8, u8) = (12, 14, 18);
 
 // ---------- Anchor lanes ----------
 // Top edge, CENTER_TOP: banners sit above the search pill.
@@ -53,36 +49,57 @@ pub const LANE_BOTTOM_CHIP: f32 = -8.0;
 /// The chase HUD sits above the bottom edge.
 pub const LANE_BOTTOM_CHASE: f32 = -92.0;
 
-/// A card floated over the map: an ImGui window in the current style (`WindowBg` at `alpha`, its
-/// 1px `Border`, square, `WindowPadding` across and `FramePadding` down).
-pub fn glass(_ui: &egui::Ui, alpha: u8) -> Frame {
-    let p = crate::theme::current();
-    let [r, g, b, _] = p.window_bg.to_array();
+/// Translucent card used by the floating bars, in the current theme's colors.
+///
+/// The fill used to be a hardcoded near-black, which meant the light themes (Light)
+/// painted dark cards full of dark text over a light map. Reading `ui.visuals()` keeps it honest
+/// without plumbing a `Theme` through every call site — `theme::apply` has already put the
+/// palette there.
+pub fn glass(ui: &egui::Ui, alpha: u8) -> Frame {
+    let dark = ui.visuals().dark_mode;
+    let fill = if dark {
+        let (r, g, b) = CARD_FILL;
+        Color32::from_rgba_unmultiplied(r, g, b, alpha)
+    } else {
+        Color32::from_rgba_unmultiplied(248, 250, 252, alpha)
+    };
+    // Hairline: a white wash lifts a dark card off the map; on a light card it's invisible, so
+    // the edge goes dark instead.
+    let edge = if dark {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 22)
+    } else {
+        Color32::from_rgba_unmultiplied(0, 0, 0, 38)
+    };
     Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(r, g, b, alpha))
-        .corner_radius(0)
-        .inner_margin(Margin::symmetric(8, 3))
-        .stroke(Stroke::new(1.0, p.border))
+        .fill(fill)
+        .corner_radius(RADIUS_LG)
+        .inner_margin(Margin::symmetric(12, 9))
+        .stroke(Stroke::new(1.0, edge))
 }
 
-/// A ~44px square chrome button holding one Phosphor glyph: ImGui's `Button` colours on a
-/// `WindowBg` square (so it reads over any basemap), `ButtonActive` while on.
-pub fn square_btn(
-    ui: &mut egui::Ui,
-    glyph: &str,
-    active: bool,
-    _accent: Color32,
-) -> egui::Response {
-    let p = crate::theme::current();
-    // The resting fill is the window's, not the translucent `Button`: these float over the map,
-    // and a pale glyph on a see-through fill disappears over the light and satellite basemaps.
-    let bg = if active { p.button_active } else { p.window_bg };
+/// A ~44px rounded-square chrome button holding one Phosphor glyph.
+pub fn square_btn(ui: &mut egui::Ui, glyph: &str, active: bool, accent: Color32) -> egui::Response {
+    // The inactive fill has to be a dark chip, not a near-transparent white wash: these buttons
+    // float over the map, and a pale glyph on a 20/255 white fill disappears completely over the
+    // light and satellite basemaps.
+    let (fg, bg) = if active {
+        (Color32::BLACK, accent)
+    } else {
+        let (r, g, b) = CARD_FILL;
+        (
+            Color32::from_gray(238),
+            Color32::from_rgba_unmultiplied(r, g, b, 200),
+        )
+    };
     ui.add(
-        egui::Button::new(RichText::new(glyph).size(FONT_TITLE).color(p.text))
+        egui::Button::new(RichText::new(glyph).size(FONT_TITLE).color(fg))
             .min_size(vec2(44.0, 44.0))
             .fill(bg)
-            .stroke(Stroke::new(1.0, p.border))
-            .corner_radius(0.0),
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 26),
+            ))
+            .corner_radius(13.0),
     )
 }
 

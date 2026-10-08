@@ -259,7 +259,7 @@ impl HookEchoApp {
                                     ui.spacing_mut().item_spacing.y = 4.0;
                                     ui.label(ws::text(
                                         "Settings of the layers that are on",
-                                        crate::theme::FONT,
+                                        11.5,
                                         t.text_dim,
                                     ));
                                     self.layer_options_body(ui, &mut ui_actions);
@@ -298,7 +298,7 @@ impl HookEchoApp {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
                                 ui.add_space(12.0);
-                                ui.label(ws::text(why, crate::theme::FONT, t.text_dim));
+                                ui.label(ws::text(why, 12.0, t.text_dim));
                             });
                         }
                         // While searching or filtering, every category left standing has
@@ -481,7 +481,7 @@ fn group(
         } else {
             ph::CARET_RIGHT
         },
-        FontId::proportional(crate::theme::FONT),
+        FontId::proportional(11.0),
         t.text_dim,
     );
     p.text(
@@ -506,7 +506,7 @@ fn group(
         egui::pos2(rect.right() - 12.0, y),
         egui::Align2::RIGHT_CENTER,
         format!("{}/{}", g.on, g.rows.len()),
-        FontId::proportional(crate::theme::FONT),
+        FontId::proportional(11.5),
         if g.on > 0 { t.accent } else { t.text_faint },
     );
     let mut hit = None;
@@ -583,19 +583,24 @@ fn row(
     let y = rect.center().y;
     let mut x = rect.left() + 30.0;
     if let Some(is_on) = e.on {
-        // ImGui's checkbox, sized to the row: a `FrameBg` square, the tick in `CheckMark`.
-        let bx = Rect::from_center_size(egui::pos2(x + 7.0, y), egui::vec2(15.0, 15.0));
-        p.rect_filled(
-            bx,
-            0.0,
-            if resp.hovered() {
-                t.im.frame_bg_hovered
-            } else {
-                t.im.frame_bg
-            },
-        );
+        let bx = Rect::from_center_size(egui::pos2(x + 7.0, y), egui::vec2(14.0, 14.0));
         if is_on {
-            crate::ui::wsv3::check_mark(p, bx.min, bx.width(), t.im.check_mark);
+            p.rect_filled(bx, 3.0, t.accent);
+            p.text(
+                bx.center(),
+                egui::Align2::CENTER_CENTER,
+                ph::CHECK,
+                FontId::proportional(11.0),
+                egui::Color32::WHITE,
+            );
+        } else {
+            p.rect(
+                bx,
+                3.0,
+                t.field,
+                Stroke::new(1.0, if resp.hovered() { t.accent } else { t.line }),
+                egui::StrokeKind::Inside,
+            );
         }
     }
     x += 22.0;
@@ -612,8 +617,8 @@ fn row(
     let right = rect.right() - 34.0 - shift - if e.health.is_some() { 14.0 } else { 0.0 };
     let mut job = egui::text::LayoutJob::simple_singleline(
         e.label.clone(),
-        FontId::proportional(crate::theme::FONT),
-        t.text,
+        FontId::proportional(12.5),
+        if on { egui::Color32::WHITE } else { t.text },
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width((right - x).max(20.0));
     let galley = ui.fonts_mut(|f| f.layout_job(job));
@@ -625,7 +630,7 @@ fn row(
             mark,
             egui::Align2::CENTER_CENTER,
             health_glyph(h.state()),
-            FontId::proportional(crate::theme::FONT),
+            FontId::proportional(12.0),
             color,
         );
         let mark_rect = Rect::from_center_size(mark, egui::vec2(14.0, 16.0));
@@ -675,13 +680,13 @@ fn row(
             .named(&format!("Remove {}", e.label))
             .on_hover_text("Remove from the map");
         if x_resp.hovered() {
-            ui.painter().rect_filled(r.shrink(1.0), 0.0, t.field_hi);
+            ui.painter().rect_filled(r.shrink(1.0), 3.0, t.field_hi);
         }
         ui.painter().text(
             r.center(),
             egui::Align2::CENTER_CENTER,
             ph::X,
-            FontId::proportional(crate::theme::FONT),
+            FontId::proportional(12.0),
             if x_resp.hovered() {
                 t.danger
             } else {
@@ -744,7 +749,7 @@ fn fade_row(
     {
         hit = Some(Hit::Opacity(layer, v));
     }
-    row.label(ws::mono(format!("{:>3.0}%", v * 100.0), crate::theme::FONT, t.text_dim));
+    row.label(ws::mono(format!("{:>3.0}%", v * 100.0), 11.0, t.text_dim));
     hit
 }
 

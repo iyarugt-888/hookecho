@@ -41,7 +41,7 @@ pub fn show(ctx: &egui::Context, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) 
         .frame(
             egui::Frame::window(&ctx.style_of(ctx.theme()))
                 .fill(egui::Color32::from_black_alpha(225))
-                .corner_radius(0)
+                .corner_radius(10)
                 .inner_margin(10),
         )
         .show(ctx, |ui| {

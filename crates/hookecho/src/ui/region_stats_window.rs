@@ -347,9 +347,9 @@ fn summary_ws(
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 20.0), Sense::click());
         let on = st.hist == i;
         if on {
-            ui.painter().rect_filled(rect, 0.0, t.accent_soft());
+            ui.painter().rect_filled(rect, 3.0, t.accent_soft());
         } else if resp.hovered() {
-            ui.painter().rect_filled(rect, 0.0, t.field_hi);
+            ui.painter().rect_filled(rect, 3.0, t.field_hi);
         }
         let sum = cache.summary(s, i);
         let cells = match &sum {
@@ -449,12 +449,12 @@ pub fn ws_histogram(
         rect
     };
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, t.field);
+    p.rect_filled(rect, 3.0, t.field);
     let hovered = ui.rect_contains_pointer(rect);
     if hovered {
         p.rect_stroke(
             rect,
-            0.0,
+            3.0,
             Stroke::new(1.0, t.line),
             egui::StrokeKind::Inside,
         );
@@ -606,7 +606,7 @@ pub fn ws_scatter(
     };
     let g = if expanded { 64 } else { 40 };
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, t.field);
+    p.rect_filled(rect, 3.0, t.field);
     let plot = Rect::from_min_max(
         rect.left_top() + egui::vec2(38.0, 8.0),
         rect.right_bottom() - egui::vec2(8.0, 18.0),

@@ -8,49 +8,42 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// The colour scheme: one of Dear ImGui's own three styles (`theme.rs` holds their colours), or
-/// whichever of Dark and Light the system is using.
-///
-/// The app's earlier themes were retired when the whole UI took Dear ImGui's look; their names
-/// still load, onto Dark (or Light, for the old light one), so no settings file breaks.
+/// The colour scheme. There is one: the Dear ImGui look the workstation dock was designed in
+/// (`theme.rs`). The app's other schemes were retired so every surface draws the same way; their
+/// names still load, onto this one, so no settings file breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
-    /// `ImGui::StyleColorsDark()`, ImGui's default.
+    /// Dear ImGui's own default dark style, reproduced as closely as this app's single-accent
+    /// palette abstraction can: near-black window fill, the exact "ImGui blue" accent
+    /// (`#4296FA`, `ImGuiCol_CheckMark`/`ImGuiCol_Header` in `StyleColorsDark()`), and the muted
+    /// navy `FrameBg` blend for idle input fields that gives ImGui's widgets their identifiable
+    /// look.
     #[default]
     #[serde(
+        alias = "Dark",
+        alias = "Light",
+        alias = "System",
+        alias = "Classic",
+        alias = "Synthwave",
+        alias = "Aurora",
+        alias = "HighContrast",
+        alias = "Oled",
         alias = "Magma",
         alias = "Redline",
         alias = "AcidStorm",
-        alias = "Synthwave",
+        alias = "Glacier",
         alias = "Ultraviolet",
         alias = "Bubblegum",
         alias = "Voltage",
-        alias = "Aurora",
-        alias = "Riptide",
-        alias = "HighContrast",
-        alias = "Oled",
-        alias = "DearImGui"
+        alias = "Riptide"
     )]
-    Dark,
-    /// `ImGui::StyleColorsLight()`.
-    #[serde(alias = "Glacier")]
-    Light,
-    /// `ImGui::StyleColorsClassic()`: translucent black windows, purple title bars.
-    Classic,
-    /// Dark or Light, following the system.
-    System,
+    DearImGui,
 }
 
 impl Theme {
-    /// All themes in menu order.
-    pub const ALL: [Theme; 4] = [Theme::Dark, Theme::Light, Theme::Classic, Theme::System];
-
     pub fn label(self) -> &'static str {
         match self {
-            Theme::Dark => "Dark",
-            Theme::Light => "Light",
-            Theme::Classic => "Classic",
-            Theme::System => "System",
+            Theme::DearImGui => "Dear ImGui",
         }
     }
 }
@@ -1874,7 +1867,7 @@ impl Default for Settings {
             etop_dbz: default_etop_dbz(),
             poll_interval_secs: 30,
             // The dock's own look: it is the default layout.
-            theme: Theme::Dark,
+            theme: Theme::DearImGui,
             layout: Layout::default(),
             workstation: Default::default(),
             tablet_layout_adopted: false,
@@ -3116,7 +3109,7 @@ mod tests {
             default_site: "KFWS".to_string(),
             accent: Some([255, 0, 128]),
             poll_interval_secs: 45,
-            theme: Theme::Classic,
+            theme: Theme::DearImGui,
             layout: Layout::Minimal,
             workstation: Default::default(),
             tablet_layout_adopted: false,
@@ -3351,7 +3344,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let s = Settings::import_bundle_with_dir(json, || Some(dir.clone())).expect("import");
         assert_eq!(s.default_site, "KFWS");
-        assert_eq!(s.theme, Theme::Dark); // "Magma" is aliased onto Dark
+        assert_eq!(s.theme, Theme::DearImGui); // "Magma" is aliased onto the one theme
         let ref_path = s.palettes.get("REF").expect("REF palette path set");
         let text = std::fs::read_to_string(ref_path).expect("palette file written");
         assert!(text.contains("test palette"));
@@ -3560,6 +3553,7 @@ mod tests {
         assert_eq!(s.layout, Layout::CommandRibbon);
         assert!(s.adopt_tablet_default(true));
         assert_eq!(s.layout, Layout::Dock);
+        assert_eq!(s.theme, Theme::DearImGui);
         // Changed back on purpose: stays changed.
         s.layout = Layout::CommandRibbon;
         assert!(!s.adopt_tablet_default(true));
@@ -3568,35 +3562,29 @@ mod tests {
 
     #[test]
     fn retired_theme_names_still_load() {
-        for (name, theme) in [
-            ("DearImGui", Theme::Dark),
-            ("Synthwave", Theme::Dark),
-            ("Aurora", Theme::Dark),
-            ("HighContrast", Theme::Dark),
-            ("Oled", Theme::Dark),
-            ("Magma", Theme::Dark),
-            ("Glacier", Theme::Light),
-            ("Classic", Theme::Classic),
-            ("System", Theme::System),
+        for name in [
+            "Dark", "Light", "System", "Classic", "Synthwave", "Aurora", "HighContrast", "Oled",
+            "Magma", "Glacier", "DearImGui",
         ] {
             let s: Settings = serde_json::from_str(&format!(r#"{{"theme":"{name}"}}"#)).unwrap();
-            assert_eq!(s.theme, theme, "{name}");
+            assert_eq!(s.theme, Theme::DearImGui, "{name}");
         }
         // A file that still carries the retired density setting loads too.
         let s: Settings = serde_json::from_str(r#"{"density":"Comfortable"}"#).unwrap();
-        assert_eq!(s.theme, Theme::Dark);
+        assert_eq!(s.theme, Theme::DearImGui);
     }
 
     #[test]
     fn the_dock_is_the_default_and_the_old_default_ribbon_moves_to_it_once() {
         let fresh = Settings::default();
         assert_eq!(fresh.layout, Layout::Dock);
-        assert_eq!(fresh.theme, Theme::Dark, "Dear ImGui's default style");
+        assert_eq!(fresh.theme, Theme::DearImGui, "with its own look");
         // A file from before the dock was the default, still on the ribbon.
         let mut old: Settings = serde_json::from_str(r#"{"layout":"CommandRibbon"}"#).unwrap();
         assert!(!old.dock_adopted);
         assert!(old.adopt_dock_default());
         assert_eq!(old.layout, Layout::Dock);
+        assert_eq!(old.theme, Theme::DearImGui);
         // The ribbon picked again afterwards stays picked.
         old.layout = Layout::CommandRibbon;
         assert!(!old.adopt_dock_default());

@@ -136,14 +136,14 @@ impl HookEchoApp {
             .resizable(false)
             .frame(
                 egui::Frame::NONE
-                    .fill(t.im.menu_bar_bg)
+                    .fill(t.bg)
                     .stroke(egui::Stroke::new(1.0, t.line_soft))
                     .inner_margin(egui::Margin::symmetric(12, 0)),
             )
             .show(root, |ui| {
                 let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
                 let y = rect.center().y;
-                let font = egui::FontId::monospace(crate::theme::FONT);
+                let font = egui::FontId::monospace(11.0);
                 let p = ui.painter_at(rect);
                 // Right and middle are placed first so the pointer text on the left can be cut
                 // short before it runs under them.

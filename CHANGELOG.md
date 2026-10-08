@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: one look, the workstation's
+
+The app now has a single colour scheme: the Dear ImGui look the workstation dock was designed in.
+Dark, Light, System, Synthwave, Aurora, High contrast and OLED black are retired, so every surface
+draws the same way; a settings file that names any of them loads the one scheme, and the accent
+color stays a choice. The Density setting is gone with them (it did nothing under this look). The
+ribbon's buttons and checkboxes and the side drawer draw only their flat ImGui form now. Sliders
+match the workstation's faders: the track filled with the accent up to the value and a solid
+accent grab. The timeline's first hour label no longer falls off the left edge. The high-contrast
+and colorblind-safe radar color tables stay in Settings → Palettes.
+
 ### Added: radar outlines in the GeoJSON export
 
 "Export map as GeoJSON…" now includes the displayed reflectivity scan's 35, 50 and 60 dBZ
@@ -158,18 +169,6 @@ it; Lit adds shading from the echo's own gradient. Opacity is per kilometre of p
 Quality setting and vertical exaggeration do not change how solid a storm looks. Saved 3D
 presets remember the mode; presets saved before this load as Maximum, as they were drawn.
 Display only: probes, exports and values are unchanged.
-
-### Changed: the whole interface in Dear ImGui's look
-
-Every surface — the workstation dock, tool windows, the timeline, the phone's sheet and pill, the
-ribbon and the floating map chrome — now draws as Dear ImGui does: 19px frames, one 13px font,
-square corners (tabs alone round their tops), no borders on controls, no shadows or gradients,
-buttons and selected rows in ImGui's own colour roles. The color scheme is one of Dear ImGui's
-three styles, taken exactly from v1.91.5: **Dark** (the default), **Light** and **Classic**, or
-**System**. The earlier themes are retired: Synthwave, Aurora, High contrast, OLED black and the
-old Dear ImGui theme load as Dark, so no settings file breaks. The Density setting is gone too —
-ImGui has one geometry. The high-contrast and colorblind-safe radar color tables stay in
-Settings → Palettes.
 
 ### Fixed: archived environmental height datum; added colder isotherms
 

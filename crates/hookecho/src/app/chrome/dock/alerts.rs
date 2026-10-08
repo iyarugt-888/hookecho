@@ -218,7 +218,7 @@ impl HookEchoApp {
                             } else {
                                 format!("{} in view \u{b7} {in_effect} in effect", rows.len())
                             };
-                            ui.label(ws::text(summary, crate::theme::FONT, t.text_dim));
+                            ui.label(ws::text(summary, 11.5, t.text_dim));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -243,7 +243,7 @@ impl HookEchoApp {
                                     "Archive: status as of {}",
                                     crate::timefmt::fmt_clock(at, tz, false)
                                 ),
-                                crate::theme::FONT,
+                                10.5,
                                 t.text_faint,
                             ));
                         }
@@ -313,7 +313,7 @@ fn bulletin(
         ui.add_space(4.0);
         ui.label(ws::text(
             format!("{} alerts here", p.cards.len()),
-            crate::theme::FONT,
+            11.5,
             t.text_dim,
         ));
         ui.spacing_mut().item_spacing.y = 4.0;
@@ -349,7 +349,7 @@ fn bulletin(
     let edge = color32(card.color);
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(egui::vec2(4.0, 20.0), egui::Sense::hover());
-        ui.painter().rect_filled(r, 0.0, edge);
+        ui.painter().rect_filled(r, 1.0, edge);
         ui.label(ws::text(&a.event, 15.0, t.text).strong());
         if wxdata::alerts::escalation(a) >= 2 {
             ws::badge(ui, t, escalation_chip(a), t.danger);
@@ -362,17 +362,17 @@ fn bulletin(
         _ => t.text_faint,
     };
     ui.horizontal(|ui| {
-        ui.label(ws::mono(st.label(), crate::theme::FONT, ink));
+        ui.label(ws::mono(st.label(), 11.5, ink));
         let times = match (issued(a), a.expires) {
             (Some(i), Some(e)) => format!("{} \u{2013} {}", clock(i, tz), clock(e, tz)),
             (None, Some(e)) => format!("until {}", clock(e, tz)),
             _ => String::new(),
         };
-        ui.label(ws::mono(times, crate::theme::FONT, t.text_faint));
+        ui.label(ws::mono(times, 11.5, t.text_faint));
     });
     if !a.headline.is_empty() && a.headline != a.event {
         ui.add_space(2.0);
-        ui.add(egui::Label::new(ws::text(&a.headline, crate::theme::FONT, t.text_dim)).wrap());
+        ui.add(egui::Label::new(ws::text(&a.headline, 11.5, t.text_dim)).wrap());
     }
     let mut expect: Vec<(&str, String)> = Vec::new();
     if let Some(w) = a.max_wind.as_deref().filter(|w| !w.is_empty()) {
@@ -427,7 +427,7 @@ fn bulletin(
                     ws::kv(ui, t, "Homes", &impact::thousands(i.housing_units), None);
                     if !i.places.is_empty() {
                         ui.add(
-                            egui::Label::new(ws::text(impact::towns(i), crate::theme::FONT, t.text_dim)).wrap(),
+                            egui::Label::new(ws::text(impact::towns(i), 11.0, t.text_dim)).wrap(),
                         )
                         .on_hover_text(
                             "Each town's whole population, whether all of it or part lies inside",
@@ -435,25 +435,25 @@ fn bulletin(
                     }
                     ui.label(ws::text(
                         "2020 Census blocks touching the area",
-                        crate::theme::FONT,
+                        10.0,
                         t.text_faint,
                     ));
                 }
                 Some(ImpactState::Failed) => {
-                    ui.label(ws::text("Not available", crate::theme::FONT, t.text_faint));
+                    ui.label(ws::text("Not available", 11.0, t.text_faint));
                 }
                 _ => {
-                    ui.label(ws::text("Counting\u{2026}", crate::theme::FONT, t.text_faint));
+                    ui.label(ws::text("Counting\u{2026}", 11.0, t.text_faint));
                 }
             },
         );
     }
     ws::fold_section(ui, t, "bulletin_text", "Bulletin", None, true, |ui| {
-        ui.add(egui::Label::new(ws::mono(a.description.trim(), crate::theme::FONT, t.text_dim)).wrap());
+        ui.add(egui::Label::new(ws::mono(a.description.trim(), 11.0, t.text_dim)).wrap());
         if !a.instruction.trim().is_empty() {
             ui.add_space(6.0);
-            ws::section_rule(ui, t, "Precautionary actions");
-            ui.add(egui::Label::new(ws::mono(a.instruction.trim(), crate::theme::FONT, t.text_dim)).wrap());
+            ui.label(ws::text("PRECAUTIONARY ACTIONS", 10.0, t.text_faint));
+            ui.add(egui::Label::new(ws::mono(a.instruction.trim(), 11.0, t.text_dim)).wrap());
         }
     });
     false
@@ -474,7 +474,7 @@ fn alert_row(
     let live = matches!(status, AlertStatus::InEffect(_));
     let edge = color32(row.color);
     let p = ui.painter();
-    p.rect_filled(rect, 0.0, if resp.hovered() { t.field_hi } else { t.field });
+    p.rect_filled(rect, 4.0, if resp.hovered() { t.field_hi } else { t.field });
     p.rect_filled(
         egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height())),
         egui::CornerRadius {
@@ -492,27 +492,26 @@ fn alert_row(
     let x = rect.left() + 11.0;
     let right = rect.right() - 8.0;
     let ink = if live { t.text } else { t.text_dim };
-    let title = p.layout_no_wrap(a.event.clone(), egui::FontId::proportional(crate::theme::FONT), ink);
+    let title = p.layout_no_wrap(a.event.clone(), egui::FontId::proportional(12.5), ink);
     let title_w = title.size().x;
     p.galley(egui::pos2(x, rect.top() + 5.0), title, ink);
     if row.esc >= 2 {
         let chip = escalation_chip(a);
         let g = p.layout_no_wrap(
             chip.into(),
-            egui::FontId::proportional(crate::theme::FONT),
+            egui::FontId::proportional(9.5),
             egui::Color32::WHITE,
         );
         let cr = egui::Rect::from_min_size(
             egui::pos2(
                 (x + title_w + 6.0).min(right - g.size().x - 8.0),
-                rect.top() + 4.0,
+                rect.top() + 6.0,
             ),
-            // The tag fits its text at the one font size, a pixel of padding round it.
-            egui::vec2(g.size().x + 8.0, g.size().y + 2.0),
+            egui::vec2(g.size().x + 8.0, 15.0),
         );
-        p.rect_filled(cr, 0.0, t.danger);
+        p.rect_filled(cr, 3.0, t.danger);
         p.galley(
-            cr.left_top() + egui::vec2(4.0, 1.0),
+            cr.left_top() + egui::vec2(4.0, 1.5),
             g,
             egui::Color32::WHITE,
         );
@@ -533,7 +532,7 @@ fn alert_row(
     };
     let mut job = egui::text::LayoutJob::single_section(
         second,
-        egui::TextFormat::simple(egui::FontId::proportional(crate::theme::FONT), t.text_dim),
+        egui::TextFormat::simple(egui::FontId::proportional(11.0), t.text_dim),
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(right - x);
     let g = ui.fonts_mut(|f| f.layout_job(job));
@@ -548,7 +547,7 @@ fn alert_row(
         egui::pos2(x, rect.bottom() - 6.0),
         egui::Align2::LEFT_BOTTOM,
         times,
-        egui::FontId::monospace(crate::theme::FONT),
+        egui::FontId::monospace(10.5),
         t.text_faint,
     );
     let status_ink = match status {
@@ -560,7 +559,7 @@ fn alert_row(
         egui::pos2(right, rect.bottom() - 6.0),
         egui::Align2::RIGHT_BOTTOM,
         status.label(),
-        egui::FontId::monospace(crate::theme::FONT),
+        egui::FontId::monospace(10.5),
         status_ink,
     );
     let resp = resp

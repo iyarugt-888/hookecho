@@ -126,12 +126,12 @@ impl HookEchoApp {
                 ctx.fonts_mut(|f| {
                     f.layout_no_wrap(
                         tab.label().to_string(),
-                        egui::FontId::proportional(crate::theme::FONT),
+                        egui::FontId::proportional(13.5),
                         t.text,
                     )
                     .size()
                     .x
-                }) + 12.0
+                }) + 24.0
             })
             .sum();
         let head = left_fit(width - 24.0 - right_w, tabs_w, fit.subtitle);
@@ -187,11 +187,10 @@ impl HookEchoApp {
         egui::Panel::top("dock_app_bar")
             .exact_size(ws::APP_BAR_H)
             .frame(
-                // ImGui's main menu bar.
                 egui::Frame::NONE
-                    .fill(t.im.menu_bar_bg)
+                    .fill(t.bg)
                     .stroke(egui::Stroke::new(1.0, t.line_soft))
-                    .inner_margin(egui::Margin::symmetric(8, 0)),
+                    .inner_margin(egui::Margin::symmetric(12, 0)),
             )
             .show(root, |ui| {
                 // The bar is the window's title bar: its empty space drags the window. Allocated
@@ -208,11 +207,11 @@ impl HookEchoApp {
                         .on_hover_text("HookEcho");
                     ui.add_space(4.0);
                     if head.wordmark {
-                        ui.label(ws::text("HookEcho", crate::theme::FONT, t.text));
+                        ui.label(ws::text("HookEcho", 14.5, egui::Color32::WHITE).strong());
                         ui.add_space(6.0);
                     }
                     if head.subtitle {
-                        ui.label(ws::text("Analyst Workstation", crate::theme::FONT, t.text_faint));
+                        ui.label(ws::text("Analyst Workstation", 12.0, t.text_faint));
                     }
                     ui.add_space(if head.wordmark { 18.0 } else { 10.0 });
                     if !head.tabs {
@@ -261,7 +260,7 @@ impl HookEchoApp {
                             ui.add_space(keepout);
                             if ui
                                 .add(
-                                    egui::Label::new(ws::mono(&delay_text, crate::theme::FONT, t.text_dim))
+                                    egui::Label::new(ws::mono(&delay_text, 12.0, t.text_dim))
                                         .sense(egui::Sense::click()),
                                 )
                                 .named("Show the health of every active source")
@@ -277,7 +276,7 @@ impl HookEchoApp {
                             ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
                             ui.add_space(8.0);
                             if fit.clock {
-                                ui.label(ws::mono(clock, crate::theme::FONT, t.text));
+                                ui.label(ws::mono(clock, 12.0, t.text));
                                 ui.label(ws::text(ph::CLOCK, 14.0, t.text_dim));
                             }
                             ws::divider(ui, &t, ws::APP_BAR_H - 8.0);
@@ -536,7 +535,7 @@ impl HookEchoApp {
                                 // The scan strategy in full, and which tilts it rescans, on click.
                                 let r = ui
                                     .add(
-                                        egui::Button::new(ws::mono(&vcp, crate::theme::FONT, t.text))
+                                        egui::Button::new(ws::mono(&vcp, 12.0, t.text))
                                             .frame(false),
                                     )
                                     .named("Scan strategy details");
@@ -608,7 +607,7 @@ impl HookEchoApp {
                                 );
                                 let chip = ui
                                     .add(
-                                        egui::Button::new(ws::mono(&label, crate::theme::FONT, t.live))
+                                        egui::Button::new(ws::mono(&label, 11.5, t.live))
                                             .fill(t.field)
                                             .stroke(egui::Stroke::new(1.0, t.line))
                                             .min_size(egui::vec2(0.0, ws::CONTROL_H)),
@@ -902,7 +901,7 @@ impl HookEchoApp {
                                 Place::Bottom => "bottom",
                                 Place::Float => "floating",
                             },
-                            crate::theme::FONT,
+                            11.0,
                             t.text_faint,
                         ),
                         |ui| {
@@ -935,7 +934,7 @@ impl HookEchoApp {
         ui.add(
             egui::Label::new(ws::text(
                 "Drag a floating window onto a dock target to dock it; drag a tab out to float it; drag tabs along their strip to reorder them. Ctrl+Tab steps through a dock's tabs.",
-                crate::theme::FONT,
+                10.5,
                 t.text_faint,
             ))
             .wrap(),
@@ -1063,7 +1062,7 @@ pub(super) fn share_rows(
         pick = Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
     }
     ui.separator();
-    ws::section_rule(ui, t, "Workspaces");
+    ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
     if ui.button("Save this layout as a workspace").clicked() {
         pick = Some(MenuPick::Palette(A::SaveWorkspace));
     }

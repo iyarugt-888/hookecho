@@ -3,8 +3,7 @@
 use crate::app::PaletteEntry;
 use crate::colormap::Palettes;
 use crate::hotkeys::{self, BindableAction, Binding};
-use crate::settings::{Settings, Theme, TimeDisplay, VelocityUnit};
-use crate::theme::Hold as _;
+use crate::settings::{Settings, TimeDisplay, VelocityUnit};
 use crate::ui::a11y::Named as _;
 use wxdata::level2::Moment;
 
@@ -57,7 +56,7 @@ mod dock_tests {
                 };
                 let mut settings = Settings {
                     layout: crate::settings::Layout::Dock,
-                    theme: Theme::Dark,
+                    theme: crate::settings::Theme::DearImGui,
                     ..Default::default()
                 };
                 let palettes = Palettes::default();
@@ -309,9 +308,15 @@ impl SettingsWindow {
                             self.tab = tab;
                         }
                     } else {
-                        // ImGui buttons on one line, the open section held down.
+                        // The dock theme is a compact tool UI, not a row of soft navigation
+                        // chips. Keep its Settings tabs flat, square and visibly selected.
                         if ui
-                            .add(egui::Button::new(label).held(self.tab == tab))
+                            .add(
+                                egui::Button::new(egui::RichText::new(label).monospace())
+                                    .selected(self.tab == tab)
+                                    .corner_radius(0)
+                                    .min_size(egui::vec2(72.0, 24.0)),
+                            )
                             .clicked()
                         {
                             self.tab = tab;
@@ -1121,10 +1126,12 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
 }
 
 /// theme_plan.md §3: split out of `general_tab` — everything that changes how the app *looks*
-/// (colors, chrome, the timeline's own visual style) rather than how it *behaves*. `Theme` (the
-/// chrome's arrangement — the type is `Layout`, see that type's own doc comment for the naming
-/// story) and `Color scheme` (one of Dear ImGui's styles — the type is `Theme`) are independent:
-/// every layout is drawn in whichever ImGui style is picked, at ImGui's one geometry.
+/// (colors, chrome, density, the timeline's own visual style) rather than how it *behaves*.
+/// `Theme` (this app's own chrome+color preset — the type is `Layout`, see that type's own doc
+/// comment for the naming story) reads as the primary choice here; `Color scheme` (just colors —
+/// the type is `Theme`) is the secondary, customize-further control underneath it, so a casual
+/// user picks one Theme and is done, while a power user can still override just the colors.
+/// There is one colour scheme (the Dock's Dear ImGui look), so only its accent is a choice here.
 fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     let stacked = ui.available_width() < 440.0;
     settings_form(ui, "appearance_grid", |ui| {
@@ -1157,25 +1164,6 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             );
             ui.end_row();
         }
-
-        grid_label(ui, stacked, "Color scheme");
-        ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt("theme")
-                .selected_text(settings.theme.label())
-                .show_ui(ui, |ui| {
-                    for t in Theme::ALL {
-                        ui.selectable_value(&mut settings.theme, t, t.label());
-                    }
-                });
-            // Live swatch: accent over the theme background, so the choice previews at a glance.
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(46.0, 18.0), egui::Sense::hover());
-            let p = ui.painter_at(rect);
-            p.rect_filled(rect, 0.0, crate::theme::preview_bg(settings.theme));
-            p.circle_filled(rect.center(), 6.0, crate::theme::accent(settings.theme));
-        })
-        .response
-        .on_hover_text("Dear ImGui's own styles: Dark (its default), Light and Classic.");
-        ui.end_row();
 
         grid_label(ui, stacked, "Accent color");
         ui.horizontal_wrapped(|ui| {

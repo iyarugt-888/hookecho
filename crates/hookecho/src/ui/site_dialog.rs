@@ -169,7 +169,7 @@ pub fn show(
                         );
                         let btn = egui::Button::new(egui::RichText::new(text).size(15.0))
                             .fill(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12))
-                            .corner_radius(0)
+                            .corner_radius(8.0)
                             .min_size(egui::vec2(ui.available_width(), 40.0));
                         if ui.add(btn).clicked() {
                             apply = Some(r.id.clone());

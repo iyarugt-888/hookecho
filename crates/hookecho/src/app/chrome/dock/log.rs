@@ -145,9 +145,9 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     };
     ui.horizontal(|ui| {
         ws::badge(ui, t, word, color);
-        ui.label(ws::mono(&s.site, crate::theme::FONT, t.text));
+        ui.label(ws::mono(&s.site, 12.0, egui::Color32::WHITE));
         if let Some(p) = &s.scan.provider {
-            ui.label(ws::text(p, crate::theme::FONT, t.text_dim));
+            ui.label(ws::text(p, 11.0, t.text_dim));
         }
     });
     if let Some(mode) = s.scan.source_mode {
@@ -160,7 +160,7 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
         ui.add(
             egui::Label::new(ws::text(
                 format!("Last live stream error: {error}"),
-                crate::theme::FONT,
+                11.0,
                 t.warn,
             ))
             .wrap(),
@@ -216,7 +216,7 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
         );
         ui.label(ws::text(
             "Client receipt → GPU queue writes",
-            crate::theme::FONT,
+            10.0,
             t.text_dim,
         ));
     }
@@ -238,7 +238,7 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
         ui.label(ws::text(
             "Client receipt → GPU finished the frame that drew it (seen by the next frame at \
              the latest; screen scan-out not measured)",
-            crate::theme::FONT,
+            10.0,
             t.text_dim,
         ));
     }
@@ -327,7 +327,7 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
         return;
     };
     ui.add_space(4.0);
-    ws::section_rule(ui, t, "Scan progression");
+    ui.label(ws::text("SCAN PROGRESSION", 10.0, t.text_dim));
     ws::kv(
         ui,
         t,
@@ -403,13 +403,13 @@ fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, f32)]) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, t.field);
+    p.rect_filled(rect, 3.0, t.field);
     if h.len() < 2 {
         p.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "Live arrivals graph here once a stream runs",
-            egui::FontId::proportional(crate::theme::FONT),
+            egui::FontId::proportional(10.5),
             t.text_faint,
         );
         return;
@@ -444,14 +444,14 @@ fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, f32)]) {
         rect.left_top() + egui::vec2(4.0, 1.0),
         egui::Align2::LEFT_TOP,
         format!("lag, to {max_l:.0} s"),
-        egui::FontId::proportional(crate::theme::FONT),
+        egui::FontId::proportional(9.5),
         t.accent,
     );
     p.text(
         rect.right_top() + egui::vec2(-4.0, 1.0),
         egui::Align2::RIGHT_TOP,
         format!("decode, to {max_d:.0} ms"),
-        egui::FontId::proportional(crate::theme::FONT),
+        egui::FontId::proportional(9.5),
         t.text_dim,
     );
 }

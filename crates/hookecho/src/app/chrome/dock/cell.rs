@@ -535,7 +535,7 @@ impl HookEchoApp {
                             } else {
                                 ui.label(ws::text(
                                     "Select another storm to open it here and compare.",
-                                    crate::theme::FONT,
+                                    10.5,
                                     t.text_faint,
                                 ));
                             }
@@ -544,22 +544,22 @@ impl HookEchoApp {
                                 ui.add_space(8.0);
                                 ui.label(ws::text(
                                     "Worst of each row in amber. Core rows read the displayed tilt.",
-                                    crate::theme::FONT,
+                                    10.5,
                                     t.text_faint,
                                 ));
                                 return;
                             }
                             ui.label(ws::text(
                                 crate::ui::cell_window::track_time(c.time, 0, tz),
-                                crate::theme::FONT,
+                                11.0,
                                 t.text_dim,
                             ));
                             if let Some(e) = &explained {
                                 let col = severity_color(&t, e.score);
                                 ui.horizontal(|ui| {
-                                    ui.label(ws::text("Severity", crate::theme::FONT, t.text_dim));
+                                    ui.label(ws::text("Severity", 12.0, t.text_dim));
                                     ui.label(ws::mono(format!("{}", e.score), 18.0, col).strong());
-                                    ui.label(ws::text("/ 100", crate::theme::FONT, t.text_faint));
+                                    ui.label(ws::text("/ 100", 11.0, t.text_faint));
                                 });
                             }
                             ws::fold_section(ui, &t, "cell_storm", "Storm", None, true, |ui| {
@@ -592,14 +592,14 @@ impl HookEchoApp {
                                 }
                                 if threat.tornado.is_some() {
                                     for line in &tornado_lineage {
-                                        ui.label(ws::text(line, crate::theme::FONT, t.text_faint));
+                                        ui.label(ws::text(line, 10.5, t.text_faint));
                                     }
                                 }
                                 if threat.ambiguous > 0 {
-                                    ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between SCIT cores", threat.ambiguous), crate::theme::FONT, t.warn));
+                                    ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between SCIT cores", threat.ambiguous), 11.0, t.warn));
                                 }
                                 for details in &threat.probsevere {
-                                    ui.label(ws::text(details, crate::theme::FONT, t.text));
+                                    ui.label(ws::text(details, 11.0, t.text));
                                 }
                                 if threat.probsevere.is_empty() {
                                     ws::kv(ui, &t, "ProbSevere", "no containing source polygon", None);
@@ -619,13 +619,13 @@ impl HookEchoApp {
                                     ws::kv(ui, &t, name, when, hot.then_some(t.warn));
                                 }
                                 if let Some(m) = &threat.motion {
-                                    ui.label(ws::text(m, crate::theme::FONT, t.text_faint));
+                                    ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
                                 for (name, when, hot) in &threat.target_etas {
                                     ws::kv(ui, &t, name, when, hot.then_some(t.warn));
                                 }
                                 if let Some(n) = &threat.target_note {
-                                    ui.label(ws::text(n, crate::theme::FONT, t.text_faint));
+                                    ui.label(ws::text(n, 10.5, t.text_faint));
                                 }
                                 {
                                     use crate::app::community_targets::TownsState;
@@ -640,20 +640,20 @@ impl HookEchoApp {
                                             }
                                         }
                                         Some(Some(TownsState::Pending)) => {
-                                            ui.label(ws::text("Looking up towns in its path\u{2026}", crate::theme::FONT, t.text_faint));
+                                            ui.label(ws::text("Looking up towns in its path\u{2026}", 10.5, t.text_faint));
                                         }
                                         Some(Some(TownsState::Ready(p))) if p.is_empty() => {
-                                            ui.label(ws::text("No Census places touch its projected path", crate::theme::FONT, t.text_faint));
+                                            ui.label(ws::text("No Census places touch its projected path", 10.5, t.text_faint));
                                         }
                                         Some(Some(TownsState::Ready(_))) => {
                                             ui.label(ws::text(
                                                 "Towns: Census 2020 places its 1-hour path touches; times are to each town's centre point, and its edge can be reached sooner",
-                                                crate::theme::FONT,
+                                                10.5,
                                                 t.text_faint,
                                             ));
                                         }
                                         Some(Some(TownsState::Failed(e))) => {
-                                            ui.label(ws::text(format!("Town lookup failed: {e}"), crate::theme::FONT, t.text_faint));
+                                            ui.label(ws::text(format!("Town lookup failed: {e}"), 10.5, t.text_faint));
                                         }
                                     }
                                 }
@@ -667,7 +667,7 @@ impl HookEchoApp {
                                     for (name, when, hot) in &threat.manual_etas {
                                         ws::kv(ui, &t, name, when, hot.then_some(t.warn));
                                     }
-                                    ui.label(ws::text(m, crate::theme::FONT, t.text_faint));
+                                    ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
                             });
                             if let Some(e) = &explained {
@@ -675,7 +675,7 @@ impl HookEchoApp {
                                 let n = format!("{}", lines.len().saturating_sub(1));
                                 ws::fold_section(ui, &t, "cell_sev", "Why this score", Some(&n), false, |ui| {
                                     for l in lines.iter().skip(1) {
-                                        ui.label(ws::text(l, crate::theme::FONT, t.text));
+                                        ui.label(ws::text(l, 11.0, t.text));
                                     }
                                 });
                             }
@@ -689,7 +689,7 @@ impl HookEchoApp {
                                         }
                                         ui.label(ws::text(
                                             "Displayed tilt around the cell center; dual-pol rows read gates \u{2265}40 dBZ",
-                                            crate::theme::FONT,
+                                            10.5,
                                             t.text_faint,
                                         ));
                                     });
@@ -715,7 +715,7 @@ impl HookEchoApp {
                                 }
                                 None => {
                                     ws::section_rule(ui, &t, "Core statistics");
-                                    ui.label(ws::text("No volume on this pane", crate::theme::FONT, t.text_faint));
+                                    ui.label(ws::text("No volume on this pane", 11.0, t.text_faint));
                                 }
                             }
                             ws::fold_section(ui, &t, "cell_pos", "Position & track", None, false, |ui| {
@@ -749,7 +749,7 @@ impl HookEchoApp {
                                     // Five empty charts say less than one line does.
                                     ui.label(ws::text(
                                         "Trends draw once SCIT has tracked this cell through a second volume.",
-                                        crate::theme::FONT,
+                                        10.5,
                                         t.text_faint,
                                     ));
                                     return;
@@ -766,7 +766,7 @@ impl HookEchoApp {
                                 }
                                 ui.label(ws::text(
                                     "Earlier scans carry SCIT's peak dBZ and its height; VIL, top and severity start with the live products.",
-                                    crate::theme::FONT,
+                                    10.5,
                                     t.text_faint,
                                 ));
                             });
@@ -954,7 +954,7 @@ fn compare_body(
                     for (c, color) in open {
                         ui.horizontal(|ui| {
                             ws::status_dot(ui, *color, 4.0);
-                            ui.label(ws::mono(&c.id, crate::theme::FONT, t.text).strong());
+                            ui.label(ws::mono(&c.id, 12.0, t.text).strong());
                         });
                     }
                     ui.end_row();
@@ -962,7 +962,7 @@ fn compare_body(
                         if values.iter().all(Option::is_none) {
                             continue;
                         }
-                        ui.label(ws::text(*name, crate::theme::FONT, t.text_dim));
+                        ui.label(ws::text(*name, 11.0, t.text_dim));
                         let hot = worst(values, *low_is_worse);
                         for (i, v) in values.iter().enumerate() {
                             let (text, ink) = match v {
@@ -970,7 +970,7 @@ fn compare_body(
                                 Some(v) => (fmt(*v), t.text),
                                 None => ("\u{2014}".into(), t.text_faint),
                             };
-                            ui.label(ws::mono(text, crate::theme::FONT, ink));
+                            ui.label(ws::mono(text, 11.5, ink));
                         }
                         ui.end_row();
                     }

@@ -90,7 +90,7 @@ fn forecast_rows(
             .response
             .named("Timeline model");
         if !phone {
-            ui.label(ws::text(input.sel.product.label(), crate::theme::FONT, t.text_dim));
+            ui.label(ws::text(input.sel.product.label(), 12.0, t.text_dim));
         }
     });
     ui.horizontal(|ui| {
@@ -241,7 +241,7 @@ fn forecast_rows(
         });
     }
     let clock = forecast_clock(input, tz);
-    ui.add(egui::Label::new(ws::mono(clock, crate::theme::FONT, t.text_dim)).wrap());
+    ui.add(egui::Label::new(ws::mono(clock, 11.0, t.text_dim)).wrap());
     intent
 }
 

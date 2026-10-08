@@ -510,7 +510,7 @@ fn color_legend(ui: &mut egui::Ui, legend: &crate::gis_import::Legend) {
     let swatch = |ui: &mut egui::Ui, [r, g, b]: [u8; 3]| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
         ui.painter()
-            .rect_filled(rect, 0.0, egui::Color32::from_rgb(r, g, b));
+            .rect_filled(rect, 2.0, egui::Color32::from_rgb(r, g, b));
     };
     match legend {
         Legend::Graduated { min, max } => {

@@ -110,7 +110,7 @@ pub(super) fn window_rows(ui: &mut egui::Ui, t: &ws::Tokens, menu: Menu) -> Opti
             if !group.is_empty() {
                 ui.separator();
             }
-            ws::section_rule(ui, t, g);
+            ui.label(ws::text(g.to_uppercase(), 10.5, t.text_faint));
             group = g;
         }
         if ui.button(label).clicked() {

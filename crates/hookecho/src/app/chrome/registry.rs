@@ -1961,7 +1961,7 @@ impl HookEchoApp {
         );
         push(
             "Wind barbs",
-            "Model",
+            "Models",
             "Draw the HRRR wind as barbs (speed in knots, pointing where it comes from)",
             false,
             PaletteAction::ToggleWindBarbs,

@@ -51,12 +51,12 @@ fn feature_stroke_px(kind: FeatureKind, imported_stroke_px: f32) -> f32 {
 
 /// Build tessellated fills + outlines for `features` at `zoom` (normal theme).
 pub fn build(features: &[GeoFeature], zoom: f64) -> OverlayGeom {
-    build_with_theme(features, zoom, crate::settings::Theme::Dark)
+    build_with_theme(features, zoom, crate::settings::Theme::DearImGui)
 }
 
 /// Build tessellated fills + outlines for `features` at `zoom`, scaled by `theme`.
 ///
-/// High-contrast (`Theme::HighContrast`) doubles the outline width and boosts fill/stroke
+/// A high-contrast scheme (none is offered at present; see `theme::is_high_contrast`) doubles the outline width and boosts fill/stroke
 /// alphas via `crate::theme` so warning polygons remain legible against both imagery and
 /// bright radar — driven from `theme.rs`, not hardcoded in the overlay.
 pub fn build_with_theme(
@@ -142,7 +142,7 @@ pub fn build_layered(
 /// egui painter). Items must be pre-filtered by threshold/time, and come paired with their
 /// placefile's opacity (the Layer Manager's per-file dimmer). Line widths honor `zoom`.
 pub fn append_placefiles(geom: &mut OverlayGeom, items: &[(&PlaceItem, f32)], zoom: f64) {
-    append_placefiles_with_theme(geom, items, zoom, crate::settings::Theme::Dark)
+    append_placefiles_with_theme(geom, items, zoom, crate::settings::Theme::DearImGui)
 }
 
 /// Theme-aware variant: high-contrast doubles placefile line widths via `theme.rs`.
@@ -353,7 +353,7 @@ mod high_contrast_tests {
     fn an_ordinary_theme_changes_nothing() {
         let f = [230, 40, 40, 45];
         let s = [230, 40, 40, 235];
-        assert_eq!(high_contrast_feature_colors(f, s, Theme::Dark), (f, s));
+        assert_eq!(high_contrast_feature_colors(f, s, Theme::DearImGui), (f, s));
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod high_contrast_tests {
         }]);
         let f = shapes[0].clone();
         assert_eq!(f.kind, wxdata::overlay::FeatureKind::Imported);
-        let theme = crate::settings::Theme::Dark;
+        let theme = crate::settings::Theme::DearImGui;
         let shown =
             build_with_theme_and_imported_width(std::slice::from_ref(&f), 6.0, theme, 1.6, true);
         let hidden = build_with_theme_and_imported_width(&[f], 6.0, theme, 1.6, false);
@@ -412,7 +412,7 @@ mod high_contrast_tests {
             properties: Default::default(),
         }]);
         let f = shapes[0].clone();
-        let theme = crate::settings::Theme::Dark;
+        let theme = crate::settings::Theme::DearImGui;
         let extent = |g: &OverlayGeom| {
             let xs = g.vertices.iter().map(|v| v.world[0]);
             xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min)

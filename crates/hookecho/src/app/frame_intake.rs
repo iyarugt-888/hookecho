@@ -167,13 +167,11 @@ impl HookEchoApp {
             ctx.send_viewport_cmd(cmd);
         }
 
-        // Dear ImGui styling (theme.rs: colours, geometry, accent). Re-applied when the theme
-        // or the system light/dark preference changes — it rebuilds and installs a whole
-        // `egui::Style`, which is wasted work on every other frame.
-        let system_dark = ctx.input(|i| i.raw.system_theme) != Some(egui::Theme::Light);
-        let theme_key = (self.settings.theme, system_dark, self.settings.accent);
+        // The Dear ImGui look (theme.rs). Re-applied only when the accent changes — it rebuilds
+        // and installs a whole `egui::Style`, which is wasted work on every other frame.
+        let theme_key = self.settings.accent;
         if self.theme_applied != Some(theme_key) {
-            crate::theme::apply(ctx, self.settings.theme, system_dark, self.settings.accent);
+            crate::theme::apply(ctx, self.settings.accent);
             self.theme_applied = Some(theme_key);
         }
 

@@ -5,7 +5,6 @@
 //! worth looking at. This is the table that answers it: sort by hail size or reflectivity, click
 //! the worst row, fly there.
 
-use crate::theme::Hold as _;
 use wxdata::level3::Cell;
 
 /// Which column the table is ordered by.
@@ -178,7 +177,7 @@ pub fn show(
         .frame(
             egui::Frame::window(&ctx.style_of(ctx.theme()))
                 .fill(egui::Color32::from_rgb(17, 23, 31))
-                .corner_radius(0)
+                .corner_radius(16)
                 .inner_margin(16),
         )
         .show(ctx, |ui| {
@@ -244,7 +243,7 @@ pub fn show(
                                 .add_sized(
                                     [ui.available_width(), 44.0],
                                     egui::Button::new(format!("{}     {range} · {peak}", c.id))
-                                        .held(selected.as_ref() == Some(&c.id)),
+                                        .selected(selected.as_ref() == Some(&c.id)),
                                 )
                                 .clicked()
                             {

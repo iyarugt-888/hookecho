@@ -886,13 +886,12 @@ ones worth knowing before you look:
 | `?` | cheat sheet |
 
 The whole interface is reachable from the keyboard, and the widget tree is
-published to screen readers (AT-SPI on Linux, UI Automation on Windows). The
-interface is drawn in Dear ImGui's look, in one of its own three color schemes
-— Dark, Light or Classic — picked in Settings → Appearance. Settings → Palettes
-has high-contrast reflectivity and velocity color tables for low vision and for
-reading the screen in direct sun, and colorblind-safe ones (a viridis ramp whose
-brightness rises with dBZ, and a blue/orange diverging velocity table —
-red/green diverging tables do not survive protan or deutan vision).
+published to screen readers (AT-SPI on Linux, UI Automation on Windows).
+Settings → Palettes has high-contrast reflectivity and velocity color tables
+for low vision and for reading the screen in direct sun, and colorblind-safe
+ones (a viridis ramp whose brightness rises with dBZ, and a blue/orange
+diverging velocity table — red/green diverging tables do not survive protan or
+deutan vision).
 
 ## Repository layout
 

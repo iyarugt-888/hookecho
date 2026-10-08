@@ -118,7 +118,7 @@ impl HookEchoApp {
                         egui::Rect::from_min_size(anchor, galley.size() + egui::vec2(10.0, 4.0));
                     painter.rect_filled(
                         bg,
-                        0.0,
+                        3.0,
                         egui::Color32::from_rgba_unmultiplied(150, 30, 30, 210),
                     );
                     // The galley just measured, drawn — `painter.text` would lay the same string
@@ -232,7 +232,7 @@ impl HookEchoApp {
                         egui::Rect::from_min_size(anchor, galley.size() + egui::vec2(10.0, 4.0));
                     painter.rect_filled(
                         bg,
-                        0.0,
+                        3.0,
                         egui::Color32::from_rgba_unmultiplied(60, 90, 60, 200),
                     );
                     painter.text(
@@ -385,10 +385,10 @@ impl HookEchoApp {
         let galley = painter.layout_no_wrap(text, font, color);
         let at = prect.left_top() + egui::vec2(10.0, 10.0);
         let back = egui::Rect::from_min_size(at, galley.size() + egui::vec2(14.0, 8.0));
-        painter.rect_filled(back, 0.0, egui::Color32::from_black_alpha(215));
+        painter.rect_filled(back, 4.0, egui::Color32::from_black_alpha(215));
         painter.rect_stroke(
             back,
-            0.0,
+            4.0,
             egui::Stroke::new(1.0, color),
             egui::StrokeKind::Inside,
         );

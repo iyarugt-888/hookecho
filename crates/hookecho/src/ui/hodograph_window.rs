@@ -89,7 +89,7 @@ fn time_height(
         rect.left_top() + egui::vec2(pad_l, 6.0),
         rect.right_bottom() - egui::vec2(6.0, pad_b),
     );
-    painter.rect_filled(plot, 0.0, egui::Color32::from_black_alpha(90));
+    painter.rect_filled(plot, 3.0, egui::Color32::from_black_alpha(90));
 
     let max_kft = history
         .iter()

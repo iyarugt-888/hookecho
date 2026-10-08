@@ -79,6 +79,6 @@ fn paint(painter: &egui::Painter, map: egui::Rect, caption: &str, failed: bool) 
     let galley = painter.layout_no_wrap(caption.to_string(), font.clone(), color);
     let center = egui::pos2(map.center().x, map.top() + 53.0);
     let background = egui::Rect::from_center_size(center, galley.size() + egui::vec2(14.0, 8.0));
-    painter.rect_filled(background, 0.0, egui::Color32::from_black_alpha(215));
+    painter.rect_filled(background, 4.0, egui::Color32::from_black_alpha(215));
     painter.text(center, egui::Align2::CENTER_CENTER, caption, font, color);
 }

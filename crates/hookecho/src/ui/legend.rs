@@ -25,10 +25,10 @@ const PAD_X: f32 = 6.0;
 /// only way to stop them reading through the legend is to not be translucent.
 fn card(painter: &egui::Painter, panel: Rect) {
     let (r, g, b) = crate::ui::style::CARD_FILL;
-    painter.rect_filled(panel, 0.0, Color32::from_rgb(r, g, b));
+    painter.rect_filled(panel, 8.0, Color32::from_rgb(r, g, b));
     painter.rect_stroke(
         panel,
-        0.0,
+        8.0,
         Stroke::new(1.0, Color32::from_white_alpha(20)),
         egui::StrokeKind::Inside,
     );
@@ -563,7 +563,7 @@ pub fn draw_ramp(
                     egui::pos2(panel.left() + 6.0, y + 2.0),
                     Vec2::new(12.0, 8.0),
                 );
-                painter.rect_filled(sw, 0.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+                painter.rect_filled(sw, 2.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
                 painter.text(
                     egui::pos2(sw.right() + 5.0, y),
                     Align2::LEFT_TOP,

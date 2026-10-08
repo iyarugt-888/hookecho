@@ -1,9 +1,9 @@
 //! Material 3 design tokens for the mobile chrome.
 //!
 //! Spacing, shape, type, motion and state-layer values in one place so the phone UI stops
-//! hand-picking numbers. Colors deliberately do NOT live here — they come from the active Dear
-//! ImGui style (`theme::apply` puts the palette in `ui.visuals()`), and the geometry the rest of
-//! the app uses on touch is `theme::geometry`'s.
+//! hand-picking numbers. Colors deliberately do NOT live here — they come from the active theme
+//! (`theme::apply` puts the palette in `ui.visuals()`, and `style::glass` builds the card fill), so
+//! the phone never fights a second palette.
 //!
 //! Compiles everywhere; only the mobile code calls it.
 
@@ -17,17 +17,13 @@ pub const SP_4: f32 = 16.0;
 pub const SP_6: f32 = 24.0;
 
 // ---------- Shape ----------
-// Dear ImGui rounds nothing (`FrameRounding`, `WindowRounding`, `PopupRounding` are all 0), and
-// the touch chrome follows it: sheets, chips, rows and icon buttons are square. The names stay so
-// each call site still says which size of container it is.
-pub const R_XS: f32 = 0.0;
-pub const R_SM: f32 = 0.0;
-pub const R_MD: f32 = 0.0;
-pub const R_LG: f32 = 0.0;
-/// Sheet top corners.
-pub const R_XL: f32 = 0.0;
-/// What was a full pill.
-pub const R_FULL: f32 = 0.0;
+pub const R_XS: f32 = 4.0;
+pub const R_SM: f32 = 8.0;
+pub const R_MD: f32 = 12.0;
+pub const R_LG: f32 = 16.0;
+/// Sheet top corners and the extra-large containers M3 Expressive leans on.
+pub const R_XL: f32 = 28.0;
+pub const R_FULL: f32 = 9999.0;
 
 // ---------- Type scale ----------
 // Display is omitted: nothing on this surface wants 45pt.

@@ -1117,9 +1117,9 @@ fn slice_row(ui: &mut egui::Ui, t: &ws::Tokens, label: &str, lo: &mut f32, hi: &
     ws::prop_row(ui, t, label, |ui| {
         let gap = ui.spacing().item_spacing.x;
         ui.spacing_mut().slider_width = ((ui.available_width() - gap) / 2.0).max(30.0);
-        ws::slider(ui, t, egui::Slider::new(lo, 0.0..=1.0).show_value(false))
+        crate::theme::slider(ui, egui::Slider::new(lo, 0.0..=1.0).show_value(false))
             .on_hover_text("Low end of the slab");
-        ws::slider(ui, t, egui::Slider::new(hi, 0.0..=1.0).show_value(false))
+        crate::theme::slider(ui, egui::Slider::new(hi, 0.0..=1.0).show_value(false))
             .on_hover_text("High end of the slab");
     });
     // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.

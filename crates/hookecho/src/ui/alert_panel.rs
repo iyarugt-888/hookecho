@@ -144,7 +144,7 @@ pub fn body(
                     let resp = egui::Frame::new()
                         .fill(ui.visuals().faint_bg_color)
                         .stroke(egui::Stroke::new(1.0, color32(row.color)))
-                        .corner_radius(egui::CornerRadius::ZERO)
+                        .corner_radius(egui::CornerRadius::same(5))
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
@@ -153,7 +153,7 @@ pub fn body(
                                     egui::vec2(5.0, 15.0),
                                     egui::Sense::hover(),
                                 );
-                                ui.painter().rect_filled(rect, 0.0, color32(row.color));
+                                ui.painter().rect_filled(rect, 1.0, color32(row.color));
                                 ui.strong(&a.event);
                                 // Emergency/PDS/destructive chip on escalated rows.
                                 if row.esc >= 2 {

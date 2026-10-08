@@ -1,114 +1,101 @@
-//! The dock's design system ("Analyst Workstation", `docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md`), drawn
-//! in Dear ImGui's manner: one [`Tokens`] value for every colour and size, and small stateless
-//! painters that the dock's panels compose. Dock code never sets a colour inline; it asks for a
-//! component.
+//! The dock's design system ("Analyst Workstation", `docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md`):
+//! one [`Tokens`] value for every colour and size, and small stateless painters that the dock's
+//! panels compose. Dock code never sets a colour inline; it asks for a component.
 //!
-//! The colours are the active Dear ImGui style's (`theme::current`, with the user's accent override
-//! folded in), and every painter draws what ImGui draws: 19px frames with `FramePadding` 4 x 3,
-//! square corners (tabs alone round their top corners), no frame borders, the one 13px font,
-//! buttons in the `Button` roles, selected rows in the `Header` roles, ticks and grabs in
-//! `CheckMark` and `SliderGrab`.
+//! Dark only, like the dock before it, but the accent is the theme's (with the user's accent
+//! override folded in by `theme::accent`), so the one "your colour" setting still applies.
 
-use crate::theme::{Palette, FONT, FRAME_H, TAB_ROUNDING};
 use egui::{
     Color32, CornerRadius, FontId, Frame, InnerResponse, Margin, Rect, Response, Sense, Stroke,
     Vec2,
 };
 
-/// App bar height: one frame (tabs, buttons, the clock) with the menu bar's margin round it.
-pub const APP_BAR_H: f32 = FRAME_H + 6.0;
-/// Context toolbar height: a frame with `ItemSpacing.y` above and below.
-pub const TOOLBAR_H: f32 = FRAME_H + 8.0;
-/// Standard control height (buttons, combos, fields): ImGui's frame.
-pub const CONTROL_H: f32 = FRAME_H;
-/// Tool-rail button edge: an 18px glyph plus `FramePadding` either side (ImGui's ImageButton).
-pub const RAIL_BTN: f32 = 26.0;
-/// Panel header height: ImGui's title bar, one frame.
-pub const HEADER_H: f32 = FRAME_H;
+/// App bar height.
+pub const APP_BAR_H: f32 = 40.0;
+/// Context toolbar height.
+pub const TOOLBAR_H: f32 = 36.0;
+/// Standard control height (buttons, combos, fields).
+pub const CONTROL_H: f32 = 24.0;
+/// Tool-rail button edge.
+pub const RAIL_BTN: f32 = 36.0;
+/// Panel header height.
+pub const HEADER_H: f32 = 28.0;
 
-/// Every colour the workstation look uses: the active ImGui style's roles under the names the dock
-/// has always asked for, and the whole [`Palette`] in `im` for the roles those names do not cover.
+/// Every colour the workstation look uses.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tokens {
-    /// The map's ground, behind every window.
     pub bg: Color32,
-    /// `WindowBg`: a docked panel, a floating card, a sheet.
     pub panel: Color32,
-    /// `TableHeaderBg`: a header row inside a panel.
     pub panel_hi: Color32,
-    /// `FrameBg`: checkboxes, sliders, fields, tracks.
     pub field: Color32,
-    /// `FrameBgHovered`.
     pub field_hi: Color32,
-    /// `Border`: window and popup edges.
     pub line: Color32,
-    /// `Separator`: rules and dividers.
     pub line_soft: Color32,
-    /// `Text`.
     pub text: Color32,
-    /// Secondary text. ImGui has one text colour, so this is `Text` too: hierarchy comes from
-    /// columns, headers and the mono face, not from a dimmer grey.
     pub text_dim: Color32,
-    /// `TextDisabled`: disabled labels, hints in empty fields, shortcuts.
     pub text_faint: Color32,
-    /// `TextLink` (or the user's accent): the colour that marks a thing as chosen, and coloured
-    /// text. (Ticks and grabs use `im.check_mark` and `im.slider_grab` themselves.)
     pub accent: Color32,
     pub live: Color32,
     pub warn: Color32,
     pub danger: Color32,
-    /// Every role of the active style.
-    pub im: Palette,
+}
+
+const fn rgb(hex: u32) -> Color32 {
+    Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
 impl Tokens {
-    /// The workstation colours of the style on screen now, with `accent` as the accent and check
-    /// mark (the caller's accent — `theme::accent` — or a test's own).
+    /// The workstation palette around `accent`.
     pub fn new(accent: Color32) -> Tokens {
-        Tokens::of(crate::theme::current(), Some(accent))
-    }
-
-    /// The workstation colours of `p`, optionally with `accent` as its accent and check mark.
-    pub fn of(mut p: Palette, accent: Option<Color32>) -> Tokens {
-        // The style's own accent (what `theme::accent` hands the dock) leaves its check mark
-        // alone: Classic keeps its grey ticks. Any other colour takes over both.
-        if let Some(a) = accent.filter(|a| *a != p.text_link) {
-            p.check_mark = a;
-            p.text_link = a;
-        }
         Tokens {
-            bg: crate::theme::VIEWPORT_BG,
-            panel: p.window_bg,
-            panel_hi: p.table_header_bg,
-            field: p.frame_bg,
-            field_hi: p.frame_bg_hovered,
-            line: p.border,
-            line_soft: p.separator,
-            text: p.text,
-            text_dim: p.text,
-            text_faint: p.text_disabled,
-            accent: p.text_link,
-            live: p.live,
-            warn: p.warn,
-            danger: p.danger,
-            im: p,
+            bg: rgb(0x0B111A),
+            panel: rgb(0x0F1722),
+            panel_hi: rgb(0x141E2C),
+            field: rgb(0x18222F),
+            field_hi: rgb(0x1F2B3B),
+            line: rgb(0x233147),
+            line_soft: rgb(0x1A2536),
+            text: rgb(0xD8DFEA),
+            text_dim: rgb(0x8A97AB),
+            text_faint: rgb(0x5D6A7E),
+            accent,
+            live: rgb(0x3DD68C),
+            warn: rgb(0xF2B84B),
+            danger: rgb(0xF25555),
         }
     }
 
-    /// The selected-row wash: ImGui's `Header`, for a selected row or an "on" list item.
+    /// The accent as a translucent wash, for a selected row or an "on" button's fill.
     pub fn accent_soft(&self) -> Color32 {
-        self.im.header
+        let [r, g, b, _] = self.accent.to_array();
+        Color32::from_rgba_unmultiplied(r, g, b, 46)
     }
 
-    /// The same as [`Tokens::new`]: since the Dear ImGui restyle every layout draws in the active
-    /// ImGui style, so a panel shared with a layout outside the workstation (the floating "3D map"
-    /// window) needs nothing from its host's visuals.
-    pub fn from_visuals(_v: &egui::Visuals, accent: Color32) -> Tokens {
-        Tokens::new(accent)
+    /// The same roles read from a host theme's `visuals`, for a panel shared with a layout
+    /// outside the workstation (the floating "3D map" window): the components keep their shape
+    /// and take that theme's colours, light or dark.
+    pub fn from_visuals(v: &egui::Visuals, accent: Color32) -> Tokens {
+        let line = match v.widgets.inactive.bg_stroke.color {
+            c if c.a() == 0 => v.window_stroke.color,
+            c => c,
+        };
+        Tokens {
+            bg: v.extreme_bg_color,
+            panel: v.window_fill,
+            panel_hi: v.faint_bg_color,
+            field: v.extreme_bg_color,
+            field_hi: v.widgets.hovered.weak_bg_fill,
+            line,
+            line_soft: v.widgets.noninteractive.bg_stroke.color,
+            text: v.text_color(),
+            text_dim: v.weak_text_color(),
+            text_faint: v.weak_text_color().gamma_multiply(0.7),
+            ..Tokens::new(accent)
+        }
     }
 }
 
-/// A docked panel's body: `WindowBg` with its 1px `Border`.
+/// A docked panel's body.
 pub fn panel_frame(t: &Tokens) -> Frame {
     Frame::NONE
         .fill(t.panel)
@@ -116,13 +103,18 @@ pub fn panel_frame(t: &Tokens) -> Frame {
         .inner_margin(Margin::same(0))
 }
 
-/// A floating card over the map: an ImGui window, the same as a docked one — square, bordered,
-/// no shadow.
+/// A floating card over the map: the panel look, rounded, with a shadow to lift it off the data.
 pub fn card_frame(t: &Tokens) -> Frame {
     Frame::NONE
         .fill(t.panel)
         .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(CornerRadius::ZERO)
+        .corner_radius(CornerRadius::same(4))
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 6],
+            blur: 18,
+            spread: 0,
+            color: Color32::from_black_alpha(140),
+        })
 }
 
 /// Stock egui widgets in the workstation look, for the controls the dock embeds rather than
@@ -130,53 +122,87 @@ pub fn card_frame(t: &Tokens) -> Frame {
 /// panels).
 /// Whether `ui` is inside a [`style_scope`]: shared widgets drawn in both the phone-sized
 /// panels and the workstation (the settings switch) take the compact metrics here. Read from
-/// the two metrics the scope sets together.
+/// the two metrics the scope sets together, which no app theme uses as a pair.
 pub fn in_scope(ui: &egui::Ui) -> bool {
     ui.spacing().interact_size.y == CONTROL_H
         && ui
             .style()
             .text_styles
             .get(&egui::TextStyle::Body)
-            .is_some_and(|f| f.size == FONT)
+            .is_some_and(|f| f.size == 13.0)
 }
 
-/// [`style_scope`] for a popup menu: the same tokens, but items are flat rows that light up in
-/// `HeaderHovered`, as Dear ImGui's menus are, rather than a stack of framed buttons.
+/// [`style_scope`] for a popup menu: the same tokens, but items are flat rows that light up on
+/// hover, as Dear ImGui's menus are, rather than a stack of framed buttons.
 pub fn menu_scope(ui: &mut egui::Ui, t: &Tokens) {
     style_scope(ui, t);
     let style = ui.style_mut();
-    style.spacing.item_spacing.y = 0.0;
-    style.spacing.button_padding = egui::vec2(4.0, 2.0);
+    style.spacing.item_spacing.y = 1.0;
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
     let v = &mut style.visuals;
     for w in [&mut v.widgets.inactive, &mut v.widgets.noninteractive] {
+        w.bg_fill = Color32::TRANSPARENT;
         w.weak_bg_fill = Color32::TRANSPARENT;
+        w.bg_stroke = Stroke::NONE;
     }
-    for w in [
-        &mut v.widgets.hovered,
-        &mut v.widgets.open,
-        &mut v.widgets.active,
-    ] {
-        w.weak_bg_fill = t.im.header_hovered;
+    for w in [&mut v.widgets.hovered, &mut v.widgets.open] {
+        w.bg_fill = t.field_hi;
+        w.weak_bg_fill = t.field_hi;
+        w.bg_stroke = Stroke::NONE;
     }
+    v.widgets.active.bg_stroke = Stroke::NONE;
 }
 
-/// ImGui's style for the stock widgets inside a workstation panel: the desktop geometry (even on a
-/// phone, whose sheet draws the desktop windows) and the active style's roles.
 pub fn style_scope(ui: &mut egui::Ui, t: &Tokens) {
     let style = ui.style_mut();
     style.override_text_style = None;
-    crate::theme::geometry(style, false);
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, FontId::proportional(13.0));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, FontId::proportional(12.5));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Small, FontId::proportional(11.0));
+    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+    style.spacing.button_padding = egui::vec2(8.0, 3.0);
+    style.spacing.interact_size.y = CONTROL_H;
     let v = &mut style.visuals;
-    crate::theme::fill_widgets(v, &t.im);
     v.override_text_color = Some(t.text);
     v.extreme_bg_color = t.field;
-    v.text_edit_bg_color = Some(t.field);
-    v.faint_bg_color = t.im.table_row_bg_alt;
+    v.faint_bg_color = t.panel_hi;
     v.panel_fill = t.panel;
     v.window_fill = t.panel;
     v.window_stroke = Stroke::new(1.0, t.line);
-    v.hyperlink_color = t.im.text_link;
-    v.weak_text_color = Some(t.text_faint);
+    v.selection.bg_fill = t.accent_soft();
+    v.selection.stroke = Stroke::new(1.0, t.accent);
+    v.hyperlink_color = t.accent;
+    let r = CornerRadius::same(4);
+    for (w, fill, stroke) in [
+        (&mut v.widgets.noninteractive, t.panel, t.line_soft),
+        (&mut v.widgets.inactive, t.field, t.line),
+        (
+            &mut v.widgets.hovered,
+            t.field_hi,
+            t.accent.gamma_multiply(0.6),
+        ),
+        (
+            &mut v.widgets.active,
+            t.accent.gamma_multiply(0.85),
+            t.accent,
+        ),
+        (&mut v.widgets.open, t.field_hi, t.accent),
+    ] {
+        w.corner_radius = r;
+        w.bg_fill = fill;
+        w.weak_bg_fill = fill;
+        w.bg_stroke = Stroke::new(1.0, stroke);
+    }
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, t.text_dim);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, t.text);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+    v.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
 }
 
 /// Monospace text, for the things read as data rather than as words: values, times,
@@ -191,49 +217,6 @@ pub fn mono(s: impl Into<String>, size: f32, color: Color32) -> egui::RichText {
 /// Text in the workstation's proportional face.
 pub fn text(s: impl Into<String>, size: f32, color: Color32) -> egui::RichText {
     egui::RichText::new(s.into()).size(size).color(color)
-}
-
-/// ImGui's check mark in a `size` square at `min` (`RenderCheckMark`).
-fn check_mark(p: &egui::Painter, min: egui::Pos2, size: f32, color: Color32) {
-    crate::ui::wsv3::check_mark(p, min, size, color);
-}
-
-/// ImGui's window close cross (`CloseButton`), `size` across, centred on `c`.
-fn close_cross(p: &egui::Painter, c: egui::Pos2, size: f32, color: Color32) {
-    let e = size * 0.5 * std::f32::consts::FRAC_1_SQRT_2 - 1.0;
-    let s = Stroke::new(1.0, color);
-    p.line_segment([c + egui::vec2(-e, -e), c + egui::vec2(e, e)], s);
-    p.line_segment([c + egui::vec2(e, -e), c + egui::vec2(-e, e)], s);
-}
-
-/// ImGui's solid triangle (`RenderArrow`): pointing down when `open`, right when not.
-fn arrow(p: &egui::Painter, c: egui::Pos2, size: f32, open: bool, color: Color32) {
-    let r = size * 0.4;
-    let pts = if open {
-        vec![
-            c + egui::vec2(-r, -r * 0.5),
-            c + egui::vec2(r, -r * 0.5),
-            c + egui::vec2(0.0, r * 0.75),
-        ]
-    } else {
-        vec![
-            c + egui::vec2(-r * 0.5, -r),
-            c + egui::vec2(r * 0.75, 0.0),
-            c + egui::vec2(-r * 0.5, r),
-        ]
-    };
-    p.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
-}
-
-/// The fill an ImGui button shows for `resp`: held, hovered, at rest; `on` holds it down.
-fn button_fill(t: &Tokens, resp: &Response, on: bool) -> Color32 {
-    if on || resp.is_pointer_button_down_on() {
-        t.im.button_active
-    } else if resp.hovered() {
-        t.im.button_hovered
-    } else {
-        t.im.button
-    }
 }
 
 /// What a tool window's header asked for.
@@ -347,11 +330,10 @@ fn tab_widths(full: &[f32], front: usize, avail: f32) -> Vec<f32> {
         .collect()
 }
 
-/// A tool window's header, drawn as Dear ImGui's title bar: glyph and title, then (right-aligned) a
-/// placement menu, a fold triangle while floating, and the close cross. `place` is `None` for a
-/// window that cannot move; `collapsed` is `Some` only while the window floats. Double-clicking a
-/// floating window's header folds it too, as in Dear ImGui. Given [`HeaderTabs`], the bar is a
-/// docking node's tab bar instead.
+/// A tool window's header: glyph and title, then (right-aligned) a placement menu, a collapse
+/// button while floating, and close. `place` is `None` for a window that cannot move;
+/// `collapsed` is `Some` only while the window floats. Double-clicking a floating window's
+/// header folds it too, as in Dear ImGui.
 pub fn window_header(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -386,21 +368,18 @@ pub fn window_header(
         },
     );
     let p = ui.painter();
-    // The focused window's title bar colour: a docked window is always the one its dock shows.
-    p.rect_filled(rect, 0.0, t.im.title_bg_active);
+    p.rect_filled(rect, 0.0, t.panel_hi);
+    p.line_segment(
+        [rect.left_bottom(), rect.right_bottom()],
+        Stroke::new(1.0, t.line),
+    );
     let mut action = HeaderAction::None;
     let buttons = 1 + usize::from(collapsed.is_some()) + usize::from(place.is_some());
-    let font_size = if touch { 15.0 } else { FONT };
     if let Some(group) = &tabs {
-        // ImGui's tab bar: the bar's bottom edge in the selected tab's colour.
-        p.line_segment(
-            [rect.left_bottom(), rect.right_bottom()],
-            Stroke::new(1.0, t.im.tab_selected),
-        );
-        let font = FontId::proportional(font_size);
+        let font = FontId::proportional(if touch { 13.5 } else { 12.5 });
         // A touch tab is its word alone, as a phone's tabs are; the glyph comes back when it has
         // to shrink to one.
-        let pad = if touch { 20.0 } else { 34.0 };
+        let pad = if touch { 20.0 } else { 44.0 };
         let full: Vec<f32> = group
             .tabs
             .iter()
@@ -417,20 +396,24 @@ pub fn window_header(
                 text.size().x + pad
             })
             .collect();
-        let per_button = if touch { 44.0 } else { 20.0 };
+        let per_button = if touch { 44.0 } else { 24.0 };
         let avail = rect.width() - 8.0 - per_button * buttons as f32;
         let widths = tab_widths(&full, group.front, avail);
         let tab_rects: Vec<Rect> = widths
             .iter()
-            .scan(rect.left() + 4.0, |x, w| {
+            .scan(rect.left(), |x, w| {
                 let r =
                     Rect::from_min_size(egui::pos2(*x, rect.top()), egui::vec2(*w, rect.height()));
                 *x += w;
                 Some(r)
             })
             .collect();
-        for (i, (tab, r)) in group.tabs.iter().zip(&tab_rects).enumerate() {
-            let r = *r;
+        let mut x = rect.left();
+        for (i, (tab, w)) in group.tabs.iter().zip(&widths).enumerate() {
+            let r = Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(*w, rect.height()));
+            x += w;
+            let front = i == group.front;
+            let name = if front && !touch { title } else { tab.title };
             let resp = ui.interact(
                 r,
                 ui.id().with(("header_tab", tab.title)),
@@ -448,76 +431,64 @@ pub fn window_header(
                     }
                 }
             }
-            let front = i == group.front;
-            let name = if front && !touch { title } else { tab.title };
             let p = ui.painter();
-            // ImGui's tab: `ItemInnerSpacing` between tabs, top corners rounded, the front one in
-            // `TabSelected` with its overline.
-            let body = Rect::from_min_max(
-                egui::pos2(r.left(), r.top() + if touch { 3.0 } else { 0.0 }),
-                egui::pos2(r.right() - 4.0, r.bottom()),
-            );
-            let fill = if front {
-                t.im.tab_selected
-            } else if resp.hovered() {
-                t.im.tab_hovered
-            } else {
-                t.im.tab
-            };
-            let top = CornerRadius {
-                nw: TAB_ROUNDING,
-                ne: TAB_ROUNDING,
-                sw: 0,
-                se: 0,
-            };
-            p.rect_filled(body, top, fill);
             if front {
+                // The front tab is cut from the body's colour, so it reads as the top of the page
+                // below it; the accent edge says which one it is without relying on that.
+                p.rect_filled(r.with_min_y(r.top() + 1.0), 0.0, t.panel);
                 p.rect_filled(
-                    Rect::from_min_size(body.min, egui::vec2(body.width(), 2.0)),
-                    top,
-                    t.im.tab_selected_overline,
+                    Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)),
+                    0.0,
+                    t.accent,
                 );
+            } else if resp.hovered() {
+                p.rect_filled(r, 0.0, t.field_hi);
             }
-            let compact = r.width() < full[i];
+            let ink = if front || resp.hovered() {
+                t.text
+            } else {
+                t.text_dim
+            };
+            let compact = *w < full[i];
             if touch && !compact {
                 p.text(
-                    body.center(),
+                    r.center(),
                     egui::Align2::CENTER_CENTER,
                     name,
                     font.clone(),
-                    t.text,
+                    if front { Color32::WHITE } else { ink },
                 );
             } else {
                 p.text(
                     if compact {
-                        body.center()
+                        r.center()
                     } else {
-                        body.left_center() + egui::vec2(11.0, 0.0)
+                        r.left_center() + egui::vec2(18.0, 0.0)
                     },
                     egui::Align2::CENTER_CENTER,
                     tab.glyph,
-                    FontId::proportional(if touch { 18.0 } else { FONT }),
-                    t.text,
+                    FontId::proportional(if touch { 18.0 } else { 14.0 }),
+                    if front { t.accent } else { ink },
                 );
             }
             if !compact && !touch {
                 p.text(
-                    body.left_center() + egui::vec2(22.0, 0.0),
+                    r.left_center() + egui::vec2(32.0, 0.0),
                     egui::Align2::LEFT_CENTER,
                     name,
                     font.clone(),
-                    t.text,
+                    ink,
                 );
             }
             // The front tab's own header already says it (a count in its title); a tab behind it
             // has only this dot to say it wants a look.
             if let (Some(c), false) = (tab.dot, front) {
                 let at = if compact {
-                    body.center() + egui::vec2(7.0, -5.0)
+                    r.center() + egui::vec2(7.0, -6.0)
                 } else {
-                    body.left_center() + egui::vec2(17.0, -5.0)
+                    r.left_center() + egui::vec2(25.0, -6.0)
                 };
-                p.circle(at, 3.0, c, Stroke::new(1.0, fill));
+                p.circle(at, 3.5, c, Stroke::new(1.5, t.panel_hi));
             }
             // The dot's meaning in words, for the hover and a screen reader.
             let said = if tab.dot.is_some() && !front {
@@ -540,17 +511,17 @@ pub fn window_header(
         }
     } else {
         p.text(
-            rect.left_center() + egui::vec2(4.0 + FONT * 0.5, 0.0),
-            egui::Align2::CENTER_CENTER,
+            rect.left_center() + egui::vec2(10.0, 0.0),
+            egui::Align2::LEFT_CENTER,
             glyph,
-            FontId::proportional(font_size),
-            t.text,
+            FontId::proportional(14.0),
+            t.text_dim,
         );
         p.text(
-            rect.left_center() + egui::vec2(4.0 + FONT + 4.0, 0.0),
+            rect.left_center() + egui::vec2(30.0, 0.0),
             egui::Align2::LEFT_CENTER,
             title,
-            FontId::proportional(font_size),
+            FontId::proportional(13.0),
             t.text,
         );
     }
@@ -562,69 +533,46 @@ pub fn window_header(
             action = HeaderAction::TearOff(None, at);
         }
     }
-    // ImGui's title-bar buttons: a font-sized mark with a round `ButtonHovered` behind it on
-    // hover. A finger gets a bigger target round the same mark.
-    let hit = if touch { 36.0 } else { FRAME_H };
-    let mut x = rect.right() - hit * 0.5 - if touch { 6.0 } else { 2.0 };
-    #[derive(Clone, Copy)]
-    enum Mark<'a> {
-        Cross,
-        Arrow(bool),
-        Glyph(&'a str),
+    let mut x = rect.right() - 16.0;
+    let btn = if touch { 36.0 } else { 22.0 };
+    if touch {
+        x -= 6.0;
     }
-    let mut button = |ui: &mut egui::Ui, mark: Mark<'_>, hint: &str| -> Response {
-        let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(hit, hit));
-        x -= hit;
+    let mut button = |ui: &mut egui::Ui, glyph: &str, hint: &str| -> Response {
+        let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(btn, btn));
+        x -= btn + 2.0;
         // Keyed on the hint, not the title: a title that carries a count ("Alerts (8)") would
         // otherwise give the same button a new id whenever the count changes.
         let resp = ui.interact(r, ui.id().with(("window_header", hint)), Sense::click());
-        let size = if touch { 18.0 } else { FONT };
-        let p = ui.painter();
-        if resp.hovered() || resp.is_pointer_button_down_on() {
-            let fill = if resp.is_pointer_button_down_on() {
-                t.im.button_active
-            } else {
-                t.im.button_hovered
-            };
-            p.circle_filled(r.center(), size * 0.5 + 1.0, fill);
+        if resp.hovered() {
+            ui.painter().rect_filled(r, 4.0, t.field_hi);
         }
-        match mark {
-            Mark::Cross => close_cross(p, r.center(), size, t.text),
-            Mark::Arrow(open) => arrow(p, r.center(), size, open, t.text),
-            Mark::Glyph(g) => {
-                p.text(
-                    r.center(),
-                    egui::Align2::CENTER_CENTER,
-                    g,
-                    FontId::proportional(size),
-                    t.text,
-                );
-            }
-        }
+        ui.painter().text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            FontId::proportional(if btn > 30.0 { 18.0 } else { 13.0 }),
+            if resp.hovered() { t.text } else { t.text_dim },
+        );
         let enabled = resp.enabled();
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
         resp.on_hover_text(hint)
     };
-    if button(ui, Mark::Cross, "Close").clicked() {
+    if button(ui, egui_phosphor::regular::X, "Close").clicked() {
         action = HeaderAction::Close;
     }
     if let Some(folded) = collapsed {
-        // ImGui's collapse triangle: pointing down while open, right while folded.
-        let hint = if folded {
-            "Unfold"
+        let (glyph, hint) = if folded {
+            (egui_phosphor::regular::CARET_DOWN, "Unfold")
         } else {
-            "Fold to the title bar"
+            (egui_phosphor::regular::CARET_UP, "Fold to the title bar")
         };
-        if button(ui, Mark::Arrow(!folded), hint).clicked() {
+        if button(ui, glyph, hint).clicked() {
             action = HeaderAction::Collapse;
         }
     }
     if let Some(now) = place {
-        let menu = button(
-            ui,
-            Mark::Glyph(egui_phosphor::regular::DOTS_THREE),
-            "Move this window",
-        );
+        let menu = button(ui, egui_phosphor::regular::DOTS_THREE, "Move this window");
         egui::Popup::menu(&menu).show(|ui| {
             for (p, label) in [
                 (Place::Left, "Dock left"),
@@ -641,97 +589,102 @@ pub fn window_header(
     action
 }
 
-/// An app-bar tab: ImGui's tab, a frame high at the bottom of `height`, its top corners
-/// rounded, `TabSelected` with a 2px overline when selected.
+/// An app-bar tab: plain text, with an accent underline when selected.
 pub fn tab(ui: &mut egui::Ui, t: &Tokens, label: &str, selected: bool, height: f32) -> Response {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(13.5);
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(galley.size().x + 8.0 + 4.0, height);
+    let size = egui::vec2(galley.size().x + 24.0, height);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let body = Rect::from_min_max(
-        egui::pos2(rect.left(), rect.bottom() - CONTROL_H),
-        egui::pos2(rect.right() - 4.0, rect.bottom()),
-    );
-    let fill = if selected {
-        t.im.tab_selected
+    let color = if selected {
+        Color32::WHITE
     } else if resp.hovered() {
-        t.im.tab_hovered
+        t.text
     } else {
-        t.im.tab
+        t.text_dim
     };
-    let top = CornerRadius {
-        nw: TAB_ROUNDING,
-        ne: TAB_ROUNDING,
-        sw: 0,
-        se: 0,
-    };
-    ui.painter().rect_filled(body, top, fill);
-    if selected {
-        ui.painter().rect_filled(
-            Rect::from_min_size(body.min, egui::vec2(body.width(), 2.0)),
-            top,
-            t.im.tab_selected_overline,
-        );
+    if resp.hovered() && !selected {
+        ui.painter()
+            .rect_filled(rect.shrink2(egui::vec2(2.0, 6.0)), 4.0, t.field);
     }
     ui.painter().text(
-        body.center(),
+        rect.center(),
         egui::Align2::CENTER_CENTER,
         label,
         font,
-        t.text,
+        color,
     );
+    if selected {
+        let bar = Rect::from_min_max(
+            egui::pos2(rect.left() + 8.0, rect.bottom() - 2.5),
+            egui::pos2(rect.right() - 8.0, rect.bottom()),
+        );
+        ui.painter().rect_filled(bar, 1.0, t.accent);
+    }
     resp
 }
 
-/// A glyph-and-label toolbar button (app bar, panel footers): ImGui's toolbar idiom, a `Button`
-/// with its resting fill pushed transparent, held in `ButtonActive` while it is on.
+/// A glyph-and-label button (app bar, panel footers): an "on" one takes the accent.
 pub fn icon_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, label: &str, on: bool) -> Response {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(12.5);
     let text = if label.is_empty() {
         glyph.to_string()
     } else {
-        format!("{glyph} {label}")
+        format!("{glyph}  {label}")
     };
     let galley = ui
         .painter()
         .layout_no_wrap(text.clone(), font.clone(), t.text);
-    let w = if label.is_empty() {
-        CONTROL_H.max(galley.size().x + 8.0)
-    } else {
-        galley.size().x + 8.0
-    };
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, CONTROL_H), Sense::click());
-    let fill = if on || resp.is_pointer_button_down_on() {
-        t.im.button_active
+    let size = egui::vec2(galley.size().x + 18.0, CONTROL_H + 4.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let fill = if on {
+        t.accent_soft()
     } else if resp.hovered() {
-        t.im.button_hovered
+        t.field_hi
     } else {
         Color32::TRANSPARENT
     };
-    ui.painter().rect_filled(rect, 0.0, fill);
+    ui.painter().rect_filled(rect, 4.0, fill);
+    let color = if on {
+        t.accent
+    } else if resp.hovered() {
+        Color32::WHITE
+    } else {
+        t.text
+    };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         text,
         font,
-        t.text,
+        color,
     );
     resp
 }
 
-/// ImGui's button (panel footers, card actions): a frame in `Button`, `ButtonHovered` under the
-/// pointer, `ButtonActive` while held; no border, no rounding.
+/// A plain bordered button in the field style (panel footers, card actions).
 pub fn button(ui: &mut egui::Ui, t: &Tokens, label: &str, width: f32) -> Response {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(12.5);
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(width.max(galley.size().x + 8.0), CONTROL_H);
+    let size = egui::vec2(width.max(galley.size().x + 20.0), CONTROL_H + 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    ui.painter()
-        .rect_filled(rect, 0.0, button_fill(t, &resp, false));
+    ui.painter().rect(
+        rect,
+        4.0,
+        if resp.hovered() { t.field_hi } else { t.field },
+        Stroke::new(
+            1.0,
+            if resp.hovered() {
+                t.accent.gamma_multiply(0.6)
+            } else {
+                t.line
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -742,18 +695,23 @@ pub fn button(ui: &mut egui::Ui, t: &Tokens, label: &str, width: f32) -> Respons
     resp
 }
 
-/// A tool-rail button: an 18px glyph in an ImGui ImageButton-sized frame, the armed tool held in
-/// `ButtonActive`.
+/// A square tool-rail button: the glyph alone, the armed tool filled with the accent.
 pub fn rail_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, on: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(RAIL_BTN, RAIL_BTN), Sense::click());
-    ui.painter()
-        .rect_filled(rect, 0.0, button_fill(t, &resp, on));
+    let fill = if on {
+        t.accent
+    } else if resp.hovered() {
+        t.field_hi
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, 4.0, fill);
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
         FontId::proportional(18.0),
-        t.text,
+        if on { Color32::WHITE } else { t.text },
     );
     resp
 }
@@ -786,9 +744,6 @@ impl<'a> Segment<'a> {
 
 /// [`segmented`] with per-segment enabled state and hover text, optionally stretched across the
 /// row (`fill`), each segment widened in proportion to its label. `selected` may be `None`.
-///
-/// ImGui's idiom for it: buttons on one line with no spacing between them, the chosen one held in
-/// `ButtonActive`; a disabled one stays in the row at `DisabledAlpha`.
 pub fn segmented_full(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -796,7 +751,7 @@ pub fn segmented_full(
     selected: Option<usize>,
     fill: bool,
 ) -> Option<usize> {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(12.5);
     let mut widths: Vec<f32> = segments
         .iter()
         .map(|s| {
@@ -804,7 +759,7 @@ pub fn segmented_full(
                 .layout_no_wrap(s.label.to_string(), font.clone(), t.text)
                 .size()
                 .x
-                + 8.0
+                + 22.0
         })
         .collect();
     let natural: f32 = widths.iter().sum();
@@ -815,6 +770,13 @@ pub fn segmented_full(
     let total: f32 = widths.iter().sum();
     let enabled = ui.is_enabled();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(total, CONTROL_H), Sense::hover());
+    ui.painter().rect(
+        rect,
+        4.0,
+        t.field,
+        Stroke::new(1.0, t.line),
+        egui::StrokeKind::Inside,
+    );
     let mut clicked = None;
     let mut x = rect.left();
     for (i, (seg, w)) in segments.iter().zip(&widths).enumerate() {
@@ -830,21 +792,32 @@ pub fn segmented_full(
         resp.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, live, on, seg.label)
         });
-        let fill = if live {
-            button_fill(t, &resp, on)
-        } else {
-            t.im.button.gamma_multiply(0.6)
-        };
-        ui.painter().rect_filled(r, 0.0, fill);
+        if on {
+            ui.painter().rect_filled(r.shrink(1.0), 3.0, t.accent);
+        } else if live && resp.hovered() {
+            ui.painter().rect_filled(r.shrink(1.0), 3.0, t.field_hi);
+        }
+        let after_selected = selected.is_some_and(|s| i == s + 1);
+        if i > 0 && !on && !after_selected {
+            ui.painter().line_segment(
+                [
+                    r.left_top() + egui::vec2(0.0, 5.0),
+                    r.left_bottom() - egui::vec2(0.0, 5.0),
+                ],
+                Stroke::new(1.0, t.line),
+            );
+        }
         ui.painter().text(
             r.center(),
             egui::Align2::CENTER_CENTER,
             seg.label,
             font.clone(),
-            if live {
+            if on {
+                Color32::WHITE
+            } else if live {
                 t.text
             } else {
-                t.text.gamma_multiply(0.6)
+                t.text_faint
             },
         );
         if !seg.hover.is_empty() {
@@ -864,9 +837,6 @@ pub fn check(ui: &mut egui::Ui, t: &Tokens, on: &mut bool, label: &str) -> Respo
 
 /// [`check`] in a box `width` wide (the label column of a [`prop_toggle`]), or as wide as its
 /// label. Dimmed, and inert, inside a disabled `ui`.
-///
-/// ImGui's checkbox: a frame-high `FrameBg` square, the three-point tick in `CheckMark` when on,
-/// the label `ItemInnerSpacing` after it.
 fn check_sized(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -874,14 +844,11 @@ fn check_sized(
     label: &str,
     width: Option<f32>,
 ) -> Response {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(12.5);
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(
-        width.unwrap_or(CONTROL_H + 4.0 + galley.size().x),
-        CONTROL_H,
-    );
+    let size = egui::vec2(width.unwrap_or(galley.size().x + 24.0), CONTROL_H);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     if resp.clicked() {
@@ -892,26 +859,50 @@ fn check_sized(
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, checked, label)
     });
-    let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.6) };
-    let bx = Rect::from_min_size(rect.min, egui::vec2(CONTROL_H, CONTROL_H));
+    let hot = enabled && resp.hovered();
+    let bx = Rect::from_center_size(
+        egui::pos2(rect.left() + 7.0, rect.center().y),
+        egui::vec2(14.0, 14.0),
+    );
     let p = ui.painter_at(rect);
-    let fill = if enabled && resp.is_pointer_button_down_on() {
-        t.im.frame_bg_active
-    } else if enabled && resp.hovered() {
-        t.im.frame_bg_hovered
-    } else {
-        t.im.frame_bg
-    };
-    p.rect_filled(bx, 0.0, dim(fill));
     if checked {
-        check_mark(&p, bx.min, CONTROL_H, dim(t.im.check_mark));
+        p.rect_filled(
+            bx,
+            3.0,
+            if enabled {
+                t.accent
+            } else {
+                t.accent.gamma_multiply(0.45)
+            },
+        );
+        p.text(
+            bx.center(),
+            egui::Align2::CENTER_CENTER,
+            egui_phosphor::regular::CHECK,
+            FontId::proportional(11.0),
+            Color32::WHITE,
+        );
+    } else {
+        p.rect(
+            bx,
+            3.0,
+            t.field,
+            Stroke::new(1.0, if hot { t.accent } else { t.line }),
+            egui::StrokeKind::Inside,
+        );
     }
     p.text(
-        egui::pos2(bx.right() + 4.0, rect.center().y),
+        egui::pos2(bx.right() + 7.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         font,
-        if enabled { t.text } else { t.text_faint },
+        if !enabled {
+            t.text_faint
+        } else if hot {
+            Color32::WHITE
+        } else {
+            t.text
+        },
     );
     resp
 }
@@ -967,7 +958,7 @@ pub fn prop_row<R>(
             rect.left_center(),
             egui::Align2::LEFT_CENTER,
             label,
-            FontId::proportional(FONT),
+            FontId::proportional(12.0),
             color,
         );
         ui.spacing_mut().interact_size.x = PROP_VALUE_W;
@@ -996,7 +987,8 @@ pub fn prop_slider(
     .inner
 }
 
-/// An egui slider with ImGui's solid grab: [`crate::theme::slider`], in this panel's style.
+/// An egui slider in the workstation's fader style: [`crate::theme::slider`], the accent-filled
+/// track and a solid accent grab, so a panel's sliders match its faders.
 pub fn slider(ui: &mut egui::Ui, _t: &Tokens, slider: egui::Slider<'_>) -> Response {
     crate::theme::slider(ui, slider)
 }
@@ -1023,38 +1015,51 @@ pub fn prop_toggle(
     .inner
 }
 
-/// A square glyph button for the end of a property row (reset, face north): ImGui's button, one
-/// frame square.
+/// A small square glyph button for the end of a property row (reset, face north).
 pub fn glyph_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, label: &str) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(CONTROL_H, CONTROL_H), Sense::click());
     let enabled = ui.is_enabled();
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    let fill = if enabled {
-        button_fill(t, &resp, false)
-    } else {
-        t.im.button.gamma_multiply(0.6)
-    };
-    ui.painter().rect_filled(rect, 0.0, fill);
+    let hot = enabled && resp.hovered();
+    ui.painter().rect(
+        rect,
+        4.0,
+        if hot { t.field_hi } else { t.field },
+        Stroke::new(
+            1.0,
+            if hot {
+                t.accent.gamma_multiply(0.6)
+            } else {
+                t.line
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
-        FontId::proportional(FONT),
-        if enabled { t.text } else { t.text_faint },
+        FontId::proportional(13.0),
+        if !enabled {
+            t.text_faint
+        } else if hot {
+            Color32::WHITE
+        } else {
+            t.text
+        },
     );
     resp
 }
 
-/// A hint or status line in a panel: the one text size, wrapped to the column rather than
-/// widening it.
+/// A hint or status line in a panel: small, dim, and wrapped to the column rather than widening
+/// it.
 pub fn note(ui: &mut egui::Ui, t: &Tokens, s: impl Into<String>) -> Response {
-    ui.add(egui::Label::new(text(s, FONT, t.text_dim)).wrap())
+    ui.add(egui::Label::new(text(s, 11.5, t.text_dim)).wrap())
 }
 
-/// A fraction slider for a dense row, drawn as ImGui's SliderFloat without its text: a frame in
-/// `FrameBg` with a `GrabMinSize` grab in `SliderGrab` (`SliderGrabActive` while dragged). Drag
-/// or click to set it; with focus, the arrow keys step by 5 %. `value` stays within `min..=1`,
-/// and the response is marked changed only when it moved.
+/// A flat fraction slider for a dense row: a 3 px track filled with the accent up to `value`, and
+/// a small thumb. Drag or click to set it; with focus, the arrow keys step by 5 %. `value` stays
+/// within `min..=1`, and the response is marked changed only when it moved.
 pub fn fader(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -1063,10 +1068,8 @@ pub fn fader(
     width: f32,
     label: &str,
 ) -> Response {
-    const GRAB: f32 = 12.0; // ImGuiStyle::GrabMinSize
-    let (rect, mut resp) =
-        ui.allocate_exact_size(egui::vec2(width, CONTROL_H), Sense::click_and_drag());
-    let track = rect.shrink2(egui::vec2(2.0 + GRAB * 0.5, 0.0));
+    let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(width, 18.0), Sense::click_and_drag());
+    let track = rect.shrink2(egui::vec2(5.0, 0.0));
     let before = *value;
     if let Some(p) = resp.interact_pointer_pos() {
         if resp.dragged() || resp.clicked() {
@@ -1087,59 +1090,48 @@ pub fn fader(
     }
     let v = *value;
     resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(v), label));
-    let active = resp.dragged() || resp.is_pointer_button_down_on();
+    let y = rect.center().y;
     let p = ui.painter();
-    let frame = if active {
-        t.im.frame_bg_active
-    } else if resp.hovered() || resp.has_focus() {
-        t.im.frame_bg_hovered
-    } else {
-        t.im.frame_bg
-    };
-    p.rect_filled(rect, 0.0, frame);
+    let bar =
+        |x0: f32, x1: f32| Rect::from_min_max(egui::pos2(x0, y - 1.5), egui::pos2(x1, y + 1.5));
+    p.rect_filled(bar(track.left(), track.right()), 1.5, t.field_hi);
     let at = track.left() + track.width() * v;
-    let grab = Rect::from_center_size(
-        egui::pos2(at, rect.center().y),
-        egui::vec2(GRAB, rect.height() - 4.0),
-    );
-    p.rect_filled(
-        grab,
-        0.0,
-        if active {
-            t.im.slider_grab_active
-        } else {
-            t.im.slider_grab
-        },
+    p.rect_filled(bar(track.left(), at), 1.5, t.accent);
+    let hot = resp.hovered() || resp.dragged() || resp.has_focus();
+    p.circle(
+        egui::pos2(at, y),
+        if hot { 5.5 } else { 4.5 },
+        if hot { Color32::WHITE } else { t.text },
+        Stroke::new(1.0, t.accent),
     );
     resp
 }
 
-/// A label before a control ("Site:"): plain text at the one size.
+/// A small caption before a control ("Site:").
 pub fn caption(ui: &mut egui::Ui, t: &Tokens, label: &str) {
-    ui.label(text(label, FONT, t.text_dim));
+    ui.label(text(label, 12.0, t.text_dim));
 }
 
-/// An inspector row: the key in a fixed column, the value beside it in monospace.
+/// An inspector row: the key dim in a fixed column, the value beside it in monospace.
 pub fn kv(ui: &mut egui::Ui, t: &Tokens, key: &str, value: &str, color: Option<Color32>) {
-    kv_row(ui, t, key, mono(value, FONT, color.unwrap_or(t.text)));
+    kv_row(ui, t, key, mono(value, 12.0, color.unwrap_or(t.text)));
 }
 
 /// An inspector row whose value is words rather than data (a place name), in the text face.
 pub fn kv_text(ui: &mut egui::Ui, t: &Tokens, key: &str, value: &str) {
-    kv_row(ui, t, key, text(value, FONT, t.text));
+    kv_row(ui, t, key, text(value, 12.5, t.text));
 }
 
 fn kv_row(ui: &mut egui::Ui, t: &Tokens, key: &str, value: egui::RichText) {
     ui.horizontal(|ui| {
         // Wide enough for the longest key ("Beam height", "Track error"), no wider: the value
-        // beside it is what gets cut short when the column is too generous. A row is a table
-        // row's height: the font plus `CellPadding.y` twice.
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(76.0, FONT + 4.0), Sense::hover());
+        // beside it is what gets cut short when the column is too generous.
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(76.0, 18.0), Sense::hover());
         ui.painter().text(
             rect.left_center(),
             egui::Align2::LEFT_CENTER,
             key,
-            FontId::proportional(FONT),
+            FontId::proportional(12.0),
             t.text_dim,
         );
         // A long value (a VCP's full name, a volume file) is cut with an ellipsis and shown whole
@@ -1148,40 +1140,33 @@ fn kv_row(ui: &mut egui::Ui, t: &Tokens, key: &str, value: egui::RichText) {
     });
 }
 
-/// A section's heading inside a card or panel: ImGui's SeparatorText, the caption inset 20px with
-/// a 3px `Separator` rule either side of it.
+/// A section's caption inside a card or panel, with a hairline running out to the right edge.
 pub fn section_rule(ui: &mut egui::Ui, t: &Tokens, label: &str) {
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), CONTROL_H), Sense::hover());
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), FontId::proportional(FONT), t.text);
-    let tx = rect.left() + 20.0; // ImGuiStyle::SeparatorTextPadding.x
-    let rule = |p: &egui::Painter, x0: f32, x1: f32| {
-        if x1 > x0 {
-            p.rect_filled(
-                Rect::from_min_max(
-                    egui::pos2(x0, rect.center().y - 1.5),
-                    egui::pos2(x1, rect.center().y + 1.5),
-                ),
-                0.0,
-                t.line_soft,
-            );
-        }
-    };
-    let p = ui.painter();
-    rule(p, rect.left(), tx - 8.0);
-    rule(p, tx + galley.size().x + 8.0, rect.right());
-    p.galley(
-        egui::pos2(tx, rect.center().y - galley.size().y / 2.0),
-        galley,
-        t.text,
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), Sense::hover());
+    let galley = ui.painter().layout_no_wrap(
+        label.to_uppercase(),
+        FontId::proportional(10.5),
+        t.text_faint,
     );
+    let x = rect.left() + galley.size().x + 8.0;
+    ui.painter().galley(
+        egui::pos2(rect.left(), rect.center().y - galley.size().y / 2.0),
+        galley,
+        t.text_faint,
+    );
+    if x < rect.right() {
+        ui.painter().line_segment(
+            [
+                egui::pos2(x, rect.center().y),
+                egui::pos2(rect.right(), rect.center().y),
+            ],
+            Stroke::new(1.0, t.line_soft),
+        );
+    }
 }
 
-/// A section that folds: ImGui's CollapsingHeader, a frame-high bar in the `Header` roles with
-/// the fold triangle, open state remembered per `id`. `count` (when given) sits at the right end,
-/// e.g. how many rows are inside.
+/// A section that folds: the [`section_rule`] look with a caret, open state remembered per `id`.
+/// `count` (when given) sits at the right end of the rule, e.g. how many rows are inside.
 pub fn fold_section<R>(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -1198,7 +1183,7 @@ pub fn fold_section<R>(
         default_open,
     );
     let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), CONTROL_H), Sense::click());
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), Sense::click());
     let open = state.is_open();
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     resp.widget_info(|| {
@@ -1208,35 +1193,43 @@ pub fn fold_section<R>(
         state.toggle(ui);
     }
     let p = ui.painter();
-    let fill = if resp.is_pointer_button_down_on() {
-        t.im.header_active
-    } else if resp.hovered() {
-        t.im.header_hovered
-    } else {
-        t.im.header
-    };
-    p.rect_filled(rect, 0.0, fill);
-    arrow(
-        p,
-        egui::pos2(rect.left() + 4.0 + FONT * 0.5, rect.center().y),
-        FONT,
-        open,
-        t.text,
-    );
+    let ink = if resp.hovered() { t.text } else { t.text_dim };
     p.text(
-        egui::pos2(rect.left() + 4.0 + FONT + 8.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        FontId::proportional(FONT),
-        t.text,
+        egui::pos2(rect.left() + 5.0, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        if open {
+            egui_phosphor::regular::CARET_DOWN
+        } else {
+            egui_phosphor::regular::CARET_RIGHT
+        },
+        FontId::proportional(10.0),
+        ink,
     );
+    let galley = p.layout_no_wrap(label.to_uppercase(), FontId::proportional(10.5), ink);
+    let x = rect.left() + 16.0;
+    let gx = x + galley.size().x + 8.0;
+    p.galley(
+        egui::pos2(x, rect.center().y - galley.size().y / 2.0),
+        galley,
+        ink,
+    );
+    let mut right = rect.right();
     if let Some(c) = count {
-        p.text(
-            egui::pos2(rect.right() - 4.0, rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            c,
-            FontId::monospace(FONT),
-            t.text,
+        let cg = p.layout_no_wrap(c.to_string(), FontId::monospace(10.5), t.text_faint);
+        right -= cg.size().x + 6.0;
+        p.galley(
+            egui::pos2(right + 6.0, rect.center().y - cg.size().y / 2.0),
+            cg,
+            t.text_faint,
+        );
+    }
+    if gx < right {
+        p.line_segment(
+            [
+                egui::pos2(gx, rect.center().y),
+                egui::pos2(right, rect.center().y),
+            ],
+            Stroke::new(1.0, t.line_soft),
         );
     }
     state.store(ui.ctx());
@@ -1275,7 +1268,7 @@ pub fn trend_chart(
 ) -> Response {
     let key = ui.make_persistent_id(("ws_trend", id));
     let mut expanded = ui.ctx().data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
-    let h = if expanded { 140.0 } else { 48.0 };
+    let h = if expanded { 132.0 } else { 44.0 };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if resp.clicked() {
@@ -1283,11 +1276,11 @@ pub fn trend_chart(
         ui.ctx().data_mut(|d| d.insert_temp(key, expanded));
     }
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, t.field);
+    p.rect_filled(rect, 3.0, t.field);
     if resp.hovered() {
         p.rect_stroke(
             rect,
-            0.0,
+            3.0,
             Stroke::new(1.0, t.line),
             egui::StrokeKind::Inside,
         );
@@ -1312,14 +1305,14 @@ pub fn trend_chart(
         rect.left_top() + egui::vec2(6.0, 3.0),
         egui::Align2::LEFT_TOP,
         title,
-        FontId::proportional(FONT),
+        FontId::proportional(10.5),
         t.text_dim,
     );
     p.text(
         rect.right_top() + egui::vec2(-6.0, 3.0),
         egui::Align2::RIGHT_TOP,
         head,
-        FontId::monospace(FONT),
+        FontId::monospace(10.5),
         t.text,
     );
     if points.len() < 2 {
@@ -1327,7 +1320,7 @@ pub fn trend_chart(
             rect.center() + egui::vec2(0.0, 6.0),
             egui::Align2::CENTER_CENTER,
             "needs two volumes",
-            FontId::proportional(FONT),
+            FontId::proportional(10.0),
             t.text_faint,
         );
         return resp.named_toggle_info(title, expanded);
@@ -1336,9 +1329,9 @@ pub fn trend_chart(
         rect.left_top()
             + egui::vec2(
                 if expanded { 34.0 } else { 6.0 },
-                if expanded { 28.0 } else { 20.0 },
+                if expanded { 26.0 } else { 18.0 },
             ),
-        rect.right_bottom() - egui::vec2(6.0, if expanded { 18.0 } else { 5.0 }),
+        rect.right_bottom() - egui::vec2(6.0, if expanded { 16.0 } else { 5.0 }),
     );
     let (lo, hi) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), q| {
         (lo.min(q.value), hi.max(q.value))
@@ -1367,7 +1360,7 @@ pub fn trend_chart(
                 egui::pos2(plot.left() - 4.0, y),
                 egui::Align2::RIGHT_CENTER,
                 format!("{v:.0}"),
-                FontId::monospace(FONT),
+                FontId::monospace(9.5),
                 t.text_faint,
             );
         }
@@ -1380,7 +1373,7 @@ pub fn trend_chart(
                     egui::Align2::RIGHT_BOTTOM
                 },
                 label,
-                FontId::monospace(FONT),
+                FontId::monospace(9.5),
                 t.text_faint,
             );
         }
@@ -1404,7 +1397,7 @@ pub fn trend_chart(
             [egui::pos2(q.x, plot.top()), egui::pos2(q.x, plot.bottom())],
             Stroke::new(1.0, t.text_faint),
         );
-        p.circle_filled(q, 3.5, t.text);
+        p.circle_filled(q, 3.5, Color32::WHITE);
         let d = if i > 0 {
             format!(
                 " ({:+.1} from the scan before)",
@@ -1465,7 +1458,7 @@ pub fn series_chart(
 ) -> Response {
     let key = ui.make_persistent_id(("ws_series", id));
     let mut expanded = ui.ctx().data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
-    let h = if expanded { 156.0 } else { 52.0 };
+    let h = if expanded { 150.0 } else { 48.0 };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if resp.clicked() {
@@ -1473,11 +1466,11 @@ pub fn series_chart(
         ui.ctx().data_mut(|d| d.insert_temp(key, expanded));
     }
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, t.field);
+    p.rect_filled(rect, 3.0, t.field);
     if resp.hovered() {
         p.rect_stroke(
             rect,
-            0.0,
+            3.0,
             Stroke::new(1.0, t.line),
             egui::StrokeKind::Inside,
         );
@@ -1509,14 +1502,14 @@ pub fn series_chart(
         rect.left_top() + egui::vec2(6.0, 3.0),
         egui::Align2::LEFT_TOP,
         title,
-        FontId::proportional(FONT),
+        FontId::proportional(10.5),
         t.text_dim,
     );
     p.text(
         rect.right_top() + egui::vec2(-6.0, 3.0),
         egui::Align2::RIGHT_TOP,
         head,
-        FontId::monospace(FONT),
+        FontId::monospace(10.5),
         t.text,
     );
     let total: usize = lines.iter().map(|s| s.points.len()).sum();
@@ -1529,7 +1522,7 @@ pub fn series_chart(
             rect.center() + egui::vec2(0.0, 6.0),
             egui::Align2::CENTER_CENTER,
             "needs two scans",
-            FontId::proportional(FONT),
+            FontId::proportional(10.0),
             t.text_faint,
         );
         return resp.named_toggle_info(title, expanded);
@@ -1547,9 +1540,9 @@ pub fn series_chart(
         rect.left_top()
             + egui::vec2(
                 if expanded { 34.0 } else { 6.0 },
-                if expanded { 28.0 } else { 20.0 },
+                if expanded { 26.0 } else { 18.0 },
             ),
-        rect.right_bottom() - egui::vec2(6.0, if expanded { 18.0 } else { 5.0 }),
+        rect.right_bottom() - egui::vec2(6.0, if expanded { 16.0 } else { 5.0 }),
     );
     let at = |x: f64, v: f32| {
         egui::pos2(
@@ -1569,7 +1562,7 @@ pub fn series_chart(
                 egui::pos2(plot.left() - 4.0, y),
                 egui::Align2::RIGHT_CENTER,
                 format!("{v:.0}"),
-                FontId::monospace(FONT),
+                FontId::monospace(9.5),
                 t.text_faint,
             );
         }
@@ -1581,7 +1574,7 @@ pub fn series_chart(
                 egui::pos2(at(x, lo).x, rect.bottom() - 2.0),
                 align,
                 fmt_x(x),
-                FontId::monospace(FONT),
+                FontId::monospace(9.5),
                 t.text_faint,
             );
         }
@@ -1613,7 +1606,7 @@ pub fn series_chart(
                 continue;
             };
             let (qx, qv) = s.points[i];
-            p.circle_filled(at(qx, qv), 3.5, t.text);
+            p.circle_filled(at(qx, qv), 3.5, Color32::WHITE);
             p.circle_filled(at(qx, qv), 2.5, s.color);
             let d = if i > 0 {
                 format!(" ({:+.1})", qv - s.points[i - 1].1)
@@ -1647,8 +1640,8 @@ impl ToggleInfo for Response {
     }
 }
 
-/// A row of ImGui SmallButtons that wraps to the width (moment pickers, quick pairs); returns the
-/// one clicked, which is held in `ButtonActive`. `selected` None highlights none.
+/// A row of small pill choices that wraps to the width (moment pickers, quick pairs); returns
+/// the one clicked. `selected` None highlights none.
 pub fn chips(
     ui: &mut egui::Ui,
     t: &Tokens,
@@ -1657,26 +1650,41 @@ pub fn chips(
 ) -> Option<usize> {
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(8.0, 4.0);
-        let font = FontId::proportional(FONT);
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        let font = FontId::proportional(11.5);
         for (i, label) in labels.iter().enumerate() {
             let galley = ui
                 .painter()
                 .layout_no_wrap(label.to_string(), font.clone(), t.text);
-            // SmallButton: no vertical frame padding.
-            let (rect, resp) = ui.allocate_exact_size(
-                egui::vec2(galley.size().x + 8.0, galley.size().y.max(FONT)),
-                Sense::click(),
-            );
+            let (rect, resp) =
+                ui.allocate_exact_size(egui::vec2(galley.size().x + 14.0, 20.0), Sense::click());
             let on = selected == Some(i);
-            ui.painter()
-                .rect_filled(rect, 0.0, button_fill(t, &resp, on));
+            let fill = if on {
+                t.accent_soft()
+            } else if resp.hovered() {
+                t.field_hi
+            } else {
+                t.field
+            };
+            ui.painter().rect(
+                rect,
+                10.0,
+                fill,
+                Stroke::new(1.0, if on { t.accent } else { t.line_soft }),
+                egui::StrokeKind::Inside,
+            );
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 *label,
                 font.clone(),
-                t.text,
+                if on {
+                    t.accent
+                } else if resp.hovered() {
+                    t.text
+                } else {
+                    t.text_dim
+                },
             );
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             resp.widget_info(|| {
@@ -1690,24 +1698,21 @@ pub fn chips(
     clicked
 }
 
-/// A state word with a bullet in front ("● Live"), as ImGui's BulletText drawn in the state's
-/// colour: no fill, the word always there, so colour is never the only signal.
+/// A small pill: a dot and a word ("● Live").
 pub fn badge(ui: &mut egui::Ui, t: &Tokens, label: &str, color: Color32) -> Response {
-    let font = FontId::proportional(FONT);
+    let font = FontId::proportional(11.5);
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    // BulletText: the bullet centred in a font-sized square after `FramePadding.x`, the text
-    // after the square and `FramePadding.x` twice.
-    let size = egui::vec2(FONT + 8.0 + galley.size().x + 4.0, CONTROL_H);
+    let size = egui::vec2(galley.size().x + 22.0, 18.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter().circle_filled(
-        egui::pos2(rect.left() + 4.0 + FONT * 0.5, rect.center().y),
-        FONT * 0.2,
-        color,
-    );
+    let [r, g, b, _] = color.to_array();
+    ui.painter()
+        .rect_filled(rect, 9.0, Color32::from_rgba_unmultiplied(r, g, b, 30));
+    ui.painter()
+        .circle_filled(egui::pos2(rect.left() + 9.0, rect.center().y), 3.5, color);
     ui.painter().text(
-        egui::pos2(rect.left() + FONT + 8.0, rect.center().y),
+        egui::pos2(rect.left() + 16.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         font,
@@ -1722,7 +1727,7 @@ pub fn status_dot(ui: &mut egui::Ui, color: Color32, r: f32) {
     ui.painter().circle_filled(rect.center(), r, color);
 }
 
-/// A vertical 1px `Separator` between control groups in a horizontal row.
+/// A vertical hairline between control groups in a horizontal row.
 pub fn divider(ui: &mut egui::Ui, t: &Tokens, height: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(9.0, height), Sense::hover());
     ui.painter().line_segment(
@@ -1730,7 +1735,7 @@ pub fn divider(ui: &mut egui::Ui, t: &Tokens, height: f32) {
             egui::pos2(rect.center().x, rect.top() + 4.0),
             egui::pos2(rect.center().x, rect.bottom() - 4.0),
         ],
-        Stroke::new(1.0, t.line_soft),
+        Stroke::new(1.0, t.line),
     );
 }
 
@@ -1764,7 +1769,7 @@ mod tests {
     }
 
     fn t() -> Tokens {
-        Tokens::new(Color32::from_rgb(0x2F, 0x81, 0xF7))
+        Tokens::new(rgb(0x2F81F7))
     }
 
     #[test]
@@ -1883,8 +1888,7 @@ mod tests {
                 .collect();
             trend_chart(ui, &t, "dbz", "Reflectivity", "dBZ", &pts, t.accent);
         });
-        // ImGui's collapsing header keeps the label as written: no uppercase.
-        assert!(got.iter().any(|s| s == "Core") && got.iter().any(|s| s == "inside"));
+        assert!(got.iter().any(|s| s == "CORE") && got.iter().any(|s| s == "inside"));
         assert!(!got.iter().any(|s| s == "never drawn"));
         assert!(
             got.iter()
@@ -2057,12 +2061,13 @@ mod tests {
     }
 
     #[test]
-    fn the_selected_row_wash_is_imgui_s_header_over_the_window() {
+    fn the_accent_wash_is_the_accent_translucent() {
         let t = t();
-        assert_eq!(t.accent_soft(), t.im.header);
-        // Composited over the window, so opaque, and a different colour from the body it marks.
-        assert_eq!(t.accent_soft().a(), 255);
-        assert_ne!(t.accent_soft(), t.panel);
+        let [r, g, b, a] = t.accent_soft().to_array();
+        assert!(a > 0 && a < 255, "{a}");
+        // Premultiplied, so each channel is at most the accent's own.
+        let [ar, ag, ab, _] = t.accent.to_array();
+        assert!(r <= ar && g <= ag && b <= ab);
         assert_ne!(
             t.panel, t.panel_hi,
             "a header must stand apart from its body"
@@ -2134,161 +2139,5 @@ mod tests {
             floating.iter().all(|a| *a == HeaderAction::None),
             "{floating:?}"
         );
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    #[ignore = "gpu: writes the workstation components in each Dear ImGui style for visual review"]
-    fn gpu_imgui_component_snapshots() {
-        use crate::settings::Theme;
-        use egui_phosphor::regular as ph;
-        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
-        let destination =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review/imgui");
-        std::fs::create_dir_all(&destination).unwrap();
-        for theme in [Theme::Dark, Theme::Light, Theme::Classic] {
-            let t = Tokens::of(crate::theme::palette(theme, true), None);
-            gpu.save(
-                &destination.join(format!("components-{}.png", theme.label().to_lowercase())),
-                520,
-                760,
-                |ui| {
-                    egui::Frame::NONE
-                        .fill(crate::theme::VIEWPORT_BG)
-                        .inner_margin(10)
-                        .show(ui, |ui| {
-                            panel_frame(&t).show(ui, |ui| {
-                                style_scope(ui, &t);
-                                set_header_tabs(
-                                    ui.ctx(),
-                                    Some(HeaderTabs {
-                                        tabs: vec![
-                                            HeaderTab {
-                                                glyph: ph::CROSSHAIR,
-                                                title: "Inspector",
-                                                dot: None,
-                                            },
-                                            HeaderTab {
-                                                glyph: ph::WARNING,
-                                                title: "Alerts",
-                                                dot: Some(t.warn),
-                                            },
-                                            HeaderTab {
-                                                glyph: ph::NOTEBOOK,
-                                                title: "Log",
-                                                dot: None,
-                                            },
-                                        ],
-                                        front: 0,
-                                    }),
-                                );
-                                window_header(
-                                    ui,
-                                    &t,
-                                    ph::CROSSHAIR,
-                                    "Inspector",
-                                    Some(crate::workspace::Place::Right),
-                                    None,
-                                );
-                                egui::Frame::NONE.inner_margin(8).show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        for (i, l) in
-                                            ["Radar", "Models", "Satellite"].iter().enumerate()
-                                        {
-                                            tab(ui, &t, l, i == 0, CONTROL_H);
-                                        }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        button(ui, &t, "Product settings", 0.0);
-                                        icon_button(ui, &t, ph::STACK, "Layers", false);
-                                        icon_button(ui, &t, ph::PLAY, "", true);
-                                        rail_button(ui, &t, ph::RULER, true);
-                                        glyph_button(ui, &t, ph::ARROW_COUNTER_CLOCKWISE, "Reset");
-                                    });
-                                    segmented(ui, &t, &["2D", "3D", "Volume"], 0);
-                                    let mut on = true;
-                                    let mut off = false;
-                                    ui.horizontal(|ui| {
-                                        check(ui, &t, &mut on, "Smoothing");
-                                        check(ui, &t, &mut off, "Range rings");
-                                    });
-                                    chips(
-                                        ui,
-                                        &t,
-                                        &["Reflectivity", "Velocity", "SRV", "ZDR"],
-                                        Some(1),
-                                    );
-                                    ui.horizontal(|ui| {
-                                        badge(ui, &t, "Live", t.live);
-                                        badge(ui, &t, "Archive", t.warn);
-                                        badge(ui, &t, "Offline", t.danger);
-                                    });
-                                    let mut v = 0.6;
-                                    fader(ui, &t, &mut v, 0.0, 160.0, "Opacity");
-                                    let mut pitch = 36.0f32;
-                                    prop_slider(
-                                        ui,
-                                        &t,
-                                        "Pitch",
-                                        egui::Slider::new(&mut pitch, 0.0..=80.0),
-                                    );
-                                    let mut sel = 1usize;
-                                    prop_row(ui, &t, "Color table", |ui| {
-                                        egui::ComboBox::from_id_salt("snap_combo")
-                                            .selected_text("Default reflectivity")
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(&mut sel, 1, "Default");
-                                            });
-                                    });
-                                    section_rule(ui, &t, "Core statistics");
-                                    kv(ui, &t, "Value", "58.5 dBZ", None);
-                                    kv(ui, &t, "Beam height", "1,820 m", None);
-                                    kv_text(ui, &t, "Place", "Moore, Oklahoma");
-                                    fold_section(
-                                        ui,
-                                        &t,
-                                        "snap",
-                                        "Trends",
-                                        Some("12"),
-                                        true,
-                                        |ui| {
-                                            let pts: Vec<TrendPoint> = [50.0, 55.0, 52.0, 58.0]
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(i, v)| TrendPoint {
-                                                    label: format!("{i}"),
-                                                    value: *v,
-                                                })
-                                                .collect();
-                                            trend_chart(
-                                                ui,
-                                                &t,
-                                                "snap_trend",
-                                                "Max dBZ",
-                                                "dBZ",
-                                                &pts,
-                                                t.im.plot_lines,
-                                            );
-                                        },
-                                    );
-                                    note(
-                                        ui,
-                                        &t,
-                                        "Sparklines for 2 of 5 gauges; one more a minute.",
-                                    );
-                                    let mut text = String::new();
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut text)
-                                            .hint_text("HH:MM UTC"),
-                                    );
-                                    let _ = ui.button("egui button");
-                                    let _ = ui.selectable_label(true, "Selected row");
-                                });
-                            });
-                        });
-                },
-            )
-            .unwrap();
-        }
     }
 }

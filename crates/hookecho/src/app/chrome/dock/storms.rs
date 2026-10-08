@@ -738,7 +738,7 @@ impl HookEchoApp {
                             } else {
                                 "No storm cells from this radar right now."
                             },
-                            crate::theme::FONT,
+                            12.0,
                             t.text_dim,
                         ));
                     });
@@ -816,7 +816,7 @@ impl HookEchoApp {
                                 r.left_center(),
                                 egui::Align2::LEFT_CENTER,
                                 text,
-                                FontId::proportional(crate::theme::FONT),
+                                FontId::proportional(11.0),
                                 if on { t.accent } else { t.text_dim },
                             );
                             if resp.clicked() {
@@ -827,13 +827,13 @@ impl HookEchoApp {
                             egui::pos2(hr.right() - 8.0, hr.center().y),
                             egui::Align2::RIGHT_CENTER,
                             "Rot",
-                            FontId::proportional(crate::theme::FONT),
+                            FontId::proportional(11.0),
                             t.text_dim,
                         );
                         if order.is_empty() {
                             ui.label(ws::text(
                                 "No cells match this ID. Clear the filter to see all cells.",
-                                crate::theme::FONT,
+                                12.0,
                                 t.text_dim,
                             ));
                         }
@@ -908,8 +908,14 @@ impl HookEchoApp {
                                         egui::pos2(x, r.center().y),
                                         egui::Align2::LEFT_CENTER,
                                         text,
-                                        FontId::monospace(crate::theme::FONT),
-                                        if hot { t.warn } else { t.text },
+                                        FontId::monospace(11.0),
+                                        if hot {
+                                            t.warn
+                                        } else if k == 1 {
+                                            egui::Color32::WHITE
+                                        } else {
+                                            t.text
+                                        },
                                     );
                                     x += COLS[k].2;
                                 }
@@ -918,7 +924,7 @@ impl HookEchoApp {
                                         egui::pos2(r.right() - 8.0, r.center().y),
                                         egui::Align2::RIGHT_CENTER,
                                         &flags,
-                                        FontId::monospace(crate::theme::FONT),
+                                        FontId::monospace(11.0),
                                         t.danger,
                                     );
                                 }
@@ -1038,12 +1044,12 @@ impl HookEchoApp {
                     .line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.line));
                 ui.label(ws::text(
                     "T tornado vortex · M mesocyclone",
-                    crate::theme::FONT,
+                    10.5,
                     t.text_faint,
                 ));
                 ui.label(ws::text(
                     "↑/↓ select · Enter details · double-click centers",
-                    crate::theme::FONT,
+                    10.5,
                     t.text_faint,
                 ));
             },

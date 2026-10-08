@@ -5,7 +5,6 @@
 //! costs the map nothing.
 
 use super::*;
-use crate::theme::Hold as _;
 use crate::ui::a11y::Named as _;
 
 /// The floating panel's geometry: left margin, top offset, width.
@@ -355,7 +354,7 @@ impl HookEchoApp {
                                 .size(13.0),
                             )
                             .min_size(egui::vec2(w, 34.0))
-                            .corner_radius(0),
+                            .corner_radius(10.0),
                         )
                         .named("Search the place name and move the map there")
                         .clicked()
@@ -371,7 +370,7 @@ impl HookEchoApp {
                     if ui
                         .add_sized(
                             egui::vec2(ui.available_width(), 34.0),
-                            egui::Button::new(format!("{icon}  {label}  ›")).corner_radius(0),
+                            egui::Button::new(format!("{icon}  {label}  ›")).corner_radius(9.0),
                         )
                         .clicked()
                     {
@@ -569,7 +568,7 @@ impl HookEchoApp {
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(x, y))
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, self.chrome_alpha(238))
-                    .corner_radius(0)
+                    .corner_radius(self.chrome_corner(crate::ui::style::RADIUS_LG))
                     .show(ui, |ui| {
                         ui.set_width(width);
                         ui.horizontal(|ui| {
@@ -670,8 +669,8 @@ impl HookEchoApp {
             ui.add_sized(
                 [148.0, 46.0],
                 egui::Button::new(egui::RichText::new(format!("{icon}     {label}")).size(16.0))
-                    .held(on)
-                    .corner_radius(0),
+                    .selected(on)
+                    .corner_radius(10.0),
             )
         };
         let mut alerts_anchor = None;
@@ -791,7 +790,7 @@ impl HookEchoApp {
                             if on {
                                 accent
                             } else {
-                                crate::theme::current().text_disabled
+                                egui::Color32::from_gray(130)
                             },
                         );
                     }

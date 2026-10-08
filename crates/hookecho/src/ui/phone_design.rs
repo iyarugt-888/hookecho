@@ -87,6 +87,8 @@ pub struct Spec {
     pub bottom_nav: bool,
     /// Panel opacity, 0–255. Glass is the only one that lets the map through.
     pub panel_alpha: u8,
+    /// Corner radius of panels and rail buttons, in points.
+    pub corner: f32,
     /// The design's own accent, used unless the person has picked a custom one.
     pub accent: [u8; 3],
 }
@@ -143,6 +145,7 @@ impl PhoneDesign {
                 legend: Legend::Vertical,
                 bottom_nav: false,
                 panel_alpha: 255,
+                corner: 10.0,
                 accent: [59, 130, 246],
             },
             PhoneDesign::Aurora => Spec {
@@ -153,6 +156,7 @@ impl PhoneDesign {
                 legend: Legend::StripOnly,
                 bottom_nav: false,
                 panel_alpha: 238,
+                corner: 18.0,
                 accent: [100, 130, 255],
             },
             PhoneDesign::Storm => Spec {
@@ -163,6 +167,7 @@ impl PhoneDesign {
                 legend: Legend::Vertical,
                 bottom_nav: false,
                 panel_alpha: 248,
+                corner: 8.0,
                 accent: [76, 154, 255],
             },
             PhoneDesign::Carbon => Spec {
@@ -173,6 +178,7 @@ impl PhoneDesign {
                 legend: Legend::Vertical,
                 bottom_nav: false,
                 panel_alpha: 252,
+                corner: 12.0,
                 accent: [255, 59, 48],
             },
             PhoneDesign::Glass => Spec {
@@ -183,6 +189,7 @@ impl PhoneDesign {
                 legend: Legend::StripOnly,
                 bottom_nav: true,
                 panel_alpha: 190,
+                corner: 22.0,
                 accent: [90, 170, 255],
             },
             PhoneDesign::Atlas => Spec {
@@ -200,6 +207,7 @@ impl PhoneDesign {
                 legend: Legend::Box,
                 bottom_nav: false,
                 panel_alpha: 236,
+                corner: 14.0,
                 accent: [64, 140, 255],
             },
         }

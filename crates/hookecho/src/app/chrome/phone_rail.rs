@@ -68,6 +68,7 @@ impl HookEchoApp {
     /// The segmented 2D / 3D / Tilt / Dual control under the site pill.
     pub(crate) fn phone_mode_bar(&mut self, ctx: &egui::Context) {
         let spec = self.settings.phone_design.spec();
+        let accent = self.chrome_accent();
         let current = self.phone_mode();
         let mut pick = None;
         egui::Area::new(egui::Id::new("phone_mode_bar"))
@@ -78,7 +79,7 @@ impl HookEchoApp {
             )
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, spec.panel_alpha)
-                    .corner_radius(0)
+                    .corner_radius(spec.corner)
                     .inner_margin(egui::Margin::same(4))
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
@@ -88,17 +89,21 @@ impl HookEchoApp {
                                 let text = egui::RichText::new(m.label())
                                     .size(crate::ui::m3::T_LABEL_LG)
                                     .strong()
-                                    .color(crate::theme::current().text);
+                                    .color(if on {
+                                        egui::Color32::BLACK
+                                    } else {
+                                        egui::Color32::from_gray(225)
+                                    });
                                 let b = ui
                                     .add(
                                         egui::Button::new(text)
                                             .min_size(egui::vec2(58.0, 36.0))
                                             .fill(if on {
-                                                crate::theme::current().button_active
+                                                accent
                                             } else {
                                                 egui::Color32::TRANSPARENT
                                             })
-                                            .corner_radius(0),
+                                            .corner_radius((spec.corner - 4.0).max(6.0)),
                                     )
                                     .named_toggle(&format!("{} view", m.label()), on);
                                 if b.clicked() {
@@ -146,6 +151,7 @@ impl HookEchoApp {
     pub(crate) fn phone_rail(&mut self, ctx: &egui::Context) {
         use crate::app::PaletteAction as A;
         let spec = self.settings.phone_design.spec();
+        let accent = self.chrome_accent();
         let (alert_count, esc) = self.alert_badge();
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
@@ -167,7 +173,7 @@ impl HookEchoApp {
             )
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, spec.panel_alpha)
-                    .corner_radius(0)
+                    .corner_radius(spec.corner)
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
@@ -182,7 +188,7 @@ impl HookEchoApp {
                                 RailItem::Analysis => (ph::CHART_LINE_UP, "Section", sectioning),
                                 RailItem::Settings => (ph::GEAR, "Settings", false),
                             };
-                            let resp = rail_button(ui, glyph, label, on, &spec);
+                            let resp = rail_button(ui, glyph, label, on, accent, &spec);
                             let name = match item {
                                 RailItem::Layers => "Layers, products and tools",
                                 RailItem::Basemaps => "Background map",
@@ -252,14 +258,16 @@ fn rail_button(
     glyph: &str,
     label: &str,
     on: bool,
+    accent: egui::Color32,
     spec: &crate::ui::phone_design::Spec,
 ) -> egui::Response {
-    // ImGui's toolbar button: transparent at rest, held in `ButtonActive` while on.
-    let p = crate::theme::current();
     let (fg, fill) = if on {
-        (p.text, p.button_active)
+        (egui::Color32::BLACK, accent)
     } else {
-        (p.text, egui::Color32::TRANSPARENT)
+        (
+            egui::Color32::from_gray(238),
+            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0),
+        )
     };
     let size = if spec.rail_labels {
         egui::vec2(56.0, 60.0)
@@ -276,7 +284,7 @@ fn rail_button(
             .min_size(size)
             .fill(fill)
             .stroke(egui::Stroke::NONE)
-            .corner_radius(0),
+            .corner_radius((spec.corner - 4.0).max(6.0)),
     )
 }
 
@@ -298,6 +306,15 @@ impl HookEchoApp {
     pub(crate) fn chrome_alpha(&self, usual: u8) -> u8 {
         if crate::platform::phone_layout() {
             self.settings.phone_design.spec().panel_alpha
+        } else {
+            usual
+        }
+    }
+
+    /// A panel's corner radius: the phone design's own on a phone, the surface's usual one elsewhere.
+    pub(crate) fn chrome_corner(&self, usual: f32) -> f32 {
+        if crate::platform::phone_layout() {
+            self.settings.phone_design.spec().corner
         } else {
             usual
         }
@@ -337,7 +354,7 @@ impl HookEchoApp {
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -6.0))
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, spec.panel_alpha)
-                    .corner_radius(0)
+                    .corner_radius(spec.corner)
                     .inner_margin(egui::Margin::symmetric(6, 4))
                     .show(ui, |ui| {
                         ui.set_width(self.chrome_rect.width() - crate::ui::m3::SP_3 * 2.0 - 12.0);
@@ -354,7 +371,7 @@ impl HookEchoApp {
                                 let fg = if on {
                                     accent
                                 } else {
-                                    crate::theme::current().text
+                                    egui::Color32::from_gray(225)
                                 };
                                 let b = ui
                                     .add(

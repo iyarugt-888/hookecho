@@ -99,7 +99,7 @@ impl VideoPlayer {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(w, 200.0), egui::Sense::hover());
                     ui.painter()
-                        .rect_filled(rect, 0.0, egui::Color32::from_gray(24));
+                        .rect_filled(rect, 4.0, egui::Color32::from_gray(24));
                     ui.painter().text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,

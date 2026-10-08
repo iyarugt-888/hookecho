@@ -1112,7 +1112,7 @@ fn paint_dock_targets(ctx: &egui::Context, t: &ws::Tokens, map: egui::Rect, hot:
         };
         p.rect(
             area.shrink(2.0),
-            0.0,
+            4.0,
             t.accent_soft(),
             egui::Stroke::new(1.5, t.accent),
             egui::StrokeKind::Inside,
@@ -1120,12 +1120,15 @@ fn paint_dock_targets(ctx: &egui::Context, t: &ws::Tokens, map: egui::Rect, hot:
     }
     for (place, r) in dock_targets(map) {
         let on = hot == Some(place);
-        // ImGui docking's drop targets: square, `DragDropTarget` when hovered.
         p.rect(
             r,
-            0.0,
-            if on { t.im.button_active } else { t.panel },
-            egui::Stroke::new(1.0, if on { t.im.nav_cursor } else { t.line }),
+            6.0,
+            if on {
+                t.accent
+            } else {
+                t.panel_hi.gamma_multiply(0.95)
+            },
+            egui::Stroke::new(1.5, if on { t.accent } else { t.line }),
             egui::StrokeKind::Inside,
         );
         p.text(
@@ -1137,7 +1140,7 @@ fn paint_dock_targets(ctx: &egui::Context, t: &ws::Tokens, map: egui::Rect, hot:
                 _ => ph::ARROW_LINE_DOWN,
             },
             egui::FontId::proportional(20.0),
-            t.text,
+            if on { egui::Color32::WHITE } else { t.text },
         );
     }
 }
