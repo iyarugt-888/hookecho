@@ -426,6 +426,15 @@ impl HookEchoApp {
         // strictly after (so on top of) the flat map `cb` just queued — the raymarched volume has
         // to composite over the basemap/tiles, never under them.
         if let Some((upload, uniform)) = smooth_volume {
+            let ppp = ui.ctx().pixels_per_point();
+            let target_px = crate::render3d::offscreen_px(
+                [prect.width() * ppp, prect.height() * ppp],
+                crate::render3d::raymarch_scale(
+                    cfg!(target_os = "android"),
+                    crate::ui::motion::degraded(),
+                ),
+                self.max_texture_dim,
+            );
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(
                 prect,
                 crate::render3d::MapVolume3dCallback {
@@ -433,6 +442,7 @@ impl HookEchoApp {
                     release: false,
                     upload,
                     uniform,
+                    target_px,
                 },
             ));
         } else if std::mem::take(&mut self.smooth_vol_release[idx]) {
@@ -444,6 +454,7 @@ impl HookEchoApp {
                     release: true,
                     upload: None,
                     uniform: bytemuck::Zeroable::zeroed(),
+                    target_px: [1, 1],
                 },
             ));
         }

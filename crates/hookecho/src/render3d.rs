@@ -1439,6 +1439,216 @@ fn volume_gpu(
     }
 }
 
+/// The share of a pane's resolution the raymarch is drawn at. A phone or tablet GPU marching a
+/// few hundred samples through a 3D texture for every pixel of a 2560-pixel screen heats until it
+/// throttles: frames slow minute by minute and a frame that takes too long gets the device lost.
+/// Half resolution is a quarter of that work and, the volume being smooth at that scale, looks
+/// the same; the visual-quality guard trims it further while frames are slow.
+pub fn raymarch_scale(android: bool, degraded: bool) -> f32 {
+    let base = if android { 0.5 } else { 1.0 };
+    if degraded {
+        base * 0.7
+    } else {
+        base
+    }
+}
+
+/// The offscreen image size for a `rect_px` (physical pixels) callback at `scale`, within the
+/// device's texture limit.
+pub fn offscreen_px(rect_px: [f32; 2], scale: f32, max_dim: u32) -> [u32; 2] {
+    rect_px.map(|v| ((v * scale).round() as u32).clamp(1, max_dim.max(1)))
+}
+
+/// Draws an [`Offscreen`] image over the pane (`volume_blit.wgsl`).
+struct Blit {
+    pipeline: wgpu::RenderPipeline,
+    bgl: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
+
+impl Blit {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("volume_blit_bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/volume_blit.wgsl"));
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("volume_blit_layout"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("volume_blit_pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    // The image holds premultiplied colour, as the raymarch writes it.
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("volume_blit_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Self {
+            pipeline,
+            bgl,
+            sampler,
+        }
+    }
+}
+
+/// A raymarched volume kept as an image: raymarched again only when what it was drawn from
+/// changes (the camera and every other uniform, or a new volume), so a still 3D view costs a copy
+/// per frame instead of a full march, and the march itself runs at [`raymarch_scale`].
+struct Offscreen {
+    _tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    size: [u32; 2],
+    bind_group: wgpu::BindGroup,
+    /// The uniforms and volume generation the image holds, `None` before the first march.
+    drawn: Option<(Vec<u8>, u64)>,
+}
+
+impl Offscreen {
+    fn new(
+        device: &wgpu::Device,
+        blit: &Blit,
+        format: wgpu::TextureFormat,
+        size: [u32; 2],
+    ) -> Self {
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("volume_offscreen"),
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("volume_blit_bg"),
+            layout: &blit.bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&blit.sampler),
+                },
+            ],
+        });
+        Self {
+            _tex: tex,
+            view,
+            size,
+            bind_group,
+            drawn: None,
+        }
+    }
+}
+
+/// Bring `slot` to `size` and, unless it already holds exactly this, raymarch `gpu` into it with
+/// `uniform` (already written to the volume's uniform buffer) on `encoder`.
+#[allow(clippy::too_many_arguments)]
+fn march_offscreen(
+    slot: &mut Option<Offscreen>,
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    blit: &Blit,
+    format: wgpu::TextureFormat,
+    pipeline: &wgpu::RenderPipeline,
+    gpu: &Gpu,
+    uniform: &Uniforms,
+    generation: u64,
+    size: [u32; 2],
+) -> bool {
+    if slot.as_ref().is_none_or(|o| o.size != size) {
+        *slot = Some(Offscreen::new(device, blit, format, size));
+    }
+    let Some(off) = slot.as_mut() else {
+        return false;
+    };
+    let key = (bytemuck::bytes_of(uniform).to_vec(), generation);
+    if off.drawn.as_ref() == Some(&key) {
+        return false;
+    }
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("raymarch_offscreen"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &off.view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &gpu.bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    off.drawn = Some(key);
+    true
+}
+
+fn draw_offscreen(blit: &Blit, off: &Offscreen, pass: &mut wgpu::RenderPass<'_>) {
+    pass.set_pipeline(&blit.pipeline);
+    pass.set_bind_group(0, &off.bind_group, &[]);
+    pass.draw(0..3, 0..1);
+}
+
 /// Long-lived raymarch resources (pipeline + latest volume), stored in egui's callback map.
 ///
 /// The pipeline is built the first time a 3D volume is uploaded, not at startup: compiling the
@@ -1454,6 +1664,12 @@ pub struct Volume3dResources {
     bgl: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     gpu: Option<Gpu>,
+    blit: Option<Blit>,
+    offscreen: Option<Offscreen>,
+    /// Bumped with every volume upload, so the offscreen image is remarched for new data.
+    generation: u64,
+    /// How many times the volume has been raymarched (a still view should not add to it).
+    pub(crate) marches: u64,
 }
 
 impl Volume3dResources {
@@ -1511,6 +1727,10 @@ impl Volume3dResources {
             bgl,
             uniform_buf,
             gpu: None,
+            blit: None,
+            offscreen: None,
+            generation: 0,
+            marches: 0,
         }
     }
 
@@ -1567,10 +1787,16 @@ impl Volume3dResources {
         self.pipeline = Some(pipeline);
     }
 
-    fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, up: &Volume3dUpload) {
+    pub(crate) fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        up: &Volume3dUpload,
+    ) {
         // Every route to a 3D draw goes through here (the egui callback and `render_once`), so
         // this is the one place the pipeline has to exist by.
         self.ensure_pipeline(device);
+        self.generation += 1;
         let existing = self.gpu.take();
         self.gpu = Some(volume_gpu(
             device,
@@ -1587,6 +1813,44 @@ impl Volume3dResources {
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &gpu.bind_group, &[]);
             pass.draw(0..3, 0..1);
+        }
+    }
+
+    pub(crate) fn write_uniform(&self, queue: &wgpu::Queue, uniform: &Uniforms) {
+        queue.write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(uniform));
+    }
+
+    /// Raymarch into the offscreen image if what it holds is out of date.
+    pub(crate) fn march(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        uniform: &Uniforms,
+        size: [u32; 2],
+    ) {
+        let (Some(gpu), Some(pipeline)) = (&self.gpu, &self.pipeline) else {
+            return;
+        };
+        let blit = self
+            .blit
+            .get_or_insert_with(|| Blit::new(device, self.format));
+        self.marches += u64::from(march_offscreen(
+            &mut self.offscreen,
+            device,
+            encoder,
+            blit,
+            self.format,
+            pipeline,
+            gpu,
+            uniform,
+            self.generation,
+            size,
+        ));
+    }
+
+    pub(crate) fn record_offscreen(&self, pass: &mut wgpu::RenderPass<'_>) {
+        if let (Some(_), Some(blit), Some(off)) = (&self.gpu, &self.blit, &self.offscreen) {
+            draw_offscreen(blit, off, pass);
         }
     }
 
@@ -1632,6 +1896,8 @@ impl Volume3dResources {
 pub struct Volume3dCallback {
     pub upload: Option<Volume3dUpload>,
     pub uniform: Uniforms,
+    /// The raymarch's image size, physical pixels ([`offscreen_px`]).
+    pub target_px: [u32; 2],
 }
 
 impl egui_wgpu::CallbackTrait for Volume3dCallback {
@@ -1640,7 +1906,7 @@ impl egui_wgpu::CallbackTrait for Volume3dCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen: &egui_wgpu::ScreenDescriptor,
-        _encoder: &mut wgpu::CommandEncoder,
+        encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         // Built on first use rather than at startup: the raymarch pipeline is a few hundred ms
@@ -1655,7 +1921,8 @@ impl egui_wgpu::CallbackTrait for Volume3dCallback {
             if let Some(up) = &self.upload {
                 res.upload(device, queue, up);
             }
-            queue.write_buffer(&res.uniform_buf, 0, bytemuck::bytes_of(&self.uniform));
+            res.write_uniform(queue, &self.uniform);
+            res.march(device, encoder, &self.uniform, self.target_px);
         }
         Vec::new()
     }
@@ -1667,7 +1934,7 @@ impl egui_wgpu::CallbackTrait for Volume3dCallback {
         resources: &egui_wgpu::CallbackResources,
     ) {
         if let Some(res) = resources.get::<Volume3dResources>() {
-            res.record(pass);
+            res.record_offscreen(pass);
         }
     }
 }
@@ -1686,6 +1953,10 @@ pub struct MapVolume3dResources {
     bgl: wgpu::BindGroupLayout,
     panes: [Option<Gpu>; crate::view::MAX_PANES],
     uniform_bufs: [Option<wgpu::Buffer>; crate::view::MAX_PANES],
+    blit: Option<Blit>,
+    offscreen: [Option<Offscreen>; crate::view::MAX_PANES],
+    /// Per pane, bumped with every volume upload (see [`Offscreen`]).
+    generations: [u64; crate::view::MAX_PANES],
 }
 
 impl MapVolume3dResources {
@@ -1742,6 +2013,9 @@ impl MapVolume3dResources {
             // `wgpu::Texture`/`BindGroup` inside it is not; `from_fn` avoids that requirement.
             panes: std::array::from_fn(|_| None),
             uniform_bufs: std::array::from_fn(|_| None),
+            blit: None,
+            offscreen: std::array::from_fn(|_| None),
+            generations: [0; crate::view::MAX_PANES],
         }
     }
 
@@ -1817,6 +2091,7 @@ impl MapVolume3dResources {
         let uniform_buf = self.uniform_bufs[pane]
             .as_ref()
             .expect("just created above");
+        self.generations[pane] += 1;
         let existing = self.panes[pane].take();
         self.panes[pane] = Some(volume_gpu(
             device,
@@ -1832,6 +2107,36 @@ impl MapVolume3dResources {
     fn release_pane(&mut self, pane: usize) {
         self.panes[pane] = None;
         self.uniform_bufs[pane] = None;
+        self.offscreen[pane] = None;
+    }
+
+    /// Raymarch pane `pane` into its offscreen image if what that holds is out of date.
+    fn march_pane(
+        &mut self,
+        pane: usize,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        uniform: &Uniforms,
+        size: [u32; 2],
+    ) {
+        let (Some(gpu), Some(pipeline)) = (&self.panes[pane], &self.pipeline) else {
+            return;
+        };
+        let blit = self
+            .blit
+            .get_or_insert_with(|| Blit::new(device, self.format));
+        let _ = march_offscreen(
+            &mut self.offscreen[pane],
+            device,
+            encoder,
+            blit,
+            self.format,
+            pipeline,
+            gpu,
+            uniform,
+            self.generations[pane],
+            size,
+        );
     }
 
     fn set_uniform_for_pane(&mut self, pane: usize, queue: &wgpu::Queue, uniform: Uniforms) {
@@ -1841,10 +2146,10 @@ impl MapVolume3dResources {
     }
 
     fn record_for_pane(&self, pane: usize, pass: &mut wgpu::RenderPass<'_>) {
-        if let (Some(gpu), Some(pipeline)) = (&self.panes[pane], &self.pipeline) {
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &gpu.bind_group, &[]);
-            pass.draw(0..3, 0..1);
+        if let (Some(_), Some(blit), Some(off)) =
+            (&self.panes[pane], &self.blit, &self.offscreen[pane])
+        {
+            draw_offscreen(blit, off, pass);
         }
     }
 }
@@ -1859,6 +2164,8 @@ pub struct MapVolume3dCallback {
     /// Shared with the pane's loop cache, so replaying a built frame costs no copy.
     pub upload: Option<std::sync::Arc<Volume3dUpload>>,
     pub uniform: Uniforms,
+    /// The raymarch's image size, physical pixels ([`offscreen_px`]).
+    pub target_px: [u32; 2],
 }
 
 impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
@@ -1867,7 +2174,7 @@ impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen: &egui_wgpu::ScreenDescriptor,
-        _encoder: &mut wgpu::CommandEncoder,
+        encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         if resources.get::<MapVolume3dResources>().is_none() {
@@ -1885,6 +2192,7 @@ impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
                 res.upload_for_pane(pane, device, queue, up);
             }
             res.set_uniform_for_pane(pane, queue, self.uniform);
+            res.march_pane(pane, device, encoder, &self.uniform, self.target_px);
         }
         Vec::new()
     }

@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the 3D volume heating up phones and tablets
+
+The 3D Volume view re-ran its full raymarch (hundreds of samples through the 3D texture for every
+pixel) on every frame, even when nothing on screen had changed, and at the tablet's full screen
+resolution. On a phone or tablet GPU that heats the chip until it throttles: the frame rate falls
+minute by minute and, once a frame takes too long, the GPU driver resets and the app crashes. The
+volume is now drawn once into an image and only drawn again when the camera, a setting or the
+data changes; every other frame just shows that image. On Android it is drawn at half the screen
+resolution (a quarter of the work, and a smooth volume looks the same), and a little lower still
+while frames are slow.
+
 ### Fixed: 3D slowing down over time and running out of memory
 
 The 3D map kept every volume and isosurface it had ever built for a pane, even after 3D was
