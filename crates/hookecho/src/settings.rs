@@ -996,6 +996,17 @@ pub struct DetectorTuning {
     /// the false rate of reading once a volume.
     #[serde(default)]
     pub early_rotation: bool,
+    /// Hide a Possible verdict where the HRRR's air beside it cannot support a tornado
+    /// (`wxdata::near_storm::GATE_STP`). On by default: with every other rule in place it took
+    /// ordinary severe days from 0.48 to 0.38 false marker episodes per radar-hour, for POD 0.45
+    /// to 0.40 (detectionplan.md). Off, the card still shows the environment. A file without the
+    /// key gets it on.
+    #[serde(default = "default_environment_gate")]
+    pub environment_gate: bool,
+}
+
+fn default_environment_gate() -> bool {
+    true
 }
 
 /// Which pipeline Tornado ID shows.
@@ -1069,6 +1080,7 @@ impl Default for DetectorTuning {
             tornado_id_source: TornadoIdSource::Fusion,
             rotation_only_possible: default_rotation_only_possible(),
             early_rotation: false,
+            environment_gate: true,
         }
     }
 }
@@ -2457,6 +2469,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_environment_gate_starts_on_and_an_explicit_off_stays_off() {
+        assert!(DetectorTuning::default().environment_gate);
+        let mut v = serde_json::to_value(DetectorTuning::default()).unwrap();
+        v.as_object_mut().unwrap().remove("environment_gate");
+        let t: DetectorTuning = serde_json::from_value(v.clone()).unwrap();
+        assert!(t.environment_gate, "an older file gets it on");
+        v["environment_gate"] = serde_json::Value::Bool(false);
+        let t: DetectorTuning = serde_json::from_value(v).unwrap();
+        assert!(!t.environment_gate);
+    }
+
+    #[test]
     fn rotation_only_possible_starts_on_and_an_explicit_off_stays_off() {
         assert_eq!(
             DetectorTuning::default().rotation_only_possible,
@@ -3563,8 +3587,17 @@ mod tests {
     #[test]
     fn retired_theme_names_still_load() {
         for name in [
-            "Dark", "Light", "System", "Classic", "Synthwave", "Aurora", "HighContrast", "Oled",
-            "Magma", "Glacier", "DearImGui",
+            "Dark",
+            "Light",
+            "System",
+            "Classic",
+            "Synthwave",
+            "Aurora",
+            "HighContrast",
+            "Oled",
+            "Magma",
+            "Glacier",
+            "DearImGui",
         ] {
             let s: Settings = serde_json::from_str(&format!(r#"{{"theme":"{name}"}}"#)).unwrap();
             assert_eq!(s.theme, Theme::DearImGui, "{name}");

@@ -237,7 +237,10 @@ in air the model got wrong (POD 0.38 to 0.33); on tornado days it costs at most 
 *Likely*, *debris* and *confirmed* markers are drawn whatever the model says. The marker's card
 now shows that air under **Environment**: STP, 0–1 km helicity, CAPE, cloud base and 0–6 km
 shear, with the HRRR run it came from, and says when a marker stands on its radar evidence alone.
-Until the HRRR hour arrives, or where it cannot be had, markers are drawn as before.
+Until the HRRR hour arrives, or where it cannot be had, markers are drawn as before. Layer
+options → Detectors → **Hide Possible where the air cannot support a tornado** turns the check off
+(on by default): with the rest of this release's rules, it removes about a fifth of the false
+markers on ordinary severe days for about one tornado in nine found there.
 
 ### Fixed: STP reads the cloud base and the deep shear as SPC does
 

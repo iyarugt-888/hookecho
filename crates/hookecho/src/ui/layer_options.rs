@@ -1370,6 +1370,16 @@ pub(crate) fn tornado_id_controls(
                      way. Possible raises no alert.",
                 );
         }
+        ui.checkbox(
+            &mut detectors.environment_gate,
+            "Hide Possible where the air cannot support a tornado",
+        )
+        .on_hover_text(
+            "Hides a Possible marker where the HRRR model's air beside the storm cannot support \
+             a tornado (significant tornado parameter under 0.25). On ordinary severe days it \
+             removed about a fifth of the false markers, for about one tornado in nine found. \
+             Likely and stronger markers, and the card's Environment lines, are unaffected.",
+        );
     }
     ui.label(
         egui::RichText::new(

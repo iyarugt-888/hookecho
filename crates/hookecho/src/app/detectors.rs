@@ -593,7 +593,8 @@ impl HookEchoApp {
         wxdata::llsd_analyst::VerdictOptions {
             rotation_only_possible: self.settings.detectors.rotation_only_possible,
             turbines_in_year: self.views[idx].volume.as_ref().map(|v| v.time.year()),
-            environment,
+            // The HRRR hour is fetched either way, for the card's Environment lines.
+            environment: environment.filter(|_| self.settings.detectors.environment_gate),
         }
     }
 
