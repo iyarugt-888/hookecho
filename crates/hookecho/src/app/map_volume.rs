@@ -5,6 +5,33 @@ use crate::loop3d::SourceKey;
 use wxdata::level2::temporal::TemporalPolicy;
 
 impl HookEchoApp {
+    /// Give back what 3D holds for panes that no longer show it, and share the 3D cache budget
+    /// among those that do ([`crate::loop3d::rebalance`]). Without this every volume and mesh a
+    /// pane ever built stayed resident after 3D was turned off, the site changed or the pane
+    /// closed, and a long session ratcheted memory up until it ran out.
+    pub(super) fn release_3d(&mut self) {
+        self.loop3d_jobs.drain(&mut self.loop3d);
+        let panes: [Option<Option<&str>>; crate::view::MAX_PANES] = std::array::from_fn(|i| {
+            self.views
+                .get(i)
+                .filter(|v| v.map_3d.enabled)
+                .map(|v| v.site.as_deref())
+        });
+        crate::loop3d::rebalance(&mut self.loop3d, &panes);
+        for (idx, pane) in panes.iter().enumerate() {
+            if pane.is_some() {
+                continue;
+            }
+            self.iso_mesh[idx] = None;
+            self.smooth_vol_pending[idx] = None;
+            self.smooth_vol_coverage[idx] = None;
+            if self.smooth_vol_key[idx].take().is_some() {
+                // The pane's GPU volume goes with it (see `pane_gpu`).
+                self.smooth_vol_release[idx] = true;
+            }
+        }
+    }
+
     pub(super) fn sync_isosurface(&mut self, idx: usize, ctx: &egui::Context) {
         self.loop3d_jobs.drain(&mut self.loop3d);
         let Some(key) = self.current_iso_key(idx) else {

@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: 3D slowing down over time and running out of memory
+
+The 3D map kept every volume and isosurface it had ever built for a pane, even after 3D was
+turned off, the radar site changed or the pane closed, and each pane had its own large budget
+(up to about 740 MB each on desktop), so a long session kept climbing. 3D now shares one budget
+between the panes showing it and gives everything back when a pane leaves 3D or moves to another
+radar. Playing a loop in 3D also created a brand-new GPU volume texture for every frame; the
+existing one is now rewritten in place, in both the 3D map and the 3D volume window.
+
 ### Added: radar outlines in the GeoJSON export
 
 "Export map as GeoJSON…" now includes the displayed reflectivity scan's 35, 50 and 60 dBZ

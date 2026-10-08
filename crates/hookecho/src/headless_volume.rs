@@ -295,3 +295,26 @@ fn gpu_volume_modes_draw_where_the_storm_is() {
         lit(&side)
     );
 }
+
+/// A volume of the same shape is written into the textures already on the GPU (a 3D loop does
+/// this every frame); what draws must be the new volume, exactly as a fresh texture draws it.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_a_reused_volume_texture_draws_only_the_new_volume() {
+    use crate::render3d::View3d;
+    let v3 = volume();
+    let storm = upload(&v3);
+    let empty = crate::render3d::Volume3dUpload {
+        data: vec![0; storm.data.len()],
+        ..upload(&v3)
+    };
+    let mut gpu = Gpu::new();
+    let first = gpu.render(&storm, View3d::default(), 89.0);
+    assert!(lit(&first) > 2_000);
+    // Same shape, nothing in it: the storm must be gone, not left behind in the old texture.
+    assert_eq!(lit(&gpu.render(&empty, View3d::default(), 89.0)), 0);
+    // And back: the reused texture draws the storm as it did the first time.
+    assert_eq!(gpu.render(&storm, View3d::default(), 89.0), first);
+    let fresh = Gpu::new().render(&storm, View3d::default(), 89.0);
+    assert_eq!(first, fresh, "a fresh texture draws the same");
+}

@@ -1305,9 +1305,138 @@ fn pick_along_ray(
 }
 
 struct Gpu {
-    _tex: wgpu::Texture,
-    _lut: wgpu::Texture,
+    tex: wgpu::Texture,
+    lut: wgpu::Texture,
+    /// `(n, nz)` of `tex`, so a volume of the same shape is written into it rather than into a
+    /// new texture.
+    dims: (u32, u32),
     bind_group: wgpu::BindGroup,
+}
+
+/// Write `up`'s voxels and colour table into `tex`/`lut` (which must have its shape).
+fn write_volume(
+    queue: &wgpu::Queue,
+    tex: &wgpu::Texture,
+    lut: &wgpu::Texture,
+    up: &Volume3dUpload,
+) {
+    let size = wgpu::Extent3d {
+        width: up.n,
+        height: up.n,
+        depth_or_array_layers: up.nz,
+    };
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &up.data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(up.n * 2),
+            rows_per_image: Some(up.n),
+        },
+        size,
+    );
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: lut,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &up.lut,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(256 * 4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 256,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
+/// The GPU side of one raymarched volume. A volume of the same shape as `existing` is written
+/// into its textures and keeps its bind group: a loop playing in 3D replaces the volume every
+/// frame, and allocating a fresh multi-megabyte 3D texture, sampler and bind group each time
+/// left the driver churning through memory until frames slowed and the device was lost.
+fn volume_gpu(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bgl: &wgpu::BindGroupLayout,
+    uniform_buf: &wgpu::Buffer,
+    existing: Option<Gpu>,
+    up: &Volume3dUpload,
+) -> Gpu {
+    if let Some(gpu) = existing.filter(|g| g.dims == (up.n, up.nz)) {
+        write_volume(queue, &gpu.tex, &gpu.lut, up);
+        return gpu;
+    }
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("volume3d_tex"),
+        size: wgpu::Extent3d {
+            width: up.n,
+            height: up.n,
+            depth_or_array_layers: up.nz,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D3,
+        format: wgpu::TextureFormat::Rg8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let lut = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("volume3d_lut"),
+        size: wgpu::Extent3d {
+            width: 256,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    write_volume(queue, &tex, &lut, up);
+    let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = volume_sampler(device);
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("raymarch_bg"),
+        layout: bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&tex_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&lut_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    Gpu {
+        tex,
+        lut,
+        dims: (up.n, up.nz),
+        bind_group,
+    }
 }
 
 /// Long-lived raymarch resources (pipeline + latest volume), stored in egui's callback map.
@@ -1442,96 +1571,15 @@ impl Volume3dResources {
         // Every route to a 3D draw goes through here (the egui callback and `render_once`), so
         // this is the one place the pipeline has to exist by.
         self.ensure_pipeline(device);
-        let size = wgpu::Extent3d {
-            width: up.n,
-            height: up.n,
-            depth_or_array_layers: up.nz,
-        };
-        let tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("volume3d_tex"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::Rg8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &up.data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(up.n * 2),
-                rows_per_image: Some(up.n),
-            },
-            size,
-        );
-        let lut_size = wgpu::Extent3d {
-            width: 256,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let lut = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("volume3d_lut"),
-            size: lut_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &lut,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &up.lut,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(256 * 4),
-                rows_per_image: Some(1),
-            },
-            lut_size,
-        );
-        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = volume_sampler(device);
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("raymarch_bg"),
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.uniform_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&tex_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&lut_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-        self.gpu = Some(Gpu {
-            _tex: tex,
-            _lut: lut,
-            bind_group,
-        });
+        let existing = self.gpu.take();
+        self.gpu = Some(volume_gpu(
+            device,
+            queue,
+            &self.bgl,
+            &self.uniform_buf,
+            existing,
+            up,
+        ));
     }
 
     fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
@@ -1766,99 +1814,24 @@ impl MapVolume3dResources {
                 mapped_at_creation: false,
             }));
         }
-        let size = wgpu::Extent3d {
-            width: up.n,
-            height: up.n,
-            depth_or_array_layers: up.nz,
-        };
-        let tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("map_volume3d_tex"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::Rg8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &up.data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(up.n * 2),
-                rows_per_image: Some(up.n),
-            },
-            size,
-        );
-        let lut_size = wgpu::Extent3d {
-            width: 256,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let lut = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("map_volume3d_lut"),
-            size: lut_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &lut,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &up.lut,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(256 * 4),
-                rows_per_image: Some(1),
-            },
-            lut_size,
-        );
-        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
         let uniform_buf = self.uniform_bufs[pane]
             .as_ref()
             .expect("just created above");
-        let sampler = volume_sampler(device);
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("map_raymarch_bg"),
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&tex_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&lut_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-        self.panes[pane] = Some(Gpu {
-            _tex: tex,
-            _lut: lut,
-            bind_group,
-        });
+        let existing = self.panes[pane].take();
+        self.panes[pane] = Some(volume_gpu(
+            device,
+            queue,
+            &self.bgl,
+            uniform_buf,
+            existing,
+            up,
+        ));
+    }
+
+    /// Free pane `pane`'s volume (its 3D was turned off).
+    fn release_pane(&mut self, pane: usize) {
+        self.panes[pane] = None;
+        self.uniform_bufs[pane] = None;
     }
 
     fn set_uniform_for_pane(&mut self, pane: usize, queue: &wgpu::Queue, uniform: Uniforms) {
@@ -1881,6 +1854,8 @@ impl MapVolume3dResources {
 /// frame's camera/radar uniforms (built by [`map_uniform`]).
 pub struct MapVolume3dCallback {
     pub pane: u32,
+    /// Free the pane's volume instead of drawing it.
+    pub release: bool,
     /// Shared with the pane's loop cache, so replaying a built frame costs no copy.
     pub upload: Option<std::sync::Arc<Volume3dUpload>>,
     pub uniform: Uniforms,
@@ -1902,6 +1877,10 @@ impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
         }
         if let Some(res) = resources.get_mut::<MapVolume3dResources>() {
             let pane = self.pane as usize;
+            if self.release {
+                res.release_pane(pane);
+                return Vec::new();
+            }
             if let Some(up) = &self.upload {
                 res.upload_for_pane(pane, device, queue, up);
             }

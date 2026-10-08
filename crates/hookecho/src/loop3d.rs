@@ -66,6 +66,11 @@ impl SourceKey {
         self.acquisition.as_ref()
     }
 
+    /// The radar site this source came from.
+    pub(crate) fn site(&self) -> Option<&str> {
+        self.site.as_deref()
+    }
+
     fn acquisition_bytes(&self) -> usize {
         self.acquisition
             .as_ref()
@@ -134,7 +139,7 @@ pub struct ByteLru<K: Hash + Eq, V> {
     cap_bytes: usize,
 }
 
-impl<K: Hash + Eq, V> ByteLru<K, V> {
+impl<K: Hash + Eq + Clone, V> ByteLru<K, V> {
     pub fn new(cap_bytes: usize) -> Self {
         Self {
             map: LruCache::unbounded(),
@@ -176,9 +181,47 @@ impl<K: Hash + Eq, V> ByteLru<K, V> {
         self.bytes
     }
 
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    pub fn cap(&self) -> usize {
+        self.cap_bytes
+    }
+
     pub fn clear(&mut self) {
         self.map.clear();
         self.bytes = 0;
+    }
+
+    /// Change the budget, evicting the least recently used until what is held fits it.
+    pub fn set_cap(&mut self, cap_bytes: usize) {
+        self.cap_bytes = cap_bytes;
+        while self.bytes > self.cap_bytes {
+            match self.map.pop_lru() {
+                Some((_, (_, s))) => self.bytes -= s,
+                None => break,
+            }
+        }
+    }
+
+    /// Keep only the entries `keep` accepts.
+    pub fn retain(&mut self, mut keep: impl FnMut(&K) -> bool) {
+        let gone: Vec<K> = self
+            .map
+            .iter()
+            .filter(|(k, _)| !keep(k))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in gone {
+            if let Some((_, s)) = self.map.pop(&k) {
+                self.bytes -= s;
+            }
+        }
     }
 }
 
@@ -191,7 +234,8 @@ pub const SMOOTH_LOOP_MAX_VOXELS: usize =
         6_000_000
     };
 
-/// Memory budget per pane for built Smooth frames.
+/// Memory budget for built Smooth frames, shared by every pane showing 3D (see [`rebalance`]):
+/// a per-pane budget let nine panes hold nine times this, and nothing ever gave it back.
 pub const SMOOTH_CACHE_BYTES: usize = if cfg!(target_os = "android") {
     96 << 20
 } else if cfg!(target_arch = "wasm32") {
@@ -200,7 +244,7 @@ pub const SMOOTH_CACHE_BYTES: usize = if cfg!(target_os = "android") {
     480 << 20
 };
 
-/// Memory budget per pane for built isosurfaces.
+/// Memory budget for built isosurfaces, shared like [`SMOOTH_CACHE_BYTES`].
 pub const ISO_CACHE_BYTES: usize = if cfg!(any(target_os = "android", target_arch = "wasm32")) {
     32 << 20
 } else {
@@ -222,6 +266,44 @@ impl Default for Loop3dCache {
         Self {
             smooth: ByteLru::new(SMOOTH_CACHE_BYTES),
             iso: ByteLru::new(ISO_CACHE_BYTES),
+        }
+    }
+}
+
+impl Loop3dCache {
+    /// Everything this pane's cache holds, in bytes.
+    pub fn bytes(&self) -> usize {
+        self.smooth.bytes() + self.iso.bytes()
+    }
+
+    pub fn clear(&mut self) {
+        self.smooth.clear();
+        self.iso.clear();
+    }
+}
+
+/// Share the 3D budgets among the panes that show 3D: a pane with 3D off (or no pane at that
+/// index) holds nothing, and each pane with it on gets an equal part of [`SMOOTH_CACHE_BYTES`]
+/// and [`ISO_CACHE_BYTES`], so turning 3D on in more panes never multiplies the memory. Frames
+/// from another radar than the pane's own are dropped: they can never be shown again without
+/// going back to that site, where they would be rebuilt from its volumes anyway.
+pub fn rebalance(caches: &mut [Loop3dCache], panes: &[Option<Option<&str>>]) {
+    let on = panes.iter().filter(|p| p.is_some()).count().max(1);
+    for (i, cache) in caches.iter_mut().enumerate() {
+        match panes.get(i).copied().flatten() {
+            None => {
+                if cache.smooth.cap() != 0 || cache.bytes() != 0 {
+                    cache.clear();
+                    cache.smooth.set_cap(0);
+                    cache.iso.set_cap(0);
+                }
+            }
+            Some(site) => {
+                cache.smooth.set_cap(SMOOTH_CACHE_BYTES / on);
+                cache.iso.set_cap(ISO_CACHE_BYTES / on);
+                cache.smooth.retain(|k| k.source.site() == site);
+                cache.iso.retain(|k| k.source.site() == site);
+            }
         }
     }
 }
@@ -1521,6 +1603,71 @@ mod tests {
         // Replacing a key frees its old size.
         c.insert(1, "a2", 10);
         assert_eq!(c.bytes(), 50);
+    }
+
+    #[test]
+    fn a_smaller_budget_evicts_and_retain_drops_what_it_rejects() {
+        let mut c: ByteLru<u32, &str> = ByteLru::new(100);
+        c.insert(1, "a", 40);
+        c.insert(2, "b", 40);
+        c.set_cap(50);
+        assert!(!c.contains(&1) && c.contains(&2), "oldest out first");
+        assert_eq!(c.bytes(), 40);
+        c.insert(3, "c", 10);
+        c.retain(|k| *k != 2);
+        assert!(!c.contains(&2) && c.contains(&3));
+        assert_eq!((c.bytes(), c.len()), (10, 1));
+        c.set_cap(0);
+        assert!(c.is_empty() && c.bytes() == 0);
+        c.insert(4, "d", 1);
+        assert!(c.is_empty(), "a zero budget keeps nothing");
+    }
+
+    #[test]
+    fn panes_without_3d_hold_nothing_and_the_rest_share_one_budget() {
+        let scan = fixture_scan();
+        let up = |n: usize| {
+            Arc::new(SmoothFrame {
+                upload: Arc::new(Volume3dUpload {
+                    data: vec![0; n],
+                    n: 1,
+                    nz: 1,
+                    lut: Vec::new(),
+                    half_km: 1.0,
+                    center_km: [0.0, 0.0],
+                    top_km: 1.0,
+                    outside: 0.0,
+                    value_range: None,
+                }),
+                coverage: TemporalCoverage {
+                    policy: TemporalPolicy::Continuous,
+                    contributors: Vec::new(),
+                },
+            })
+        };
+        let mut caches: Vec<Loop3dCache> = (0..3).map(|_| Loop3dCache::default()).collect();
+        let key = smooth_key(&scan, TemporalPolicy::Continuous);
+        for c in caches.iter_mut() {
+            c.smooth.insert(key.clone(), up(1 << 20), 1 << 20);
+        }
+        // Pane 0 shows 3D at the frames' own site, pane 1 has 3D off, pane 2 moved to another
+        // radar.
+        rebalance(&mut caches, &[Some(Some("KPAH")), None, Some(Some("KTLX"))]);
+        assert_eq!(caches[0].smooth.len(), 1);
+        assert_eq!(caches[1].bytes(), 0, "3D off gives everything back");
+        assert_eq!(
+            caches[2].smooth.len(),
+            0,
+            "another radar's frames are dropped"
+        );
+        assert_eq!(caches[0].smooth.cap(), SMOOTH_CACHE_BYTES / 2);
+        assert_eq!(caches[0].iso.cap(), ISO_CACHE_BYTES / 2);
+        // A build landing in a pane with 3D off is not kept.
+        caches[1].smooth.insert(key.clone(), up(10), 10);
+        assert_eq!(caches[1].bytes(), 0);
+        // Alone again, a pane gets the whole budget back.
+        rebalance(&mut caches, &[Some(Some("KPAH")), None, None]);
+        assert_eq!(caches[0].smooth.cap(), SMOOTH_CACHE_BYTES);
     }
 
     #[test]
