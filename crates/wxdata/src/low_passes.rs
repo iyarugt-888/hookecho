@@ -96,3 +96,130 @@ pub fn at_pass(
     }
     Some(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexrad_model::data::{MomentData, Radial, RadialStatus, Sweep};
+
+    fn vcp() -> nexrad_model::data::VolumeCoveragePattern {
+        use nexrad_model::data::{PulseWidth, VolumeCoveragePattern};
+        VolumeCoveragePattern::new(
+            212,
+            0,
+            0.5,
+            PulseWidth::Short,
+            false,
+            0,
+            false,
+            0,
+            false,
+            false,
+            0,
+            false,
+            false,
+            Vec::new(),
+        )
+    }
+
+    /// A sweep at `elevation` (its `number` in the volume) scanned at `ms`: eight radials of
+    /// reflectivity and velocity, every gate's velocity code `vel`.
+    fn sweep(number: u8, elevation: f32, ms: i64, vel: u8) -> Sweep {
+        let radials = (0..8)
+            .map(|i| {
+                let gates = 40u16;
+                let z = MomentData::from_fixed_point(gates, 2125, 250, 8, 2.0, 66.0, vec![150; 40]);
+                let v =
+                    MomentData::from_fixed_point(gates, 2125, 250, 8, 2.0, 129.0, vec![vel; 40]);
+                Radial::new(
+                    ms + i as i64,
+                    i as u16 + 1,
+                    i as f32 * 45.0,
+                    1.0,
+                    if i == 0 {
+                        RadialStatus::ScanStart
+                    } else {
+                        RadialStatus::IntermediateRadialData
+                    },
+                    number,
+                    elevation,
+                    Some(z),
+                    Some(v),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        Sweep::new(number, radials)
+    }
+
+    /// The lowest tilt passed at 60 s and again at 240 s (a SAILS revisit), the next tilt at
+    /// 120 s; the two low passes read different velocities.
+    fn sails_volume() -> Scan {
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        Scan::with_site(
+            site,
+            vcp(),
+            vec![
+                sweep(1, 0.5, 60_000, 100),
+                sweep(2, 0.9, 120_000, 140),
+                sweep(1, 0.5, 240_000, 180),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_volume_lists_its_low_passes_in_time_order_from_its_start() {
+        let scan = sails_volume();
+        let start = DateTime::from_timestamp(0, 0).unwrap();
+        let all = passes(&scan, start);
+        assert_eq!(all.len(), 2);
+        assert_eq!((all[0].sweep, all[1].sweep), (0, 2));
+        assert!(all[0].time < all[1].time);
+        // Passes before the volume's own time are not its own.
+        let later = passes(&scan, DateTime::from_timestamp(100, 0).unwrap());
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].sweep, 2);
+    }
+
+    #[test]
+    fn a_pass_reads_its_own_lowest_tilt_under_the_volumes_upper_tilts() {
+        let scan = sails_volume();
+        let start = DateTime::from_timestamp(0, 0).unwrap();
+        // The volume's own pairs: the newest low pass, then the next tilt.
+        let velocity: Vec<(BinnedSweep, BinnedSweep)> = (0..2)
+            .map(|t| {
+                (
+                    level2::bin_scan_opts(&scan, Moment::Velocity, t, false).unwrap(),
+                    level2::bin_scan(&scan, Moment::Reflectivity, t).unwrap(),
+                )
+            })
+            .collect();
+        let lowest = Lowest {
+            velocity: true,
+            ..Default::default()
+        };
+        let first = passes(&scan, start)[0];
+        let at = at_pass(&scan, &first, &velocity, &[], &[], lowest).expect("binned");
+        // Its lowest tilt is the earlier pass, binned as the pass is: not the newest.
+        let own = level2::bin_sweep_index(&scan, Moment::Velocity, 0, true).unwrap();
+        let newest = level2::bin_sweep_index(&scan, Moment::Velocity, 2, true).unwrap();
+        assert_ne!(
+            own.data, newest.data,
+            "the two passes read different velocities"
+        );
+        assert_eq!(
+            at.velocity[0].0.data, own.data,
+            "the earlier pass's velocity"
+        );
+        assert_eq!(
+            at.velocity[1].0.data, velocity[1].0.data,
+            "the upper tilt unchanged"
+        );
+        // Without a lowest velocity tilt to replace, no pass inputs.
+        assert!(at_pass(&scan, &first, &velocity, &[], &[], Lowest::default()).is_none());
+    }
+}
