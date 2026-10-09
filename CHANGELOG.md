@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wind direction in the probe
+
+A wind picked in the Model fields browser now reads in the layer probe with its direction, for
+example "23 kt from 245°", matching the barbs drawn there.
+
+### Docs: guide and troubleshooting for this round's workflows
+
+The user guide covers time groups, quality profiles, 3D regions, blended MRMS frames, storm notes
+and lineage marks, and scenes. Troubleshooting adds four entries:
+
+- a pane that does not move with the others;
+- a scene that will not Take;
+- an interpolated value;
+- an empty CC-minimum trail.
+
 ### Changed: the minimum-CC trail only counts gates with echo
 
 A minimum correlation-coefficient trail now ignores gates where reflectivity is below 20 dBZ.

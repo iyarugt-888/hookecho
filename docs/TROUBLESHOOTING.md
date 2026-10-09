@@ -118,5 +118,40 @@ gives each source's time offset from the radar scan or the linked analysis time,
 - Satellite map styles (GOES) follow the view's time, and there is a short gap while a new frame
   loads.
 
+
+## A pane does not move with the others
+
+With Link times on, panes share a time only within their **analysis-time group**. Open **Pane
+links** on that pane and look at **Analysis time**. A pane in another group keeps that group's
+time on purpose, for example an archived event beside a live group. The time badges at the
+bottom of each pane name the group when there is more than one. Put the pane in the same group
+to link it again; it adopts that group's time.
+
+## A scene will not Take
+
+The scene's preview, beside the output window's settings, lists what stops it:
+
+- **"… colour table: no file at …"**: the colour table the scene uses for its own product is gone
+  or is not a colour table. Program is left as it was rather than showing the product in other
+  colours. Put the file back or re-save the scene. A missing table for a moment the scene does
+  not show is only a note, and that moment keeps its current table.
+- **"column product … is not defined here"** or **"3D product …"**: the user product the scene
+  shows has been deleted or renamed.
+- **"saved by a newer HookEcho"**: the scene was written by a newer build.
+
+## A probe or export says a value is "interpolated"
+
+**Blend archived MRMS layers to the radar's time** is on (Settings, under the layer time
+warning). The MRMS layer then shows its value at the radar scan's exact time, interpolated
+between the two archived frames either side. The probe line names both frames and how far
+between them it is, and grid exports say the same in their product name. Turn the setting off to
+read the nearest single frame instead. Precipitation type and accumulations are never blended.
+
+## The CC-minimum trail is empty where I expected low CC
+
+The trail counts a gate only where the same tilt's reflectivity is at least 20 dBZ. Low CC in
+weak echo or clear air is noise and is left out. The trail's status line says this. Check the
+reflectivity there, or use the single-scan CC.
+
 Still stuck? Open an [issue](../../../issues) with the site, the product and the time you were
 looking at, and the log's contents if Analyst Mode was on.

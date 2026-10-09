@@ -214,6 +214,21 @@ pub(crate) fn model_field_upload(f: &wxdata::mrms::MrmsField) -> crate::render::
 /// A browsed wind's east and north components (m/s) on one lattice.
 pub(crate) type WindPair = (wxdata::mrms::MrmsField, wxdata::mrms::MrmsField);
 
+/// The meteorological direction a wind of east/north components `(u, v)` blows from, degrees
+/// clockwise from north in `0..360`; `None` for a missing component or calm air, which has no
+/// direction.
+pub(crate) fn wind_from_deg(u: f32, v: f32) -> Option<f64> {
+    if !(u.is_finite() && v.is_finite()) || (u == 0.0 && v == 0.0) {
+        return None;
+    }
+    Some(
+        f64::from(-u)
+            .atan2(f64::from(-v))
+            .to_degrees()
+            .rem_euclid(360.0),
+    )
+}
+
 /// Whether two grids cover the same cells: what pairs a wind's components with its speed.
 pub(crate) fn same_lattice(a: &wxdata::mrms::MrmsField, b: &wxdata::mrms::MrmsField) -> bool {
     a.nx == b.nx
@@ -371,6 +386,18 @@ impl HookEchoApp {
         slot.state
             .model_ready(request)
             .then(|| slot.vectors.clone())?
+    }
+
+    /// The direction the browsed wind on pane `idx` blows from at `(lon, lat)`, degrees clockwise
+    /// from north (1008.md E3): read from the same east/north components, sampled the same way,
+    /// as the barbs drawn there. `None` without a wind pick or outside its grid.
+    pub(crate) fn model_wind_from_deg(&self, idx: usize, lon: f64, lat: f64) -> Option<f64> {
+        let wind = self.model_wind_for(idx)?;
+        let (u, v) = (
+            wind.0.sample_bilinear(lon, lat)?,
+            wind.1.sample_bilinear(lon, lat)?,
+        );
+        wind_from_deg(u, v)
     }
 
     /// Put `pick` on the active pane and turn its layer on.
@@ -568,6 +595,21 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wind_reads_the_direction_it_blows_from() {
+        let from = |u, v| wind_from_deg(u, v).map(|d| d.round() as i64);
+        assert_eq!(from(10.0, 0.0), Some(270), "blowing east: a westerly");
+        assert_eq!(from(0.0, -10.0), Some(0), "blowing south: a northerly");
+        assert_eq!(from(-5.0, 0.0), Some(90));
+        assert_eq!(
+            from(5.0, 5.0),
+            Some(225),
+            "toward the north-east: from the south-west"
+        );
+        assert_eq!(from(0.0, 0.0), None, "calm has no direction");
+        assert_eq!(from(f32::NAN, 3.0), None);
+    }
 
     #[test]
     fn a_pick_survives_saving_and_names_what_it_shows() {

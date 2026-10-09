@@ -255,6 +255,12 @@ impl HookEchoApp {
                 .field_state_for(idx, layer)
                 .filter(|_| self.mrms_ready_for(idx, layer))
                 .and_then(|state| state.stamp.clone());
+            // A browsed wind reads as a wind: its speed and the direction it blows from.
+            if layer == crate::render::FieldLayer::ModelField && line.value != "\u{2014}" {
+                if let Some(from) = self.model_wind_from_deg(idx, lon, lat) {
+                    line.value = format!("{} from {:03.0}\u{b0}", line.value, from);
+                }
+            }
             // An interpolated frame's reading is not one either frame holds: say so.
             if let Some(note) = line
                 .stamp

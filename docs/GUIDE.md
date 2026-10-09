@@ -57,7 +57,11 @@ inside the storm's translation.
 **Is it hail?** Reflectivity over ~50 dBZ is a candidate; confirm with
 correlation coefficient (CC) — hail is non-uniform, so CC drops. The **storm
 attributes** table (`Ctrl+K` → "cells") lists every tracked cell with hail size,
-tops and VIL, sorted; click a row to fly there.
+tops and VIL, sorted; click a row to fly there. A row marked **split** or
+**merge** belongs to a storm that split from another, shed one or absorbed
+one; hover the row to see which. Right-click a row → **Add a note…** to write
+down what you see. The note stays with that storm even when the radar
+renumbers it, and saved cases keep it.
 
 **Is it a tornado?** The tornado-debris signature is the three together at low
 tilt: a velocity couplet, high reflectivity, and a *hole* in CC where debris is
@@ -126,6 +130,12 @@ Split into panes and give each its own product with cameras linked — Z, V, CC
 and ZDR on the same storm at the same second, or one product at four tilts. It's
 one action in `Ctrl+K` ("four products" / "four tilts").
 
+**Panes on different times**: with Link times on, every pane follows one time.
+To compare an event with what is happening now, open **Pane links** and put
+some panes in **Analysis time → Group 2**. Each group keeps its own time:
+scrubbing, a scene or a jump moves only that pane's group, and each pane's
+MRMS and model layers follow its own group.
+
 **Cross-section**: click two points on the map and get the storm in profile —
 core, overhang, and how high the echo goes. Any product.
 
@@ -133,6 +143,12 @@ core, overhang, and how high the echo goes. Any product.
 zoom, set
 a dBZ floor ("Only above" → *Hail core*) so cores stand alone. Drop **Quality**
 to Low on a phone or an integrated GPU; it only changes sampling, not the data.
+**Settings → Map → Quality** sets that together with smoothing and wind
+particles: Low, Balanced, High, or Analysis (finest 3D, gates drawn as they
+are). No profile changes a value you probe or export. In the 3D map's
+**Region**, pick a box around the selected storm (or around the map centre
+when no storm is selected). The volume and its isosurfaces are then built on
+finer cells.
 
 ## Replay something that already happened
 
@@ -146,6 +162,16 @@ The timeline reaches back to **June 1991**.
 
 Pre-dual-pol volumes (before ~2012 at your site) simply have no ZDR/CC. That's
 the data, not a bug.
+
+MRMS layers on a replay normally show the archived frame nearest the radar
+scan. **Settings → Blend archived MRMS layers to the radar's time** shows them
+at the scan's exact time instead, interpolated between the frames either side.
+Probes and exports say when a value is interpolated. Precipitation type and
+accumulations are never blended.
+
+The max/min **trail** shows where a value has been over the last window. A
+CC-minimum trail counts only gates with at least 20 dBZ of reflectivity
+behind them, so clear air does not paint the whole map.
 
 The **event library** has curated historic events; your own bookmarks sit beside
 them. And the **verification lab** scores an office's warnings for a day against
@@ -191,6 +217,10 @@ warned for.
 - **Position sharing**: opt in and every HookEcho on the same network sees
   everyone's dot. Off-network, point it at a relay URL you host.
 - **Streamer mode**: `F8` hides the chrome, `F9` auto-tours active warnings.
+  **Scenes** (beside the output window's settings) save the view, its colour
+  tables and anything drawn on the map. **Take** puts it all back at once, and
+  refuses, naming the file, if the scene's colour table for its product can't
+  be found. The streaming overlay can put the colour scale at the left edge.
 
 ## When something looks wrong
 
