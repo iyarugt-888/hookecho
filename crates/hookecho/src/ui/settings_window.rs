@@ -27,6 +27,34 @@ enum Tab {
 mod dock_tests {
     use super::*;
 
+    /// The map export's outline thresholds with one moment changed from its default
+    /// (1008.md D3), for review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the outline thresholds section"]
+    fn gpu_outline_thresholds_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m4.4");
+        std::fs::create_dir_all(&destination).unwrap();
+        let mut settings = Settings::default();
+        settings
+            .outline_thresholds
+            .insert("CC".into(), vec![0.7, 0.85]);
+        gpu.save(
+            &destination.join("outline-thresholds.png"),
+            420,
+            260,
+            |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(400.0);
+                    outline_thresholds_section(ui, &mut settings);
+                });
+            },
+        )
+        .unwrap();
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "gpu: writes Settings captures for visual review"]
@@ -1063,6 +1091,74 @@ pub(crate) fn key_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
 
 /// Sign in with Google and keep every machine's settings the same. The data goes to the hidden
 /// per-app folder in the user's own Drive — there is no HookEcho account and no server.
+/// The map export's radar outlines (1008.md D3): one field per moment, its thresholds in the
+/// moment's units. Emptied, the moment exports none; "Default" puts its defaults back.
+fn outline_thresholds_section(ui: &mut egui::Ui, settings: &mut Settings) {
+    use wxdata::level2::Moment;
+    ui.strong("Map export outlines");
+    ui.weak(
+        "\u{201c}Export map as GeoJSON\u{201d} outlines the shown sweep at these values of its \
+         product. CC outlines enclose what is at or below; the others what is at or above.",
+    );
+    for moment in [
+        Moment::Reflectivity,
+        Moment::DifferentialReflectivity,
+        Moment::SpecificDifferentialPhase,
+        Moment::CorrelationCoefficient,
+        Moment::Velocity,
+        Moment::SpectrumWidth,
+    ] {
+        let code = moment.short_name();
+        let id = ui.id().with(("outline_thresholds", code));
+        let current = settings
+            .outline_thresholds
+            .get(code)
+            .cloned()
+            .unwrap_or_else(|| crate::app::default_outline_thresholds(moment).to_vec());
+        let shown = current
+            .iter()
+            .map(|v| format!("{v}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut text: String = ui.memory(|m| m.data.get_temp(id)).unwrap_or(shown);
+        ui.horizontal(|ui| {
+            ui.label(format!("{code}:"));
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut text)
+                    .desired_width(140.0)
+                    .hint_text("none"),
+            );
+            ui.weak(moment.units());
+            if r.changed() {
+                if let Some(values) = crate::app::parse_thresholds(&text) {
+                    if values == crate::app::default_outline_thresholds(moment) {
+                        settings.outline_thresholds.remove(code);
+                    } else {
+                        settings.outline_thresholds.insert(code.to_string(), values);
+                    }
+                }
+            }
+            if crate::app::parse_thresholds(&text).is_none() {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 130, 130),
+                    "not a list of numbers",
+                );
+            }
+            if settings.outline_thresholds.contains_key(code)
+                && ui.small_button("Default").clicked()
+            {
+                settings.outline_thresholds.remove(code);
+                text = crate::app::default_outline_thresholds(moment)
+                    .iter()
+                    .map(|v| format!("{v}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+            }
+        });
+        ui.memory_mut(|m| m.data.insert_temp(id, text));
+    }
+}
+
 fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Option<SyncAction> {
     let mut action = None;
     ui.label("Sign in with Google to keep your settings, saved locations, placefiles and API keys the same on every machine.");
@@ -1267,7 +1363,10 @@ fn general_tab(
         } else {
             0.7
         };
-        crate::theme::slider(ui, egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
+        crate::theme::slider(
+            ui,
+            egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05),
+        );
         ui.end_row();
     });
     ui.weak(
@@ -1332,6 +1431,10 @@ fn general_tab(
     {
         crate::devlog::set_analyst_mode(settings.analyst_mode);
     }
+
+    ui.add_space(8.0);
+    ui.separator();
+    outline_thresholds_section(ui, settings);
 
     ui.add_space(8.0);
     ui.separator();
@@ -1427,7 +1530,10 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
         );
     ui.horizontal_wrapped(|ui| {
         ui.label("Volume");
-        crate::theme::slider(ui, egui::Slider::new(&mut settings.alert_volume, 0.0..=1.0).step_by(0.05));
+        crate::theme::slider(
+            ui,
+            egui::Slider::new(&mut settings.alert_volume, 0.0..=1.0).step_by(0.05),
+        );
     });
     ui.add_space(4.0);
 

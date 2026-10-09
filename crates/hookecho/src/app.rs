@@ -60,6 +60,8 @@ mod construct;
 mod contours;
 mod ensemble_stamps;
 mod radar_outlines;
+/// The export's outline thresholds, for Settings.
+pub(crate) use radar_outlines::{default_thresholds as default_outline_thresholds, parse_thresholds};
 mod data_age;
 mod data_poll;
 mod detectors;

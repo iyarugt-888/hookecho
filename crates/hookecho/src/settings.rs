@@ -536,6 +536,11 @@ pub struct Settings {
     /// whatever gate the inspector is showing. See `wxdata::udp`.
     #[serde(default)]
     pub udp_products: Vec<wxdata::udp::ProductDef>,
+    /// Thresholds the map's GeoJSON export outlines the displayed sweep at, by moment code
+    /// ("REF", "CC"...), in the moment's own units (1008.md D3). A moment not listed uses its
+    /// defaults (`radar_outlines::default_thresholds`); an empty list exports none for it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub outline_thresholds: std::collections::BTreeMap<String, Vec<f32>>,
     /// Recolour reflectivity by the MRMS surface precipitation type: blue where it is falling
     /// as snow, pink where it is freezing rain or sleet.
     #[serde(default)]
@@ -2033,6 +2038,7 @@ impl Default for Settings {
             placefiles: Vec::new(),
             markers: Vec::new(),
             udp_products: Vec::new(),
+            outline_thresholds: Default::default(),
             precip_tint: false,
             dealias_velocity: false,
             alert_spotlight: true,
@@ -3380,6 +3386,7 @@ mod tests {
                 range: None,
                 palette: None,
             }],
+            outline_thresholds: [("CC".to_string(), vec![0.7, 0.85])].into_iter().collect(),
             markers: vec![Marker {
                 id: new_marker_id(),
                 name: "Home".to_string(),

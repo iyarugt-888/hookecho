@@ -20,6 +20,12 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: export outlines for any radar product
+
+"Export map as GeoJSON" now outlines whatever product the map shows, not only reflectivity: by
+default ZDR at 3 dB, KDP at 2 °/km and CC at 0.80 (marked as enclosing what is below — the
+debris side), and any thresholds you set in Settings → General → "Map export outlines".
+
 ### Added: a point symbol per attribute value
 
 Imported layers have "Symbol by" in the Layer Manager: each value of an attribute (hospital,
