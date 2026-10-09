@@ -681,7 +681,7 @@ pub(crate) fn load_shapefile_zip(bytes: &[u8]) -> Result<Loaded, String> {
 
 /// A layer source naming one dataset inside a zipped bundle, `bundle.zip#roads.shp` (1008.md D1):
 /// the bundle's path and the dataset's path inside it, or the source and `None` for anything else.
-#[cfg(not(target_arch = "wasm32"))]
+/// Every target: settings bundles read it to package a layer's file.
 pub(crate) fn split_dataset(source: &str) -> (&str, Option<&str>) {
     match source.rsplit_once('#') {
         Some((path, dataset)) if is_zip(path) && is_shapefile(dataset) => (path, Some(dataset)),

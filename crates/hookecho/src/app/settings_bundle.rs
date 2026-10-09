@@ -12,9 +12,12 @@ impl HookEchoApp {
     pub(crate) fn apply_settings_bundle(&mut self, import: &crate::dialog::Import) {
         match import
             .text()
-            .and_then(|s| crate::settings::Settings::import_bundle(&s))
+            .and_then(|s| crate::settings::Settings::import_bundle_report(&s))
         {
-            Ok(mut settings) => {
+            Ok((mut settings, notes)) => {
+                for note in notes {
+                    self.toast(ToastKind::Info, note);
+                }
                 // A bundle written before M4.1 carries the one layer the old way.
                 settings.migrate_imported_gis();
                 self.settings = settings;

@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: settings bundles carry your GIS layers
+
+Exporting settings now packs the files behind your imported GIS layers into the bundle, with a
+checksum for each. Importing it on another machine restores the layers from those copies; a
+damaged bundle is refused without changing anything, and a layer whose file could not be packed
+is named.
+
 ### Added: wind barbs in the analysis export
 
 When a wind from the Model fields browser is on the map, the analysis export includes

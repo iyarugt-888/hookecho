@@ -1351,6 +1351,25 @@ Report: [`docs/certification/m3.6/roi-iso-moore.txt`](docs/certification/m3.6/ro
 
 **Evidence ledger — 2026-10-09, increment 7 (outlines for other moments and chosen thresholds; 1008.md D3):** the export outlines the shown sweep of the active pane's own product at its thresholds — defaults 35/50/60 dBZ, 3 dB ZDR, 2 °/km KDP, 0.80 CC, none for velocity/spectrum width (`radar_outlines::default_thresholds`) — or those set in Settings → General → "Map export outlines" (`Settings::outline_thresholds`, by moment code, omitted when unchanged). Lines gain `encloses` (`below` for CC, `above` otherwise); only reflectivity reads no echo as below every threshold, so dual-pol outlines stop at the echo's edge. Tests `a_low_cc_core_is_ringed_and_echo_free_air_is_not`, `no_echo_is_below_reflectivity_but_missing_for_dual_pol`, `thresholds_parse_as_a_list_of_numbers`, settings round trip; the Mayfield reflectivity check unchanged (291 lines, 289 closed); capture in [`docs/certification/m4.4/`](docs/certification/m4.4/README.md) (`7cca7adc…`). Open: portable manifests packaging layer files with checksums, a QGIS (or GDAL) reader report for the new outlines, narrow-width Settings layout.
 
+**Evidence ledger — 2026-10-09, increment 4 (GIS layer files packaged with checksums; 1008.md D3):** a settings bundle (Settings → Export settings) now carries every imported GIS layer's file (`SettingsBundle::gis_files`): its name, SHA-256 and content. A zip shared by several `bundle.zip#dataset.shp` layers is packed once. A browser's stored file already travels in `web_files`. On import:
+
+- **Checksums first:** every file is checked against its checksum before anything is written. A damaged file refuses the whole import and changes nothing.
+- **Local copies:** files are written to `<data dir>/gis-imports`. A same-named different file gets `name-2`.
+- **Repointing:** each layer is repointed to its local copy, keeping its `#dataset` suffix.
+
+A file that could not be read when the bundle was written is listed in it (`gis_unpacked`) and reported on import, so its layers are known not to load. The field is additive: older bundles import as before. Test: `a_bundle_carries_its_gis_files_checked_and_repointed` covers:
+
+- a GeoJSON and a two-dataset zip packed, with the zip once;
+- originals deleted before import;
+- layers repointed and contents identical;
+- a missing KML reported;
+- a tampered checksum refused, with nothing written.
+
+Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,575 passed (`target/parity-review/m4.4/d3-*.log`). The wasm check first caught `split_dataset` being native-only; it is a pure function and now builds everywhere. Open:
+
+- A QGIS/GDAL reader report (no GIS reader is installed on this machine).
+- Workspaces and cases referring to layers by file rather than through a settings bundle.
+
 ### M5 — Synchronized weather context and presentation
 
 #### M5.1 — Support independent link groups and source contexts

@@ -1398,6 +1398,29 @@ struct SettingsBundle {
     settings: Settings,
     #[serde(default)]
     palette_files: BTreeMap<String, String>,
+    /// The imported GIS layers' files (ROADMAP_PARITY M4.4), by the path the layers name them
+    /// by, each with its SHA-256, so the bundle opens on another machine and a damaged copy is
+    /// refused. Absent in a bundle written before they were packaged.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    gis_files: BTreeMap<String, PackedFile>,
+    /// Layer files that could not be read when the bundle was written, so are not in it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    gis_unpacked: Vec<String>,
+}
+
+/// One file carried in a settings bundle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct PackedFile {
+    /// Its file name, for the copy written on import.
+    name: String,
+    sha256: String,
+    base64: String,
+}
+
+/// The file a GIS layer source names: the path itself, or the zip of a `bundle.zip#dataset.shp`
+/// source.
+fn gis_source_file(source: &str) -> &str {
+    crate::gis_import::split_dataset(source).0
 }
 
 /// A remembered startup camera: which site to load and where the map sits (world coords).
@@ -2518,9 +2541,45 @@ impl Settings {
                 Err(e) => log::warn!("bundle: skipping palette {moment} ({path}): {e}"),
             }
         }
+        // Every imported layer's file, once each (several datasets can share one zip). A
+        // browser's stored file already travels in `web_files`.
+        let mut gis_files = BTreeMap::new();
+        let mut gis_unpacked = Vec::new();
+        for layer in &self.gis_layers {
+            let file = gis_source_file(&layer.source);
+            if self.web_files.contains_key(&layer.source)
+                || gis_files.contains_key(file)
+                || gis_unpacked.iter().any(|f: &String| f == file)
+            {
+                continue;
+            }
+            match std::fs::read(file) {
+                Ok(bytes) => {
+                    use base64::Engine as _;
+                    use sha2::Digest as _;
+                    let name = std::path::Path::new(file)
+                        .file_name()
+                        .map_or_else(|| "layer".into(), |n| n.to_string_lossy().into_owned());
+                    gis_files.insert(
+                        file.to_string(),
+                        PackedFile {
+                            name,
+                            sha256: format!("{:x}", sha2::Sha256::digest(&bytes)),
+                            base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+                        },
+                    );
+                }
+                Err(e) => {
+                    log::warn!("bundle: GIS layer file {file} not packaged: {e}");
+                    gis_unpacked.push(file.to_string());
+                }
+            }
+        }
         let bundle = SettingsBundle {
             settings: self.clone(),
             palette_files,
+            gis_files,
+            gis_unpacked,
         };
         serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())
     }
@@ -2529,15 +2588,81 @@ impl Settings {
     /// colortables dir and rewrites the palette paths to point there, so the imported palettes
     /// resolve locally. Returns the ready-to-use Settings (caller assigns + saves).
     pub fn import_bundle(json: &str) -> Result<Settings, String> {
-        Self::import_bundle_with_dir(json, Self::colortables_dir)
+        Self::import_bundle_report(json).map(|(s, _)| s)
+    }
+
+    /// [`Self::import_bundle`] with what the caller should tell the person: GIS layer files the
+    /// bundle could not carry, so those layers will not load here.
+    pub fn import_bundle_report(json: &str) -> Result<(Settings, Vec<String>), String> {
+        Self::import_bundle_with_dir(json, Self::colortables_dir, Self::gis_files_dir)
+    }
+
+    /// Folder for GIS layer files unpacked from a bundle (`<data_dir>/gis-imports`).
+    pub fn gis_files_dir() -> Option<PathBuf> {
+        let dir = crate::paths::data_dir()?.join("gis-imports");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir)
     }
 
     fn import_bundle_with_dir(
         json: &str,
         palette_dir: impl FnOnce() -> Option<PathBuf>,
-    ) -> Result<Settings, String> {
+        gis_dir: impl FnOnce() -> Option<PathBuf>,
+    ) -> Result<(Settings, Vec<String>), String> {
         let bundle: SettingsBundle = serde_json::from_str(json).map_err(|e| e.to_string())?;
         let mut settings = bundle.settings;
+        let mut notes: Vec<String> = bundle
+            .gis_unpacked
+            .iter()
+            .map(|f| format!("{f} was not in the bundle; its layers will not load"))
+            .collect();
+        if !bundle.gis_files.is_empty() {
+            use base64::Engine as _;
+            use sha2::Digest as _;
+            let dir = gis_dir().ok_or("no folder for GIS layer files")?;
+            // Every file is checked before anything is written: a damaged bundle changes nothing.
+            let mut decoded = Vec::new();
+            for (original, packed) in &bundle.gis_files {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&packed.base64)
+                    .map_err(|e| format!("GIS layer file {}: {e}", packed.name))?;
+                let sum = format!("{:x}", sha2::Sha256::digest(&bytes));
+                if sum != packed.sha256 {
+                    return Err(format!(
+                        "GIS layer file {} does not match its checksum; nothing was imported",
+                        packed.name
+                    ));
+                }
+                decoded.push((original, packed, bytes));
+            }
+            for (original, packed, bytes) in decoded {
+                // The packed name, or "name-2.ext" and on when another file already has it.
+                let stem = std::path::Path::new(&packed.name)
+                    .file_stem()
+                    .map_or_else(|| "layer".into(), |s| s.to_string_lossy().into_owned());
+                let ext = std::path::Path::new(&packed.name)
+                    .extension()
+                    .map(|e| format!(".{}", e.to_string_lossy()))
+                    .unwrap_or_default();
+                let mut path = dir.join(&packed.name);
+                let mut n = 2;
+                while path.exists() && std::fs::read(&path).ok().as_deref() != Some(&bytes[..]) {
+                    path = dir.join(format!("{stem}-{n}{ext}"));
+                    n += 1;
+                }
+                std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+                let local = path.to_string_lossy().into_owned();
+                for layer in &mut settings.gis_layers {
+                    if gis_source_file(&layer.source) == original.as_str() {
+                        layer.source = match crate::gis_import::split_dataset(&layer.source).1 {
+                            Some(dataset) => format!("{local}#{dataset}"),
+                            None => local.clone(),
+                        };
+                    }
+                }
+            }
+        }
+        notes.dedup();
         if !bundle.palette_files.is_empty() {
             let dir = palette_dir().ok_or("no colortables dir")?;
             for (moment, text) in &bundle.palette_files {
@@ -2548,7 +2673,7 @@ impl Settings {
                     .insert(moment.clone(), path.to_string_lossy().into_owned());
             }
         }
-        Ok(settings)
+        Ok((settings, notes))
     }
 
     /// Persist `json`: a settings.json on native, a `localStorage` entry on the web.
@@ -3612,6 +3737,71 @@ mod tests {
     }
 
     #[test]
+    fn a_bundle_carries_its_gis_files_checked_and_repointed() {
+        let base = std::env::temp_dir().join(format!(
+            "hookecho-gis-bundle-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let (src, dst) = (base.join("src"), base.join("dst"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dst).unwrap();
+        let geojson = src.join("sirens.geojson");
+        std::fs::write(&geojson, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
+        let zip = src.join("assets.zip");
+        std::fs::write(&zip, [0x50u8, 0x4b, 3, 4, 0, 255, 7]).unwrap();
+        let mut s = Settings::default();
+        let a = s.add_gis_layer(geojson.to_string_lossy().into_owned());
+        let b = s.add_gis_layer(format!("{}#hospitals.shp", zip.display()));
+        let c = s.add_gis_layer(format!("{}#sirens.shp", zip.display()));
+        s.add_gis_layer(src.join("gone.kml").to_string_lossy().into_owned());
+        let json = s.export_bundle().unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            raw["gis_files"].as_object().unwrap().len(),
+            2,
+            "the zip is packed once"
+        );
+        // The originals go away; the bundle still opens, pointing at its own copies.
+        std::fs::remove_dir_all(&src).unwrap();
+        let (back, notes) =
+            Settings::import_bundle_with_dir(&json, || None, || Some(dst.clone())).unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("gone.kml"), "{notes:?}");
+        let source = |id| back.gis_layer(id).unwrap().source.clone();
+        assert!(source(a).starts_with(&dst.to_string_lossy().into_owned()));
+        assert_eq!(
+            std::fs::read_to_string(source(a)).unwrap(),
+            r#"{"type":"FeatureCollection","features":[]}"#
+        );
+        assert!(source(b).ends_with("#hospitals.shp") && source(c).ends_with("#sirens.shp"));
+        assert_eq!(gis_source_file(&source(b)), gis_source_file(&source(c)));
+        assert_eq!(
+            std::fs::read(gis_source_file(&source(b))).unwrap(),
+            [0x50u8, 0x4b, 3, 4, 0, 255, 7]
+        );
+        // A damaged file is refused and nothing is written.
+        let mut tampered: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let files = tampered["gis_files"].as_object_mut().unwrap();
+        let first = files.keys().next().unwrap().clone();
+        files.get_mut(&first).unwrap()["sha256"] = "00".into();
+        let empty = base.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let err = Settings::import_bundle_with_dir(
+            &tampered.to_string(),
+            || None,
+            || Some(empty.clone()),
+        )
+        .unwrap_err();
+        assert!(err.contains("checksum"), "{err}");
+        assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn bundle_inlines_and_restores_palettes() {
         // A bundle with an inlined .pal should restore to a local path whose file has that text.
         let json = r#"{
@@ -3627,7 +3817,8 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let s = Settings::import_bundle_with_dir(json, || Some(dir.clone())).expect("import");
+        let (s, _) =
+            Settings::import_bundle_with_dir(json, || Some(dir.clone()), || None).expect("import");
         assert_eq!(s.default_site, "KFWS");
         assert_eq!(s.theme, Theme::DearImGui); // "Magma" is aliased onto the one theme
         let ref_path = s.palettes.get("REF").expect("REF palette path set");
