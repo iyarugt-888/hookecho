@@ -1969,7 +1969,7 @@ impl HookEchoApp {
         );
         push(
             "Wind streamlines",
-            "Model",
+            "Models",
             "Draw the HRRR wind, and a wind picked in Model fields, as lines that follow it \
              (arrows downstream, coloured by speed)",
             false,
