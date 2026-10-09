@@ -30,6 +30,11 @@ drawn twice; a cancelled or expired warning is never drawn from the wire. The An
 "Wire arrival" beside "Warning arrival". Left empty, nothing changes. The relay has not yet been
 run against NWWS-OI itself.
 
+### Added: a printable impact report
+
+"Export analysis…" now also writes `impacts.html`: the impact report as a page you can print or
+save as a PDF from any browser, one storm motion per page.
+
 ### Added: HiresW ARW and FV3 models
 
 The model browser offers NCEP's two HiresW runs — 2.5 km, twice a day to 48 hours, one on the

@@ -349,6 +349,97 @@ pub(crate) fn impacts_markdown(
     s
 }
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// `impacts.html`: the readable report as a page that prints cleanly (1008.md B2), rendered from
+/// `impacts.md` itself so the two never disagree. Handles exactly what that report writes:
+/// `#`/`##` headings, paragraphs and pipe tables; everything is escaped. Each motion starts on a
+/// new printed page after the first.
+pub(crate) fn impacts_html(md: &str) -> String {
+    let mut body = String::new();
+    let mut para: Vec<&str> = Vec::new();
+    let mut table: Vec<Vec<String>> = Vec::new();
+    let mut sections = 0;
+    let flush_para = |para: &mut Vec<&str>, body: &mut String| {
+        if !para.is_empty() {
+            body.push_str(&format!("<p>{}</p>\n", html_escape(&para.join(" "))));
+            para.clear();
+        }
+    };
+    let flush_table = |table: &mut Vec<Vec<String>>, body: &mut String| {
+        if table.is_empty() {
+            return;
+        }
+        body.push_str("<table>\n");
+        for (i, row) in table.iter().enumerate() {
+            let cell = if i == 0 { "th" } else { "td" };
+            body.push_str("<tr>");
+            for c in row {
+                body.push_str(&format!("<{cell}>{}</{cell}>", html_escape(c)));
+            }
+            body.push_str("</tr>\n");
+        }
+        body.push_str("</table>\n");
+        table.clear();
+    };
+    for line in md.lines() {
+        let t = line.trim();
+        if t.starts_with('|') {
+            flush_para(&mut para, &mut body);
+            let cells: Vec<String> = t
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_string())
+                .collect();
+            // The `|---|---|` separator row carries nothing to show.
+            if !cells
+                .iter()
+                .all(|c| !c.is_empty() && c.chars().all(|ch| ch == '-'))
+            {
+                table.push(cells);
+            }
+            continue;
+        }
+        flush_table(&mut table, &mut body);
+        if let Some(h) = t.strip_prefix("## ") {
+            flush_para(&mut para, &mut body);
+            sections += 1;
+            let class = if sections > 1 { " class=\"page\"" } else { "" };
+            body.push_str(&format!("<h2{class}>{}</h2>\n", html_escape(h)));
+        } else if let Some(h) = t.strip_prefix("# ") {
+            flush_para(&mut para, &mut body);
+            body.push_str(&format!("<h1>{}</h1>\n", html_escape(h)));
+        } else if t.is_empty() {
+            flush_para(&mut para, &mut body);
+        } else {
+            para.push(t);
+        }
+    }
+    flush_table(&mut table, &mut body);
+    flush_para(&mut para, &mut body);
+    format!(
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         <title>Storm impacts</title>\n<style>\n\
+         body {{ font: 11pt/1.45 system-ui, sans-serif; color: #111; background: #fff; \
+         max-width: 60rem; margin: 1.5rem auto; padding: 0 1rem; }}\n\
+         h1 {{ font-size: 18pt; margin: 0 0 .5rem; }}\n\
+         h2 {{ font-size: 13pt; margin: 1.5rem 0 .25rem; border-bottom: 1px solid #999; }}\n\
+         table {{ border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }}\n\
+         th, td {{ border: 1px solid #bbb; padding: .2rem .4rem; text-align: left; \
+         vertical-align: top; }}\n\
+         th {{ background: #eee; }}\n\
+         @media print {{ body {{ margin: 0; max-width: none; }} \
+         h2.page {{ break-before: page; }} tr {{ break-inside: avoid; }} }}\n\
+         </style>\n</head>\n<body>\n{body}</body>\n</html>\n"
+    )
+}
+
 impl super::HookEchoApp {
     /// The impact report's two files for the analysis export, from the session's tracks,
     /// places, zones, impact targets and finished lookups.
@@ -573,6 +664,49 @@ mod tests {
         assert!(md.contains("People in path: not counted"), "{md}");
         assert!(md.contains("Towns in path: the lookup failed."), "{md}");
         assert!(impacts_markdown(&[], &[], 0, &[], t0()).contains("No storm motion was set"));
+    }
+
+    /// The printable page carries the report's headings, paragraphs and table rows, escaped,
+    /// drops the Markdown separator row, and starts each motion after the first on a new page.
+    #[test]
+    fn the_printable_page_is_the_readable_report() {
+        let t = track();
+        let ctx = [
+            TrackContext {
+                track: &t,
+                scit_cell: None,
+                towns: None,
+                people: None,
+            },
+            TrackContext {
+                track: &t,
+                scit_cell: Some("Q4"),
+                towns: None,
+                people: None,
+            },
+        ];
+        let markers = vec![(
+            "Smith & Sons <farm>".to_string(),
+            destination_point([-97.0, 35.0], 90.0, 30.0),
+        )];
+        let rows = impact_rows(&ctx, &markers, &[], &[]);
+        let md = impacts_markdown(&ctx, &rows, 0, &[], t0());
+        let html = impacts_html(&md);
+        assert!(html.starts_with("<!doctype html>"));
+        assert!(html.contains("<h1>Storm impacts</h1>"));
+        assert!(
+            html.contains("<h2>Motion #1</h2>"),
+            "the first is not page-broken"
+        );
+        assert!(html.contains("<h2 class=\"page\">Storm Q4, radar's automatic motion</h2>"));
+        assert!(
+            html.contains("<td>Smith &amp; Sons &lt;farm&gt;</td>"),
+            "{html}"
+        );
+        assert!(html.contains("<th>Target</th>"));
+        assert!(!html.contains("---"), "the separator row is not drawn");
+        assert!(html.contains("break-before: page"));
+        assert!(html.contains("<h2 class=\"page\">Warnings in effect</h2>"));
     }
 
     /// A storm with only the radar's automatic motion is reported when it reaches a saved place,

@@ -483,6 +483,10 @@ impl HookEchoApp {
         entries.push(("detections.csv".into(), self.detections_csv().into_bytes()));
         let (impacts_csv, impacts_md) = self.impact_report(now);
         entries.push(("impacts.csv".into(), impacts_csv.into_bytes()));
+        entries.push((
+            "impacts.html".into(),
+            super::impact_report::impacts_html(&impacts_md).into_bytes(),
+        ));
         entries.push(("impacts.md".into(), impacts_md.into_bytes()));
         if let Some(s) = self.region.samples() {
             entries.push(("probes/region.csv".into(), s.to_csv().into_bytes()));
