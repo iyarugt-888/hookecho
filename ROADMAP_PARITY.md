@@ -1152,6 +1152,13 @@ MRMS MESH/AzShear trails remain the native MRMS accumulations. Checks: clippy cl
 - Trails across radars and tilts.
 - An interactive scrub.
 
+**Evidence ledger — 2026-10-09, increment 6 (a reflectivity floor for CC-minimum trails; 1008.md C1):** the finding of increment 5 is fixed. A minimum-CC trail counts a gate only where the same tilt's reflectivity there is at least 20 dBZ (`extrema::mask_below`, `CC_MIN_REF_FLOOR_DBZ`, applied in `app::trail` before each frame is pushed). The moments are matched by azimuth and slant range, so different gate geometry lines up. The status line says so. Moore hour results:
+
+- 1,570,527 CC gates cleared across the frames.
+- The floored trail ([`moore-trail-min-cc-ref20.png`](docs/certification/m3.4/moore-trail-min-cc-ref20.png), `3334d798…`) keeps only the storms. It shows a coherent low-CC region just west of KTLX along the Moore storm's track, consistent with the debris signature but not checked against the damage survey.
+
+Test: `a_gate_without_enough_echo_behind_it_is_cleared`. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,572 passed (`target/parity-review/m7.1/h2c1-*.log`, shared with the soak render profile).
+
 #### M3.5 — Add translucent volume rendering and richer surfaces
 
 **Priority:** P1. **Depends on:** M0.3, M1.1, M1.2, M3.2. **Original references:** ROADMAP_NEW §§H1, H2, H3, H7; ROADMAP_2 §§11.2, 14.

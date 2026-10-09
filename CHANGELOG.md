@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the minimum-CC trail only counts gates with echo
+
+A minimum correlation-coefficient trail now ignores gates where reflectivity is below 20 dBZ.
+Over an hour, weak echoes and clear air were painting the whole map with low values. On the
+2013 Moore hour, the trail now shows the storms only, with a low-CC area along the tornado's
+track.
+
 ### Verified: rendering the same loop twice gives the same file
 
 Rendering the same archived radar loop twice with `--watch` produced byte-identical GIFs, with

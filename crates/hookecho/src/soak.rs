@@ -15,8 +15,15 @@
 //! CI job or a shell loop can run it. Profiles are just lengths: 120 minutes for a developer smoke
 //! soak, 720 for the 12-hour severe-weather soak, 1440 for the 24-hour one. Native only.
 //!
-//! This soaks the data path, headless. The renderer's own long-run behaviour (GPU memory, frame
-//! pacing) is what the Analyst log's telemetry watches in a real window.
+//! With `--render` (ROADMAP_PARITY M7.1, 1008.md H2) each new volume also goes through the
+//! production renderer on one long-lived GPU device, as the app's pane does: a scenario clock
+//! rotates the product (REF, VEL, CC, ZDR) and the tilt (the lowest four) cycle by cycle, draws
+//! that sweep with the map renderer, then builds the 3D smooth volume and uploads it. Each is
+//! timed, and the GPU's allocated bytes (the backend's allocator report; unknown where it has
+//! none) are tracked like resident memory: growth after warm-up fails the soak, and so does any
+//! render that fails. `--jsonl PATH` writes one timestamped JSON line per cycle, after a first
+//! line naming the run (site, profile, build, adapter). The window's own frame pacing and
+//! presentation remain the Analyst log's telemetry in a real window.
 
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -79,6 +86,16 @@ pub struct Judge {
     pub rss_baseline_mb: Option<f64>,
     pub rss_last_mb: Option<f64>,
     pub rss_max_mb: Option<f64>,
+    /// With `--render`: frames drawn, those that failed, and the slowest stages.
+    pub renders: u32,
+    pub render_failures: u32,
+    pub render_ms_max: f64,
+    pub build3d_ms_max: f64,
+    pub upload3d_ms_max: f64,
+    /// GPU memory the backend's allocator reports, MB; `None` where it reports none.
+    pub gpu_baseline_mb: Option<f64>,
+    pub gpu_last_mb: Option<f64>,
+    pub gpu_max_mb: Option<f64>,
     /// Why it failed; empty while it has not.
     pub problems: Vec<String>,
 }
@@ -138,6 +155,28 @@ impl Judge {
         self.rss_max_mb = Some(self.rss_max_mb.map_or(mb, |m: f64| m.max(mb)));
     }
 
+    /// A render-profile cycle: drawn (with its stage times) or failed.
+    pub fn rendered(&mut self, stats: Result<&RenderStats, &str>) {
+        match stats {
+            Ok(s) => {
+                self.renders += 1;
+                self.render_ms_max = self.render_ms_max.max(s.render_ms);
+                self.build3d_ms_max = self.build3d_ms_max.max(s.build3d_ms);
+                self.upload3d_ms_max = self.upload3d_ms_max.max(s.upload3d_ms);
+            }
+            Err(_) => self.render_failures += 1,
+        }
+    }
+
+    /// GPU memory allocated now, in MB. The baseline is taken when the resident one is.
+    pub fn gpu(&mut self, mb: f64) {
+        if self.gpu_baseline_mb.is_none() && self.volumes >= self.rules().warmup_volumes {
+            self.gpu_baseline_mb = Some(mb);
+        }
+        self.gpu_last_mb = Some(mb);
+        self.gpu_max_mb = Some(self.gpu_max_mb.map_or(mb, |m: f64| m.max(mb)));
+    }
+
     /// Whether the run so far passes, as of `now` since the start; `ended` when it is over (an
     /// unrecovered streak only counts once there is no more time to recover in).
     pub fn verdict(&self, now: Duration, ended: bool) -> Vec<String> {
@@ -163,6 +202,20 @@ impl Judge {
                     "Memory grew from {base:.0} MB to {last:.0} MB after warming up"
                 ));
             }
+        }
+        if let (Some(base), Some(last)) = (self.gpu_baseline_mb, self.gpu_last_mb) {
+            if last > base * r.max_growth && last - base > r.min_growth_mb {
+                out.push(format!(
+                    "GPU memory grew from {base:.0} MB to {last:.0} MB after warming up"
+                ));
+            }
+        }
+        if self.render_failures > 0 {
+            out.push(format!(
+                "Rendering failed {} time{}",
+                self.render_failures,
+                if self.render_failures == 1 { "" } else { "s" }
+            ));
         }
         out
     }
@@ -199,12 +252,196 @@ pub fn rss_mb() -> Option<f64> {
     }
 }
 
+/// What a soak exercises beyond the data path.
+#[derive(Debug, Clone, Default)]
+pub struct Options {
+    /// Hand every fourth new volume over cut in half as well.
+    pub inject: bool,
+    /// The render profile: each new volume through the renderer on one GPU device.
+    pub render: bool,
+    /// Write one JSON line per cycle here.
+    pub jsonl: Option<std::path::PathBuf>,
+}
+
+/// One render-profile cycle's stages, ms.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenderStats {
+    pub moment: &'static str,
+    pub tilt: usize,
+    pub render_ms: f64,
+    pub build3d_ms: f64,
+    pub upload3d_ms: f64,
+}
+
+/// The products the scenario clock rotates through.
+const ROTATION: [wxdata::level2::Moment; 4] = [
+    wxdata::level2::Moment::Reflectivity,
+    wxdata::level2::Moment::Velocity,
+    wxdata::level2::Moment::CorrelationCoefficient,
+    wxdata::level2::Moment::DifferentialReflectivity,
+];
+
+/// The scenario clock: cycle `n` draws this product at this tilt (the lowest four).
+pub fn scenario(n: u32, tilts: usize) -> (wxdata::level2::Moment, usize) {
+    let moment = ROTATION[n as usize % ROTATION.len()];
+    let tilt = (n as usize / ROTATION.len()) % tilts.clamp(1, 4);
+    (moment, tilt)
+}
+
+/// One GPU device kept for the whole run, with the map's and the 3D view's renderers, as a pane
+/// keeps them.
+pub(crate) struct RenderProfile {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pub adapter: String,
+    resources: crate::render::RenderResources,
+    res3d: crate::render3d::Volume3dResources,
+    _target: wgpu::Texture,
+    view: wgpu::TextureView,
+}
+
+impl RenderProfile {
+    const SIZE: u32 = 1024;
+
+    pub(crate) fn new(rt: &tokio::runtime::Runtime) -> anyhow::Result<Self> {
+        let (device, queue, adapter) = crate::headless::init_gpu(rt)?;
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let resources = crate::render::RenderResources::new(&device, format);
+        let res3d = crate::render3d::Volume3dResources::new(&device, format);
+        let target = crate::headless::new_target(&device, format, Self::SIZE);
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let info = adapter.get_info();
+        Ok(Self {
+            device,
+            queue,
+            adapter: format!("{} ({:?})", info.name, info.backend),
+            resources,
+            res3d,
+            _target: target,
+            view,
+        })
+    }
+
+    /// GPU memory the backend's allocator holds for this device, MB; `None` where unreported.
+    pub(crate) fn gpu_mb(&self) -> Option<f64> {
+        self.device
+            .generate_allocator_report()
+            .map(|r| r.total_allocated_bytes as f64 / (1024.0 * 1024.0))
+    }
+
+    /// Cycle `n`'s scenario on `scan`: the sweep drawn, then the 3D volume built and uploaded.
+    pub(crate) fn exercise(
+        &mut self,
+        scan: &wxdata::level2::Scan,
+        n: u32,
+    ) -> anyhow::Result<RenderStats> {
+        use wxdata::level2::{self, Moment};
+        let tilts = level2::elevation_angles(scan).len();
+        let (moment, tilt) = scenario(n, tilts);
+        let t = Instant::now();
+        let sweep = level2::bin_scan(scan, moment, tilt)?;
+        let camera = crate::render::mercator::Camera::at_lonlat(
+            f64::from(sweep.radar_lon),
+            f64::from(sweep.radar_lat),
+            8.5,
+        );
+        let cb = crate::headless::sweep_callback(
+            &sweep,
+            &camera,
+            Self::SIZE,
+            crate::colormap::default_table(moment),
+        );
+        let clear = wgpu::Color::BLACK;
+        self.resources
+            .render_once(&self.device, &self.queue, &self.view, &cb, clear);
+        let mut next = cb;
+        next.radar_upload = None;
+        self.resources
+            .render_once(&self.device, &self.queue, &self.view, &next, clear);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| anyhow::anyhow!("GPU poll after the sweep: {e}"))?;
+        let render_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let t = Instant::now();
+        let sweeps: Vec<_> = (0..tilts)
+            .filter_map(|k| level2::bin_scan_opts(scan, Moment::Reflectivity, k, false).ok())
+            .collect();
+        let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        let v3 = wxdata::volume3d::build(&sweeps, 192, 48, half_km, 18.0)
+            .ok_or_else(|| anyhow::anyhow!("no 3D volume from {} tilts", sweeps.len()))?;
+        let build3d_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let t = Instant::now();
+        let lut = crate::colormap::bake_lut(
+            crate::colormap::default_table(Moment::Reflectivity),
+            (v3.value_min, v3.value_max),
+            None,
+        )
+        .to_vec();
+        self.res3d.upload(
+            &self.device,
+            &self.queue,
+            &crate::render3d::Volume3dUpload {
+                data: crate::render3d::pack_rg8(&v3.data),
+                n: v3.n as u32,
+                nz: v3.nz as u32,
+                lut,
+                half_km: v3.half_km,
+                center_km: [0.0, 0.0],
+                top_km: v3.top_km,
+                outside: 0.0,
+                value_range: None,
+                lut_range: None,
+            },
+        );
+        self.queue.submit(std::iter::empty());
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| anyhow::anyhow!("GPU poll after the 3D upload: {e}"))?;
+        Ok(RenderStats {
+            moment: moment.short_name(),
+            tilt,
+            render_ms,
+            build3d_ms,
+            upload3d_ms: t.elapsed().as_secs_f64() * 1000.0,
+        })
+    }
+}
+
 /// Run the soak. Returns whether it passed.
-pub fn run(site: &str, minutes: u64, inject: bool) -> anyhow::Result<bool> {
+pub fn run(site: &str, minutes: u64, opts: &Options) -> anyhow::Result<bool> {
+    use std::io::Write as _;
     use wxdata::level2::{self, Moment};
+    let inject = opts.inject;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+    let mut profile = if opts.render {
+        Some(RenderProfile::new(&rt)?)
+    } else {
+        None
+    };
+    let mut jsonl = match &opts.jsonl {
+        Some(path) => Some(std::io::BufWriter::new(std::fs::File::create(path)?)),
+        None => None,
+    };
+    if let Some(out) = jsonl.as_mut() {
+        writeln!(
+            out,
+            "{}",
+            serde_json::json!({
+                "run": "soak",
+                "site": site.to_ascii_uppercase(),
+                "minutes": minutes,
+                "inject": inject,
+                "profile": if opts.render { "render" } else { "data" },
+                "build": env!("CARGO_PKG_VERSION"),
+                "adapter": profile.as_ref().map(|p| p.adapter.clone()),
+                "started_utc": chrono::Utc::now().to_rfc3339(),
+            })
+        )?;
+        out.flush()?;
+    }
+    let mut scenario_n = 0u32;
     let rules = Rules::default();
     let mut judge = Judge::new(rules);
     let start = Instant::now();
@@ -222,6 +459,7 @@ pub fn run(site: &str, minutes: u64, inject: bool) -> anyhow::Result<bool> {
     );
     while start.elapsed() < deadline {
         let began = Instant::now();
+        let mut new_scan: Option<wxdata::level2::Scan> = None;
         let outcome = rt.block_on(async {
             let id = match level2::latest_identifier(&site).await {
                 Ok(id) => id,
@@ -271,16 +509,66 @@ pub fn run(site: &str, minutes: u64, inject: bool) -> anyhow::Result<bool> {
             }
             let bin_ms = t.elapsed().as_secs_f64() * 1000.0;
             last_name = Some(name);
+            new_scan = Some(scan);
             Outcome::NewVolume {
                 decode_ms,
                 bin_ms,
                 sweeps: binned,
             }
         });
+        // The render profile: the new volume through the renderer on the long-lived device.
+        let rendered = match (profile.as_mut(), new_scan.take()) {
+            (Some(p), Some(scan)) => {
+                let r = p.exercise(&scan, scenario_n).map_err(|e| format!("{e:#}"));
+                scenario_n += 1;
+                judge.rendered(r.as_ref().map_err(String::as_str));
+                Some(r)
+            }
+            _ => None,
+        };
+        let gpu_mb = profile.as_ref().and_then(RenderProfile::gpu_mb);
         let at = start.elapsed();
         judge.cycle(at, &outcome);
         if let Some(mb) = rss_mb() {
             judge.rss(mb);
+        }
+        if let Some(mb) = gpu_mb {
+            judge.gpu(mb);
+        }
+        if let Some(out) = jsonl.as_mut() {
+            let (kind, detail) = match &outcome {
+                Outcome::NewVolume { .. } => ("new", None),
+                Outcome::NoChange => ("no change", None),
+                Outcome::Failed(e) => ("failed", Some(e.clone())),
+            };
+            let (decode_ms, bin_ms) = match &outcome {
+                Outcome::NewVolume {
+                    decode_ms, bin_ms, ..
+                } => (Some(*decode_ms), Some(*bin_ms)),
+                _ => (None, None),
+            };
+            writeln!(
+                out,
+                "{}",
+                serde_json::json!({
+                    "t_s": at.as_secs_f64(),
+                    "utc": chrono::Utc::now().to_rfc3339(),
+                    "outcome": kind,
+                    "error": detail,
+                    "volume": matches!(outcome, Outcome::NewVolume { .. })
+                        .then(|| last_name.clone())
+                        .flatten(),
+                    "decode_ms": decode_ms,
+                    "bin_ms": bin_ms,
+                    "render": rendered.as_ref().map(|r| match r {
+                        Ok(s) => serde_json::to_value(s).unwrap_or_default(),
+                        Err(e) => serde_json::json!({ "failed": e }),
+                    }),
+                    "rss_mb": judge.rss_last_mb,
+                    "gpu_mb": gpu_mb,
+                })
+            )?;
+            out.flush()?;
         }
         let mem = judge
             .rss_last_mb
@@ -291,9 +579,22 @@ pub fn run(site: &str, minutes: u64, inject: bool) -> anyhow::Result<bool> {
                 bin_ms,
                 sweeps,
             } => println!(
-                "{:>6.1} min  new {}  decode {decode_ms:.0} ms  bin {sweeps} sweeps {bin_ms:.0} ms{mem}",
+                "{:>6.1} min  new {}  decode {decode_ms:.0} ms  bin {sweeps} sweeps {bin_ms:.0} ms{mem}{}",
                 at.as_secs_f64() / 60.0,
-                last_name.as_deref().unwrap_or("?")
+                last_name.as_deref().unwrap_or("?"),
+                match &rendered {
+                    Some(Ok(s)) => format!(
+                        " · drew {} tilt {} {:.0} ms, 3D {:.0}+{:.0} ms{}",
+                        s.moment,
+                        s.tilt + 1,
+                        s.render_ms,
+                        s.build3d_ms,
+                        s.upload3d_ms,
+                        gpu_mb.map_or(String::new(), |g| format!(", GPU {g:.0} MB"))
+                    ),
+                    Some(Err(e)) => format!(" · RENDER FAILED: {e}"),
+                    None => String::new(),
+                }
             ),
             Outcome::NoChange => println!("{:>6.1} min  no change{mem}", at.as_secs_f64() / 60.0),
             Outcome::Failed(e) => println!(
@@ -331,6 +632,102 @@ mod tests {
             decode_ms: 400.0,
             bin_ms: 100.0,
             sweeps: 30,
+        }
+    }
+
+    #[test]
+    fn the_scenario_clock_rotates_products_then_tilts() {
+        use wxdata::level2::Moment;
+        let seen: Vec<_> = (0..10).map(|n| scenario(n, 14)).collect();
+        assert_eq!(seen[0], (Moment::Reflectivity, 0));
+        assert_eq!(seen[3], (Moment::DifferentialReflectivity, 0));
+        assert_eq!(seen[4], (Moment::Reflectivity, 1));
+        assert_eq!(
+            scenario(16, 14),
+            (Moment::Reflectivity, 0),
+            "the lowest four tilts"
+        );
+        assert_eq!(scenario(5, 1).1, 0, "a one-tilt scan stays on it");
+        assert_eq!(scenario(5, 0).1, 0);
+    }
+
+    #[test]
+    fn gpu_growth_and_any_failed_render_fail_the_soak() {
+        let stats = RenderStats {
+            moment: "REF",
+            tilt: 0,
+            render_ms: 5.0,
+            build3d_ms: 20.0,
+            upload3d_ms: 7.0,
+        };
+        let mut j = Judge::new(Rules::default());
+        for s in 0..3 {
+            j.cycle(Duration::from_secs(s), &vol());
+            j.rendered(Ok(&stats));
+        }
+        j.gpu(100.0);
+        j.gpu(120.0);
+        assert!(j.verdict(Duration::from_secs(4), true).is_empty());
+        assert_eq!((j.renders, j.render_ms_max), (3, 5.0));
+        j.gpu(500.0);
+        let p = j.verdict(Duration::from_secs(5), true);
+        assert!(
+            p.iter()
+                .any(|p| p.contains("GPU memory grew from 100 MB to 500 MB")),
+            "{p:?}"
+        );
+        let mut j = Judge::new(Rules::default());
+        j.rendered(Err("device lost"));
+        let p = j.verdict(Duration::ZERO, false);
+        assert_eq!(p, ["Rendering failed 1 time"]);
+    }
+
+    /// The render profile on the Moore 2013 volume for 40 scenario cycles on one device: every
+    /// cycle draws, and the GPU's allocated memory stops growing once every product has been
+    /// drawn. Writes `target/parity-review/m7.1/render-profile.txt`.
+    #[test]
+    #[ignore = "gpu: the render profile on a real volume"]
+    fn gpu_render_profile_holds_its_memory() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let path = repo.join("target/scientific-corpus/KTLX20130520_201229_V06.gz");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("SKIP: {} not provisioned", path.display());
+            return;
+        };
+        let scan = wxdata::level2::decode_volume(bytes).expect("Moore 2013 decodes");
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut p = RenderProfile::new(&rt).expect("GPU adapter");
+        let mut lines = vec![format!("adapter: {}", p.adapter)];
+        let mut gpu = Vec::new();
+        for n in 0..40 {
+            let s = p.exercise(&scan, n).expect("each cycle draws");
+            let mb = p.gpu_mb();
+            gpu.push(mb);
+            lines.push(format!(
+                "cycle {n:>2}: {} tilt {} drawn {:.1} ms, 3D built {:.1} ms, uploaded {:.1} ms, GPU {}",
+                s.moment,
+                s.tilt + 1,
+                s.render_ms,
+                s.build3d_ms,
+                s.upload3d_ms,
+                mb.map_or("unreported".to_string(), |m| format!("{m:.1} MB"))
+            ));
+        }
+        let report = lines.join("\n") + "\n";
+        print!("{report}");
+        let dir = repo.join("target/parity-review/m7.1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("render-profile.txt"), report).unwrap();
+        // After the first full rotation (all four products, all four tilts: 16 cycles) the
+        // allocation must not keep rising.
+        if let (Some(Some(warm)), Some(Some(last))) = (gpu.get(16), gpu.last()) {
+            assert!(
+                *last <= warm * 1.05 + 1.0,
+                "GPU memory kept growing: {warm:.1} MB at cycle 16, {last:.1} MB at the end"
+            );
         }
     }
 

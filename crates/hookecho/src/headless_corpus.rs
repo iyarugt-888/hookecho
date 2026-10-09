@@ -15,55 +15,12 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
 };
 
 fn callback(sweep: &BinnedSweep, camera: &Camera) -> MapCallback {
-    let viewport = (SIZE as f32, SIZE as f32);
-    let (center, scale) = camera.world_to_clip_uniform(viewport);
-    MapCallback {
-        pane: 0,
-        camera_center: center,
-        camera_scale: scale,
-        world_per_pixel: camera.world_per_pixel() as f32,
-        camera_view_proj: camera.view_projection_uniform(viewport),
-        camera_3d: 0.0,
-        camera_globe: [0.0; 4],
-        basemap_key: 0,
-        basemap_context: Default::default(),
-        vector_over_raster: false,
-        new_tiles: Vec::new(),
-        visible: Vec::new(),
-        radar_upload: Some(crate::app::to_upload(
-            sweep,
-            crate::colormap::default_table(Moment::Reflectivity),
-            None,
-            false,
-            None,
-            None,
-            false,
-            None,
-        )),
-        draw_radar: true,
-        observed_upload: None,
-        draw_observed: false,
-        overlay_upload: None,
-        draw_overlay: false,
-        field_uploads: Vec::new(),
-        model_uploads: Vec::new(),
-        model_fields: Vec::new(),
-        drop_model_fields: Vec::new(),
-        mrms_uploads: Vec::new(),
-        mrms_fields: Vec::new(),
-        drop_mrms_fields: Vec::new(),
-        field_draws: Vec::new(),
-        field_swipe: None,
-        clear_tiles: false,
-        drop_tiles: Vec::new(),
-        drop_fields: Vec::new(),
-        new_vector_tiles: Vec::new(),
-        visible_vector: Vec::new(),
-        clear_vector: false,
-        drop_vector_tiles: Vec::new(),
-        wind_upload: None,
-        wind: None,
-    }
+    super::sweep_callback(
+        sweep,
+        camera,
+        SIZE,
+        crate::colormap::default_table(Moment::Reflectivity),
+    )
 }
 
 fn linear(byte: u8) -> f64 {
@@ -910,9 +867,24 @@ fn gpu_moore_trail_capture() {
         Moment::CorrelationCoefficient,
         "moore-trail-min-cc.png",
     );
+    // The same minimum with each frame's CC cleared where its reflectivity is below the floor,
+    // as the app's trail now does.
+    let mut floored = SlidingTrail::new(Extremum::Min, window_s, 64);
+    let mut cleared = 0usize;
+    for ((t, r), (_, c)) in refl.iter().zip(&cc) {
+        let mut c = c.clone();
+        cleared += wxdata::extrema::mask_below(&mut c, r, wxdata::extrema::CC_MIN_REF_FLOOR_DBZ);
+        floored.push(*t, &c);
+    }
+    let floored = floored.at(newest).expect("a floored CC trail");
+    let h_floor = draw(
+        &floored.sweep,
+        Moment::CorrelationCoefficient,
+        "moore-trail-min-cc-ref20.png",
+    );
     let c = trail.coverage;
     let report = format!(
-        "adapter: {} ({:?})\nKTLX 2013-05-20, 0.5 deg, window {} min ending {}\nvolumes ({}): {}\nmerges: {}\ncoverage: {} frames from {} to {}, {} missing at the trail's cadence, {} s short\nmaximum reflectivity: {checked} gates with a measurement checked against a brute-force maximum, {wrong} differ\nrgba sha256: last volume {h_last}, max REF trail {h_max}, min CC trail {h_min}\n",
+        "adapter: {} ({:?})\nKTLX 2013-05-20, 0.5 deg, window {} min ending {}\nvolumes ({}): {}\nmerges: {}\ncoverage: {} frames from {} to {}, {} missing at the trail's cadence, {} s short\nmaximum reflectivity: {checked} gates with a measurement checked against a brute-force maximum, {wrong} differ\nrgba sha256: last volume {h_last}, max REF trail {h_max}, min CC trail {h_min}, min CC trail at REF >= 20 dBZ {h_floor} ({cleared} CC gates cleared over the frames)\n",
         adapter.get_info().name,
         adapter.get_info().backend,
         window_s / 60,

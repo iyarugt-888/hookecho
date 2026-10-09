@@ -4254,7 +4254,7 @@ pub fn run_spotters(site: &str) -> anyhow::Result<()> {
 }
 
 /// Create a headless GPU device/queue.
-fn init_gpu(
+pub(crate) fn init_gpu(
     rt: &tokio::runtime::Runtime,
 ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, wgpu::Adapter)> {
     let instance = wgpu::Instance::default();
@@ -4268,6 +4268,58 @@ fn init_gpu(
     let (device, queue) =
         rt.block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
     Ok((device, queue, adapter))
+}
+
+/// One binned sweep as the map draws it, alone on a `size`×`size` target: no tiles, overlays or
+/// fields. The corpus captures and the soak's render profile draw through this.
+pub(crate) fn sweep_callback(
+    sweep: &level2::BinnedSweep,
+    camera: &crate::render::mercator::Camera,
+    size: u32,
+    table: &crate::colormap::ColorTable,
+) -> crate::render::MapCallback {
+    let viewport = (size as f32, size as f32);
+    let (center, scale) = camera.world_to_clip_uniform(viewport);
+    crate::render::MapCallback {
+        pane: 0,
+        camera_center: center,
+        camera_scale: scale,
+        world_per_pixel: camera.world_per_pixel() as f32,
+        camera_view_proj: camera.view_projection_uniform(viewport),
+        camera_3d: 0.0,
+        camera_globe: [0.0; 4],
+        basemap_key: 0,
+        basemap_context: Default::default(),
+        vector_over_raster: false,
+        new_tiles: Vec::new(),
+        visible: Vec::new(),
+        radar_upload: Some(crate::app::to_upload(
+            sweep, table, None, false, None, None, false, None,
+        )),
+        draw_radar: true,
+        observed_upload: None,
+        draw_observed: false,
+        overlay_upload: None,
+        draw_overlay: false,
+        field_uploads: Vec::new(),
+        model_uploads: Vec::new(),
+        model_fields: Vec::new(),
+        drop_model_fields: Vec::new(),
+        mrms_uploads: Vec::new(),
+        mrms_fields: Vec::new(),
+        drop_mrms_fields: Vec::new(),
+        field_draws: Vec::new(),
+        field_swipe: None,
+        clear_tiles: false,
+        drop_tiles: Vec::new(),
+        drop_fields: Vec::new(),
+        new_vector_tiles: Vec::new(),
+        visible_vector: Vec::new(),
+        clear_vector: false,
+        drop_vector_tiles: Vec::new(),
+        wind_upload: None,
+        wind: None,
+    }
 }
 
 /// Read a `size×size` RGBA render target back to a tightly-packed byte vec.
@@ -4329,7 +4381,11 @@ fn read_target(
     rgba
 }
 
-fn new_target(device: &wgpu::Device, format: wgpu::TextureFormat, size: u32) -> wgpu::Texture {
+pub(crate) fn new_target(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    size: u32,
+) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("headless_target"),
         size: wgpu::Extent3d {

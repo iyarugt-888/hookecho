@@ -609,9 +609,109 @@ fn mismatch(acc: &BinnedSweep, sweep: &BinnedSweep) -> Option<Mismatch> {
     None
 }
 
+/// Reflectivity below which a correlation-coefficient minimum is not a debris signal: a weak or
+/// clear-air gate's CC is noise, and over an hour its minimum paints the whole field (seen on the
+/// Moore 2013 hour, 1008.md C1). Debris signatures sit in echo well above this.
+pub const CC_MIN_REF_FLOOR_DBZ: f32 = 20.0;
+
+/// Clear every gate of `sweep` where `by` (the same tilt's other moment, e.g. reflectivity) is
+/// missing or below `floor` in its own units: the gate becomes "below threshold", so it never
+/// wins a trail. Each gate of `sweep` is matched to the gate of `by` at the same azimuth and
+/// slant range, so moments binned with different gate spacing, first gate or azimuth bins line
+/// up. Returns how many gates were cleared.
+pub fn mask_below(sweep: &mut BinnedSweep, by: &BinnedSweep, floor: f32) -> usize {
+    if sweep.az_bins == 0 || by.az_bins == 0 || by.gate_count == 0 {
+        let n = sweep
+            .data
+            .iter()
+            .filter(|c| **c >= FIRST_VALUE_CODE)
+            .count();
+        sweep.data.iter_mut().for_each(|c| *c = 0);
+        return n;
+    }
+    let span = (by.value_max - by.value_min).max(f32::EPSILON);
+    let mut cleared = 0;
+    for bin in 0..sweep.az_bins {
+        // The azimuth at this bin's centre, in the other sweep's bins.
+        let by_bin =
+            ((bin as f64 + 0.5) / sweep.az_bins as f64 * by.az_bins as f64) as usize % by.az_bins;
+        for gate in 0..sweep.gate_count {
+            let i = bin * sweep.gate_count + gate;
+            let Some(code) = sweep.data.get_mut(i) else {
+                break;
+            };
+            if *code < FIRST_VALUE_CODE {
+                continue;
+            }
+            let range =
+                sweep.first_gate_km as f64 + (gate as f64 + 0.5) * sweep.gate_interval_km as f64;
+            let g =
+                ((range - by.first_gate_km as f64) / by.gate_interval_km.max(1e-6) as f64).floor();
+            let other = (g >= 0.0 && (g as usize) < by.gate_count)
+                .then(|| by.data.get(by_bin * by.gate_count + g as usize).copied())
+                .flatten()
+                .filter(|c| *c >= FIRST_VALUE_CODE)
+                .map(|c| by.value_min + (c - FIRST_VALUE_CODE) as f32 / 253.0 * span);
+            if other.is_none_or(|v| v < floor) {
+                *code = 0;
+                cleared += 1;
+            }
+        }
+    }
+    cleared
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gate_without_enough_echo_behind_it_is_cleared() {
+        use crate::level2::Moment;
+        // CC on 4 gates of 0.25 km from 0 km over 8 azimuths; reflectivity binned coarser
+        // (0.5 km gates) over 4 azimuths, strong only in its first two azimuths' near gate.
+        let mut cc = sweep(Moment::CorrelationCoefficient, &[200; AZ * GATES]);
+        cc.data[1] = 1; // a folded gate stays as it is
+        let (rmin, rmax) = Moment::Reflectivity.value_range();
+        let code = |dbz: f32| (2.0 + (dbz - rmin) / (rmax - rmin) * 253.0).round() as u8;
+        let mut refl = BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins: 4,
+            gate_count: 2,
+            data: vec![code(5.0); 4 * 2],
+            first_gate_km: 0.0,
+            gate_interval_km: 0.5,
+            value_min: rmin,
+            value_max: rmax,
+            ..Default::default()
+        };
+        refl.data[0] = code(45.0); // azimuth 0, 0-0.5 km
+        refl.data[2] = code(45.0); // azimuth 1, 0-0.5 km
+        refl.data[4] = 0; // azimuth 2, near gate: no echo at all
+        let cleared = mask_below(&mut cc, &refl, CC_MIN_REF_FLOOR_DBZ);
+        // CC azimuths 0-3 map to reflectivity azimuths 0 and 1; their first two CC gates
+        // (0-0.5 km) sit in the strong gate and stay. Everything else is cleared.
+        for bin in 0..AZ {
+            for gate in 0..GATES {
+                let c = cc.data[bin * GATES + gate];
+                if bin == 0 && gate == 1 {
+                    assert_eq!(c, 1, "a folded gate is not a value and is left");
+                } else if bin < 4 && gate < 2 {
+                    assert_eq!(c, 200, "azimuth {bin} gate {gate} has echo behind it");
+                } else {
+                    assert_eq!(c, 0, "azimuth {bin} gate {gate}");
+                }
+            }
+        }
+        assert_eq!(cleared, AZ * GATES - 7 - 1);
+        // A minimum trail over masked frames keeps only gates with echo behind them.
+        let mut acc = start(&cc);
+        let mut later = sweep(Moment::CorrelationCoefficient, &[150; AZ * GATES]);
+        mask_below(&mut later, &refl, CC_MIN_REF_FLOOR_DBZ);
+        accumulate(&mut acc, &later, Extremum::Min);
+        assert_eq!(acc.data[0], 150);
+        assert_eq!(acc.data[AZ * GATES - 1], 0, "no echo, no minimum");
+    }
 
     #[test]
     fn the_outline_encloses_the_cells_past_the_level() {

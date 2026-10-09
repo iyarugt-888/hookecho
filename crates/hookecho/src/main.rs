@@ -81,20 +81,32 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
-    // Soak: `hookecho --soak SITE [MINUTES] [--inject]` — the Level II path on a cycle for hours,
-    // failing on a stall, an unrecovered failure, accepted corruption or memory growth.
+    // Soak: `hookecho --soak SITE [MINUTES] [--inject] [--render] [--jsonl PATH]` — the Level II
+    // path on a cycle for hours (and, with --render, the renderer on one GPU device), failing on
+    // a stall, an unrecovered failure, accepted corruption, memory growth or a failed render.
     if let Some(pos) = args.iter().position(|a| a == "--soak") {
+        let jsonl_at = args.iter().position(|a| a == "--jsonl");
         let rest: Vec<&String> = args[pos + 1..]
             .iter()
-            .filter(|a| !a.starts_with("--"))
+            .enumerate()
+            .filter(|(i, a)| !a.starts_with("--") && jsonl_at != Some(pos + 1 + i - 1))
+            .map(|(_, a)| a)
             .collect();
         let Some(site) = rest.first() else {
-            eprintln!("usage: hookecho --soak SITE [MINUTES] [--inject]");
+            eprintln!(
+                "usage: hookecho --soak SITE [MINUTES] [--inject] [--render] [--jsonl PATH]"
+            );
             std::process::exit(2);
         };
         let minutes = rest.get(1).and_then(|m| m.parse().ok()).unwrap_or(120);
-        let inject = args.iter().any(|a| a == "--inject");
-        match hookecho::soak::run(site, minutes, inject) {
+        let opts = hookecho::soak::Options {
+            inject: args.iter().any(|a| a == "--inject"),
+            render: args.iter().any(|a| a == "--render"),
+            jsonl: jsonl_at
+                .and_then(|i| args.get(i + 1))
+                .map(std::path::PathBuf::from),
+        };
+        match hookecho::soak::run(site, minutes, &opts) {
             Ok(true) => return Ok(()),
             Ok(false) => std::process::exit(1),
             Err(e) => {

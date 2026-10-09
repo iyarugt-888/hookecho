@@ -255,7 +255,23 @@ impl HookEchoApp {
                 state.skipped.insert(name.clone());
                 continue;
             };
-            match level2::bin_scan(&scan, moment, tilt) {
+            match level2::bin_scan(&scan, moment, tilt).map(|mut sweep| {
+                // A CC minimum counts only where there is echo to measure (1008.md C1): the
+                // same tilt's reflectivity below the floor clears the gate.
+                if keep == Extremum::Min && moment == Moment::CorrelationCoefficient {
+                    match level2::bin_scan(&scan, Moment::Reflectivity, tilt) {
+                        Ok(refl) => {
+                            wxdata::extrema::mask_below(
+                                &mut sweep,
+                                &refl,
+                                wxdata::extrema::CC_MIN_REF_FLOOR_DBZ,
+                            );
+                        }
+                        Err(_) => sweep.data.iter_mut().for_each(|c| *c = 0),
+                    }
+                }
+                sweep
+            }) {
                 Ok(sweep) => match state.trail.push(*t, &sweep) {
                     Merge::Merged => {}
                     Merge::Skipped(_) => {
@@ -309,6 +325,12 @@ impl HookEchoApp {
         }
         if uncached > 0 && fetching == 0 {
             status.push_str(&format!(", {uncached} of the window's volumes not loaded"));
+        }
+        if keep == Extremum::Min && moment == Moment::CorrelationCoefficient {
+            status.push_str(&format!(
+                ", only where reflectivity is at least {:.0} dBZ",
+                wxdata::extrema::CC_MIN_REF_FLOOR_DBZ
+            ));
         }
         if fade {
             status.push_str(", older gates drawn fainter (values unchanged)");
