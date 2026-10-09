@@ -6,6 +6,8 @@ use super::*;
 
 pub(crate) enum OverlayMsg {
     Alerts(Vec<GeoFeature>),
+    /// The polygon warnings alone, from the 30 s poll between full refreshes.
+    WarningPolygons(Vec<GeoFeature>),
     /// Last run's alert overlay, read from disk off the launch path. Applied only if no live
     /// fetch has landed yet; it seeds the known-warning ids either way, so a restart mid-event
     /// doesn't re-banner and re-speak warnings already on the map.
@@ -171,6 +173,9 @@ pub(crate) enum OverlaySource {
     /// every saved marker. The bounds are the active pane's viewport, which is what decides
     /// whether European warnings are worth fetching alongside them.
     Alerts(Vec<(f64, f64)>, (f64, f64, f64, f64)),
+    /// The nationwide polygon warnings alone (1008.md A1), on their own lane so this poll never
+    /// supersedes a full alerts refresh.
+    WarningPolygons,
     Mds,
     /// Tornado and severe thunderstorm watch polygons in effect.
     Watches,
@@ -375,6 +380,7 @@ impl OverlaySource {
         use crate::render::FieldLayer as FL;
         match self {
             Self::Alerts(..) => RequestLane::Feed(FeedSource::WeatherAlerts),
+            Self::WarningPolygons => RequestLane::Feed(FeedSource::WarningPolygons),
             Self::Mds => RequestLane::Feed(FeedSource::MesoscaleDiscussions),
             Self::Watches => RequestLane::Feed(FeedSource::WatchBoxes),
             Self::Wssi(..) => RequestLane::Feed(FeedSource::WinterStormSeverity),
@@ -466,6 +472,13 @@ impl OverlaySource {
                 }
                 OverlayMsg::Alerts(feats)
             }
+            OverlaySource::WarningPolygons => OverlayMsg::WarningPolygons(
+                alerts::fetch_polygon_alerts(http)
+                    .await?
+                    .into_iter()
+                    .filter(|f| f.kind == wxdata::overlay::FeatureKind::Warning)
+                    .collect(),
+            ),
             OverlaySource::Mds => {
                 OverlayMsg::Mds(wxdata::spc::fetch_mesoscale_discussions(http).await?)
             }

@@ -76,6 +76,22 @@ impl HookEchoApp {
         {
             self.fetch_overlays(ctx);
         }
+        // Between full refreshes, the polygon warnings alone every 30 s (1008.md A1): one request
+        // to the same feed, unmetered connections only, never within 25 s of a full refresh.
+        let warn_secs = crate::source_health::WARNING_POLL_SECS;
+        if overlays_may_start
+            && !crate::platform::is_metered()
+            && crate::platform::activity::is_active()
+            && self
+                .overlay_last_fetch
+                .is_some_and(|t| t.elapsed().as_secs() >= 25)
+            && self
+                .warning_poll_at
+                .is_none_or(|t| t.elapsed().as_secs() >= warn_secs)
+        {
+            self.warning_poll_at = Some(Instant::now());
+            self.spawn_overlay(ctx, OverlaySource::WarningPolygons);
+        }
         // MRMS catalog fields have pane-specific product/time owners and shared exact requests.
         use crate::render::FieldLayer as FL;
         self.schedule_mrms_fields(ctx);

@@ -1448,6 +1448,8 @@ pub struct HookEchoApp {
     pending_overlay: Option<OverlayUpload>,
     overlay_ready: bool,
     overlay_last_fetch: Option<Instant>,
+    /// When the 30 s warning-polygon poll last went out (`fetch_schedule`).
+    warning_poll_at: Option<Instant>,
     detail: Option<Detail>,
     /// Several features under one click: the list to choose from (ROADMAP_PARITY M4.3).
     feature_chooser: Option<Vec<feature_chooser::ChoiceItem>>,

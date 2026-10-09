@@ -154,6 +154,11 @@ impl LatencyLog {
         }
     }
 
+    /// Whether the first reply has been seen (and with it, what was already active).
+    pub fn is_seeded(&self) -> bool {
+        self.seeded
+    }
+
     /// Whether any received message still waits for its first frame.
     pub fn awaiting_draw(&self) -> bool {
         !self.awaiting_draw.is_empty()

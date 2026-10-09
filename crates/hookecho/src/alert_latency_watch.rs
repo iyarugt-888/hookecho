@@ -145,6 +145,15 @@ pub fn report(
          `sent` time.\n\n",
         all.excluded_already_active, all.excluded_no_sent
     ));
+    // NWS `sent` times are often stamped to the minute, which shifts every latency.
+    let sents: Vec<_> = log.samples().map(|s| s.sent).collect();
+    if !sents.is_empty() && sents.iter().all(|t| t.timestamp() % 60 == 0) {
+        out.push_str(
+            "Every `sent` time was on the whole minute, so the product was issued up to 59 s \
+             after the time it states: each latency above is an upper bound, up to 59 s more \
+             than the delay from issuance.\n\n",
+        );
+    }
     match skew {
         Some(s) => out.push_str(&format!(
             "Local clock minus the server's `Date` header (1 s resolution, includes the reply's \
@@ -163,4 +172,80 @@ pub fn report(
         (APP_POLL_S - interval_s as f64).max(0.0) / 2.0
     ));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn alert(id: &str, sent: &str) -> wxdata::overlay::AlertInfo {
+        wxdata::overlay::AlertInfo {
+            id: id.into(),
+            event: "Severe Thunderstorm Warning".into(),
+            headline: String::new(),
+            area: String::new(),
+            description: String::new(),
+            instruction: String::new(),
+            expires: None,
+            issued: sent.parse().ok(),
+            effective: None,
+            max_hail_in: None,
+            max_wind: None,
+            tornado_detection: None,
+            damage_threat: None,
+            source: None,
+            motion: None,
+            vtec: None,
+        }
+    }
+
+    /// The report states the exclusions and the clock check, and says when every `sent` time
+    /// was on the minute (so each latency is an upper bound).
+    #[test]
+    fn the_report_states_its_limits() {
+        let at = |s: &str| s.parse::<chrono::DateTime<chrono::Utc>>().unwrap();
+        let mut log = LatencyLog::default();
+        log.observe(
+            [&alert("old", "2026-10-09T05:00:00Z")],
+            at("2026-10-09T05:01:00Z"),
+            "api",
+        );
+        log.observe(
+            [&alert("new", "2026-10-09T05:06:00Z")],
+            at("2026-10-09T05:06:39Z"),
+            "api",
+        );
+        let r = report(
+            &log,
+            at("2026-10-09T05:00:00Z"),
+            at("2026-10-09T06:00:00Z"),
+            20,
+            &[0.6],
+            0,
+        );
+        assert!(
+            r.contains("| Warnings, sent → seen by a poll | 1 | 39 s | 39 s |"),
+            "{r}"
+        );
+        assert!(r.contains("1 already active at the first poll"), "{r}");
+        assert!(r.contains("on the whole minute"), "{r}");
+        assert!(r.contains("p50 0.6 s"), "{r}");
+        let mut seconds = LatencyLog::default();
+        seconds.observe([], at("2026-10-09T05:00:00Z"), "api");
+        seconds.observe(
+            [&alert("s", "2026-10-09T05:06:12Z")],
+            at("2026-10-09T05:06:39Z"),
+            "api",
+        );
+        let r = report(
+            &seconds,
+            at("2026-10-09T05:00:00Z"),
+            at("2026-10-09T06:00:00Z"),
+            20,
+            &[],
+            0,
+        );
+        assert!(!r.contains("on the whole minute"), "{r}");
+        assert!(r.contains("the local clock is unchecked"), "{r}");
+    }
 }

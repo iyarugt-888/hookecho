@@ -20,6 +20,14 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Changed: new warnings arrive sooner
+
+Measured live, a new warning reached the alerts feed within about a minute of being issued, and
+the app's two-minute refresh added about 50 seconds on average on top. The app now also checks the
+warning polygons alone every 30 seconds between full refreshes (not on a metered connection), so a
+new warning should be drawn and announced about 35 seconds sooner on average (worked out from
+the measured cadence; not yet measured in a running app).
+
 ### Added: warnings straight from the NWS Weather Wire, if you run a relay
 
 Settings → MQTT has a new "Warning text topic". Point it at a topic your own NWWS-OI relay

@@ -165,6 +165,7 @@ impl HookEchoApp {
                     self.alert_features = f;
                     self.remerge_wire_alerts();
                 }
+                OverlayMsg::WarningPolygons(f) => self.accept_warning_polygons(f),
                 OverlayMsg::Mds(f) => self.md_features = f,
                 OverlayMsg::Watches(f) => self.watch_features = f,
                 OverlayMsg::Mping(r) => self.mping_reports = r,

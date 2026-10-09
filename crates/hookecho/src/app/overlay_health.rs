@@ -86,6 +86,7 @@ impl OverlayMsg {
             // or expose an expiry/forecast-window end that must not be mislabeled as observation
             // valid time. Preserve `None` until their decoders carry explicit provenance.
             Self::Alerts(_)
+            | Self::WarningPolygons(_)
             | Self::AlertSeed(_)
             | Self::Outlook(_, _)
             | Self::Mds(_)

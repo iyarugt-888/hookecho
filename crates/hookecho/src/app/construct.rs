@@ -389,6 +389,7 @@ impl HookEchoApp {
             pending_overlay: None,
             overlay_ready: false,
             overlay_last_fetch: None,
+            warning_poll_at: None,
             detail: None,
             feature_chooser: None,
             cell_popup: None,

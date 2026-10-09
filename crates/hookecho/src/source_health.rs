@@ -78,12 +78,20 @@ impl EndpointFamily {
     }
 }
 
+/// Seconds between the warning-polygon polls. Measured live (1008.md A1, 2026-10-09): the feed
+/// carried new warnings within about a minute of their `sent` time, and the 120 s overlay refresh
+/// added about 50 s on average on top; at 30 s it adds about 15.
+pub(crate) const WARNING_POLL_SECS: u64 = 30;
+
 /// A non-grid request lane. Keeping the label, cadence and endpoint family on one enum makes a
 /// newly added feed choose all three at compile time; source health never has to infer provider
 /// metadata from a human-facing string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum FeedSource {
     WeatherAlerts,
+    /// The nationwide polygon warnings alone, polled every 30 s between full alert refreshes
+    /// (1008.md A1): one request, no zone lookups.
+    WarningPolygons,
     MesoscaleDiscussions,
     WatchBoxes,
     WinterStormSeverity,
@@ -156,6 +164,7 @@ impl FeedSource {
     pub(crate) const fn severity(self) -> Severity {
         match self {
             Self::WeatherAlerts
+            | Self::WarningPolygons
             | Self::WatchBoxes
             | Self::MesoscaleDiscussions
             | Self::StormCells
@@ -170,6 +179,7 @@ impl FeedSource {
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::WeatherAlerts => "Weather alerts",
+            Self::WarningPolygons => "Warning polygons (30 s)",
             Self::MesoscaleDiscussions => "Mesoscale discussions",
             Self::WatchBoxes => "Watch boxes",
             Self::WinterStormSeverity => "Winter storm severity",
@@ -215,6 +225,7 @@ impl FeedSource {
 
     pub(crate) const fn cadence_secs(self) -> u64 {
         match self {
+            Self::WarningPolygons => WARNING_POLL_SECS,
             Self::SpotterNetwork
             | Self::LiveStations
             | Self::FieldMill
@@ -249,7 +260,9 @@ impl FeedSource {
 
     pub(crate) const fn endpoint_family(self) -> EndpointFamily {
         match self {
-            Self::WeatherAlerts | Self::SurfaceAnalysis => EndpointFamily::NwsApi,
+            Self::WeatherAlerts | Self::WarningPolygons | Self::SurfaceAnalysis => {
+                EndpointFamily::NwsApi
+            }
             Self::MesoscaleDiscussions
             | Self::WatchBoxes
             | Self::WinterStormSeverity
