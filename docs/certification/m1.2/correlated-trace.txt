@@ -1,0 +1,12 @@
+adapter: NVIDIA GeForce RTX 2060 (Vulkan)
+volume: KTLX20130520_201229_V06 (2013-05-20 20:12:29 UTC), 25 runs after 3 warm-ups, all stages from one receipt clock per run
+
+stage                                  p50 ms   p95 ms
+receipt -> decoded                       145.5    150.4
+receipt -> 0.5 deg REF binned            146.6    151.8
+receipt -> 2D GPU queue writes           147.1    152.5
+receipt -> GPU finished the 2D frame     148.3    153.4
+receipt -> 3D volume built               167.0    172.4
+receipt -> 3D volume on the GPU          173.6    182.1
+
+Presentation (display scan-out) is not observed and not reported.

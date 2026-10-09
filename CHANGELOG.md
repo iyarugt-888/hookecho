@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Measured: from receiving a radar volume to the GPU drawing it
+
+A GPU trace now follows one real volume from the moment its bytes are in hand to the GPU
+finishing the frame that draws it, stage by stage. On an RTX 2060, opening the Moore 2013 volume
+takes about 148 ms to the drawn 2D frame, almost all of it decoding. Building and uploading the
+3D volume add about 25 ms. Phones and on-screen presentation have not been measured.
+
 ### Added: finer 3D isosurfaces around a storm, and a region anywhere
 
 The 3D map's Region setting now applies to isosurfaces too, so a storm's 50 dBZ skin is built on

@@ -630,3 +630,163 @@ fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
     assert_eq!(timings.gpu_done_samples_micros().len(), 1);
     assert_eq!(timings.unobserved(), 1);
 }
+
+/// ROADMAP_PARITY M1.2 / 1008.md A3: one correlated trace from receipt to GPU completion, per
+/// frame identity, on the device this runs on. Each iteration takes the Moore 2013 volume's bytes
+/// as received and times, against that one receipt clock:
+///
+/// - decode (`level2::decode_volume`);
+/// - binning the 0.5° reflectivity sweep (`level2::bin_scan`);
+/// - the 2D upload's GPU queue writes and the GPU finishing the frame that drew it (the app's own
+///   `LiveQueueTimings` stages);
+/// - building the 3D smooth volume (192 x 192 x 48, as the 3D window does) and its upload until
+///   the GPU has it.
+///
+/// Presentation (scan-out) is not observable here and is not reported. Writes
+/// `target/parity-review/m1.2/correlated-trace.csv` (one row per iteration, with the volume's name,
+/// scan time and tilt) and `correlated-trace.txt` (p50/p95 per stage).
+/// `cargo test -p hookecho --release --lib gpu_correlated_latency_trace -- --ignored --nocapture`
+#[test]
+#[ignore = "gpu: writes the correlated receipt-to-GPU trace"]
+fn gpu_correlated_latency_trace() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let path = repo.join("target/scientific-corpus/KTLX20130520_201229_V06.gz");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("SKIP: {} not provisioned", path.display());
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let mut res3d = crate::render3d::Volume3dResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    let mut rows = vec![
+        "iteration,volume,scan_time_utc,tilt,decode_ms,bin_ms,queue_writes_ms,gpu_done_ms,build3d_ms,upload3d_done_ms"
+            .to_string(),
+    ];
+    let mut stages: [Vec<f64>; 6] = Default::default();
+    const RUNS: usize = 25;
+    for i in 0..RUNS + 3 {
+        let received = wxdata::clock::Instant::now();
+        // The same clock for the stages this test times itself.
+        let received_std = received;
+        let scan = level2::decode_volume(bytes.clone()).expect("Moore 2013 decodes");
+        let decode = received_std.elapsed();
+        let sweep = level2::bin_scan(&scan, Moment::Reflectivity, 0).expect("reflectivity");
+        let bin = received_std.elapsed();
+        let timings = std::sync::Arc::new(crate::render::LiveQueueTimings::default());
+        let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
+        let mut cb = callback(&sweep, &camera);
+        if let Some(up) = cb.radar_upload.as_mut() {
+            up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+        }
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        let mut next = callback(&sweep, &camera);
+        next.radar_upload = None;
+        resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("device poll");
+        let queued = timings.samples_micros().first().copied();
+        let done = timings.gpu_done_samples_micros().first().copied();
+        let (Some(queued), Some(done)) = (queued, done) else {
+            panic!("iteration {i}: a stage was not observed");
+        };
+        // 3D: the smooth volume as the 3D window builds it, then its upload until the GPU has it.
+        let sweeps: Vec<_> = (0..level2::elevation_angles(&scan).len())
+            .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Reflectivity, t, false).ok())
+            .collect();
+        let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        let v3 = wxdata::volume3d::build(&sweeps, 192, 48, half_km, 18.0).expect("volume");
+        let build3d = received_std.elapsed();
+        let lut = crate::colormap::bake_lut(
+            crate::colormap::default_table(Moment::Reflectivity),
+            (v3.value_min, v3.value_max),
+            None,
+        )
+        .to_vec();
+        res3d.upload(
+            &device,
+            &queue,
+            &crate::render3d::Volume3dUpload {
+                data: crate::render3d::pack_rg8(&v3.data),
+                n: v3.n as u32,
+                nz: v3.nz as u32,
+                lut,
+                half_km: v3.half_km,
+                center_km: [0.0, 0.0],
+                top_km: v3.top_km,
+                outside: 0.0,
+                value_range: None,
+                lut_range: None,
+            },
+        );
+        queue.submit(std::iter::empty());
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("device poll");
+        let upload3d = received_std.elapsed();
+        if i < 3 {
+            continue; // warm-up: pipelines, allocator, caches
+        }
+        let row = [
+            ms(decode),
+            ms(bin),
+            queued as f64 / 1000.0,
+            done as f64 / 1000.0,
+            ms(build3d),
+            ms(upload3d),
+        ];
+        for (k, v) in row.iter().enumerate() {
+            stages[k].push(*v);
+        }
+        rows.push(format!(
+            "{},{},{},0,{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}",
+            i - 3,
+            "KTLX20130520_201229_V06",
+            "2013-05-20T20:12:29Z",
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5]
+        ));
+    }
+    let names = [
+        "receipt -> decoded",
+        "receipt -> 0.5 deg REF binned",
+        "receipt -> 2D GPU queue writes",
+        "receipt -> GPU finished the 2D frame",
+        "receipt -> 3D volume built",
+        "receipt -> 3D volume on the GPU",
+    ];
+    let mut report = format!(
+        "adapter: {} ({:?})\nvolume: {} ({} UTC), {RUNS} runs after 3 warm-ups, all stages from one receipt clock per run\n\nstage                                  p50 ms   p95 ms\n",
+        adapter.get_info().name,
+        adapter.get_info().backend,
+        "KTLX20130520_201229_V06",
+        "2013-05-20 20:12:29",
+    );
+    for (name, mut v) in names.into_iter().zip(stages) {
+        v.sort_by(f64::total_cmp);
+        report.push_str(&format!(
+            "{name:38} {:7.1}  {:7.1}\n",
+            v[v.len() / 2],
+            v[(v.len() * 95 / 100).min(v.len() - 1)]
+        ));
+    }
+    report.push_str("\nPresentation (display scan-out) is not observed and not reported.\n");
+    print!("{report}");
+    let dir = repo.join("target/parity-review/m1.2");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("correlated-trace.csv"), rows.join("\n") + "\n").unwrap();
+    std::fs::write(dir.join("correlated-trace.txt"), report).unwrap();
+}

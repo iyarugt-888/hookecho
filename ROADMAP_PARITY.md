@@ -561,6 +561,33 @@ current agent assignment.
 - *Commands and results:* `gpu_live_upload_reports_queue_and_completion_stages_in_order` (GPU suite, llvmpipe): one queue sample at upload, no completion before the drawing frame is followed, exactly one completion after it, completion ≥ queue (one run: 4.6 ms to queue, 20.6 ms to GPU done on the CPU rasterizer), no sample for a LUT-only recolour, and a 150 ms-late follow-up excluded and counted. Registry unit test keeps the two stages' labels distinct. clippy `-D warnings` clean; workspace tests 2,342 passed, 0 failed; GPU suite 37 passed.
 - *Open:* presentation (compositor) latency, decode/acceptance stage correlation with frame identity in one trace, 3D upload/build profiling, and any desktop or Android hardware measurement.
 
+**Evidence ledger — 2026-10-09, increment 2 (one correlated trace on hardware; 1008.md A3):** `gpu_correlated_latency_trace` times, from one receipt clock per run, a real volume through:
+
+1. decode;
+2. 0.5° reflectivity binning;
+3. the app's 2D queue-write and GPU-completion stages (`LiveQueueTimings`, same code as the app);
+4. the 3D smooth build (all tilts, 192²×48);
+5. the 3D upload until the GPU has it.
+
+Each CSV row names the volume, scan time and tilt it drew. **RTX 2060 (Vulkan), Moore 2013, 25 runs**, p50/p95 ms from receipt:
+
+| Stage | p50 | p95 |
+| --- | --- | --- |
+| Decoded (gzip archive) | 145.5 | 150.4 |
+| 0.5° REF binned | 146.6 | 151.8 |
+| 2D queue writes | 147.1 | 152.5 |
+| GPU finished the 2D frame | 148.3 | 153.4 |
+| 3D built | 167.0 | 172.4 |
+| 3D on the GPU | 173.6 | 182.1 |
+
+The dominant cost is decoding the whole volume. The 2D path after binning adds about 1.7 ms, and 3D about 25 ms. Presentation is not observed and not reported. Files: [`docs/certification/m1.2/`](docs/certification/m1.2/) (`correlated-trace.txt` `ac2b2b57…`, `.csv` `4fd9854c…`). Open:
+
+- An Android trace.
+- Presentation (external observation).
+- A live chunk-stream trace in the running app.
+
+Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,560 passed. The one failure was `wasm_clock` catching this test's `std::time::Instant`; it now uses `wxdata::clock::Instant`, and the guard and the trace pass on rerun (`target/parity-review/m1.2/a3-*.log`).
+
 #### M1.3 — Prove source failover under severe-weather load
 
 **Priority:** P0. **Depends on:** M0.3, M1.1, M1.2. **Original references:** ROADMAP_2 §§1.3, 3; ROADMAP_NEW §B6.
