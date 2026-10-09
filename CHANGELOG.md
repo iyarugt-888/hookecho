@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wind barbs in the analysis export
+
+When a wind from the Model fields browser is on the map, the analysis export includes
+`wind-barbs.geojson`: points across the view with speed, direction, valid time and source, for
+QGIS or any GeoJSON reader.
+
 ### Added: wind direction in the probe
 
 A wind picked in the Model fields browser now reads in the layer probe with its direction, for

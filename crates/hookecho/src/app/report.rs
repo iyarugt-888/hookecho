@@ -37,6 +37,8 @@ probes/*.csv          Whichever probes were open: region statistics, the gate in
                       profile and time series, the cross-section.\n\
 grid.tif              The top gridded layer on the active pane, as a float32 GeoTIFF (EPSG:4326,\n\
                       NaN = no data), when one is on.\n\
+wind-barbs.geojson    A wind picked in the Model fields browser, as barb points across the view:\n\
+                      speed (kt and m/s), the direction it blows from, valid time and source.\n\
 \n\
 Radar data is public (NOAA NEXRAD Level II via the AWS Open Data programme) and is not included;\n\
 provenance.json names every volume used, so it can be fetched again.\n";
@@ -584,6 +586,29 @@ impl HookEchoApp {
         }
         if let Some((_, tif)) = self.top_grid_geotiff() {
             entries.push(("grid.tif".into(), tif));
+        }
+        // A browsed wind, as the barbs on the map read it (1008.md E3).
+        if let Some(wind) = self.model_wind_for(self.active) {
+            let state = self.field_state_for(self.active, crate::render::FieldLayer::ModelField);
+            let valid = state
+                .and_then(|s| s.stamp.as_ref().map(|stamp| stamp.valid_time))
+                .unwrap_or(wind.0.time);
+            let source = state
+                .and_then(|s| s.stamp.as_ref().map(|stamp| stamp.product_id.clone()))
+                .unwrap_or_else(|| "model wind".into());
+            let points = super::model_field::wind_barb_features(
+                &wind,
+                self.view_bounds(),
+                24,
+                valid,
+                &source,
+            );
+            if !points.is_empty() {
+                entries.push((
+                    "wind-barbs.geojson".into(),
+                    wxdata::gis::to_geojson(&points).into_bytes(),
+                ));
+            }
         }
         let zip = crate::zipwrite::zip(&entries, now);
         let file = case.file_name().replace(".hookecho.json", "-analysis.zip");

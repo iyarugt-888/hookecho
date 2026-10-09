@@ -214,6 +214,49 @@ pub(crate) fn model_field_upload(f: &wxdata::mrms::MrmsField) -> crate::render::
 /// A browsed wind's east and north components (m/s) on one lattice.
 pub(crate) type WindPair = (wxdata::mrms::MrmsField, wxdata::mrms::MrmsField);
 
+/// A browsed wind as barb points for an export (1008.md E3): an `n`×`n` lattice over `bounds`
+/// (`min_lon, min_lat, max_lon, max_lat`), each point with the wind's speed (knots and m/s) and
+/// the direction it blows from, read as the barbs and the probe read it. Points outside the grid,
+/// with a missing component, or calm are left out rather than given a direction.
+pub(crate) fn wind_barb_features(
+    wind: &WindPair,
+    bounds: (f64, f64, f64, f64),
+    n: usize,
+    valid: chrono::DateTime<chrono::Utc>,
+    source: &str,
+) -> Vec<wxdata::gis::GisFeature> {
+    let (lon0, lat0, lon1, lat1) = bounds;
+    let n = n.max(1);
+    let at = |i: usize, a: f64, b: f64| a + (b - a) * (i as f64 + 0.5) / n as f64;
+    let mut out = Vec::new();
+    for y in 0..n {
+        for x in 0..n {
+            let (lon, lat) = (at(x, lon0, lon1), at(y, lat0, lat1));
+            let (Some(u), Some(v)) = (
+                wind.0.sample_bilinear(lon, lat),
+                wind.1.sample_bilinear(lon, lat),
+            ) else {
+                continue;
+            };
+            let Some(from) = wind_from_deg(u, v) else {
+                continue;
+            };
+            let speed = f64::from(u).hypot(f64::from(v));
+            let mut properties = serde_json::Map::new();
+            properties.insert("speed_kt".into(), (speed * 1.943_844).into());
+            properties.insert("speed_ms".into(), speed.into());
+            properties.insert("from_deg".into(), from.into());
+            properties.insert("valid_utc".into(), valid.to_rfc3339().into());
+            properties.insert("source".into(), source.into());
+            out.push(wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Point([lon, lat]),
+                properties,
+            });
+        }
+    }
+    out
+}
+
 /// The meteorological direction a wind of east/north components `(u, v)` blows from, degrees
 /// clockwise from north in `0..360`; `None` for a missing component or calm air, which has no
 /// direction.
@@ -595,6 +638,38 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wind_exports_as_barb_points_read_like_the_probe() {
+        let t = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let grid = |value: f32| wxdata::mrms::MrmsField {
+            values: vec![value; 4 * 4],
+            nx: 4,
+            ny: 4,
+            lon_west: -100.0,
+            lon_east: -96.0,
+            lat_north: 38.0,
+            lat_south: 34.0,
+            time: t,
+        };
+        // A 10 m/s westerly over the whole grid.
+        let wind: WindPair = (grid(10.0), grid(0.0));
+        let points = wind_barb_features(&wind, (-99.0, 35.0, -97.0, 37.0), 3, t, "GFS 850 hPa");
+        assert_eq!(points.len(), 9);
+        for p in &points {
+            let get = |k: &str| p.properties[k].as_f64().unwrap();
+            assert!((get("from_deg") - 270.0).abs() < 1e-6);
+            assert!((get("speed_ms") - 10.0).abs() < 1e-6);
+            assert!((get("speed_kt") - 19.438_44).abs() < 1e-3);
+            assert_eq!(p.properties["source"], "GFS 850 hPa");
+        }
+        // Off the grid, or calm: no point, and no direction invented.
+        assert!(wind_barb_features(&wind, (-120.0, 10.0, -119.0, 11.0), 3, t, "x").is_empty());
+        let calm: WindPair = (grid(0.0), grid(0.0));
+        assert!(wind_barb_features(&calm, (-99.0, 35.0, -97.0, 37.0), 3, t, "x").is_empty());
+        let json = wxdata::gis::to_geojson(&points);
+        assert!(json.contains("\"from_deg\""), "{json}");
+    }
 
     #[test]
     fn a_wind_reads_the_direction_it_blows_from() {
