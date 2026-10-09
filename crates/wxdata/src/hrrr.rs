@@ -16,6 +16,10 @@ const NAM_BUCKET: &str = "https://noaa-nam-pds.s3.amazonaws.com";
 /// The National Blend of Models, in GRIB2 with `.idx` sidecars. Not `noaa-nbm-pds`: that bucket
 /// republished as per-element GeoTIFF, which would need a TIFF decoder to read one field.
 const NBM_BUCKET: &str = "https://noaa-nbm-grib2-pds.s3.amazonaws.com";
+/// NCEP's NOMADS server: the HiresW runs are not on NOAA's AWS buckets (checked 2026-10-09:
+/// `noaa-hiresw-pds` and `noaa-href-pds` do not exist), and NOMADS keeps about two days, so
+/// HiresW is a live source only, with no archive behind it.
+const NOMADS_HIRESW: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hiresw/prod";
 
 /// Which model to pull a field from.
 ///
@@ -43,6 +47,12 @@ pub enum Model {
     /// National Blend of Models, CONUS domain. Statistically post-processed guidance rather than
     /// a raw model: no updraft helicity, but the calibrated probabilities nobody else publishes.
     Nbm,
+    /// HiresW ARW, CONUS 2.5 km: one of NCEP's high-resolution window runs (1008.md E3), a
+    /// convection-allowing model on the WRF-ARW core, twice a day to 48 h.
+    HireswArw,
+    /// HiresW FV3, CONUS 2.5 km: the same window on the FV3 core, so beside the ARW, the HRRR
+    /// and the NAM nest it is another independent convection-allowing opinion.
+    HireswFv3,
 }
 
 impl Model {
@@ -72,6 +82,12 @@ impl Model {
             Model::Nbm => format!(
                 "{NBM_BUCKET}/blend.{date}/{cycle_hour:02}/core/blend.t{cycle_hour:02}z.core.f{fh:03}.co.grib2"
             ),
+            Model::HireswArw => format!(
+                "{NOMADS_HIRESW}/hiresw.{date}/hiresw.t{cycle_hour:02}z.arw_2p5km.f{fh:02}.conus.grib2"
+            ),
+            Model::HireswFv3 => format!(
+                "{NOMADS_HIRESW}/hiresw.{date}/hiresw.t{cycle_hour:02}z.fv3_2p5km.f{fh:02}.conus.grib2"
+            ),
         }
     }
 
@@ -80,6 +96,7 @@ impl Model {
     fn cycle_hours(self) -> u32 {
         match self {
             Model::NamNest | Model::Nam => 6,
+            Model::HireswArw | Model::HireswFv3 => 12,
             _ => 1,
         }
     }
@@ -96,6 +113,8 @@ impl Model {
             // AWIPS grid 212 is 12 km native.
             Model::Nam => 0.13,
             Model::Nbm => 0.035,
+            // Both HiresW windows are 2.5 km, like the NBM.
+            Model::HireswArw | Model::HireswFv3 => 0.035,
         }
     }
 
@@ -107,6 +126,8 @@ impl Model {
             Model::NamNest => "NAM 3 km nest",
             Model::Nam => "NAM 12 km",
             Model::Nbm => "NBM",
+            Model::HireswArw => "HiresW ARW 2.5 km",
+            Model::HireswFv3 => "HiresW FV3 2.5 km",
         }
     }
 }
@@ -341,8 +362,17 @@ fn aligned_run_hours(
 /// which runs every six: the run hour is floored onto the model's own cycle lattice first.
 pub(crate) fn recent_cycles(model: Model, now: DateTime<Utc>) -> Vec<DateTime<Utc>> {
     let step = model.cycle_hours();
-    // One step back before the first candidate: a cycle is not on the wire the moment it is named.
-    let base = now - chrono::Duration::hours(step as i64);
+    // A cycle is not on the wire the moment it is named. The hourly models step one cycle back
+    // before the first candidate. A model cycling every six hours or more starts from its
+    // typical posting latency instead (`ModelDef::typical_latency_min`): a whole cycle back
+    // skipped a run that had been posted for hours, up to 4.5 h stale for the NAMs and 10 h for
+    // HiresW (1008.md E3). A cycle tried too early is a 404 and the walk goes on to the one before.
+    let back = if step >= 6 {
+        chrono::Duration::minutes(i64::from(model.def().typical_latency_min))
+    } else {
+        chrono::Duration::hours(step as i64)
+    };
+    let base = now - back;
     let floored = base
         .with_hour(base.hour() / step * step)
         .unwrap_or(base)
@@ -1731,13 +1761,37 @@ mod tests {
         assert_eq!(hrrr[1].hour(), 12);
         assert_eq!(hrrr.len(), 6);
 
-        // The nest runs 00/06/12/18: 14:37 minus a cycle is 08:37, which floors to 06z.
+        // The nest runs 00/06/12/18 and posts about 85 minutes after each: 14:37 minus that is
+        // 13:12, which floors to 12z (on the wire since about 13:25).
         let nam = recent_cycles(Model::NamNest, now);
-        assert_eq!(nam[0].hour(), 6);
-        assert_eq!(nam[1].hour(), 0);
-        assert_eq!(nam[2].hour(), 18, "and back into yesterday");
-        assert_eq!(nam[2].day(), 24);
+        assert_eq!(nam[0].hour(), 12);
+        assert_eq!(nam[1].hour(), 6);
+        assert_eq!(nam[3].hour(), 18, "and back into yesterday");
+        assert_eq!(nam[3].day(), 24);
         assert!(nam.iter().all(|c| c.hour() % 6 == 0));
+
+        // HiresW runs 00/12 and posts about two hours after: at 06:20 the 00z run is first, and
+        // at 01:00 it is not yet, so yesterday's 12z is.
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let arw = recent_cycles(Model::HireswArw, at("2026-10-09T06:20:00Z"));
+        assert_eq!((arw[0].day(), arw[0].hour()), (9, 0));
+        assert_eq!((arw[1].day(), arw[1].hour()), (8, 12));
+        let early = recent_cycles(Model::HireswArw, at("2026-10-09T01:00:00Z"));
+        assert_eq!((early[0].day(), early[0].hour()), (8, 12));
+        assert!(arw.iter().all(|c| c.hour() % 12 == 0));
+    }
+
+    #[test]
+    fn hiresw_points_at_nomads() {
+        let arw = Model::HireswArw.url("20261008", 12, 6);
+        assert_eq!(
+            arw,
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hiresw/prod/hiresw.20261008/\
+             hiresw.t12z.arw_2p5km.f06.conus.grib2"
+        );
+        assert!(Model::HireswFv3
+            .url("20261008", 0, 48)
+            .ends_with("hiresw.t00z.fv3_2p5km.f48.conus.grib2"));
     }
 
     #[test]

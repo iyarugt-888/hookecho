@@ -27,6 +27,9 @@ pub enum BModel {
     Ecmwf,
     GefsMean,
     Gdps,
+    /// HiresW's 2.5 km CONUS windows (1008.md E3): the WRF-ARW and FV3 cores, 00/12Z to 48 h.
+    HireswArw,
+    HireswFv3,
 }
 
 /// What a model can show.
@@ -187,12 +190,14 @@ impl LeadRange {
 }
 
 impl BModel {
-    pub const ALL: [BModel; 11] = [
+    pub const ALL: [BModel; 13] = [
         BModel::Hrrr,
         BModel::Hrrr15,
         BModel::Rap,
         BModel::NamNest,
         BModel::Nam,
+        BModel::HireswArw,
+        BModel::HireswFv3,
         BModel::Nbm,
         BModel::Rtma,
         BModel::Gfs,
@@ -209,6 +214,8 @@ impl BModel {
             BModel::NamNest => Engine::Regional(Regional::NamNest),
             BModel::Nam => Engine::Regional(Regional::Nam),
             BModel::Nbm => Engine::Regional(Regional::Nbm),
+            BModel::HireswArw => Engine::Regional(Regional::HireswArw),
+            BModel::HireswFv3 => Engine::Regional(Regional::HireswFv3),
             BModel::Rtma => Engine::Analysis,
             BModel::Gfs => Engine::Global(GlobalModel::Gfs),
             BModel::Ecmwf => Engine::Global(GlobalModel::Ecmwf),
@@ -225,6 +232,8 @@ impl BModel {
             BModel::NamNest => "NAM 3 km",
             BModel::Nam => "NAM 12 km",
             BModel::Nbm => "NBM",
+            BModel::HireswArw => "HiresW ARW",
+            BModel::HireswFv3 => "HiresW FV3",
             BModel::Rtma => "RTMA",
             BModel::Gfs => "GFS",
             BModel::Ecmwf => "ECMWF",
@@ -244,6 +253,14 @@ impl BModel {
             }
             BModel::Nam => "12 km every 6 hours — the parent the nest is downscaled from.",
             BModel::Nbm => "Calibrated blend of many models. Probabilities, not a raw forecast.",
+            BModel::HireswArw => {
+                "2.5 km, 00/12Z to 48 h, WRF-ARW core: another storm-scale opinion. The last two \
+                 days only (NOMADS keeps no archive)."
+            }
+            BModel::HireswFv3 => {
+                "2.5 km, 00/12Z to 48 h, FV3 core: the same window on another core. The last two \
+                 days only (NOMADS keeps no archive)."
+            }
             BModel::Rtma => {
                 "The real-time surface analysis: what temperature, dewpoint and wind are doing now, 2.5 km, hourly. An analysis, not a forecast."
             }
@@ -263,6 +280,8 @@ impl BModel {
             BModel::Hrrr15 => &[Reflectivity],
             BModel::Rap | BModel::NamNest | BModel::Nam => &[Reflectivity, Cape, Srh],
             BModel::Nbm => &[ThunderChance],
+            // HiresW carries 0-1 km helicity but not the 0-3 km "SRH" product reads.
+            BModel::HireswArw | BModel::HireswFv3 => &[Reflectivity, Cape, UpdraftHelicity],
             BModel::Rtma => &[
                 AnalysisTemp2m,
                 AnalysisDewpoint2m,
@@ -327,6 +346,8 @@ impl BModel {
                 ..LeadRange::fixed(0, h(84), h(1))
             },
             BModel::Nbm => LeadRange::fixed(h(1), h(36), h(1)),
+            BModel::HireswArw => LeadRange::fixed(0, regional(Regional::HireswArw, 48), h(1)),
+            BModel::HireswFv3 => LeadRange::fixed(0, regional(Regional::HireswFv3, 48), h(1)),
             // An analysis is valid at its own hour: one "lead", zero.
             BModel::Rtma => LeadRange::fixed(0, 0, h(1)),
             BModel::Gfs => LeadRange::fixed(0, h(384), h(3)),
@@ -397,6 +418,8 @@ impl BModel {
     pub fn run_list_len(self) -> usize {
         match self {
             BModel::Gdps => 2,
+            // NOMADS keeps about two days of HiresW: four runs.
+            BModel::HireswArw | BModel::HireswFv3 => 4,
             _ => 24,
         }
     }
@@ -428,6 +451,8 @@ impl BModel {
             Regional::Rap => BModel::Rap,
             Regional::NamNest => BModel::NamNest,
             Regional::Nam => BModel::Nam,
+            Regional::HireswArw => BModel::HireswArw,
+            Regional::HireswFv3 => BModel::HireswFv3,
             _ => BModel::Hrrr,
         }
     }
@@ -752,6 +777,8 @@ fn model_slug(m: BModel) -> &'static str {
         BModel::Ecmwf => "ecmwf",
         BModel::GefsMean => "gefs-mean",
         BModel::Gdps => "gdps",
+        BModel::HireswArw => "hiresw-arw",
+        BModel::HireswFv3 => "hiresw-fv3",
     }
 }
 
@@ -907,7 +934,9 @@ mod tests {
                 BModel::Hrrr15,
                 BModel::Rap,
                 BModel::NamNest,
-                BModel::Nam
+                BModel::Nam,
+                BModel::HireswArw,
+                BModel::HireswFv3
             ]
         );
     }

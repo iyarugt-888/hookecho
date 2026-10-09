@@ -197,6 +197,38 @@ static DEFS: &[Entry] = &[
             ensemble: Ensemble::PostProcessed,
         },
     },
+    // HiresW posts f00 about 90 (FV3) to 120 (ARW) minutes after its 00Z/12Z cycle and f48
+    // about an hour later (NOMADS listing, 2026-10-08/09).
+    Entry {
+        model: Model::HireswArw,
+        def: ModelDef {
+            id: "hiresw-arw",
+            label: "HiresW ARW 2.5 km",
+            cycle_hours: 12,
+            max_lead_h: 48,
+            extended_lead_h: 48,
+            extended_cycles: &[],
+            grid_km: 2.5,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 120,
+            ensemble: Ensemble::Deterministic,
+        },
+    },
+    Entry {
+        model: Model::HireswFv3,
+        def: ModelDef {
+            id: "hiresw-fv3",
+            label: "HiresW FV3 2.5 km",
+            cycle_hours: 12,
+            max_lead_h: 48,
+            extended_lead_h: 48,
+            extended_cycles: &[],
+            grid_km: 2.5,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 90,
+            ensemble: Ensemble::Deterministic,
+        },
+    },
 ];
 
 /// A field by meaning, independent of how any one model spells it in GRIB.
@@ -284,7 +316,7 @@ impl ModelField {
         match (self, model) {
             // "entire atmosphere" vs "entire atmosphere (considered as a single layer)" — same
             // field, two spellings, and the NAM family uses the long one.
-            (Self::CompositeReflectivity, NamNest | Nam) => key(
+            (Self::CompositeReflectivity, NamNest | Nam | HireswArw | HireswFv3) => key(
                 "REFC",
                 "entire atmosphere (considered as a single layer)",
                 -30.0,
@@ -306,12 +338,13 @@ impl ModelField {
             // Helicity is signed: a negative value is anticyclonic rotation, not missing data.
             (Self::Srh1km, Nbm) => None,
             (Self::Srh1km, _) => key("HLCY", "1000-0 m above ground", f64::NEG_INFINITY),
-            (Self::Srh3km, Nbm) => None,
+            // HiresW carries 0-1 km helicity but not 0-3 km.
+            (Self::Srh3km, Nbm | HireswArw | HireswFv3) => None,
             (Self::Srh3km, _) => key("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
 
             // Hourly-max UH exists only in the convection-allowing runs. The NAM's own 12 km
             // parent grid does not carry it even though its 3 km nest does.
-            (Self::UpdraftHelicity, Hrrr | HrrrPressure | NamNest) => {
+            (Self::UpdraftHelicity, Hrrr | HrrrPressure | NamNest | HireswArw | HireswFv3) => {
                 key("MXUPHL", "5000-2000 m above ground", 0.0)
             }
             (Self::UpdraftHelicity, _) => None,
@@ -337,9 +370,15 @@ impl ModelField {
             (Self::MeanSeaLevelPressure, Hrrr | HrrrPressure | Rap) => {
                 key("MSLMA", "mean sea level", 0.0)
             }
-            (Self::MeanSeaLevelPressure, NamNest | Nam) => key("MSLET", "mean sea level", 0.0),
+            (Self::MeanSeaLevelPressure, NamNest | Nam | HireswArw | HireswFv3) => {
+                key("MSLET", "mean sea level", 0.0)
+            }
             (Self::MeanSeaLevelPressure, Nbm) => None,
 
+            // HiresW carries its 2 m fields only every third hour (f00, f03, f06...; read off
+            // the f00-f07, f13, f25, f47 and f48 `.idx` of both windows, 2026-10-08 12Z), and a
+            // field that is missing two hours in three is not offered as an hourly one.
+            (Self::Temperature2m | Self::Dewpoint2m, HireswArw | HireswFv3) => None,
             (Self::Temperature2m, _) => key("TMP", "2 m above ground", f64::NEG_INFINITY),
             (Self::Dewpoint2m, _) => key("DPT", "2 m above ground", f64::NEG_INFINITY),
         }
@@ -363,6 +402,8 @@ pub const ALL_MODELS: &[Model] = &[
     Model::NamNest,
     Model::Nam,
     Model::Nbm,
+    Model::HireswArw,
+    Model::HireswFv3,
 ];
 
 /// Every field in the catalogue, in declaration order.
@@ -749,6 +790,8 @@ mod tests {
             (Model::Rap, 3),
             (Model::NamNest, 6),
             (Model::Nam, 6),
+            (Model::HireswArw, 6),
+            (Model::HireswFv3, 6),
         ] {
             let key = ModelField::CompositeReflectivity
                 .grib(model)

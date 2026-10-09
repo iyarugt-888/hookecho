@@ -30,6 +30,16 @@ drawn twice; a cancelled or expired warning is never drawn from the wire. The An
 "Wire arrival" beside "Warning arrival". Left empty, nothing changes. The relay has not yet been
 run against NWWS-OI itself.
 
+### Added: HiresW ARW and FV3 models
+
+The model browser offers NCEP's two HiresW runs — 2.5 km, twice a day to 48 hours, one on the
+WRF-ARW core and one on FV3 — for forecast reflectivity, CAPE and updraft helicity: two more
+storm-scale opinions beside the HRRR and the NAM nest. They come from NOMADS, which keeps about
+two days, so only the last four runs are listed. Their 2 m temperature and dewpoint are published
+only every third hour, so they are not offered. The NAM and HiresW now start from the newest run
+that has had time to post, rather than one whole cycle back, which had shown runs up to 4.5
+(NAM) and 10 (HiresW) hours staler than necessary.
+
 ### Added: unit checks for user-defined products
 
 The product editor now notes, in amber under a formula, where it adds or compares different
