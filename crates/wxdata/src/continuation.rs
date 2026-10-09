@@ -221,6 +221,113 @@ impl RadialDedup {
     }
 }
 
+/// What one live assembly does with a block offered by any provider (1008.md A5): the single
+/// decision a cross-provider splice applies, combining the volume identity check, volume rollover
+/// and radial deduplication. Conservative in every case it cannot verify.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpliceOutcome {
+    /// The assembly's volume: these radials are new to it; `duplicates` were already accepted
+    /// (from this provider or another) and must not be drawn twice.
+    Accept {
+        new: Vec<RadialIdentity>,
+        duplicates: usize,
+    },
+    /// A newer volume started (including a VCP change, which starts a new volume): the assembly
+    /// resets at this boundary and these radials begin it.
+    NewVolume { new: Vec<RadialIdentity> },
+    /// No radial identity to check (a metadata or pass-through block): accepted as it is.
+    PassThrough,
+    /// A radial block whose identities cannot be listed (an azimuth span wrapping past 0° within
+    /// the block). Accepting it from a second provider could draw radials twice, so a splice
+    /// refuses it; the provider that started the volume may still apply it itself.
+    Unidentified,
+    /// Not this assembly's: another radar, or an older volume. Never mixed in.
+    Refused(SpliceRefusal),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpliceRefusal {
+    ForeignRadar,
+    OlderVolume,
+}
+
+/// One live volume assembly fed by one or more providers. Holds the volume it is assembling and
+/// every radial already accepted into it; a rollover to a newer volume clears both.
+#[derive(Debug)]
+pub struct CutSplice {
+    site: String,
+    volume: Option<VolumeKey>,
+    dedup: RadialDedup,
+}
+
+impl CutSplice {
+    pub fn new(site: &str) -> Self {
+        Self {
+            site: site.to_ascii_uppercase(),
+            volume: None,
+            dedup: RadialDedup::new(),
+        }
+    }
+
+    /// The volume being assembled, once one has started.
+    pub fn volume(&self) -> Option<&VolumeKey> {
+        self.volume.as_ref()
+    }
+
+    /// Decide what to do with `block`, recording its accepted radials.
+    pub fn offer(&mut self, block: &LiveLevel2Block) -> SpliceOutcome {
+        if !block.volume.site.eq_ignore_ascii_case(&self.site) {
+            return SpliceOutcome::Refused(SpliceRefusal::ForeignRadar);
+        }
+        let rollover = match &self.volume {
+            None => true,
+            Some(active) => match check_volume_continuation(active, &block.volume) {
+                ContinuationDecision::Compatible => false,
+                ContinuationDecision::Incompatible
+                    if block.volume.volume_start < active.volume_start =>
+                {
+                    return SpliceOutcome::Refused(SpliceRefusal::OlderVolume);
+                }
+                ContinuationDecision::Incompatible => true,
+            },
+        };
+        if rollover {
+            self.volume = Some(block.volume.clone());
+            self.dedup.reset();
+        }
+        let ids = radial_identities(block);
+        if ids.is_empty() {
+            let radial = block.cut.is_some()
+                && block.first_azimuth_number.is_some()
+                && block.last_azimuth_number.is_some();
+            return if radial {
+                SpliceOutcome::Unidentified
+            } else if rollover {
+                SpliceOutcome::NewVolume { new: Vec::new() }
+            } else {
+                SpliceOutcome::PassThrough
+            };
+        }
+        let total = ids.len();
+        let new: Vec<_> = ids
+            .into_iter()
+            .filter(|id| {
+                let fresh = !self.dedup.is_duplicate(id);
+                if fresh {
+                    self.dedup.mark_seen(id.clone());
+                }
+                fresh
+            })
+            .collect();
+        if rollover {
+            SpliceOutcome::NewVolume { new }
+        } else {
+            let duplicates = total - new.len();
+            SpliceOutcome::Accept { new, duplicates }
+        }
+    }
+}
+
 /// Every [`RadialIdentity`] a block covers, derived from its azimuth span. A block's cut and
 /// first/last azimuth number together describe a contiguous run of radials
 /// (`first_azimuth_number..=last_azimuth_number`) within one cut — see
@@ -288,6 +395,146 @@ mod tests {
             checksum: [0u8; 32],
             payload: Vec::new(),
         }
+    }
+
+    fn azimuths(outcome: &SpliceOutcome) -> Vec<(u16, u16, u16)> {
+        let ids = match outcome {
+            SpliceOutcome::Accept { new, .. } | SpliceOutcome::NewVolume { new } => new,
+            _ => return Vec::new(),
+        };
+        ids.iter()
+            .map(|id| {
+                (
+                    id.cut.elevation_number,
+                    id.cut.repeat_index,
+                    id.azimuth_number,
+                )
+            })
+            .collect()
+    }
+
+    fn revisit(mut b: LiveLevel2Block, repeat_index: u16) -> LiveLevel2Block {
+        b.cut = b.cut.map(|c| CutKey { repeat_index, ..c });
+        b
+    }
+
+    /// A backup joining mid-volume adds only the radials the assembly does not have yet; the
+    /// overlap it re-sends is counted as duplicates, never drawn twice.
+    #[test]
+    fn a_mid_volume_join_adds_only_what_is_new() {
+        let mut splice = CutSplice::new("ktlx");
+        let primary = block("KTLX", 0, 1, 1, 200);
+        assert!(
+            matches!(splice.offer(&primary), SpliceOutcome::NewVolume { ref new } if new.len() == 200)
+        );
+        let backup = block("KTLX", 0, 1, 150, 260);
+        let out = splice.offer(&backup);
+        assert_eq!(
+            out,
+            SpliceOutcome::Accept {
+                new: (201..=260)
+                    .map(|a| RadialIdentity {
+                        volume: backup.volume.clone(),
+                        cut: backup.cut.unwrap(),
+                        azimuth_number: a,
+                    })
+                    .collect(),
+                duplicates: 51,
+            }
+        );
+    }
+
+    /// The backup fills azimuths the primary missed; the primary's late arrival of the same
+    /// azimuths, and any reordering between them, adds nothing twice.
+    #[test]
+    fn gap_fill_and_reordering_draw_each_radial_once() {
+        let mut splice = CutSplice::new("KTLX");
+        splice.offer(&block("KTLX", 0, 1, 1, 100));
+        // The primary skips 101..=140; the backup has them.
+        assert_eq!(
+            azimuths(&splice.offer(&block("KTLX", 0, 1, 141, 180))).len(),
+            40
+        );
+        let gap = splice.offer(&block("KTLX", 0, 1, 101, 140));
+        assert_eq!(azimuths(&gap).len(), 40, "the gap is filled");
+        // Out of order from both: everything already accepted.
+        for (a, b) in [(150, 160), (101, 110), (1, 5)] {
+            assert_eq!(
+                splice.offer(&block("KTLX", 0, 1, a, b)),
+                SpliceOutcome::Accept {
+                    new: Vec::new(),
+                    duplicates: (b - a + 1) as usize
+                }
+            );
+        }
+    }
+
+    /// A repeated cut (SAILS/MRLE revisit) reuses the elevation number but is its own cut: its
+    /// radials are new even where the base tilt's were seen, and its own repeats are not.
+    #[test]
+    fn repeated_cuts_are_their_own_radials() {
+        let mut splice = CutSplice::new("KTLX");
+        splice.offer(&block("KTLX", 0, 1, 1, 360));
+        let sails = revisit(block("KTLX", 0, 1, 1, 360), 1);
+        assert_eq!(azimuths(&splice.offer(&sails)).len(), 360);
+        assert_eq!(
+            splice.offer(&revisit(block("KTLX", 0, 1, 10, 20), 1)),
+            SpliceOutcome::Accept {
+                new: Vec::new(),
+                duplicates: 11
+            }
+        );
+        let mrle = revisit(block("KTLX", 0, 1, 10, 20), 2);
+        assert_eq!(azimuths(&splice.offer(&mrle)).len(), 11);
+    }
+
+    /// A VCP change starts a new volume: the assembly resets at that boundary, so the new
+    /// volume's first tilt is accepted whole; the old volume's late radials are then refused
+    /// rather than mixed into the new one, from either provider.
+    #[test]
+    fn a_vcp_change_rolls_over_and_late_old_radials_are_refused() {
+        let mut splice = CutSplice::new("KTLX");
+        splice.offer(&block("KTLX", 0, 1, 1, 360));
+        let new_vcp = block("KTLX", 290, 1, 1, 360);
+        assert!(
+            matches!(splice.offer(&new_vcp), SpliceOutcome::NewVolume { ref new } if new.len() == 360)
+        );
+        assert_eq!(splice.volume(), Some(&new_vcp.volume));
+        assert_eq!(
+            splice.offer(&block("KTLX", 0, 2, 1, 10)),
+            SpliceOutcome::Refused(SpliceRefusal::OlderVolume)
+        );
+        assert_eq!(
+            splice.offer(&block("KINX", 290, 1, 1, 10)),
+            SpliceOutcome::Refused(SpliceRefusal::ForeignRadar)
+        );
+        // A second provider whose volume start differs by under a second is the same volume
+        // (`VolumeKey` keeps whole seconds); one a second later is a different volume.
+        let mut late = block("KTLX", 290, 1, 1, 10);
+        late.volume = VolumeKey::new(
+            "KTLX",
+            new_vcp.volume.volume_start + chrono::Duration::milliseconds(400),
+        );
+        assert_eq!(
+            splice.offer(&late),
+            SpliceOutcome::Accept {
+                new: Vec::new(),
+                duplicates: 10
+            }
+        );
+    }
+
+    /// Blocks with nothing to deduplicate pass through; a radial block whose span cannot be
+    /// listed is not spliced.
+    #[test]
+    fn unlisted_radials_are_not_spliced() {
+        let mut splice = CutSplice::new("KTLX");
+        splice.offer(&block("KTLX", 0, 1, 1, 10));
+        let mut meta = block("KTLX", 0, 1, 1, 10);
+        meta.cut = None;
+        assert_eq!(splice.offer(&meta), SpliceOutcome::PassThrough);
+        let wrapped = block("KTLX", 0, 1, 719, 3);
+        assert_eq!(splice.offer(&wrapped), SpliceOutcome::Unidentified);
     }
 
     #[test]

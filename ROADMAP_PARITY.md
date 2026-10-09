@@ -525,6 +525,26 @@ remains conservative; contributor optimization, full viewport interaction, Andro
 completed GPU timing and sustained-load certification remain open. Independent local-product
 textures per pane remain M5.1.
 
+**Evidence ledger — 2026-10-09, cut continuation decisions (1008.md A5):** `wxdata::continuation::CutSplice` makes the one decision a live assembly applies to a block from any provider. It combines exact-`VolumeKey` continuation, rollover and `RadialDedup` (none of which had a caller):
+
+- `NewVolume`: the first block, or a newer volume (a VCP change starts one); the assembly resets there.
+- `Accept { new, duplicates }`: same volume, only unseen radials.
+- `Refused(OlderVolume | ForeignRadar)`.
+- `PassThrough` for metadata.
+- `Unidentified`: a span wrapping 0° within a block, never spliced.
+
+Controls (`cargo test -p wxdata --lib continuation`, 19 passed):
+
+- **Mid-volume join:** the backup's 150–260 after the primary's 1–200 adds 201–260, with 51 duplicates.
+- **Gap-fill and reordering:** each radial is accepted once.
+- **SAILS/MRLE revisits:** each repeat is its own cut.
+- **VCP change:** rolls over; a late old-volume radial is refused; a 400 ms start difference is the same volume.
+- **Unlisted spans:** not spliced.
+
+See [cut-splice.md](docs/certification/m1.1/cut-splice.md). Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,566 passed (`target/parity-review/m1.1/cut-splice/`). Open:
+
+- The app's live assembly does not call `CutSplice` yet. Wiring it into the provider switch, with operational dual-feed evidence, is A2.
+
 **Next agent handoff:** establish deterministic provider-loss/polling/preferred-tier restoration
 through the application lifecycle. [M1.3 increment 1](docs/certification/m1.3/live-session.md) closes
 the global retry/context and generation seams identified here, plus idle relay retirement.

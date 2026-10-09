@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Internal: one rule for continuing a live scan from another source
+
+The radar data library has one decision for whether data from a second live source can continue
+the scan being drawn. It covers:
+
+- **joining mid-scan:** only radials not yet drawn are added;
+- **filling gaps:** the second source supplies radials the first missed;
+- **repeated low tilts:** each revisit counts as its own cut;
+- **a VCP change:** a new volume starts, and late radials from the old one are refused.
+
+The app does not use it yet; that comes with the failover work.
+
 ### Measured: from receiving a radar volume to the GPU drawing it
 
 A GPU trace now follows one real volume from the moment its bytes are in hand to the GPU
