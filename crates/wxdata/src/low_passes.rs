@@ -62,6 +62,21 @@ pub fn at_pass(
     zdr: &[BinnedSweep],
     lowest: Lowest,
 ) -> Option<PassInputs> {
+    at_pass_with(scan, pass, velocity, dual_pol, zdr, lowest, false)
+}
+
+/// [`at_pass`], with `same_cut` pairing the lowest tilt's CC with the reflectivity of its own cut
+/// (where that cut carries reflectivity) rather than the reflectivity beside the velocity pass,
+/// so the debris detector reads two moments scanned together ([`level2::bin_scan_from_cut_of`]).
+pub fn at_pass_with(
+    scan: &Scan,
+    pass: &Pass,
+    velocity: &[(BinnedSweep, BinnedSweep)],
+    dual_pol: &[(BinnedSweep, BinnedSweep)],
+    zdr: &[BinnedSweep],
+    lowest: Lowest,
+    same_cut: bool,
+) -> Option<PassInputs> {
     if !lowest.velocity || velocity.is_empty() {
         return None;
     }
@@ -79,7 +94,15 @@ pub fn at_pass(
     };
     out.velocity[0] = (vel, z.clone());
     if lowest.dual_pol && !out.dual_pol.is_empty() {
-        match nearest(Moment::CorrelationCoefficient) {
+        let cc_cut = level2::nearest_cut(scan, Moment::CorrelationCoefficient, 0, ms);
+        let cc = cc_cut.and_then(|i| {
+            level2::bin_sweep_index(scan, Moment::CorrelationCoefficient, i, false).ok()
+        });
+        let z = match cc_cut.filter(|_| same_cut) {
+            Some(i) => level2::bin_sweep_index(scan, Moment::Reflectivity, i, false).unwrap_or(z),
+            None => z,
+        };
+        match cc {
             Some(cc) => out.dual_pol[0] = (z, cc),
             None => {
                 out.dual_pol.remove(0);
@@ -221,5 +244,90 @@ mod tests {
         );
         // Without a lowest velocity tilt to replace, no pass inputs.
         assert!(at_pass(&scan, &first, &velocity, &[], &[], Lowest::default()).is_none());
+    }
+
+    /// A surveillance cut at `ms`: reflectivity code `z` and CC on every gate, no velocity.
+    fn surveillance(number: u8, elevation: f32, ms: i64, z: u8) -> Sweep {
+        let radials = (0..8)
+            .map(|i| {
+                let m = |code: u8| {
+                    MomentData::from_fixed_point(40, 2125, 250, 8, 2.0, 66.0, vec![code; 40])
+                };
+                Radial::new(
+                    ms + i as i64,
+                    i as u16 + 1,
+                    i as f32 * 45.0,
+                    1.0,
+                    if i == 0 {
+                        RadialStatus::ScanStart
+                    } else {
+                        RadialStatus::IntermediateRadialData
+                    },
+                    number,
+                    elevation,
+                    Some(m(z)),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(m(200)),
+                    None,
+                )
+            })
+            .collect();
+        Sweep::new(number, radials)
+    }
+
+    /// With `same_cut`, a pass's debris pair takes its reflectivity from the surveillance cut its
+    /// CC came from; without, from the Doppler cut beside the velocity pass, as before (1008.md
+    /// G1). The rotation inputs are the same either way.
+    #[test]
+    fn same_cut_pairs_a_pass_cc_with_its_own_reflectivity() {
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        let scan = Scan::with_site(
+            site,
+            vcp(),
+            vec![
+                surveillance(1, 0.5, 40_000, 110),
+                sweep(1, 0.5, 60_000, 100),
+                sweep(2, 0.9, 120_000, 140),
+                surveillance(1, 0.5, 220_000, 120),
+                sweep(1, 0.5, 240_000, 180),
+            ],
+        );
+        let start = DateTime::from_timestamp(0, 0).unwrap();
+        let first = passes(&scan, start)[0];
+        let velocity = vec![(
+            level2::bin_scan_opts(&scan, Moment::Velocity, 0, false).unwrap(),
+            level2::bin_scan(&scan, Moment::Reflectivity, 0).unwrap(),
+        )];
+        let dual_pol = vec![(
+            level2::bin_scan(&scan, Moment::Reflectivity, 0).unwrap(),
+            level2::bin_scan(&scan, Moment::CorrelationCoefficient, 0).unwrap(),
+        )];
+        let lowest = Lowest {
+            velocity: true,
+            dual_pol: true,
+            zdr: false,
+        };
+        let z = |i| {
+            level2::bin_sweep_index(&scan, Moment::Reflectivity, i, false)
+                .unwrap()
+                .data
+        };
+        let before = at_pass_with(&scan, &first, &velocity, &dual_pol, &[], lowest, false).unwrap();
+        let paired = at_pass_with(&scan, &first, &velocity, &dual_pol, &[], lowest, true).unwrap();
+        assert_eq!(
+            before.dual_pol[0].0.data,
+            z(1),
+            "the Doppler cut's reflectivity"
+        );
+        assert_eq!(
+            paired.dual_pol[0].0.data,
+            z(0),
+            "the CC cut's own reflectivity"
+        );
+        assert_eq!(before.dual_pol[0].1.data, paired.dual_pol[0].1.data);
+        assert_eq!(before.velocity[0].1.data, paired.velocity[0].1.data);
     }
 }

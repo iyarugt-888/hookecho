@@ -1,0 +1,48 @@
+
+000
+WWUS53 KDMX 090445
+SVSDMX
+
+Severe Weather Statement
+National Weather Service Des Moines IA
+1145 PM CDT Thu Oct 8 2026
+
+IAC015-049-073-077-090500-
+/O.CON.KDMX.SV.W.0349.000000T0000Z-261009T0500Z/
+Greene IA-Guthrie IA-Boone IA-Dallas IA-
+1145 PM CDT Thu Oct 8 2026
+
+...A SEVERE THUNDERSTORM WARNING REMAINS IN EFFECT UNTIL MIDNIGHT CDT
+FOR SOUTHEASTERN GREENE...NORTHEASTERN GUTHRIE...SOUTHWESTERN BOONE
+AND NORTHWESTERN DALLAS COUNTIES...
+
+At 1144 PM CDT, a severe thunderstorm was located over Berkley, or 7
+miles north of Perry, moving southeast at 30 mph.
+
+HAZARD...Quarter size hail.
+
+SOURCE...Radar indicated.
+
+IMPACT...Damage to vehicles is expected.
+
+Locations impacted include...
+Rippey and Jamaica.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+For your protection move to an interior room on the lowest floor of a
+building.
+
+&&
+
+LAT...LON 4187 9439 4198 9430 4197 9415 4179 9428
+TIME...MOT...LOC 0444Z 293DEG 28KT 4195 9409 
+
+HAIL THREAT...RADAR INDICATED
+MAX HAIL SIZE...1.00 IN
+WIND THREAT...RADAR INDICATED
+MAX WIND GUST...<50 MPH
+
+$$
+
+Hagenhoff

@@ -5,6 +5,9 @@
 //! `eframe::NativeOptions`, Android hands eframe the `AndroidApp` from the activity glue and points
 //! [`paths`] at the app-private data dir.
 
+/// `--headless-alert-latency`: a live watch of how long new NWS alerts take to arrive.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod alert_latency_watch;
 pub mod alert_rollup;
 pub mod alert_snapshot;
 pub mod app;

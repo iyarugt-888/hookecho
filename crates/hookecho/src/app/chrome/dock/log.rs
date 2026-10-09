@@ -26,6 +26,8 @@ pub(super) struct LiveStats {
     /// Live uploads whose GPU completion was not observed (excluded, not counted as zero).
     gpu_unobserved: u64,
     retries: u32,
+    /// New warnings: their `sent` → the app accepted them → the first frame built after.
+    alerts: wxdata::alert_latency::Summary,
     frame_age_s: Option<i64>,
     /// `(ingest lag s, decode ms)` of recent arrivals, oldest first.
     history: Vec<(f32, f32)>,
@@ -53,6 +55,7 @@ impl HookEchoApp {
             gpu_done_ms: queue_percentiles(&v.live_queue_timings.gpu_done_samples_micros()),
             gpu_unobserved: v.live_queue_timings.unobserved(),
             retries: v.live_retries,
+            alerts: self.alert_latency_summary(),
             frame_age_s: v
                 .displayed_radar_time()
                 .map(|d| (chrono::Utc::now() - d).num_seconds()),
@@ -245,6 +248,7 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     if s.retries > 0 {
         ws::kv(ui, t, "Retries", &s.retries.to_string(), Some(t.warn));
     }
+    alert_latency_rows(ui, t, &s.alerts);
     // This app's own cost, measured here and kept here (ROADMAP_2 §14.1).
     if let Some(f) = s.frames {
         use crate::app::telemetry::{BUDGET_MS, STALL_MS};
@@ -480,6 +484,44 @@ fn queue_percentiles(samples_micros: &[u64]) -> Option<(f32, f32, usize)> {
         sorted[rank] as f32 / 1000.0
     };
     Some((at(50), at(95), sorted.len()))
+}
+
+/// New warnings' delivery: from the NWS `sent` time to the app, and on to the first frame built
+/// with them. Nothing is shown before a new warning has arrived; messages active when the app
+/// started are not measured (`wxdata::alert_latency`).
+fn alert_latency_rows(ui: &mut egui::Ui, t: &ws::Tokens, a: &wxdata::alert_latency::Summary) {
+    let Some(sent) = a.sent_to_received else {
+        return;
+    };
+    ws::kv(
+        ui,
+        t,
+        "Warning arrival",
+        &format!(
+            "p50 {:.0} / p95 {:.0} s · {}",
+            sent.p50_s, sent.p95_s, sent.count
+        ),
+        (sent.p95_s > 180.0).then_some(t.warn),
+    );
+    if let Some(drawn) = a.received_to_drawn {
+        ws::kv(
+            ui,
+            t,
+            "Then drawn",
+            &format!(
+                "p50 {:.2} / p95 {:.2} s · {}",
+                drawn.p50_s, drawn.p95_s, drawn.count
+            ),
+            None,
+        );
+    }
+    ui.label(ws::text(
+        "NWS sent time → this app accepted the poll that carried it (includes waiting for the \
+         2-minute poll; NWS clock against this computer's) → the first frame built after \
+         (not screen scan-out)",
+        10.0,
+        t.text_dim,
+    ));
 }
 
 #[cfg(test)]

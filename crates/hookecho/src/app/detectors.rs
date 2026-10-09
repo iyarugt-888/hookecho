@@ -262,6 +262,7 @@ impl HookEchoApp {
             // Both pipelines read the app's debris for the newest pass; see `compute_tds_uncached`.
             debris_inputs: self.debris_inputs(idx),
             earlier_passes: Vec::new(),
+            counted_passes: Vec::new(),
             stand_in: None,
         };
         match analysed {
@@ -306,12 +307,16 @@ impl HookEchoApp {
                     );
                     if let Some(p) = passes {
                         p.apply_circulations(&analysed, &mut c, lifts_wait);
+                        lineage.counted_passes =
+                            counted_passes(p, &analysed, c.iter().map(|c| (c.id.lon, c.id.lat)));
                     }
                     (Vec::new(), c, lineage)
                 } else {
                     let mut ids = wxdata::llsd_analyst::identify_with(&analysed, confirm, options);
                     if let Some(p) = passes {
                         p.apply(&analysed, &mut ids, lifts_wait);
+                        lineage.counted_passes =
+                            counted_passes(p, &analysed, ids.iter().map(|id| (id.lon, id.lat)));
                     }
                     (ids, Vec::new(), lineage)
                 }
@@ -527,7 +532,11 @@ impl HookEchoApp {
                     step.debris.as_deref().unwrap_or(&debris),
                     &[],
                 );
-                tracking.passes.record(&analysed, bar);
+                // Stamped with the volume and the pass's own time, so a verdict can list the
+                // passes its count was made on across volumes (`detection_lineage`).
+                let stamp =
+                    chrono::DateTime::from_timestamp(step.time, 0).map(|t| (name.as_str(), t));
+                tracking.passes.record_at(&analysed, bar, stamp);
                 tracking.fed = Some((name.clone(), step.time));
                 tracking.last = tracked;
             }
@@ -1224,6 +1233,7 @@ mod pass_lineage_corpus {
             inputs: newest_inputs,
             debris_inputs: newest_debris,
             earlier_passes: earlier,
+            counted_passes: Vec::new(),
             stand_in: None,
         };
         let destination = root.join("parity-review/m1.4");
@@ -1296,4 +1306,19 @@ mod tornado_alert_tests {
         let (fire, _) = tornado_alert_decision(state, &[id(Tier::Likely, 0.62)], false);
         assert!(fire.is_some());
     }
+}
+
+/// The passes behind each verdict at `at`, for its lineage (1008.md A4).
+fn counted_passes(
+    passes: &wxdata::llsd_analyst::PassConfirmation,
+    analysed: &[wxdata::llsd_analyst::Analysed],
+    at: impl Iterator<Item = (f64, f64)>,
+) -> Vec<wxdata::detection_lineage::VerdictPasses> {
+    at.map(|(lon, lat)| wxdata::detection_lineage::VerdictPasses {
+        lon,
+        lat,
+        passes: passes.counted_at(analysed, lon, lat),
+    })
+    .filter(|v| !v.passes.is_empty())
+    .collect()
 }

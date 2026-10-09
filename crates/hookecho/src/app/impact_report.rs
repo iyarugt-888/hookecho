@@ -43,6 +43,9 @@ pub(crate) struct ImpactRow {
 /// What the report knows about one track beyond its arrivals.
 pub(crate) struct TrackContext<'a> {
     pub track: &'a ManualTrack,
+    /// The SCIT storm id when this is the radar's own automatic motion for a storm nobody set a
+    /// manual motion on; `None` for an analyst's motion.
+    pub scit_cell: Option<&'a str>,
     /// The towns lookup for its swath, if one was made.
     pub towns: Option<&'a TownsState>,
     /// The population count for its hour's swath, if one was made.
@@ -137,15 +140,47 @@ fn csv_field(s: &str) -> String {
     }
 }
 
-/// `impacts.csv`: one row per arrival, times UTC, distances km.
-pub(crate) fn impacts_csv(rows: &[ImpactRow]) -> String {
+/// Keep every analyst motion, and only the SCIT storms that reach something: the radar names
+/// dozens of storms, and the report is for the ones ahead of a place someone saved. Rows are
+/// renumbered to the kept tracks. Returns the kept tracks, their rows, and how many SCIT storms
+/// with a motion had nothing ahead.
+pub(crate) fn keep_reaching<'a>(
+    tracks: Vec<TrackContext<'a>>,
+    rows: Vec<ImpactRow>,
+) -> (Vec<TrackContext<'a>>, Vec<ImpactRow>, usize) {
+    let mut kept = Vec::new();
+    let mut number = vec![None; tracks.len()];
+    let mut quiet = 0;
+    for (i, ctx) in tracks.into_iter().enumerate() {
+        if ctx.scit_cell.is_some() && !rows.iter().any(|r| r.track == i + 1) {
+            quiet += 1;
+            continue;
+        }
+        kept.push(ctx);
+        number[i] = Some(kept.len());
+    }
+    let rows = rows
+        .into_iter()
+        .filter_map(|mut r| {
+            r.track = number[r.track - 1]?;
+            Some(r)
+        })
+        .collect();
+    (kept, rows, quiet)
+}
+
+/// `impacts.csv`: one row per arrival, times UTC, distances km. `motion` says whose motion the
+/// arrival is projected from ("manual", or "scit" for the radar's automatic storm motion), and
+/// `storm` names the SCIT storm when it is one.
+pub(crate) fn impacts_csv(tracks: &[TrackContext<'_>], rows: &[ImpactRow]) -> String {
     let mut s = String::from(
         "track,target,kind,source,arrival_utc,minutes_after_motion,closest_km,passes_side,\
-         in_path,inside_now\n",
+         in_path,inside_now,motion,storm\n",
     );
     for r in rows {
+        let scit = tracks.get(r.track - 1).and_then(|t| t.scit_cell);
         s.push_str(&format!(
-            "{},{},{},{},{},{:.1},{},{},{},{}\n",
+            "{},{},{},{},{},{:.1},{},{},{},{},{},{}\n",
             r.track,
             csv_field(&r.target),
             r.kind,
@@ -156,35 +191,90 @@ pub(crate) fn impacts_csv(rows: &[ImpactRow]) -> String {
             r.side.unwrap_or(""),
             r.in_path,
             r.inside_now,
+            if scit.is_some() { "scit" } else { "manual" },
+            csv_field(scit.unwrap_or("")),
         ));
     }
     s
 }
 
 /// `impacts.md`: per motion, its parameters, the people in its hour's swath, then each arrival.
+/// One warning in effect, for the report's warnings section.
+pub(crate) struct WarningLine<'a> {
+    pub event: &'a str,
+    pub area: &'a str,
+    pub expires: Option<DateTime<Utc>>,
+    /// The people inside its polygon, when its card asked the Census.
+    pub people: Option<&'a ImpactState>,
+}
+
+/// The warnings section: each warning in effect over the radar's area with the people inside
+/// its polygon where that was counted, and said plainly where it was not.
+fn warnings_markdown(warnings: &[WarningLine<'_>]) -> String {
+    let mut s = String::from("\n## Warnings in effect\n\n");
+    if warnings.is_empty() {
+        s.push_str("No warning was in effect over the radar's area.\n");
+        return s;
+    }
+    s.push_str(
+        "Populations are 2020 Census counts inside each warning's polygon, made when its card \
+         was opened; the rest were not counted.\n\n| Warning | Area | Until (UTC) | People inside |\n\
+         |---|---|---|---|\n",
+    );
+    for w in warnings {
+        let people = match w.people {
+            Some(ImpactState::Ready(imp)) => summary(imp),
+            Some(ImpactState::Pending) => "count still running".into(),
+            Some(ImpactState::Failed) => "count failed".into(),
+            None => "not counted".into(),
+        };
+        s.push_str(&format!(
+            "| {} | {} | {} | {} |\n",
+            w.event.replace('|', "/"),
+            w.area.replace('|', "/"),
+            w.expires
+                .map_or_else(|| "—".into(), |e| e.format("%H:%M").to_string()),
+            people
+        ));
+    }
+    s
+}
+
 pub(crate) fn impacts_markdown(
     tracks: &[TrackContext<'_>],
     rows: &[ImpactRow],
+    quiet_scit: usize,
+    warnings: &[WarningLine<'_>],
     exported: DateTime<Utc>,
 ) -> String {
     let mut s = format!(
-        "# Storm impacts\n\nExported {}. Arrival times are estimates from the manual storm \
-         motions below and their uncertainty swaths, counted from each motion's own analysis \
-         time. Town populations are whole-town 2020 Census figures at the town's centre point; \
-         a town's edge can be reached before its centre.\n",
+        "# Storm impacts\n\nExported {}. Arrival times are estimates from the storm motions \
+         below and their uncertainty swaths, counted from each motion's own analysis time: the \
+         analyst's manual motions, and for storms nobody set one on, the radar's automatic storm \
+         motion (SCIT) with the default swath. Town populations are whole-town 2020 Census \
+         figures at the town's centre point; a town's edge can be reached before its centre.\n",
         exported.format("%Y-%m-%d %H:%MZ")
     );
     if tracks.is_empty() {
-        s.push_str("\nNo storm motion was set, so there are no arrivals to report.\n");
+        s.push_str(if quiet_scit > 0 {
+            "\nNo manual storm motion was set, and no storm the radar tracks has anything saved \
+             ahead of it within two hours.\n"
+        } else {
+            "\nNo storm motion was set or tracked, so there are no arrivals to report.\n"
+        });
+        s.push_str(&warnings_markdown(warnings));
         return s;
     }
     for (i, ctx) in tracks.iter().enumerate() {
         let t = ctx.track;
         let kt = t.speed_kmh / super::storm_track::KMH_PER_KT;
+        let heading = match ctx.scit_cell {
+            Some(id) => format!("Storm {id}, radar's automatic motion"),
+            None => format!("Motion #{}", i + 1),
+        };
         s.push_str(&format!(
-            "\n## Motion #{}{}\n\nFrom {:.3}, {:.3} at {}, toward {:03.0}\u{b0} ({}) at {:.0} kt; \
+            "\n## {heading}{}\n\nFrom {:.3}, {:.3} at {}, toward {:03.0}\u{b0} ({}) at {:.0} kt; \
              swath {:.1} km left, {:.1} km right, widening {:.0}\u{b0}.{}\n\n",
-            i + 1,
             if t.is_line() { " (line)" } else { "" },
             t.origin[1],
             t.origin[0],
@@ -211,6 +301,7 @@ pub(crate) fn impacts_markdown(
             }
             Some(ImpactState::Pending) => "People in path: the count was still running.\n".into(),
             Some(ImpactState::Failed) => "People in path: the count failed.\n".into(),
+            None if ctx.scit_cell.is_some() => "People in path: not counted.\n".into(),
             None => {
                 "People in path: not counted (\u{201c}People in path\u{201d} on the motion card).\n"
                     .into()
@@ -247,6 +338,14 @@ pub(crate) fn impacts_markdown(
             ));
         }
     }
+    if quiet_scit > 0 {
+        s.push_str(&format!(
+            "\n{quiet_scit} more storm{} the radar tracks had nothing saved ahead within two \
+             hours.\n",
+            if quiet_scit == 1 { "" } else { "s" }
+        ));
+    }
+    s.push_str(&warnings_markdown(warnings));
     s
 }
 
@@ -267,21 +366,77 @@ impl super::HookEchoApp {
             .map(|z| (z.name.clone(), z.ring.clone()))
             .collect();
         let (targets, _) = self.impact_targets();
+        // The radar's own motion for each storm on the active site that has one and that nobody
+        // set a manual motion on, from its own scan time.
+        let site = self.views[self.active].site.as_deref();
+        let volume_time = self.views[self.active].volume.as_ref().map(|v| v.time);
+        let scit: Vec<(&str, ManualTrack)> = if site.is_some() && self.cells_site.as_deref() == site
+        {
+            self.storm_cells
+                .iter()
+                .filter(|c| !c.id.is_empty() && self.manual_tracks_for(c).is_empty())
+                .filter_map(|c| {
+                    let t0 = c.time.or(volume_time)?;
+                    Some((c.id.as_str(), ManualTrack::from_cell(c, t0)?))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let contexts: Vec<TrackContext<'_>> = self
             .storm_tracks
             .tracks
             .iter()
-            .map(|t| {
-                let id = t.impact_id();
-                TrackContext {
-                    track: t,
-                    towns: self.towns.state(&id),
-                    people: self.impacts.by_id.get(&id),
-                }
-            })
+            .map(|t| self.track_context(t, None))
+            .chain(scit.iter().map(|(id, t)| self.track_context(t, Some(*id))))
             .collect();
         let rows = impact_rows(&contexts, &markers, &zones, &targets);
-        (impacts_csv(&rows), impacts_markdown(&contexts, &rows, now))
+        let (contexts, rows, quiet) = keep_reaching(contexts, rows);
+        let warnings = self.report_warnings();
+        (
+            impacts_csv(&contexts, &rows),
+            impacts_markdown(&contexts, &rows, quiet, &warnings, now),
+        )
+    }
+
+    fn track_context<'a>(
+        &'a self,
+        track: &'a ManualTrack,
+        scit_cell: Option<&'a str>,
+    ) -> TrackContext<'a> {
+        let id = track.impact_id();
+        TrackContext {
+            track,
+            scit_cell,
+            towns: self.towns.state(&id),
+            people: self.impacts.by_id.get(&id),
+        }
+    }
+
+    /// Warnings in effect within the active radar's 250 km, with the population counts their
+    /// cards already made; one line per warning however many polygon parts it has.
+    fn report_warnings(&self) -> Vec<WarningLine<'_>> {
+        let near = self.active_site_bounds(250.0);
+        let mut seen = std::collections::HashSet::new();
+        self.alert_features
+            .iter()
+            .filter(|f| f.kind == wxdata::overlay::FeatureKind::Warning)
+            .filter(|f| match (near, f.bbox()) {
+                (Some((x0, y0, x1, y1)), Some((a0, b0, a1, b1))) => {
+                    a0 <= x1 && a1 >= x0 && b0 <= y1 && b1 >= y0
+                }
+                (None, _) => true,
+                (_, None) => false,
+            })
+            .filter_map(|f| f.alert.as_ref())
+            .filter(|a| seen.insert(a.id.as_str()))
+            .map(|a| WarningLine {
+                event: &a.event,
+                area: &a.area,
+                expires: a.expires,
+                people: self.impacts.by_id.get(&a.id),
+            })
+            .collect()
     }
 }
 
@@ -339,6 +494,7 @@ mod tests {
             lat: destination_point([-97.0, 35.0], 90.0, 20.0)[1],
         }]);
         let ctx = [TrackContext {
+            scit_cell: None,
             track: &t,
             towns: Some(&towns),
             people: None,
@@ -375,7 +531,7 @@ mod tests {
         assert_eq!((b.side, b.in_path), (Some("S"), false));
         assert!((b.closest_km.unwrap() - 10.0).abs() < 0.3, "{b:?}");
 
-        let csv = impacts_csv(&rows);
+        let csv = impacts_csv(&ctx, &rows);
         assert_eq!(csv.lines().count(), rows.len() + 1);
         assert!(
             csv.contains("1,\"Moore, pop. 55,081\",town,\"Census 2020, town centre\","),
@@ -396,24 +552,122 @@ mod tests {
             places: vec![("Moore city".into(), 55_081)],
         });
         let ctx = [TrackContext {
+            scit_cell: None,
             track: &t,
             towns: None,
             people: Some(&people),
         }];
-        let md = impacts_markdown(&ctx, &[], t0());
+        let md = impacts_markdown(&ctx, &[], 0, &[], t0());
         assert!(md.contains("## Motion #1"), "{md}");
         assert!(md.contains("toward 090\u{b0} (E) at 32 kt"), "{md}");
         assert!(md.contains("About 20,860 people"), "{md}");
         assert!(md.contains("Towns in path: not looked up."), "{md}");
         assert!(md.contains("Nothing saved lies ahead"), "{md}");
         let ctx = [TrackContext {
+            scit_cell: None,
             track: &t,
             towns: Some(&TownsState::Failed("timeout".into())),
             people: None,
         }];
-        let md = impacts_markdown(&ctx, &[], t0());
+        let md = impacts_markdown(&ctx, &[], 0, &[], t0());
         assert!(md.contains("People in path: not counted"), "{md}");
         assert!(md.contains("Towns in path: the lookup failed."), "{md}");
-        assert!(impacts_markdown(&[], &[], t0()).contains("No storm motion was set"));
+        assert!(impacts_markdown(&[], &[], 0, &[], t0()).contains("No storm motion was set"));
+    }
+
+    /// A storm with only the radar's automatic motion is reported when it reaches a saved place,
+    /// labelled as SCIT's in both files; one that reaches nothing is only counted. Warnings are
+    /// listed with their counted populations, and an uncounted one says so.
+    #[test]
+    fn scit_storms_that_reach_something_are_reported_and_labelled() {
+        let manual = track();
+        let mut reaching = ManualTrack::new([-97.5, 35.0], t0());
+        reaching.aim(destination_point([-97.5, 35.0], 90.0, 60.0), false);
+        let mut away = ManualTrack::new([-97.0, 35.5], t0());
+        away.aim(destination_point([-97.0, 35.5], 0.0, 60.0), false);
+        let ctx = |t, scit_cell| TrackContext {
+            track: t,
+            scit_cell,
+            towns: None,
+            people: None,
+        };
+        let contexts = vec![
+            ctx(&manual, None),
+            ctx(&away, Some("K7")),
+            ctx(&reaching, Some("Q4")),
+        ];
+        // 30 km ahead of the manual motion, and 30 km ahead of storm Q4.
+        let markers = vec![
+            (
+                "School".to_string(),
+                destination_point([-97.0, 35.0], 90.0, 30.0),
+            ),
+            (
+                "Farm".to_string(),
+                destination_point([-97.5, 35.0], 90.0, 20.0),
+            ),
+        ];
+        let rows = impact_rows(&contexts, &markers, &[], &[]);
+        let (kept, rows, quiet) = keep_reaching(contexts, rows);
+        assert_eq!(quiet, 1, "K7 reaches nothing");
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[1].scit_cell, Some("Q4"));
+        assert!(rows.iter().all(|r| r.track <= 2), "{rows:?}");
+        let farm = rows.iter().find(|r| r.target == "Farm" && r.track == 2);
+        assert!(farm.is_some(), "Q4's own arrival, renumbered: {rows:?}");
+
+        let csv = impacts_csv(&kept, &rows);
+        assert!(csv.lines().next().unwrap().ends_with(",motion,storm"));
+        assert!(
+            csv.lines()
+                .any(|l| l.starts_with("2,Farm,") && l.ends_with(",scit,Q4")),
+            "{csv}"
+        );
+        assert!(
+            csv.lines()
+                .any(|l| l.starts_with("1,School,") && l.ends_with(",manual,")),
+            "{csv}"
+        );
+
+        let counted = ImpactState::Ready(Impact {
+            population: 4_120,
+            housing_units: 1_700,
+            places: Vec::new(),
+        });
+        let warnings = [
+            WarningLine {
+                event: "Tornado Warning",
+                area: "Cleveland, OK",
+                expires: Some(t0() + Duration::minutes(45)),
+                people: Some(&counted),
+            },
+            WarningLine {
+                event: "Severe Thunderstorm Warning",
+                area: "McClain, OK",
+                expires: None,
+                people: None,
+            },
+        ];
+        let md = impacts_markdown(&kept, &rows, quiet, &warnings, t0());
+        assert!(md.contains("## Storm Q4, radar's automatic motion"), "{md}");
+        assert!(md.contains("## Motion #1"), "{md}");
+        assert!(
+            md.contains("1 more storm the radar tracks had nothing saved ahead"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| Tornado Warning | Cleveland, OK | 20:25 | About 4,120 people"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| Severe Thunderstorm Warning | McClain, OK | — | not counted |"),
+            "{md}"
+        );
+        let none = impacts_markdown(&[], &[], 3, &[], t0());
+        assert!(
+            none.contains("no storm the radar tracks has anything saved"),
+            "{none}"
+        );
+        assert!(none.contains("No warning was in effect"), "{none}");
     }
 }

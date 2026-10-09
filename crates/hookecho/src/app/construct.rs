@@ -348,6 +348,7 @@ impl HookEchoApp {
             // Seeded from the last run so a restart mid-outbreak draws the warnings that are
             // already on the ground, and doesn't re-banner them as new (see `alert_snapshot`).
             alert_features: seeded_alerts,
+            alert_latency: Default::default(),
             arch_warns: LruCache::new(NonZeroUsize::new(50).unwrap()),
             arch_mds: LruCache::new(NonZeroUsize::new(50).unwrap()),
             arch_md_inflight: None,

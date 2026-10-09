@@ -6257,6 +6257,10 @@ fn backtest_event(
         // it was.
         let use_sails = std::env::var("HOOKECHO_BACKTEST_SAILS").is_ok_and(|v| v == "1");
         let lifts_wait = !std::env::var("HOOKECHO_BACKTEST_EARLY_LIFT").is_ok_and(|v| v == "1");
+        // Debris reflectivity from its CC's own cut (`HOOKECHO_BACKTEST_DEBRIS_CUT=1`, 1008.md
+        // G1): at split-cut tilts the debris signatures otherwise pair CC from the surveillance
+        // cut with reflectivity from the Doppler cut a rotation later.
+        let debris_same_cut = std::env::var("HOOKECHO_BACKTEST_DEBRIS_CUT").is_ok_and(|v| v == "1");
         let mut confirmation = wxdata::llsd_analyst::PassConfirmation::default();
         let http = reqwest::Client::new();
         let mut env_hours: std::collections::HashMap<i64, Option<wxdata::near_storm::EnvHour>> =
@@ -6287,7 +6291,18 @@ fn backtest_event(
                 }
                 if let (Ok(z), Ok(cc)) = (&z, cc) {
                     low_dp |= tilt == 0;
-                    pairs.push((z.clone(), cc));
+                    let z_cc = debris_same_cut
+                        .then(|| {
+                            level2::bin_scan_from_cut_of(
+                                &scan,
+                                Moment::Reflectivity,
+                                Moment::CorrelationCoefficient,
+                                tilt,
+                            )
+                            .ok()
+                        })
+                        .flatten();
+                    pairs.push((z_cc.unwrap_or_else(|| z.clone()), cc));
                 }
                 if let (Ok(z), Ok(vel)) = (z, vel) {
                     low_vel |= tilt == 0;
@@ -6327,13 +6342,14 @@ fn backtest_event(
                     zdr: low_zdr,
                 };
                 for pass in passes.iter().filter(|p| p.time < last_pass) {
-                    let Some(inputs) = wxdata::low_passes::at_pass(
+                    let Some(inputs) = wxdata::low_passes::at_pass_with(
                         &scan,
                         pass,
                         &vel_pairs,
                         &pairs,
                         &zdr_sweeps,
                         lowest,
+                        debris_same_cut,
                     ) else {
                         continue;
                     };

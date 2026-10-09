@@ -14,6 +14,17 @@ use wxdata::extrema::{Coverage, Extremum, Merge, Mismatch, SlidingTrail, WindowT
 /// four-minute cadence is 30 frames, about 1.3 MB each at super-resolution.
 const MAX_FRAMES: usize = if cfg!(target_os = "android") { 32 } else { 64 };
 
+/// Window volumes one trail may download that the loop has not kept, newest first: the trail is
+/// otherwise built only from the loop's cache, which can hold less than the window. Bounded so a
+/// long window cannot push the loop's own frames out of a cache this size (30 on desktop).
+const MAX_PREFETCH: usize = if cfg!(target_os = "android") {
+    4
+} else if cfg!(target_arch = "wasm32") {
+    0
+} else {
+    16
+};
+
 /// Display opacity at the old end of the window when fading: still readable, clearly older.
 const FADE_FLOOR: u8 = 64;
 
@@ -48,6 +59,8 @@ pub(crate) struct TrailState {
     fade: bool,
     /// Bumped whenever `shown` or its fade changes, so the shown-image key moves with it.
     generation: u32,
+    /// Window volumes this trail asked to download (at most [`MAX_PREFETCH`]), by name.
+    fetched: std::collections::HashSet<String>,
 }
 
 /// Display opacity per gate from its contributor's age: opaque for the frame at `now`, falling
@@ -64,6 +77,30 @@ pub(crate) fn age_alpha(contributor: &[Option<i64>], now: i64, window_s: i64) ->
             }
             None => 255,
         })
+        .collect()
+}
+
+/// Of the timeline `frames` up to the playhead, the volumes inside the window ending at `anchor`
+/// (seconds) that the trail does not hold (`held`, by scan time) and `have` does not know,
+/// newest first: what a trail prefetch asks for.
+fn window_uncached(
+    frames: &[Identifier],
+    anchor: i64,
+    window_s: i64,
+    held: &[i64],
+    have: impl Fn(&str) -> bool,
+) -> Vec<Identifier> {
+    frames
+        .iter()
+        .rev()
+        .filter(|id| {
+            id.date_time().is_some_and(|t| {
+                let t = t.timestamp();
+                t <= anchor && anchor - t <= window_s && !held.contains(&t)
+            })
+        })
+        .filter(|id| !have(id.name()))
+        .cloned()
         .collect()
 }
 
@@ -193,9 +230,11 @@ impl HookEchoApp {
                 alpha: None,
                 fade: false,
                 generation,
+                fetched: Default::default(),
             });
         }
         let fade = self.filters.trail_decay;
+        let uncached = self.trail_uncached(data, window_s).len();
         let state = self.trail.as_mut()?;
         let mut changed = state.anchor != Some(anchor);
         if changed {
@@ -257,6 +296,20 @@ impl HookEchoApp {
         if let Some(w) = &state.shown {
             status.push_str(&coverage_note(&w.coverage));
         }
+        let fetching = state
+            .fetched
+            .iter()
+            .filter(|n| !self.scan_cache.contains(n.as_str()))
+            .filter(|n| book(&self.prefetching).contains_key(n.as_str()))
+            .count();
+        if fetching > 0 {
+            status.push_str(&format!(
+                ", downloading {fetching} more of the window's volumes"
+            ));
+        }
+        if uncached > 0 && fetching == 0 {
+            status.push_str(&format!(", {uncached} of the window's volumes not loaded"));
+        }
         if fade {
             status.push_str(", older gates drawn fainter (values unchanged)");
         }
@@ -265,6 +318,65 @@ impl HookEchoApp {
             .shown
             .is_some()
             .then(|| format!("trail{}", state.generation))
+    }
+
+    /// The window's volumes, newest first, that neither the loop's cache nor the trail holds.
+    fn trail_uncached(&self, data: usize, window_s: i64) -> Vec<Identifier> {
+        let tl = &self.views[data].timeline;
+        let upto = &tl.frames[..(tl.playhead + 1).min(tl.frames.len())];
+        let Some(anchor) = upto.iter().rev().find_map(|id| id.date_time()) else {
+            return Vec::new();
+        };
+        let held: Vec<i64> = self
+            .trail
+            .as_ref()
+            .map(|t| t.trail.times().collect())
+            .unwrap_or_default();
+        let skipped = |name: &str| {
+            self.trail
+                .as_ref()
+                .is_some_and(|t| t.skipped.contains(name))
+        };
+        window_uncached(upto, anchor.timestamp(), window_s, &held, |name| {
+            self.scan_cache.contains(name) || skipped(name)
+        })
+    }
+
+    /// Download the window's volumes the loop has not kept, newest first, for the active pane's
+    /// trail (1008.md C1): at most [`MAX_PREFETCH`] per trail, on the loop prefetch's own
+    /// in-flight budget. Turning the trail off, or changing what it is built for, stops asking
+    /// for more; a download already running finishes into the loop cache like any prefetch.
+    pub(crate) fn prefetch_trail_window(&mut self, idx: usize, ctx: &egui::Context) {
+        if !self.filters.show_trail || idx != self.active || MAX_PREFETCH == 0 {
+            return;
+        }
+        let Some(state) = self.trail.as_ref() else {
+            return;
+        };
+        if state.fetched.len() >= MAX_PREFETCH || state.key.data != idx {
+            return;
+        }
+        let Some(site) = self.views[idx].site.clone() else {
+            return;
+        };
+        let window_s = i64::from(state.key.window_min) * 60;
+        let room = MAX_PREFETCH - state.fetched.len();
+        let todo: Vec<Identifier> = self
+            .trail_uncached(idx, window_s)
+            .into_iter()
+            .filter(|id| !state.fetched.contains(id.name()))
+            .take(room)
+            .collect();
+        for id in todo {
+            if book(&self.prefetching).len() >= MAX_PREFETCH_INFLIGHT {
+                break;
+            }
+            let name = id.name().to_string();
+            self.spawn_prefetch(idx, id, &site, ctx);
+            if let Some(state) = self.trail.as_mut() {
+                state.fetched.insert(name);
+            }
+        }
     }
 
     /// The trail's reading at `(lon, lat)` on pane `idx`, when that pane is drawing it: the
@@ -332,6 +444,33 @@ mod tests {
         assert_eq!(a[3], 255, "no contributor: nothing to fade");
         // A frame scanned after `now` (never shown, but never a panic) reads as new.
         assert_eq!(age_alpha(&[Some(1_100)], 1_000, 600), [255]);
+    }
+
+    /// The prefetch asks for the window's volumes the trail and the cache lack, newest first,
+    /// and nothing outside the window or after the playhead (1008.md C1).
+    #[test]
+    fn the_prefetch_asks_only_for_the_windows_missing_volumes() {
+        let id = |hm: &str| Identifier::new(format!("KTLX20130520_{hm}00_V06"));
+        let frames: Vec<Identifier> = ["1900", "1920", "1940", "1945", "1950", "2000"]
+            .iter()
+            .map(|t| id(t))
+            .collect();
+        let at = |f: &Identifier| f.date_time().unwrap().timestamp();
+        // The playhead at 19:50 (frames after it are not passed), a 30-minute window.
+        let upto = &frames[..5];
+        let anchor = at(&frames[4]);
+        let held = [at(&frames[3])];
+        let cached = |name: &str| name.contains("_1950");
+        let got: Vec<String> = window_uncached(upto, anchor, 30 * 60, &held, cached)
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
+        assert_eq!(
+            got,
+            ["KTLX20130520_194000_V06", "KTLX20130520_192000_V06"],
+            "19:00 is outside the window, 19:45 held, 19:50 cached"
+        );
+        assert!(window_uncached(upto, anchor, 30 * 60, &held, |_| true).is_empty());
     }
 
     #[test]

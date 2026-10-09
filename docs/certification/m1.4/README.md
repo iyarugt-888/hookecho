@@ -132,8 +132,11 @@ take a pass's time for the time of all its evidence. The newest pass's rotation 
 
 ## Not established
 
-- **Passes in earlier volumes.** A track's pass count runs across volumes. The record lists the
-  earlier passes in the verdict's own volume, not those of previous volumes.
+- **Passes in earlier volumes.** A track's pass count runs across volumes. Since 2026-10-09 each
+  fused verdict lists the passes its track was counted on (`counted_passes`: volume, pass time,
+  whether it read *likely*; the newest six), across volumes. Their sweeps' own scan times are
+  recorded only for the passes in the verdict's own volume (`earlier_passes`), and no reviewed
+  hover capture of the cross-volume list exists yet.
 - **Other layers.** Warnings and observations do not carry this record yet.
 - **Platforms.** Android and browser runtime, and full application interaction, are not
   certified.

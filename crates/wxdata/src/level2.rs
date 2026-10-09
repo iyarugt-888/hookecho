@@ -1591,6 +1591,35 @@ pub fn newest_moment_sweep(scan: &Scan, elevation_deg: f32, moment: Moment) -> O
         .map(|(_, s)| s)
 }
 
+/// Bin `moment` at `tilt` from the cut [`bin_scan`] reads `cut_of` from, rather than from
+/// `moment`'s own newest cut. At split-cut tilts the surveillance cut carries reflectivity and the
+/// dual-pol moments and the Doppler cut a rotation later carries reflectivity and velocity, so
+/// `bin_scan` pairs CC with reflectivity scanned about 17 seconds after it; this gives the
+/// reflectivity scanned with the CC. An error when that cut does not carry `moment`; the caller
+/// decides what to read instead.
+pub fn bin_scan_from_cut_of(
+    scan: &Scan,
+    moment: Moment,
+    cut_of: Moment,
+    tilt: usize,
+) -> anyhow::Result<BinnedSweep> {
+    let target = *elevation_angles(scan)
+        .get(tilt)
+        .ok_or_else(|| anyhow::anyhow!("tilt {tilt} out of range"))?;
+    let cut = newest_moment_sweep(scan, target, cut_of).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no sweep at tilt {tilt} ({target:.2}deg) carries {}",
+            cut_of.short_name()
+        )
+    })?;
+    let index = scan
+        .sweeps()
+        .iter()
+        .position(|s| std::ptr::eq(s, cut))
+        .expect("the cut is one of the scan's sweeps");
+    bin_sweep_index(scan, moment, index, false)
+}
+
 /// Every sweep at `tilt` that carries `moment`, oldest first, with when it finished (its latest
 /// radial's collection time, ms since the epoch; 0 for a source without timestamps). One for an
 /// ordinary tilt. Under SAILS or MRLE the lowest tilt is revisited partway through the volume, a
@@ -2875,6 +2904,54 @@ mod tests {
         assert!(moment_cuts(&scan, Moment::Velocity, 0).is_empty());
         assert!(moment_cuts(&scan, Moment::Reflectivity, 5).is_empty());
         assert!(bin_sweep_index(&scan, Moment::Velocity, 0, false).is_err());
+    }
+
+    /// At a split cut, `bin_scan` reads reflectivity from the later Doppler cut, while
+    /// `bin_scan_from_cut_of` reads it from the surveillance cut its CC came from (1008.md G1). A
+    /// cut that does not carry the moment asked for is an error, not another cut's data.
+    #[test]
+    fn reflectivity_can_be_read_from_the_cc_cut() {
+        let radial = |ts: i64, z: u8, cc: bool, vel: bool| {
+            let m = |code: u8| MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![code]);
+            Radial::new(
+                ts,
+                0,
+                0.0,
+                0.5,
+                nexrad_model::data::RadialStatus::ScanStart,
+                1,
+                0.5,
+                Some(m(z)),
+                vel.then(|| m(129)),
+                None,
+                None,
+                None,
+                cc.then(|| m(200)),
+                None,
+            )
+        };
+        let surveillance = Sweep::new(1, vec![radial(1_000, 100, true, false)]);
+        let doppler = Sweep::new(2, vec![radial(18_000, 140, false, true)]);
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        let scan = Scan::with_site(site, minimal_vcp(), vec![surveillance, doppler]);
+        let code = |b: &BinnedSweep| b.data.iter().copied().find(|&c| c > 1);
+        let newest = bin_scan(&scan, Moment::Reflectivity, 0).unwrap();
+        let with_cc = bin_scan_from_cut_of(
+            &scan,
+            Moment::Reflectivity,
+            Moment::CorrelationCoefficient,
+            0,
+        )
+        .unwrap();
+        let direct = |i| bin_sweep_index(&scan, Moment::Reflectivity, i, false).unwrap();
+        assert_eq!(code(&newest), code(&direct(1)));
+        assert_eq!(code(&with_cc), code(&direct(0)));
+        assert_ne!(code(&with_cc), code(&newest));
+        assert!(
+            bin_scan_from_cut_of(&scan, Moment::CorrelationCoefficient, Moment::Velocity, 0)
+                .is_err()
+        );
+        assert!(bin_scan_from_cut_of(&scan, Moment::Reflectivity, Moment::Velocity, 3).is_err());
     }
 
     /// Asking for a moment nothing at that elevation carries (velocity, on an all-reflectivity

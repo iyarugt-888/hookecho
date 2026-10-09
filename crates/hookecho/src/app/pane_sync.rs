@@ -212,6 +212,8 @@ impl HookEchoApp {
                 // this, playback is a serial download per frame with the loop stalled between —
                 // and scrubbing, which runs this same path paused, was a cold download per step.
                 self.prefetch_frames(idx, ctx);
+                // The trail's window can reach past what the loop keeps; fetch it, bounded.
+                self.prefetch_trail_window(idx, ctx);
             }
         }
     }

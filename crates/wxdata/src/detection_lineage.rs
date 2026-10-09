@@ -52,8 +52,20 @@ pub struct DetectionLineage {
     /// *likely* verdict needs its track to have read *likely* on two passes, so these are inputs
     /// to the tier as well. Empty for the original pipeline and for a volume with one pass.
     pub earlier_passes: Vec<EarlierPass>,
+    /// For each fused verdict drawn from this volume, by the column it was read from, the
+    /// low-level passes its track's count was made on, across volumes, oldest first
+    /// ([`crate::llsd_analyst::PassConfirmation::counted_at`]). Empty for the original pipeline.
+    pub counted_passes: Vec<VerdictPasses>,
     /// Why the original pipeline stands in for the fused one, when it does.
     pub stand_in: Option<&'static str>,
+}
+
+/// The passes one verdict's track was counted on, by where the verdict is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerdictPasses {
+    pub lon: f64,
+    pub lat: f64,
+    pub passes: Vec<crate::llsd_analyst::CountedPass>,
 }
 
 /// One earlier low-level pass the fused tracker read: the pass's own time (when its lowest-tilt
@@ -256,6 +268,38 @@ impl DetectionLineage {
         out
     }
 
+    /// [`Self::lines`] for the verdict at (`lon`, `lat`): with the passes its track's count was
+    /// made on, when they were recorded.
+    pub fn lines_at(&self, lon: f64, lat: f64) -> Vec<String> {
+        let mut out = self.lines();
+        let Some(v) = self
+            .counted_passes
+            .iter()
+            .find(|v| v.lon == lon && v.lat == lat)
+        else {
+            return out;
+        };
+        if v.passes.is_empty() {
+            return out;
+        }
+        let likely = v.passes.iter().filter(|p| p.likely).count();
+        out.push(format!(
+            "Its track was a verdict on {} recorded pass{} ({} likely or stronger):",
+            v.passes.len(),
+            if v.passes.len() == 1 { "" } else { "es" },
+            likely
+        ));
+        for p in &v.passes {
+            out.push(format!(
+                "  {} in {}{}",
+                p.time.format("%H:%M:%SZ"),
+                p.volume,
+                if p.likely { ", likely" } else { "" }
+            ));
+        }
+        out
+    }
+
     /// The record for an export: every clock as UTC RFC 3339, `null` where unknown.
     pub fn to_json(&self) -> Value {
         let algorithms: serde_json::Map<String, Value> = self
@@ -278,6 +322,15 @@ impl DetectionLineage {
                 "time_utc": p.time.to_rfc3339(),
                 "inputs": p.inputs.as_ref().map(coverage_json),
                 "debris_inputs": p.debris_inputs.as_ref().map(coverage_json),
+            })).collect::<Vec<_>>(),
+            "counted_passes": self.counted_passes.iter().map(|v| json!({
+                "lon": v.lon,
+                "lat": v.lat,
+                "passes": v.passes.iter().map(|p| json!({
+                    "volume": p.volume,
+                    "time_utc": p.time.to_rfc3339(),
+                    "likely": p.likely,
+                })).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "stand_in": self.stand_in,
         })
@@ -318,6 +371,7 @@ mod tests {
             inputs,
             debris_inputs: None,
             earlier_passes: Vec::new(),
+            counted_passes: Vec::new(),
             stand_in: None,
         }
     }
@@ -518,5 +572,48 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    /// A verdict's hover lists the passes its track was counted on, with their volumes, and
+    /// another verdict's does not borrow them (1008.md A4); the export carries them too.
+    #[test]
+    fn a_verdict_lists_the_passes_its_count_was_made_on() {
+        use crate::llsd_analyst::CountedPass;
+        let mut l = lineage(None);
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        l.counted_passes = vec![VerdictPasses {
+            lon: -97.5,
+            lat: 35.3,
+            passes: vec![
+                CountedPass {
+                    volume: "KTLX20130520_200603_V06".into(),
+                    time: at("2013-05-20T20:08:10Z"),
+                    likely: false,
+                },
+                CountedPass {
+                    volume: "KTLX20130520_201229_V06".into(),
+                    time: at("2013-05-20T20:13:01Z"),
+                    likely: true,
+                },
+            ],
+        }];
+        let lines = l.lines_at(-97.5, 35.3);
+        assert!(
+            lines.contains(
+                &"Its track was a verdict on 2 recorded passes (1 likely or stronger):".into()
+            ),
+            "{lines:?}"
+        );
+        assert!(lines.contains(&"  20:08:10Z in KTLX20130520_200603_V06".into()));
+        assert!(lines.contains(&"  20:13:01Z in KTLX20130520_201229_V06, likely".into()));
+        assert_eq!(
+            l.lines_at(-97.0, 35.3),
+            l.lines(),
+            "another verdict's passes are not its own"
+        );
+        let json = l.to_json();
+        let passes = &json["counted_passes"][0]["passes"];
+        assert_eq!(passes[0]["volume"], "KTLX20130520_200603_V06");
+        assert_eq!(passes[1]["likely"], true);
     }
 }

@@ -1,0 +1,52 @@
+
+000
+WUUS53 KDMX 090506
+SVRDMX
+IAC025-151-161-090545-
+/O.NEW.KDMX.SV.W.0351.261009T0506Z-261009T0545Z/
+
+BULLETIN - IMMEDIATE BROADCAST REQUESTED
+Severe Thunderstorm Warning
+National Weather Service Des Moines IA
+1206 AM CDT Fri Oct 9 2026
+
+The National Weather Service in Des Moines has issued a
+
+* Severe Thunderstorm Warning for...
+  Southwestern Pocahontas County in northwestern Iowa...
+  Northeastern Sac County in west central Iowa...
+  Northwestern Calhoun County in west central Iowa...
+
+* Until 1245 AM CDT.
+
+* At 1206 AM CDT, a severe thunderstorm was located over Newell, or 9
+  miles east of Storm Lake, moving southeast at 25 mph.
+
+  HAZARD...Quarter size hail.
+
+  SOURCE...Radar indicated.
+
+  IMPACT...Damage to vehicles is expected.
+
+* Locations impacted include...
+  Sac City, Pomeroy, Fonda, Lytton, Nemaha, and Varina.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+For your protection move to an interior room on the lowest floor of a
+building.
+
+&&
+
+LAT...LON 4256 9492 4273 9491 4262 9462 4236 9488
+      4256 9517
+TIME...MOT...LOC 0506Z 300DEG 20KT 4261 9502 
+
+HAIL THREAT...RADAR INDICATED
+MAX HAIL SIZE...1.00 IN
+WIND THREAT...RADAR INDICATED
+MAX WIND GUST...<50 MPH
+
+$$
+
+Hagenhoff

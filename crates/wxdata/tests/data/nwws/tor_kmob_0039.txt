@@ -1,0 +1,57 @@
+
+000
+WFUS54 KMOB 042102
+TORMOB
+ALC003-042130-
+/O.NEW.KMOB.TO.W.0039.261004T2102Z-261004T2130Z/
+
+BULLETIN - EAS ACTIVATION REQUESTED
+Tornado Warning
+National Weather Service Mobile AL
+Issued by National Weather Service New Orleans LA
+402 PM CDT Sun Oct 4 2026
+
+The National Weather Service in Mobile has issued a
+
+* Tornado Warning for...
+  South central Baldwin County in southwestern Alabama...
+
+* Until 430 PM CDT.
+
+* At 401 PM CDT, a severe thunderstorm capable of producing a tornado
+  was located 4 miles east of Fort Morgan, or 10 miles east of
+  Dauphin Island, moving northeast at 5 mph.
+
+  HAZARD...Tornado.
+
+  SOURCE...Radar indicated rotation.
+
+  IMPACT...Flying debris will be dangerous to those caught without 
+           shelter. Mobile homes will be damaged or destroyed. 
+           Damage to roofs, windows, and vehicles will occur.  Tree 
+           damage is likely.
+
+* This tornadic thunderstorm will remain over mainly rural areas of
+  south central Baldwin County.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+TAKE COVER NOW! Move to a basement or an interior room on the lowest
+floor of a sturdy building. Avoid windows. If you are outdoors, in a
+mobile home, or in a vehicle, move to the closest substantial shelter
+and protect yourself from flying debris.
+
+Torrential rainfall is occurring with this storm, and may lead to
+flash flooding. Do not drive your vehicle through flooded roadways.
+
+&&
+
+LAT...LON 3022 8800 3038 8794 3029 8774 3022 8776
+TIME...MOT...LOC 2101Z 226DEG 6KT 3020 8795 
+
+TORNADO...RADAR INDICATED
+MAX HAIL SIZE...0.00 IN
+
+$$
+
+Frye

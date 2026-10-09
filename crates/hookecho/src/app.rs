@@ -48,6 +48,7 @@ pub(crate) use pane_detect::PaneDetections;
 mod overlay_fetch;
 pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
 mod account_sync;
+mod alert_latency;
 mod alerts_watch;
 mod beam_tools;
 pub(crate) mod camera_flight;
@@ -1382,6 +1383,8 @@ pub struct HookEchoApp {
     acquisition: OverlayAcquisition,
     filters: OverlayFilters,
     alert_features: Vec<GeoFeature>,
+    /// New alerts' sent → accepted → first frame built (`app/alert_latency.rs`).
+    alert_latency: wxdata::alert_latency::LatencyLog,
     /// Archived storm-based warnings (feature W) keyed by 5-min UTC bucket (ts/300); shown while
     /// the active pane is scrubbed off-live.
     arch_warns: LruCache<i64, Vec<GeoFeature>>,
@@ -8298,6 +8301,7 @@ impl eframe::App for HookEchoApp {
         self.ui_frame(root, frame);
         self.frame_times
             .push(start.elapsed().as_secs_f32() * 1000.0);
+        self.note_alert_frame();
     }
 }
 

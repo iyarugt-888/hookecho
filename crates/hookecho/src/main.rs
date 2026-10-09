@@ -795,6 +795,27 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Live NWS alert latency: `hookecho --headless-alert-latency <minutes> [interval_s] --export
+    // DIR` (1008.md A1).
+    if let Some(pos) = args.iter().position(|a| a == "--headless-alert-latency") {
+        let minutes = args.get(pos + 1).and_then(|m| m.parse().ok()).unwrap_or(30);
+        let interval = args
+            .get(pos + 2)
+            .and_then(|m| m.parse().ok())
+            .unwrap_or(30u64)
+            .max(10);
+        let export = args
+            .iter()
+            .position(|a| a == "--export")
+            .and_then(|i| args.get(i + 1))
+            .map_or("target/parity-review/a1-alert-latency", String::as_str);
+        if let Err(e) = hookecho::alert_latency_watch::run(minutes, interval, export) {
+            eprintln!("alert latency watch failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // The same over a file of events: `hookecho --headless-backtest-file <events.txt> [volumes]`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-backtest-file") {
         let path = args.get(pos + 1).map(String::as_str).unwrap_or("");

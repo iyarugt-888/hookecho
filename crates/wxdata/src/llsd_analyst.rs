@@ -284,6 +284,22 @@ pub const LIKELY_PASSES: u32 = 2;
 pub struct PassConfirmation {
     verdicts: std::collections::HashMap<u64, u32>,
     likely: std::collections::HashMap<u64, u32>,
+    /// The passes each track was counted on, oldest first, the newest [`PASS_HISTORY`] kept:
+    /// which volume and when (1008.md A4). Only passes recorded with [`Self::record_at`].
+    history: std::collections::HashMap<u64, std::collections::VecDeque<CountedPass>>,
+}
+
+/// Counted passes kept per track: more than [`LIKELY_PASSES`], so a reader sees the run of passes
+/// behind a tier, not only the two that met it.
+pub const PASS_HISTORY: usize = 6;
+
+/// One low-level pass a track was counted on: the volume it was in, when the pass's lowest tilt
+/// finished, and whether it read *likely* or stronger there on radar evidence alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CountedPass {
+    pub volume: String,
+    pub time: chrono::DateTime<chrono::Utc>,
+    pub likely: bool,
 }
 
 impl PassConfirmation {
@@ -291,6 +307,17 @@ impl PassConfirmation {
     /// evidence alone (no report or warning), with the rotation-only bar `rotation_only_possible`.
     /// Once per pass.
     pub fn record(&mut self, analysed: &[Analysed], rotation_only_possible: Option<f32>) {
+        self.record_at(analysed, rotation_only_possible, None);
+    }
+
+    /// [`Self::record`], noting the pass (`volume`, `time`) against each track counted, so a
+    /// verdict can say which passes its count came from, across volumes.
+    pub fn record_at(
+        &mut self,
+        analysed: &[Analysed],
+        rotation_only_possible: Option<f32>,
+        pass: Option<(&str, chrono::DateTime<chrono::Utc>)>,
+    ) {
         let none = Confirmation::default();
         for a in analysed {
             let Some(id) = a.tornado_id_with(&none, rotation_only_possible) else {
@@ -298,10 +325,40 @@ impl PassConfirmation {
             };
             let track = a.tracked.track_id;
             *self.verdicts.entry(track).or_default() += 1;
-            if id.tier >= Tier::Likely {
+            let likely = id.tier >= Tier::Likely;
+            if likely {
                 *self.likely.entry(track).or_default() += 1;
             }
+            if let Some((volume, time)) = pass {
+                let h = self.history.entry(track).or_default();
+                h.push_back(CountedPass {
+                    volume: volume.to_string(),
+                    time,
+                    likely,
+                });
+                while h.len() > PASS_HISTORY {
+                    h.pop_front();
+                }
+            }
         }
+    }
+
+    /// The passes `track` was counted on, oldest first (the newest [`PASS_HISTORY`]).
+    pub fn counted(&self, track: u64) -> Vec<CountedPass> {
+        self.history
+            .get(&track)
+            .map(|h| h.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// The counted passes of the track whose column is at (`lon`, `lat`) in `analysed`: the
+    /// column a verdict there was read from.
+    pub fn counted_at(&self, analysed: &[Analysed], lon: f64, lat: f64) -> Vec<CountedPass> {
+        analysed
+            .iter()
+            .find(|a| a.tracked.column.lon == lon && a.tracked.column.lat == lat)
+            .map(|a| self.counted(a.tracked.track_id))
+            .unwrap_or_default()
     }
 
     /// Whether `track` has read *likely* or stronger on [`LIKELY_PASSES`] passes.
@@ -979,6 +1036,37 @@ mod tests {
         let mut ids = identify_with(&a, report, VerdictOptions::default());
         PassConfirmation::default().apply(&a, &mut ids, true);
         assert_eq!(ids[0].tier, Tier::Confirmed);
+    }
+
+    /// A track's count runs across volumes, and each counted pass is listed with its own volume
+    /// and time (1008.md A4); an unstamped pass counts but is not listed; the list is bounded.
+    #[test]
+    fn counted_passes_name_their_volumes_across_volumes() {
+        let mut ball = debris_ball(0.0, 0.5);
+        let strong = tracked(3);
+        (ball.lon, ball.lat) = (strong.column.lon, strong.column.lat);
+        let (lon, lat) = (strong.column.lon, strong.column.lat);
+        let a = analyse(vec![strong], &[ball], &[]);
+        let at = |s: i64| chrono::DateTime::from_timestamp(s, 0).unwrap();
+        let mut c = PassConfirmation::default();
+        c.record_at(&a, None, Some(("KTLX20130520_200603_V06", at(1_000))));
+        c.record(&a, None);
+        c.record_at(&a, None, Some(("KTLX20130520_201229_V06", at(1_400))));
+        let passes = c.counted_at(&a, lon, lat);
+        assert_eq!(passes.len(), 2, "{passes:?}");
+        assert_eq!(passes[0].volume, "KTLX20130520_200603_V06");
+        assert_eq!(passes[1].time, at(1_400));
+        assert!(passes.iter().all(|p| p.likely));
+        assert!(
+            c.counted_at(&a, lon + 1.0, lat).is_empty(),
+            "no column there"
+        );
+        for i in 0..10 {
+            c.record_at(&a, None, Some(("V", at(2_000 + i))));
+        }
+        let passes = c.counted_at(&a, lon, lat);
+        assert_eq!(passes.len(), PASS_HISTORY);
+        assert_eq!(passes.last().unwrap().time, at(2_009));
     }
 
     #[test]

@@ -267,6 +267,42 @@ pub fn parse_alerts(json: &str) -> anyhow::Result<Vec<GeoFeature>> {
     Ok(out)
 }
 
+/// Every alert message in an api.weather.gov alerts payload, with or without a polygon: what the
+/// latency watch ([`crate::alert_latency`]) counts.
+pub fn parse_alert_infos(json: &str) -> anyhow::Result<Vec<AlertInfo>> {
+    let mut out = Vec::new();
+    for_each_feature(json, |_, props| {
+        if let Some((.., alert)) = build_alert(props) {
+            out.push(alert);
+        }
+    })?;
+    Ok(out)
+}
+
+/// The nationwide active-alerts feed, with the reply's own `Date` header (the server's clock, to
+/// one second) beside the body.
+pub async fn fetch_active_raw(
+    client: &reqwest::Client,
+) -> anyhow::Result<(String, Option<chrono::DateTime<chrono::Utc>>)> {
+    let reply = client
+        .get(crate::net::fetch_url(ALERTS_URL))
+        .timeout(crate::net::FEED_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/geo+json")
+        .send()
+        .await?
+        .error_for_status()?;
+    let date = reply
+        .headers()
+        .get(reqwest::header::DATE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| chrono::DateTime::parse_from_rfc2822(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let body = reply.text().await?;
+    crate::stats::net(body.len());
+    Ok((body, date))
+}
+
 /// One zone's polygon groups (rings per polygon part), as returned by [`polygons_of`].
 type ZonePolys = Vec<Vec<Vec<[f64; 2]>>>;
 

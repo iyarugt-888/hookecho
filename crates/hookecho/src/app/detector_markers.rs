@@ -378,7 +378,7 @@ impl HookEchoApp {
                     for r in &t.reasons {
                         ui.label(r);
                     }
-                    lineage_lines(ui, tornado_lineage);
+                    lineage_lines(ui, tornado_lineage, (t.lon, t.lat));
                 });
             }
         }
@@ -732,7 +732,7 @@ impl HookEchoApp {
                             "{} detections tied together. Click or tap to open the web.",
                             c.members.len()
                         ));
-                        lineage_lines(ui, tornado_lineage);
+                        lineage_lines(ui, tornado_lineage, (t.lon, t.lat));
                     });
                 }
                 if !is_open {
@@ -893,7 +893,7 @@ impl HookEchoApp {
                                     }
                                     // Where the verdict came from: a finger has no hover, so the
                                     // card is where a phone reads it.
-                                    lineage_lines(ui, tornado_lineage);
+                                    lineage_lines(ui, tornado_lineage, (t.lon, t.lat));
                                 });
                         });
                     });
@@ -1064,12 +1064,16 @@ mod card_placement_tests {
 
 /// Where a Tornado ID verdict came from, small and weak under its reasons: which pipeline and
 /// version, the volume, and when its inputs were scanned.
-fn lineage_lines(ui: &mut egui::Ui, lineage: Option<&wxdata::detection_lineage::DetectionLineage>) {
+fn lineage_lines(
+    ui: &mut egui::Ui,
+    lineage: Option<&wxdata::detection_lineage::DetectionLineage>,
+    at: (f64, f64),
+) {
     let Some(l) = lineage else {
         return;
     };
     ui.add_space(2.0);
-    for line in l.lines() {
+    for line in l.lines_at(at.0, at.1) {
         ui.label(egui::RichText::new(line).small().weak());
     }
 }
@@ -1194,6 +1198,7 @@ mod llsd_preview_snapshots {
             inputs: input_coverage(vel_pairs.into_iter().flat_map(|(v, z)| [v, z]).collect()),
             debris_inputs: wxdata::detection_lineage::debris_input_coverage(cc_pairs, zdr),
             earlier_passes: Vec::new(),
+            counted_passes: Vec::new(),
             stand_in: None,
         };
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
@@ -1212,7 +1217,7 @@ mod llsd_preview_snapshots {
                         ui.label(r);
                     }
                     ui.weak("\u{2026}");
-                    super::lineage_lines(ui, Some(&lineage));
+                    super::lineage_lines(ui, Some(&lineage), (t.lon, t.lat));
                 });
             },
         )

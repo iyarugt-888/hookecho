@@ -159,6 +159,7 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::Alerts(f) => {
+                    self.note_alert_receipt(&f);
                     self.detect_new_warnings(&f);
                     crate::alert_snapshot::save(&f);
                     self.alert_features = f;

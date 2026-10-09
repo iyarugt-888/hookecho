@@ -2,6 +2,7 @@
 
 pub mod afd;
 pub mod airnow;
+pub mod alert_latency;
 pub mod alerts;
 pub mod archive_mds;
 pub mod archive_warnings;
@@ -76,6 +77,7 @@ pub mod ndfd;
 pub mod near_flow;
 pub mod near_storm;
 pub mod net;
+pub mod nwws;
 pub mod netcdf;
 pub mod nohrsc;
 pub mod objcache;

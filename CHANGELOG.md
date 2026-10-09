@@ -8,6 +8,41 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: how long new warnings take to arrive
+
+The Analyst log now shows "Warning arrival": for each warning that first appears while the app is
+running, the time from the NWS `sent` time to the moment the app accepted the poll that carried
+it, and then to the first frame built with it on the map (p50/p95 and how many). Warnings already
+active at the first poll are not counted, because they were issued before the app was looking.
+The arrival time includes waiting for the app's two-minute alert poll, and compares the NWS clock
+with this computer's; the drawn stage is the CPU frame, not the moment the screen showed it.
+`hookecho --headless-alert-latency <minutes> [seconds] --export DIR` watches the live alert feed
+and writes the same measurement, every poll's clock against the server's `Date` header, and a
+readable report.
+
+### Added: radar-tracked storms and warnings in the impact report
+
+The analysis export's `impacts.csv` and `impacts.md` now include storms nobody set a manual motion
+on, projected along the radar's own storm motion (SCIT) with the default swath, when they reach a
+saved place, watch zone, impact target or town; the others are counted in one line. Each row says
+whose motion it came from (`motion`: `manual` or `scit`, and the storm's id). The readable report
+also lists the warnings in effect within 250 km of the radar, with the people inside each polygon
+where its card already counted them, and says "not counted" where it did not.
+
+### Changed: the max/min trail can download the rest of its window
+
+The radar trail was built only from the volumes the loop had already downloaded, so a long window
+could be shorter than asked for. It now downloads the window's missing volumes, newest first, up to
+16 per trail (4 on Android), on the loop's own download budget, and its status line says how many
+are downloading or still not loaded. Turning the trail off stops asking for more.
+
+### Added: which passes a Likely verdict counted, across volumes
+
+A fused Tornado ID verdict needs its track to read Likely on two low-level passes, and those passes
+can be in earlier volumes. Its hover, card and `provenance.json` (`counted_passes`) now list the
+passes its track was a verdict on — the volume and when each pass's lowest tilt finished, and which
+read Likely — for up to the last six.
+
 ### Added: when the debris evidence was scanned
 
 A Tornado ID verdict's hover, pinned card and Cell dock already said when the sweeps behind its
