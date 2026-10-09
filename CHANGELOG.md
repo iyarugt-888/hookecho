@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Measured: what the 3D volume costs to draw
+
+A GPU trace now times the 3D raymarch on a real volume (Moore 2013, 192 × 192 × 48 voxels, drawn
+at 1024 × 1024). On an RTX 2060 a frame takes 1.2–3.2 ms (median) across the three render modes
+and quality settings, so empty-space skipping is not added; phones have not been traced.
+
 ### Added: how long new warnings take to arrive
 
 The Analyst log now shows "Warning arrival": for each warning that first appears while the app is

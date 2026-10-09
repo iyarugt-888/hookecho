@@ -1992,6 +1992,19 @@ impl Volume3dResources {
         clear: wgpu::Color,
     ) {
         self.upload(device, queue, upload);
+        self.render_uploaded(device, queue, view, uniform, clear);
+    }
+
+    /// [`Self::render_once`] on the volume already uploaded: the raymarch alone, as a frame
+    /// that does not change the volume draws it (a performance trace times this).
+    pub fn render_uploaded(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        uniform: Uniforms,
+        clear: wgpu::Color,
+    ) {
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("raymarch_headless"),

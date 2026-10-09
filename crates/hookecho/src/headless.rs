@@ -5167,6 +5167,131 @@ mod golden_tests {
         );
     }
 
+    /// The raymarch's cost on the device this runs on (1008.md C2): the Moore 2013 volume
+    /// (scientific corpus cache) built as the 3D window builds it, uploaded once, then drawn at
+    /// 1024 x 1024 in each rendering mode at the three quality step counts; each figure is the
+    /// wall time from submitting one frame to the device reporting it done, median and p95 of 30
+    /// after 5 warm-ups. Writes `target/parity-review/m3.5/raymarch-trace.txt`.
+    /// `cargo test -p hookecho --release --lib raymarch_performance_trace -- --ignored --nocapture`
+    #[test]
+    #[ignore = "gpu: writes a performance trace"]
+    fn raymarch_performance_trace() {
+        use crate::render3d::VolumeRender;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let path = repo.join("target/scientific-corpus/KTLX20130520_201229_V06.gz");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("SKIP: {} not provisioned", path.display());
+            return;
+        };
+        let scan = level2::decode_volume(bytes).expect("Moore 2013 decodes");
+        let sweeps: Vec<_> = (0..level2::elevation_angles(&scan).len())
+            .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Reflectivity, t, false).ok())
+            .collect();
+        let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        let v3 = wxdata::volume3d::build(&sweeps, 192, 48, half_km, 18.0).expect("volume");
+        let lut = crate::colormap::bake_lut(
+            crate::colormap::default_table(Moment::Reflectivity),
+            (v3.value_min, v3.value_max),
+            None,
+        )
+        .to_vec();
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&v3.data),
+            n: v3.n as u32,
+            nz: v3.nz as u32,
+            lut,
+            half_km: v3.half_km,
+            center_km: [0.0, 0.0],
+            top_km: v3.top_km,
+            outside: 0.0,
+            value_range: None,
+            lut_range: None,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut res = crate::render3d::Volume3dResources::new(&device, format);
+        let px = 1024;
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("trace_target"),
+            size: wgpu::Extent3d {
+                width: px,
+                height: px,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        res.upload(&device, &queue, &upload);
+        let clear = wgpu::Color::BLACK;
+        let mut out = format!(
+            "adapter: {} ({:?})\nvolume: Moore 2013 KTLX20130520_201229_V06, {}x{}x{} voxels, \
+             half-width {:.0} km; target {px}x{px}\n\nmode         steps   median ms   p95 ms\n",
+            adapter.get_info().name,
+            adapter.get_info().backend,
+            v3.n,
+            v3.n,
+            v3.nz,
+            v3.half_km
+        );
+        for (label, render) in [
+            ("MIP", VolumeRender::Mip),
+            ("translucent", VolumeRender::Translucent),
+            ("lit", VolumeRender::TranslucentLit),
+        ] {
+            for steps in [96u32, 160, 256] {
+                let uniform = crate::render3d::orbit_uniform(
+                    30.0,
+                    25.0,
+                    3.0,
+                    1.0,
+                    upload.n,
+                    upload.nz,
+                    upload.half_km,
+                    upload.top_km,
+                    steps,
+                    crate::render3d::View3d {
+                        render,
+                        ..Default::default()
+                    },
+                );
+                let mut ms = Vec::new();
+                for i in 0..35 {
+                    let t = std::time::Instant::now();
+                    res.render_uploaded(&device, &queue, &view, uniform, clear);
+                    device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .expect("device poll");
+                    if i >= 5 {
+                        ms.push(t.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                ms.sort_by(f64::total_cmp);
+                let line = format!(
+                    "{label:12} {steps:5}   {:9.2}   {:6.2}\n",
+                    ms[ms.len() / 2],
+                    ms[(ms.len() * 95 / 100).min(ms.len() - 1)]
+                );
+                print!("{line}");
+                out.push_str(&line);
+            }
+        }
+        let dir = repo.join("target/parity-review/m3.5");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("raymarch-trace.txt"), &out).unwrap();
+    }
+
     /// Colour stops recolour what draws without changing what draws (M3.5, 1008.md C2): the
     /// same 50 dBZ block with the palette and with all-green stops covers the same pixels, and
     /// only the stops' render is green.
@@ -5201,8 +5326,8 @@ mod golden_tests {
             value_range: None,
             lut_range: Some((lo, hi)),
         };
-        let green = crate::render3d::ColorStops::new(&[(lo, [0, 255, 0]), (hi, [0, 255, 0])])
-            .unwrap();
+        let green =
+            crate::render3d::ColorStops::new(&[(lo, [0, 255, 0]), (hi, [0, 255, 0])]).unwrap();
         let recoloured = crate::render3d::Volume3dUpload {
             lut: green.lut(&palette.lut, (lo, hi)),
             ..palette.clone()
@@ -5233,7 +5358,9 @@ mod golden_tests {
                 .0
                 .iter()
                 .zip(mask)
-                .filter(|(p, m)| **m && p[1] > p[0].saturating_add(40) && p[1] > p[2].saturating_add(40))
+                .filter(|(p, m)| {
+                    **m && p[1] > p[0].saturating_add(40) && p[1] > p[2].saturating_add(40)
+                })
                 .count()
         };
         let (n_a, n_b) = (echo_pixels(&a), echo_pixels(&b));
@@ -5248,8 +5375,14 @@ mod golden_tests {
             (n_a as i64 - n_b as i64).abs() <= (n_a as i64 / 50).max(4),
             "coverage unchanged within edge antialiasing: {n_a} vs {n_b}"
         );
-        assert!(greenish(&b, &db) * 10 >= n_b * 9, "the stops' render is green");
-        assert!(greenish(&a, &da) * 10 < n_a, "the palette's 50 dBZ is not green");
+        assert!(
+            greenish(&b, &db) * 10 >= n_b * 9,
+            "the stops' render is green"
+        );
+        assert!(
+            greenish(&a, &da) * 10 < n_a,
+            "the palette's 50 dBZ is not green"
+        );
     }
 
     /// Stops five to eight reach the shader (M3.5 increment 2): a curve solid up to 40 dBZ and

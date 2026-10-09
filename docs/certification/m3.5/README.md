@@ -32,8 +32,25 @@ all-green stops and compares them pixel by pixel:
 | NVIDIA GeForce RTX 2060 | 64,836 / 64,836 | 1,000,000 of 1,000,000 | 0 / 64,836 |
 | Microsoft Basic Render Driver (`HOOKECHO_GPU_FALLBACK=1`) | 64,781 / 64,781 | 1,000,000 of 1,000,000 | 0 / 64,781 |
 
+## Performance trace, RTX 2060 (2026-10-09)
+
+[raymarch-trace-rtx2060.txt](raymarch-trace-rtx2060.txt) (SHA-256 `3927bf3df9ae7c899790333e7b7f1bc0dafd4921491b080db1ce84eed5585b9e`):
+the Moore 2013 reflectivity volume (192 × 192 × 48 voxels, built as the 3D window builds it),
+uploaded once and drawn at 1024 × 1024, submit-to-done wall time over 30 frames after 5 warm-ups
+(`raymarch_performance_trace`):
+
+| Mode | 96 steps | 160 steps | 256 steps |
+| --- | --- | --- | --- |
+| MIP | 1.59 ms | 2.42 ms | 3.17 ms |
+| Translucent | 1.24 ms | 1.94 ms | 2.73 ms |
+| Lit | 1.26 ms | 1.91 ms | 2.72 ms |
+
+(medians; p95 at most 4.34 ms). Translucent is cheaper than MIP because rays stop once nearly
+opaque. At under 4 ms a frame even at the highest quality, empty-space skipping would not be
+beneficial on this desktop and is not added; whether a phone needs it is for an Android trace.
+
 ## Not established
 
-- No interactive desktop session editing stops on a real volume, and no Android run.
-- Several isosurface thresholds at once, empty-space skipping and a performance trace remain open
-  (1008.md C2).
+- No interactive desktop session editing stops on a real volume, and no Android run or trace.
+- Several thresholds at once exist as nested shells (a threshold and two equal steps above it);
+  arbitrary unequal thresholds and signed velocity pairs do not.

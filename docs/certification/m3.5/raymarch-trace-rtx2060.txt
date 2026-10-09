@@ -1,0 +1,13 @@
+adapter: NVIDIA GeForce RTX 2060 (Vulkan)
+volume: Moore 2013 KTLX20130520_201229_V06, 192x192x48 voxels, half-width 314 km; target 1024x1024
+
+mode         steps   median ms   p95 ms
+MIP             96        1.59     2.26
+MIP            160        2.42     3.02
+MIP            256        3.17     4.34
+translucent     96        1.24     1.79
+translucent    160        1.94     2.54
+translucent    256        2.73     3.41
+lit             96        1.26     1.75
+lit            160        1.91     2.35
+lit            256        2.72     3.31
