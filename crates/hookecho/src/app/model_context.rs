@@ -618,6 +618,7 @@ pub(super) mod tests {
             level: "500 mb".into(),
             kind: wxdata::model_inventory::TimingKind::Instant,
             vector: false,
+            minus: None,
         });
         let requests = MODEL_LAYERS.map(|layer| request_for(&controls, layer, None, now).unwrap());
         assert_eq!(
@@ -824,6 +825,7 @@ pub(super) mod tests {
                     level: "500 mb".into(),
                     kind: wxdata::model_inventory::TimingKind::Instant,
                     vector: false,
+                    minus: None,
                 }
                 .pick(),
                 6,

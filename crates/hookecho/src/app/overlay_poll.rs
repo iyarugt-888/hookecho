@@ -313,7 +313,13 @@ impl HookEchoApp {
                 }
                 OverlayMsg::StampedField(layer, field) => {
                     if let Some(request) = model_context {
-                        let upload = self.field_upload(layer, &field.data);
+                        // A browsed difference draws on its own diverging scale.
+                        let upload = match request {
+                            ModelRequest::Discovered(pick, ..) if pick.minus.is_some() => {
+                                super::model_field::model_difference_upload(&field.data)
+                            }
+                            _ => self.field_upload(layer, &field.data),
+                        };
                         if let Some(slot) = self.model_fields.get_mut(&request) {
                             if slot.state.stage_model(request, field, upload) {
                                 for idx in 0..self.views.len() {

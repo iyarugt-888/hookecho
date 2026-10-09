@@ -1003,15 +1003,80 @@ impl OverlaySource {
                         (fc.field, fc.run, valid)
                     }
                 };
+                // A difference (1008.md E3): the other model's same field at exactly this run and
+                // lead, never a nearby one; both must be valid at the same instant.
+                let (field, source, derived) = match pick.minus {
+                    None => (field, pick.model.source_id().to_string(), false),
+                    Some(other) => {
+                        let lead_h = (valid - run).num_hours();
+                        let fc2 = match other {
+                            InventorySource::Regional(m) => {
+                                let lead = u8::try_from(lead_h).map_err(|_| {
+                                    anyhow::anyhow!("{} has no F+{lead_h}h", m.label())
+                                })?;
+                                let fc = wxdata::hrrr::fetch_inventory_field(
+                                    http,
+                                    m,
+                                    Some(run),
+                                    lead,
+                                    pick.var,
+                                    pick.level,
+                                    pick.kind,
+                                )
+                                .await?;
+                                (fc.valid(), fc.run, fc.field)
+                            }
+                            InventorySource::Gfs | InventorySource::Ecmwf => {
+                                let model = other.global().expect("a global source");
+                                let fh = u16::try_from(lead_h)
+                                    .map_err(|_| anyhow::anyhow!("no F+{lead_h}h"))?;
+                                let fc = wxdata::global::fetch_global_inventory_field(
+                                    http,
+                                    model,
+                                    Some(run),
+                                    fh,
+                                    pick.var,
+                                    pick.level,
+                                    pick.kind,
+                                )
+                                .await?;
+                                (fc.valid(), fc.run, fc.field)
+                            }
+                        };
+                        let (valid2, run2, field2) = fc2;
+                        anyhow::ensure!(
+                            run2 == run && valid2 == valid,
+                            "{} has no {} run valid at {} (its file is the {} run, valid {})",
+                            other.source_id(),
+                            run.format("%HZ"),
+                            valid.format("%m-%d %H:%M"),
+                            run2.format("%HZ"),
+                            valid2.format("%m-%d %H:%M")
+                        );
+                        let difference =
+                            crate::fielddiff::diff(&field, &field2).ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "{} and {} do not overlap here",
+                                    pick.model.source_id(),
+                                    other.source_id()
+                                )
+                            })?;
+                        (
+                            difference,
+                            format!("{} \u{2212} {}", pick.model.source_id(), other.source_id()),
+                            true,
+                        )
+                    }
+                };
                 OverlayMsg::StampedField(
                     crate::render::FieldLayer::ModelField,
                     field_state::model_field(
-                        pick.model.source_id(),
+                        &source,
                         &pick.product_id(),
                         field,
                         Some(run),
                         valid,
-                        false,
+                        derived,
                     )?,
                 )
             }

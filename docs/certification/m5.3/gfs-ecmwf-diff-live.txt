@@ -1,0 +1,4 @@
+GFS minus ECMWF, 500 hPa temperature, run 2026-10-09 06:00:00 UTC F+12 (valid 2026-10-09 18:00:00 UTC)
+cells 720000 on a 1200x600 lattice
+mean -0.08 K, median |diff| 0.35 K, 98th percentile |diff| 1.49 K, range -4.81..4.65 K
+symmetric display range (difference_range) 1.27 K

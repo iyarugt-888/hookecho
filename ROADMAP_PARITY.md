@@ -1628,10 +1628,25 @@ detection remains with Claude.
 
 **Evidence ledger — 2026-10-09, increment 8 (vector probe readout; 1008.md E3):** a browsed wind on the layer probe now reads as a wind: its speed and the direction it blows from ("23 kt from 245°"). The direction comes from the same east/north components, sampled the same way (`sample_bilinear`), as the barbs drawn at that point (`App::model_wind_from_deg`, `model_field::wind_from_deg`). It is offered only once the speed is the pane's accepted field for its exact request. Calm air or a missing component gives no direction. Test: `a_wind_reads_the_direction_it_blows_from`. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,573 passed (`target/parity-review/m5.3/e3v-*.log`). Open:
 
-- Cross-model comparison of a discovered field.
 - ECMWF steps beyond F+144 on the hourly scrub. The scrub's clock is the selected model's, while a browsed field follows the pane's global lead, so a browsed ECMWF field repeats its F+144 file across F+145–149. The repeated frame is labelled with its true lead.
 
 **Evidence ledger — 2026-10-09, increment 9 (barbs in exports; 1008.md E3):** the analysis export adds `wind-barbs.geojson` when a browsed wind is shown. It holds a 24×24 lattice of points across the view, each with speed in kt and m/s, the direction it blows from, valid time and source (`model_field::wind_barb_features`). These are read with the same components and sampling as the barbs and the probe. Off-grid points, missing components and calm air are left out rather than given a direction. The README in the ZIP lists the file. Test: `a_wind_exports_as_barb_points_read_like_the_probe`. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,574 passed (`target/parity-review/m5.3/e3b-*.log`).
+
+**Evidence ledger — 2026-10-09, increment 10 (cross-model comparison of a discovered field; 1008.md E3):** with a field shown, browsing another model's inventory offers, on the row of the same field (same parameter, level and timing), "↳ show A − B". The pick then carries `minus` (additive; saved with the workspace; a distinct request and product id, `…:minus:ECMWF`). The difference behaves as follows:
+
+- **Fetch** (`overlay_fetch`): the other model's field is fetched at **exactly the primary's run and lead**. Unless both runs and valid times are equal, it is refused with what each file was ("ECMWF has no 13Z run valid at …"), never a nearby run. The two grids are differenced on their shared lattice (`fielddiff::diff`).
+- **Stamp:** derived, with source "GFS − ECMWF".
+- **Display:** a diverging blue–white–red table over a symmetric range, the larger of the 2nd/98th percentiles' magnitudes (`difference_range`, `difference_table`, `model_difference_upload`). The legend reads "Temperature · 500 hPa · GFS − ECMWF" with the shared run and valid time. Scalars only.
+
+Tests:
+
+- `a_difference_is_its_own_product_on_a_symmetric_diverging_scale`: distinct product id; label; round trip; older picks unchanged; white at zero, blue below, red above.
+- **Live** (`gfs_minus_ecmwf_live`): GFS minus ECMWF 500 hPa temperature, 06Z run F+12. Over 720,000 cells the mean is −0.08 K, the median |diff| 0.35 K and the 98th percentile |diff| 1.49 K ([`docs/certification/m5.3/gfs-ecmwf-diff-live.txt`](docs/certification/m5.3/gfs-ecmwf-diff-live.txt), `f80c9ef0…`).
+
+Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,578 passed (`target/parity-review/m5.3/e3c-*.log`). Open:
+
+- Regional-against-global differences are refused unless the global model has the regional run's hour, which is by design.
+- No interactive capture.
 
 #### M5.4 — Unify rendering quality, labels, and transitions
 

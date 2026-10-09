@@ -98,6 +98,10 @@ pub(crate) struct SavedFieldPick {
     /// together, shown as speed in knots and drawn as barbs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vector: bool,
+    /// Show this field minus the same field from another model (1008.md E3): fetched at the
+    /// same run and lead, refused unless both are valid at the same instant. Scalars only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minus: Option<InventorySource>,
 }
 
 /// [`SavedFieldPick`] in the `Copy` form a request carries.
@@ -108,6 +112,7 @@ pub(crate) struct FieldPick {
     pub level: &'static str,
     pub kind: TimingKind,
     pub vector: bool,
+    pub minus: Option<InventorySource>,
 }
 
 impl SavedFieldPick {
@@ -118,6 +123,7 @@ impl SavedFieldPick {
             level: intern(&self.level),
             kind: self.kind,
             vector: self.vector,
+            minus: self.minus,
         }
     }
 
@@ -136,6 +142,7 @@ impl SavedFieldPick {
             level: field.entry.level_text.clone(),
             kind: field.entry.timing.kind()?,
             vector: false,
+            minus: None,
         })
     }
 }
@@ -166,10 +173,21 @@ impl FieldPick {
         wxdata::model_inventory::vetted(self.var).map_or("", |q| q.unit)
     }
 
-    /// The stamp's product id: what was asked for, exactly.
+    /// The stamp's product id: what was asked for, exactly. A difference names the model it
+    /// subtracts, so it is never taken for the field itself.
     pub(crate) fn product_id(self) -> String {
         let var = if self.vector { "WIND" } else { self.var };
-        format!("{var}:{}:{}", self.level, self.kind.label())
+        let base = format!("{var}:{}:{}", self.level, self.kind.label());
+        match self.minus {
+            Some(m) => format!("{base}:minus:{}", m.source_id()),
+            None => base,
+        }
+    }
+
+    /// "GFS − ECMWF" for a difference; `None` for the field itself.
+    pub(crate) fn difference_label(self) -> Option<String> {
+        self.minus
+            .map(|m| format!("{} \u{2212} {}", model_label(self.model), model_label(m)))
     }
 }
 
@@ -203,6 +221,31 @@ pub(crate) fn field_range(f: &wxdata::mrms::MrmsField) -> Option<(f32, f32)> {
     } else {
         (lo - 0.5, lo + 0.5)
     })
+}
+
+/// The symmetric range a difference is coloured over: the larger of its 2nd and 98th
+/// percentiles' magnitudes, so zero is the middle colour. `None` without finite values.
+pub(crate) fn difference_range(f: &wxdata::mrms::MrmsField) -> Option<f32> {
+    let (lo, hi) = field_range(f)?;
+    Some(lo.abs().max(hi.abs()).max(1e-3))
+}
+
+/// A diverging table over `-m..m`: blue below zero, white at zero, red above.
+pub(crate) fn difference_table(m: f32) -> crate::colormap::ColorTable {
+    let pal = format!(
+        "Color: {} 40 70 200\nColor: {} 140 170 240\nColor: 0 245 245 245\nColor: {} 240 150 120\nColor: {} 200 40 30\n",
+        -m,
+        -m / 2.0,
+        m / 2.0,
+        m
+    );
+    crate::colormap::parse_pal(&pal).expect("a generated table parses")
+}
+
+/// The GPU upload for a difference: the diverging table over its symmetric range.
+pub(crate) fn model_difference_upload(f: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
+    let m = difference_range(f).unwrap_or(1.0);
+    super::column_product::column_upload(f, &difference_table(m), (-m, m))
 }
 
 /// The GPU upload: a ramp over the field's own range, values outside clamped to its ends.
@@ -538,6 +581,36 @@ impl HookEchoApp {
                             if resp.clicked() {
                                 chosen = SavedFieldPick::of(b.model, f);
                             }
+                            // The shown field, from another model: offer its difference.
+                            if let Some(c) = current.as_ref().filter(|c| {
+                                c.model != b.model
+                                    && !c.vector
+                                    && f.entry.var == c.var
+                                    && f.entry.level_text == c.level
+                                    && f.entry.timing.kind() == Some(c.kind)
+                            }) {
+                                let on = c.minus == Some(b.model);
+                                if ui
+                                    .selectable_label(
+                                        on,
+                                        format!(
+                                            "    \u{21b3} show {} \u{2212} {}",
+                                            model_label(c.model),
+                                            model_label(b.model)
+                                        ),
+                                    )
+                                    .on_hover_text(
+                                        "The shown field minus this model's, at the same run and \
+                                         lead; refused unless both are valid at the same time",
+                                    )
+                                    .clicked()
+                                {
+                                    chosen = Some(SavedFieldPick {
+                                        minus: (!on).then_some(b.model),
+                                        ..c.clone()
+                                    });
+                                }
+                            }
                         }
                         let pairs = wxdata::model_inventory::vector_pairs(fields);
                         let winds: Vec<SavedFieldPick> = pairs
@@ -603,6 +676,35 @@ impl HookEchoApp {
             return 0.0;
         };
         let state = self.field_state_for(idx, crate::render::FieldLayer::ModelField);
+        if let (Some(diff), Some(m)) = (
+            pick.difference_label(),
+            state
+                .and_then(|s| s.grid.as_ref())
+                .and_then(difference_range),
+        ) {
+            let note = state.and_then(|s| s.stamp.as_ref()).map(|s| {
+                format!(
+                    "same run {} and lead \u{b7} valid {} UTC \u{b7} symmetric 98th percentile",
+                    s.run_time
+                        .map_or_else(|| "?".into(), |r| r.format("%HZ").to_string()),
+                    s.valid_time.format("%m-%d %H:%M")
+                )
+            });
+            let title = pick.label();
+            return crate::ui::legend::draw_table_card(
+                painter,
+                prect,
+                &format!(
+                    "{} \u{b7} {diff}",
+                    title.split(" (").next().unwrap_or(&title)
+                ),
+                pick.unit(),
+                &difference_table(m),
+                (-m, m),
+                note.as_deref(),
+                y,
+            );
+        }
         let Some(range) = state.and_then(|s| s.grid.as_ref()).and_then(field_range) else {
             return crate::ui::legend::draw_status_card(
                 painter,
@@ -671,6 +773,113 @@ mod tests {
         assert!(json.contains("\"from_deg\""), "{json}");
     }
 
+    /// Live (network): the newest ECMWF run's 500 hPa temperature at F+12 minus the GFS's at the
+    /// same run and lead, as the pane's difference fetches them. The two models agree to a few
+    /// kelvin at 500 hPa a half day out. Writes `target/parity-review/m5.3/gfs-ecmwf-diff-live.txt`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    #[ignore = "network: GFS and ECMWF inventories"]
+    async fn gfs_minus_ecmwf_live() {
+        use wxdata::global::{fetch_global_inventory_field, GlobalModel};
+        let http = reqwest::Client::new();
+        let ec = fetch_global_inventory_field(
+            &http,
+            GlobalModel::Ecmwf,
+            None,
+            12,
+            "TMP",
+            "500 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let gfs = fetch_global_inventory_field(
+            &http,
+            GlobalModel::Gfs,
+            Some(ec.run),
+            12,
+            "TMP",
+            "500 mb",
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (gfs.run, gfs.valid()),
+            (ec.run, ec.valid()),
+            "same run and lead"
+        );
+        let d = crate::fielddiff::diff(&gfs.field, &ec.field).expect("overlapping grids");
+        let mut v: Vec<f32> = d.values.iter().copied().filter(|x| x.is_finite()).collect();
+        let mean = v.iter().map(|x| f64::from(*x)).sum::<f64>() / v.len() as f64;
+        let mut abs: Vec<f32> = v.iter().map(|x| x.abs()).collect();
+        abs.sort_by(f32::total_cmp);
+        v.sort_by(f32::total_cmp);
+        let p98 = abs[(abs.len() - 1) * 98 / 100];
+        let report = format!(
+            "GFS minus ECMWF, 500 hPa temperature, run {} F+12 (valid {})\ncells {} on a {}x{} lattice\nmean {:+.2} K, median |diff| {:.2} K, 98th percentile |diff| {:.2} K, range {:.2}..{:.2} K\nsymmetric display range (difference_range) {:.2} K\n",
+            ec.run,
+            ec.valid(),
+            v.len(),
+            d.nx,
+            d.ny,
+            mean,
+            abs[abs.len() / 2],
+            p98,
+            v[0],
+            v[v.len() - 1],
+            difference_range(&d).unwrap()
+        );
+        print!("{report}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.3");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("gfs-ecmwf-diff-live.txt"), report).unwrap();
+        assert!(v.len() > 100_000);
+        assert!(mean.abs() < 2.0, "mean {mean}");
+        assert!(p98 < 6.0, "98th percentile {p98}");
+    }
+
+    #[test]
+    fn a_difference_is_its_own_product_on_a_symmetric_diverging_scale() {
+        let base = SavedFieldPick {
+            model: InventorySource::Gfs,
+            var: "TMP".into(),
+            level: "500 mb".into(),
+            kind: TimingKind::Instant,
+            vector: false,
+            minus: None,
+        };
+        let diff = SavedFieldPick {
+            minus: Some(InventorySource::Ecmwf),
+            ..base.clone()
+        };
+        assert_ne!(base.pick().product_id(), diff.pick().product_id());
+        assert!(
+            diff.pick().product_id().ends_with(":minus:ECMWF"),
+            "{}",
+            diff.pick().product_id()
+        );
+        assert_eq!(base.pick().difference_label(), None);
+        let label = diff.pick().difference_label().unwrap();
+        assert!(label.contains("GFS") && label.contains("ECMWF"), "{label}");
+        // Saved and reopened as the same difference; a pick saved before differences has none.
+        let back: SavedFieldPick =
+            serde_json::from_str(&serde_json::to_string(&diff).unwrap()).unwrap();
+        assert_eq!(back, diff);
+        assert!(!serde_json::to_string(&base).unwrap().contains("minus"));
+        // The scale is symmetric about zero, white in the middle.
+        let g = grid(vec![-3.0, -1.0, 0.5, 2.0]);
+        let m = difference_range(&g).unwrap();
+        assert!(m > 0.0);
+        let t = difference_table(m);
+        let mid = t.sample(0.0).unwrap();
+        assert!(mid[0] > 230 && mid[1] > 230 && mid[2] > 230, "{mid:?}");
+        let (lo, hi) = (t.sample(-m).unwrap(), t.sample(m).unwrap());
+        assert!(lo[2] > lo[0], "below zero is blue: {lo:?}");
+        assert!(hi[0] > hi[2], "above zero is red: {hi:?}");
+    }
+
     #[test]
     fn a_wind_reads_the_direction_it_blows_from() {
         let from = |u, v| wind_from_deg(u, v).map(|d| d.round() as i64);
@@ -694,6 +903,7 @@ mod tests {
             level: "500 mb".into(),
             kind: TimingKind::Instant,
             vector: false,
+            minus: None,
         };
         let json = serde_json::to_string(&saved).unwrap();
         assert_eq!(
@@ -717,6 +927,7 @@ mod tests {
             level: "500 mb".into(),
             kind: TimingKind::Instant,
             vector: false,
+            minus: None,
         };
         let wind = SavedFieldPick {
             vector: true,
@@ -758,6 +969,7 @@ mod tests {
             level: "250 mb".into(),
             kind: TimingKind::Instant,
             vector: true,
+            minus: None,
         }
         .pick();
         let stamped = super::super::field_state::model_field(
@@ -826,6 +1038,7 @@ mod tests {
             level: "500 mb".into(),
             kind: TimingKind::Instant,
             vector: false,
+            minus: None,
         }
         .pick();
         let valid = run + chrono::Duration::hours(6);

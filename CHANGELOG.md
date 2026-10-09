@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: compare a model field across models
+
+With a field from the Model fields browser on the map, open another model in the browser and
+pick "show A − B" on the same field. The map then shows the difference, for example GFS minus
+ECMWF 500 hPa temperature. Both are taken from the same run and forecast hour, and the
+comparison is refused, saying why, if the second model has no such run.
+
 ### Docs: certification evidence index
 
 `docs/certification/README.md` now indexes the reviewed evidence card by card, and
