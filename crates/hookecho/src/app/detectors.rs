@@ -258,11 +258,7 @@ impl HookEchoApp {
             volume: vol.map(|v| v.name.clone()).unwrap_or_default(),
             volume_time: vol.map(|v| v.time),
             // The couplets were read from these sweeps; see `detect_couplets`.
-            inputs: self
-                .couplet_inputs
-                .as_ref()
-                .filter(|(k, _)| *k == self.volume_key(idx))
-                .and_then(|(_, inputs)| inputs.clone()),
+            inputs: self.rotation_inputs(idx),
             // Both pipelines read the app's debris for the newest pass; see `compute_tds_uncached`.
             debris_inputs: self.debris_inputs(idx),
             stand_in: None,
@@ -533,6 +529,18 @@ impl HookEchoApp {
 
     /// When the sweeps behind this volume's fused columns were scanned, once they are computed;
     /// `None` when they are not (yet), or were not recorded.
+    /// When the sweeps behind this volume's couplets were scanned, if they were read.
+    pub(crate) fn rotation_inputs(
+        &self,
+        idx: usize,
+    ) -> Option<wxdata::level2::temporal::TemporalCoverage> {
+        let key = self.volume_key(idx);
+        self.couplet_inputs
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .and_then(|(_, inputs)| inputs.clone())
+    }
+
     /// When the sweeps behind this volume's debris signatures were scanned, if they were read.
     pub(crate) fn debris_inputs(
         &self,

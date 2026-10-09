@@ -23,6 +23,10 @@ pub(crate) struct Markers<'a> {
     pub original_circulations: &'a [wxdata::tornado_id::Circulation],
     /// Where the Tornado ID verdicts came from: pipeline, versions, volume and input scan times.
     pub tornado_lineage: Option<&'a wxdata::detection_lineage::DetectionLineage>,
+    /// When the sweeps the debris signatures and couplets were read from were scanned, for their
+    /// own hovers; `None` when not recorded for this pane's volume.
+    pub debris_inputs: Option<&'a wxdata::level2::temporal::TemporalCoverage>,
+    pub rotation_inputs: Option<&'a wxdata::level2::temporal::TemporalCoverage>,
     pub tied_tds: &'a [bool],
     pub tied_couplet: &'a [bool],
     pub all_couplets: &'a [wxdata::rotation::CoupletHit],
@@ -49,6 +53,8 @@ impl HookEchoApp {
             circulations,
             original_circulations,
             tornado_lineage,
+            debris_inputs,
+            rotation_inputs,
             tied_tds,
             tied_couplet,
             all_couplets,
@@ -163,7 +169,11 @@ impl HookEchoApp {
             // before.
             let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
             if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                let lines = h.explain().lines(h);
+                let mut lines = h.explain().lines(h);
+                lines.extend(wxdata::detection_lineage::input_lines(
+                    "Debris",
+                    debris_inputs,
+                ));
                 let track = nearest_score_track(tds_score_tracks, h.lon, h.lat);
                 response
                     .clone()
@@ -307,7 +317,11 @@ impl HookEchoApp {
             // Hover for the working, as on the debris signatures.
             let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
             if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                let lines = h.explain().lines(h);
+                let mut lines = h.explain().lines(h);
+                lines.extend(wxdata::detection_lineage::input_lines(
+                    "Rotation",
+                    rotation_inputs,
+                ));
                 let track = nearest_score_track(rot_score_tracks, h.lon, h.lat);
                 response
                     .clone()
@@ -1165,6 +1179,12 @@ mod llsd_preview_snapshots {
         let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
         let ids = wxdata::llsd_analyst::identify(&analysed, |_, _| Default::default());
         let t = ids.first().expect("a Tornado ID verdict on Moore");
+        // The strongest debris signature, for its own marker's hover.
+        let strongest = debris
+            .iter()
+            .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+            .copied()
+            .expect("a debris signature on Moore");
         let lineage = DetectionLineage {
             pipeline: Pipeline::Fused,
             algorithms: fused_algorithms(),
@@ -1200,6 +1220,25 @@ mod llsd_preview_snapshots {
             destination.join("tornado-id-lineage.json"),
             serde_json::to_string_pretty(&lineage.to_json()).unwrap(),
         )
+        .unwrap();
+        // The debris marker's own hover: its working, then when its sweeps were scanned, as
+        // `paint_detector_markers` builds it.
+        let mut lines = strongest.explain().lines(&strongest);
+        lines.extend(wxdata::detection_lineage::input_lines(
+            "Debris",
+            lineage.debris_inputs.as_ref(),
+        ));
+        gpu.save(&destination.join("debris-hover.png"), 560, 190, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(520.0);
+                super::score_tooltip(
+                    ui,
+                    lines.clone(),
+                    None,
+                    egui::Color32::from_rgb(240, 40, 210),
+                );
+            });
+        })
         .unwrap();
     }
 }

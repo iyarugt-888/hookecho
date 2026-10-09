@@ -117,7 +117,14 @@ fn clock(ms: i64) -> String {
 }
 
 /// One evidence's input lines: its tilts and when they were scanned, and the rows that are from
-/// the previous pass or carry no clock. `what` names the evidence ("Rotation", "Debris").
+/// the previous pass or carry no clock. `what` names the evidence ("Rotation", "Debris"). The
+/// debris and rotation layers' own hovers show these too, from the same records.
+pub fn input_lines(what: &str, inputs: Option<&TemporalCoverage>) -> Vec<String> {
+    let mut out = Vec::new();
+    coverage_lines(&mut out, what, inputs);
+    out
+}
+
 fn coverage_lines(out: &mut Vec<String>, what: &str, inputs: Option<&TemporalCoverage>) {
     let Some(c) = inputs else {
         out.push(format!("{what} input scan times: not recorded"));
@@ -394,6 +401,15 @@ mod tests {
             "Debris inputs scanned 20:12:29Z\u{2013}20:13:10Z on 0.5\u{b0}, 0.9\u{b0}"
         );
         assert_eq!(lines[4], "1 debris input rows without a scan time");
+        // The debris layer's own hover shows the same lines from the same record.
+        assert_eq!(
+            input_lines("Debris", l.debris_inputs.as_ref()),
+            lines[3..5].to_vec()
+        );
+        assert_eq!(
+            input_lines("Rotation", None),
+            ["Rotation input scan times: not recorded"]
+        );
         let j = l.to_json();
         assert_eq!(
             j["debris_inputs"]["acquisition_end_utc"],

@@ -17,8 +17,9 @@ that discounts them. The two are listed apart ("Rotation inputs scanned…", "De
 scanned…") because they are different sweeps and can be a minute or more apart. The local API and
 `provenance.json` carry a `debris_inputs` record beside `inputs`. In `detections.csv`, Tornado ID
 rows gain two columns at the end for the debris interval, and the debris and rotation rows now
-fill the input-interval columns with their own sweeps' scan times. A volume without dual-pol
-reports the debris inputs as not recorded, never as the volume's time.
+fill the input-interval columns with their own sweeps' scan times. The debris signature and
+rotation couplet markers' own hovers end with the same line for their sweeps. A volume without
+dual-pol reports the debris inputs as not recorded, never as the volume's time.
 
 ### Changed: one look, the workstation's
 

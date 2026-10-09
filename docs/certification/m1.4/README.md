@@ -25,12 +25,15 @@ verdict on the pinned Moore 2013 volume, `KTLX20130520_201229_V06` (SHA-256
 on Windows (RTX 2060/Vulkan); first on 2026-10-02, and again on 2026-10-09 with the debris
 inputs. To keep the capture focused, it shows the first two reasons; the app shows all of them.
 [tornado-id-lineage.json](tornado-id-lineage.json) is the same verdict's lineage as the exports
-write it.
+write it. [debris-hover.png](debris-hover.png) is the strongest debris signature's own marker
+hover on the same volume: its working, then when its sweeps were scanned. The rotation couplet
+hover ends the same way with its own sweeps.
 
 | File | SHA-256 |
 | --- | --- |
 | tornado-id-lineage-hover.png | `0818bcd57623ef269885adee2023ad5a5bf41778ffc606d9d868e2956645cff4` |
 | tornado-id-lineage.json | `12b78b670359a943370fce79ae4d2a31ac65685a8cade767f86807e21615e5dc` |
+| debris-hover.png | `7362faa1cb45c1d204c9cfe2121dfc65f35506baf80e8a0c66bbc34ba4d29e80` |
 
 Reproduce with the corpus provisioned (`scripts/corpus/README.md`):
 
@@ -38,7 +41,7 @@ Reproduce with the corpus provisioned (`scripts/corpus/README.md`):
 cargo test -p hookecho --lib gpu_tornado_id_lineage_hover -- --ignored
 ```
 
-The run writes both files to `target/parity-review/m1.4/`.
+The run writes all three files to `target/parity-review/m1.4/`.
 
 ## What the record shows on Moore
 
@@ -103,7 +106,6 @@ or is unobserved.
 - **Earlier passes' debris.** The fused pipeline also reads each earlier low-level pass's own
   debris signatures for tracking. The record covers the volume's newest pass only, which both
   pipelines read the same way.
-- **Other layers.** Warnings and observations do not carry this record yet. The rotation and
-  debris layers carry it only in `detections.csv`, not in their own hovers.
+- **Other layers.** Warnings and observations do not carry this record yet.
 - **Platforms.** Android and browser runtime, and full application interaction, are not
   certified.

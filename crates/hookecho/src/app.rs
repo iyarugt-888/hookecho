@@ -5820,6 +5820,8 @@ impl HookEchoApp {
             || !local_tracks.is_empty()
             || (self.filters.show_zdr_columns && idx == self.active);
         if cells_here || detectors {
+            let (debris_inputs, rotation_inputs) =
+                (self.debris_inputs(idx), self.rotation_inputs(idx));
             self.paint_cones_and_nowcast(&painter, prect, cam, vp, idx, cells_here, &nowcast_pts);
             self.paint_detector_markers(
                 ui,
@@ -5837,6 +5839,8 @@ impl HookEchoApp {
                     circulations: &circulations,
                     original_circulations: &original_circulations,
                     tornado_lineage: tornado_lineage.as_ref(),
+                    debris_inputs: debris_inputs.as_ref(),
+                    rotation_inputs: rotation_inputs.as_ref(),
                     tied_tds: &tied_tds,
                     tied_couplet: &tied_couplet,
                     all_couplets: &all_couplets,
