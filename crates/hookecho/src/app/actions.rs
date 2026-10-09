@@ -174,6 +174,8 @@ pub(crate) enum PaletteAction {
     BeamDiagram,
     /// Draw the wind layer as barbs too.
     ToggleWindBarbs,
+    /// Draw the wind layer, and a browsed wind, as streamlines.
+    ToggleWindStreamlines,
     GoLive,
     /// Tilt, frame, hour, product or play/pause (`NavStep`).
     Nav(NavStep),

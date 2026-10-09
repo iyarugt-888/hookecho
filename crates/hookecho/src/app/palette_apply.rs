@@ -332,6 +332,13 @@ impl HookEchoApp {
                 }
                 self.settings.save();
             }
+            PaletteAction::ToggleWindStreamlines => {
+                self.settings.wind_streamlines = !self.settings.wind_streamlines;
+                if self.settings.wind_streamlines {
+                    self.show_wind = true;
+                }
+                self.settings.save();
+            }
             PaletteAction::BeamDiagram => self.beam_diagram.open = !self.beam_diagram.open,
             PaletteAction::ModelFields => self.field_browser.open = !self.field_browser.open,
             PaletteAction::EnsembleMembers => {

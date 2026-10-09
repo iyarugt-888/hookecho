@@ -741,6 +741,7 @@ impl HookEchoApp {
             wind: None,
             wind_level: wxdata::hrrr::WindLevel::Surface,
             wind_particles: std::collections::HashMap::new(),
+            wind_streams: std::collections::HashMap::new(),
             wind_on_gpu: std::env::var("HOOKECHO_CPU_WIND").is_err(),
             wind_uploaded: None,
             wind_fetched: None,

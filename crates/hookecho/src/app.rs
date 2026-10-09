@@ -2125,6 +2125,8 @@ pub struct HookEchoApp {
     wind: Option<crate::wind_draw::WindField>,
     wind_level: wxdata::hrrr::WindLevel,
     wind_particles: std::collections::HashMap<usize, crate::wind_draw::Particles>,
+    /// Per pane, the wind layer's streamlines and a browsed wind's, as last traced.
+    wind_streams: std::collections::HashMap<(usize, bool), crate::wind_streamlines::StreamCache>,
     /// Whether the particles are advected on the GPU. `HOOKECHO_CPU_WIND=1` forces the CPU mesh,
     /// which is also what runs if the GPU layer ever fails to build.
     wind_on_gpu: bool,
@@ -5625,26 +5627,82 @@ impl HookEchoApp {
             }
         }
 
-        // Wind barbs, when asked for: the same east/north grid the particles fly on.
-        if self.show_wind && self.settings.wind_barbs {
+        // Wind streamlines and barbs, when asked for: the same east/north grid the particles fly
+        // on. Streamlines go under the barbs, which carry the values.
+        let streams = self.settings.wind_streamlines;
+        if self.show_wind && (self.settings.wind_barbs || streams) {
             let alpha = self.wind_alpha(idx, cam.zoom);
             if let (Some(field), true) = (self.wind.as_ref(), alpha > 0.01) {
-                let barbs =
-                    crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX);
-                crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, alpha);
+                if streams {
+                    let source = (field.u.values.as_ptr() as usize, field.valid().timestamp());
+                    let lines = self.wind_streams.entry((idx, false)).or_default().get(
+                        &cam,
+                        vp,
+                        source,
+                        || {
+                            crate::wind_streamlines::streamlines(
+                                |lon, lat| field.sample(lon, lat),
+                                &cam,
+                                vp,
+                                crate::wind_streamlines::STREAM_SPACING_PX,
+                            )
+                        },
+                    );
+                    let (lines, stale) = lines;
+                    if stale {
+                        painter
+                            .ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(220));
+                    }
+                    crate::wind_streamlines::paint(&painter, prect.left_top(), &lines, alpha);
+                }
+                if self.settings.wind_barbs {
+                    let barbs =
+                        crate::wind_draw::barbs(field, &cam, vp, crate::wind_draw::BARB_SPACING_PX);
+                    crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, alpha);
+                }
             }
         }
-        // A wind picked in the model field browser draws as barbs over its speed, from the
-        // components staged with that speed (so the two never disagree on run or lead).
+        // A wind picked in the model field browser draws over its speed, from the components
+        // staged with that speed (so the two never disagree on run or lead): as streamlines
+        // when they are on, barbs otherwise.
         if let Some(uv) = self.model_wind_for(idx) {
-            let barbs = crate::wind_draw::barbs_uv(
-                &uv.0,
-                &uv.1,
-                &cam,
-                vp,
-                crate::wind_draw::BARB_SPACING_PX,
-            );
-            crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, 0.95);
+            if streams {
+                let source = (std::sync::Arc::as_ptr(&uv) as usize, uv.0.time.timestamp());
+                let lines =
+                    self.wind_streams
+                        .entry((idx, true))
+                        .or_default()
+                        .get(&cam, vp, source, || {
+                            crate::wind_streamlines::streamlines(
+                                |lon, lat| {
+                                    Some((
+                                        uv.0.sample_bilinear(lon, lat)?,
+                                        uv.1.sample_bilinear(lon, lat)?,
+                                    ))
+                                },
+                                &cam,
+                                vp,
+                                crate::wind_streamlines::STREAM_SPACING_PX,
+                            )
+                        });
+                let (lines, stale) = lines;
+                if stale {
+                    painter
+                        .ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(220));
+                }
+                crate::wind_streamlines::paint(&painter, prect.left_top(), &lines, 0.95);
+            } else {
+                let barbs = crate::wind_draw::barbs_uv(
+                    &uv.0,
+                    &uv.1,
+                    &cam,
+                    vp,
+                    crate::wind_draw::BARB_SPACING_PX,
+                );
+                crate::wind_draw::paint_barbs(&painter, prect.left_top(), &barbs, 0.95);
+            }
         }
 
         // Animated wind particles, when they are being drawn on the CPU. The GPU path draws

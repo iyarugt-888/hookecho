@@ -31,6 +31,12 @@ match the workstation's faders: the track filled with the accent up to the value
 accent grab. The timeline's first hour label no longer falls off the left edge. The high-contrast
 and colorblind-safe radar color tables stay in Settings → Palettes.
 
+### Added: wind streamlines
+
+**Wind streamlines** (command palette) draws the HRRR wind, or a wind picked in Model fields, as
+evenly spaced lines that follow the flow, with arrows downstream and coloured by speed. They show
+convergence lines, turning and spreading at a glance, which barbs and particles don't.
+
 ### Added: more ways to style imported map layers
 
 An imported layer can now have a fill colour of its own (or no fill), dashed or dotted lines and

@@ -1968,6 +1968,15 @@ impl HookEchoApp {
             Some(self.settings.wind_barbs),
         );
         push(
+            "Wind streamlines",
+            "Model",
+            "Draw the HRRR wind, and a wind picked in Model fields, as lines that follow it \
+             (arrows downstream, coloured by speed)",
+            false,
+            PaletteAction::ToggleWindStreamlines,
+            Some(self.settings.wind_streamlines),
+        );
+        push(
             "Beam diagram",
             "Radar",
             "Every tilt's beam height against range, read at the cursor, with the heights no beam samples",
