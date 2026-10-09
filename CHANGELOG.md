@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: more ways to style imported map layers
+
+An imported layer can now have a fill colour of its own (or no fill), dashed or dotted lines and
+outlines, a choice of point symbol and size, a zoom past which it hides, and labels built from
+several attributes, like `{NAME} ({POP})`.
+
 ### Added: choosing between overlapping map features, and exporting table rows
 
 A click on a spot where imported features overlap (two polygon layers, a point on a line, a

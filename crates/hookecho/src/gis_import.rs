@@ -87,6 +87,85 @@ pub(crate) fn label_text(
     })
 }
 
+/// A label built from a template: each `{NAME}` replaced by that attribute's value, an absent or
+/// null one by nothing, and `{{`/`}}` for literal braces. `None` when no named attribute has a
+/// value (a template of plain text names nothing and is always that text), so a feature missing
+/// every attribute gets no label rather than a bare "()".
+pub(crate) fn template_text(
+    props: &serde_json::Map<String, serde_json::Value>,
+    template: &str,
+) -> Option<String> {
+    let mut out = String::new();
+    let (mut named, mut found) = (0, 0);
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+                out.push('{');
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                chars.next();
+                out.push('}');
+            }
+            '{' => {
+                let mut key = String::new();
+                let mut closed = false;
+                for k in chars.by_ref() {
+                    if k == '}' {
+                        closed = true;
+                        break;
+                    }
+                    key.push(k);
+                }
+                if !closed {
+                    out.push('{');
+                    out.push_str(&key);
+                    break;
+                }
+                named += 1;
+                if let Some(v) = props.get(key.trim()).and_then(|v| match v {
+                    serde_json::Value::String(s) => Some(s.trim().to_string()),
+                    serde_json::Value::Null => None,
+                    other => Some(other.to_string()),
+                }) {
+                    found += 1;
+                    out.push_str(&v);
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    let text = out.trim();
+    if text.is_empty() || (named > 0 && found == 0) {
+        return None;
+    }
+    const MAX: usize = 48;
+    Some(if text.chars().count() > MAX {
+        let cut: String = text.chars().take(MAX - 1).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        text.to_string()
+    })
+}
+
+/// A feature's label in `config`: its template when it has one, else its label attribute.
+pub(crate) fn feature_label(
+    config: &crate::settings::GisLayerConfig,
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    if config.label_template.trim().is_empty() {
+        label_text(props, config.label.as_deref()?)
+    } else {
+        template_text(props, &config.label_template)
+    }
+}
+
+/// Whether `config` labels its features at all.
+pub(crate) fn labels(config: &crate::settings::GisLayerConfig) -> bool {
+    config.label.is_some() || !config.label_template.trim().is_empty()
+}
+
 /// How an imported layer is coloured by an attribute (I4): a ramp over a numeric attribute's
 /// range, or one colour per value of a categorical one.
 #[derive(Debug, Clone, PartialEq)]
@@ -919,6 +998,43 @@ mod tests {
     }
 
     #[test]
+    fn a_label_template_fills_in_attributes_and_skips_features_with_none() {
+        let props = json!({"NAME": "Norman", "POP": 128026, "ST": null});
+        let props = props.as_object().unwrap();
+        assert_eq!(
+            template_text(props, "{NAME} ({POP})").as_deref(),
+            Some("Norman (128026)")
+        );
+        // An absent or null attribute is nothing; with none of them there is no label.
+        assert_eq!(
+            template_text(props, "{NAME}, {ST}").as_deref(),
+            Some("Norman,")
+        );
+        assert_eq!(template_text(props, "{ST} {MISSING}"), None);
+        assert_eq!(
+            template_text(props, "Site {{{NAME}}}").as_deref(),
+            Some("Site {Norman}")
+        );
+        assert_eq!(template_text(props, "fixed").as_deref(), Some("fixed"));
+        assert_eq!(template_text(props, "{NAME").as_deref(), Some("{NAME"));
+        assert_eq!(template_text(props, "  "), None);
+        let long = template_text(props, &"{NAME}".repeat(10)).unwrap();
+        assert_eq!(long.chars().count(), 48);
+        // The layer's template wins over its label attribute; without one the attribute labels.
+        let mut config = crate::settings::GisLayerConfig {
+            label: Some("NAME".into()),
+            ..Default::default()
+        };
+        assert_eq!(feature_label(&config, props).as_deref(), Some("Norman"));
+        config.label_template = "{POP}".into();
+        assert_eq!(feature_label(&config, props).as_deref(), Some("128026"));
+        config.label = None;
+        assert!(labels(&config));
+        config.label_template.clear();
+        assert!(!labels(&config));
+    }
+
+    #[test]
     fn the_layer_hides_below_its_minimum_zoom() {
         let mut style = ImportedGisStyle::default();
         assert!(style.visible_at(0.0), "shown at every zoom by default");
@@ -938,6 +1054,7 @@ mod tests {
                 stroke_width: 3.0,
                 opacity: 0.5,
                 min_zoom: 0.0,
+                ..Default::default()
             },
         );
         assert_eq!(f.fill, [240, 80, 40, 30]);

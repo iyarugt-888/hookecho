@@ -145,12 +145,77 @@ impl LoadedGis {
                 let mut feature = feature.clone();
                 let mut style = config.style;
                 if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
-                    style.color = c;
+                    style = style.colored(c);
                 }
                 crate::gis_import::apply_style(&mut feature, style);
                 (feature, src.get(i).copied().unwrap_or(i))
             })
             .collect()
+    }
+}
+
+/// One point symbol at `p`, `radius` pixels out, filled with `color` and edged in black so it
+/// reads over a bright core and a dark basemap alike.
+pub(crate) fn paint_symbol(
+    painter: &egui::Painter,
+    p: egui::Pos2,
+    symbol: crate::settings::PointSymbol,
+    radius: f32,
+    color: egui::Color32,
+) {
+    use crate::settings::PointSymbol;
+    let edge = egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180));
+    let r = radius;
+    let poly = |pts: Vec<egui::Pos2>| {
+        painter.add(egui::Shape::convex_polygon(pts, color, edge));
+    };
+    match symbol {
+        PointSymbol::Circle => {
+            painter.circle_filled(p, r, color);
+            painter.circle_stroke(p, r, edge);
+        }
+        PointSymbol::Square => {
+            let s = r * 0.9;
+            let rect = egui::Rect::from_center_size(p, egui::vec2(2.0 * s, 2.0 * s));
+            painter.rect_filled(rect, 0.0, color);
+            painter.rect_stroke(rect, 0.0, edge, egui::StrokeKind::Middle);
+        }
+        PointSymbol::Triangle => {
+            let s = r * 1.25;
+            poly(vec![
+                p + egui::vec2(0.0, -s),
+                p + egui::vec2(s * 0.866, s * 0.5),
+                p + egui::vec2(-s * 0.866, s * 0.5),
+            ]);
+        }
+        PointSymbol::Diamond => {
+            let s = r * 1.2;
+            poly(vec![
+                p + egui::vec2(0.0, -s),
+                p + egui::vec2(s, 0.0),
+                p + egui::vec2(0.0, s),
+                p + egui::vec2(-s, 0.0),
+            ]);
+        }
+        PointSymbol::Cross => {
+            let s = r * 1.1;
+            let w = (r * 0.45).max(1.5);
+            for (a, b) in [
+                (egui::vec2(-s, -s), egui::vec2(s, s)),
+                (egui::vec2(-s, s), egui::vec2(s, -s)),
+            ] {
+                painter.line_segment(
+                    [p + a, p + b],
+                    egui::Stroke::new(w + 2.0, egui::Color32::from_black_alpha(180)),
+                );
+            }
+            for (a, b) in [
+                (egui::vec2(-s, -s), egui::vec2(s, s)),
+                (egui::vec2(-s, s), egui::vec2(s, -s)),
+            ] {
+                painter.line_segment([p + a, p + b], egui::Stroke::new(w, color));
+            }
+        }
     }
 }
 
@@ -564,6 +629,11 @@ impl HookEchoApp {
                 c.below.hash(&mut h);
                 c.style.color.hash(&mut h);
                 c.style.opacity.to_bits().hash(&mut h);
+                // Polygon outlines and fills are tessellated: their width, dash and fill too.
+                c.style.stroke_width.to_bits().hash(&mut h);
+                c.style.dash.hash(&mut h);
+                c.style.fill_color.hash(&mut h);
+                c.style.fill_opacity.to_bits().hash(&mut h);
             }
             self.show_imported_gis.hash(&mut h);
             h.finish()
@@ -596,17 +666,24 @@ impl HookEchoApp {
         [part(below), part(above)]
     }
 
-    /// Per overlay feature, the outline width of the imported layer it belongs to while that
-    /// layer shows at `zoom`, `None` when it is hidden there; official features read nothing
-    /// from it.
-    pub(crate) fn overlay_imported_px(&self, zoom: f64) -> Vec<Option<f32>> {
+    /// Per overlay feature, the outline (width and dash) of the imported layer it belongs to
+    /// while that layer shows at `zoom`, `None` when it is hidden there; official features read
+    /// nothing from it.
+    pub(crate) fn overlay_imported_px(
+        &self,
+        zoom: f64,
+    ) -> Vec<Option<crate::overlay_build::ImportedStroke>> {
         self.overlay_layer
             .iter()
             .map(|l| {
                 let c = self.settings.gis_layer((*l)?.0)?;
+                let width_px = c.style.rendered_stroke_width();
                 c.style
                     .visible_at(zoom)
-                    .then(|| c.style.rendered_stroke_width())
+                    .then(|| crate::overlay_build::ImportedStroke {
+                        width_px,
+                        dash_px: c.style.dash.pattern(width_px),
+                    })
             })
             .collect()
     }
@@ -738,7 +815,7 @@ impl HookEchoApp {
         let mut out = Vec::new();
         for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
             let width = f64::from(config.style.rendered_stroke_width());
-            let point_tol = (2.5 + width * 0.625 + slack) * px;
+            let point_tol = (f64::from(config.style.point_radius()) + slack) * px;
             let line_tol = (width / 2.0 + slack) * px;
             for (src, kind) in mark_hits(&layer.marks, |s| layer.valid(s), at, point_tol, line_tol)
             {
@@ -810,10 +887,7 @@ impl HookEchoApp {
             };
             let name = |src: Option<&usize>, kind: &str| {
                 let props = src.and_then(|&s| l.marks.props.get(s));
-                let by_label = c
-                    .label
-                    .as_deref()
-                    .and_then(|k| crate::gis_import::label_text(props?, k));
+                let by_label = props.and_then(|p| crate::gis_import::feature_label(c, p));
                 by_label.unwrap_or_else(|| {
                     props.map_or_else(
                         || kind.to_string(),
@@ -1155,13 +1229,30 @@ impl HookEchoApp {
                     })
             };
             let width = style.rendered_stroke_width();
+            let dash = style.dash.pattern(width);
             for (i, line) in marks.lines.iter().enumerate() {
                 if !layer.valid(marks.line_src.get(i)) {
                     continue;
                 }
                 let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
                 let color = color_of(marks.line_src.get(i));
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
+                match (style.dash, dash) {
+                    (crate::settings::LineDash::Dotted, Some((_, gap))) => {
+                        painter.extend(egui::Shape::dotted_line(
+                            &pts,
+                            color,
+                            gap + width,
+                            width * 0.5 + 0.25,
+                        ));
+                    }
+                    (_, Some((on, off))) => {
+                        let stroke = egui::Stroke::new(width, color);
+                        painter.extend(egui::Shape::dashed_line(&pts, stroke, on, off));
+                    }
+                    (_, None) => {
+                        painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
+                    }
+                }
             }
             for (i, point) in marks.points.iter().enumerate() {
                 if !layer.valid(marks.point_src.get(i)) {
@@ -1174,15 +1265,9 @@ impl HookEchoApp {
                 let color = color_of(marks.point_src.get(i));
                 // Outlined rather than a plain dot: an imported site has to stay visible over
                 // both a bright radar core and a dark basemap, which one flat color cannot
-                // manage. The outline width also scales point symbols so a mixed-geometry file
-                // keeps one coherent visual weight. The default 1.6 px remains a 3.5 px dot.
-                let radius = 2.5 + width * 0.625;
-                painter.circle_filled(p, radius, color);
-                painter.circle_stroke(
-                    p,
-                    radius,
-                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
-                );
+                // manage. Without a size of its own, the outline width scales point symbols so
+                // a mixed-geometry file keeps one coherent visual weight.
+                paint_symbol(painter, p, style.symbol, style.point_radius(), color);
             }
         }
     }
@@ -1201,9 +1286,9 @@ impl HookEchoApp {
         let mut taken = std::collections::HashSet::new();
         let mut drawn = 0;
         for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
-            let Some(key) = config.label.as_deref() else {
+            if !crate::gis_import::labels(config) {
                 continue;
-            };
+            }
             let c = config.style.stroke_rgba();
             let text_color = egui::Color32::from_rgb(
                 c[0].saturating_add(90),
@@ -1231,7 +1316,7 @@ impl HookEchoApp {
                     .marks
                     .props
                     .get(src)
-                    .and_then(|props| crate::gis_import::label_text(props, key))
+                    .and_then(|props| crate::gis_import::feature_label(config, props))
                 else {
                     continue;
                 };
