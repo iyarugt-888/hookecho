@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: finer 3D isosurfaces around a storm, and a region anywhere
+
+The 3D map's Region setting now applies to isosurfaces too, so a storm's 50 dBZ skin is built on
+cells under 1 km instead of over 2 km. A region can also be placed around the map centre when no
+storm is selected.
+
 ### Added: pane groups on different times
 
 With Link times on, each pane now belongs to an analysis-time group (Pane links → Analysis time).

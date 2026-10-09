@@ -149,6 +149,7 @@ impl HookEchoApp {
             step: spec.step.map(f32::to_bits),
             storm_uv: spec.storm_uv.map(|(u, n)| (u.to_bits(), n.to_bits())),
             max_dim: self.vol3d_max_dim,
+            roi: spec.roi.map(crate::loop3d::Roi::key),
         })
     }
 
@@ -164,6 +165,7 @@ impl HookEchoApp {
             max_dim: self.vol3d_max_dim,
             top_km: VOL3D_TOP_KM,
             storm_uv: v.storm_motion_uv(),
+            roi: self.volume_roi_km(idx),
         }
     }
 
@@ -229,6 +231,15 @@ impl HookEchoApp {
     }
 
     /// Put a region of interest around the selected storm (or clear it).
+    /// A region of interest `half_km` around the pane's map centre: a drawn area rather than a
+    /// storm, so it does not follow anything.
+    pub(crate) fn set_volume_roi_here(&mut self, idx: usize, half_km: f32) {
+        let v = &self.views[idx];
+        let (lon, lat) =
+            crate::render::mercator::world_to_lonlat(v.camera.center.0, v.camera.center.1);
+        self.views[idx].map_3d.roi = Some(point_roi([lon, lat], half_km));
+    }
+
     pub(crate) fn set_volume_roi(&mut self, idx: usize, half_km: Option<f32>) {
         let Some(half_km) = half_km else {
             self.views[idx].map_3d.roi = None;
@@ -275,6 +286,17 @@ impl HookEchoApp {
 
 /// A region's centre as km east and north of `radar` (`[lon, lat]`), by the great-circle range
 /// and bearing every voxel's gate lookup also uses.
+/// A region placed on a point, not a storm.
+pub(crate) fn point_roi(center: [f64; 2], half_km: f32) -> crate::view::VolumeRoi {
+    crate::view::VolumeRoi {
+        center,
+        half_km,
+        storm: None,
+        follow: false,
+        lost: false,
+    }
+}
+
 pub(crate) fn roi_in_radar_frame(
     radar: [f64; 2],
     roi: &crate::view::VolumeRoi,

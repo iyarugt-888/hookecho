@@ -271,6 +271,9 @@ impl HookEchoApp {
         if let Some(roi) = out.roi {
             self.set_volume_roi(idx, roi);
         }
+        if let Some(half_km) = out.roi_here {
+            self.set_volume_roi_here(idx, half_km);
+        }
     }
 }
 
@@ -301,6 +304,8 @@ pub(crate) struct Panel3dOutcome {
     /// Build around the selected storm at this half-width (`Some(Some(km))`), or go back to the
     /// whole radar (`Some(None)`).
     pub roi: Option<Option<f32>>,
+    /// A region this many km (half-width) around the map centre.
+    pub roi_here: Option<f32>,
 }
 
 /// The 3D panel for pane `idx` over its own view and the settings it shares (display units, the
@@ -718,12 +723,34 @@ pub(crate) fn map_3d_panel(
                                 out.roi = Some(Some(km));
                             }
                         }
+                        ui.separator();
+                        for km in crate::view::ROI_SIZES_KM {
+                            let on = view
+                                .map_3d
+                                .roi
+                                .as_ref()
+                                .is_some_and(|r| r.storm.is_none() && r.half_km == km);
+                            if ui
+                                .selectable_label(
+                                    on,
+                                    format!("{:.0} km around the map centre", km * 2.0),
+                                )
+                                .on_hover_text(
+                                    "A region where the map is centred, for an area with no \
+                                     storm selected; it stays where it is put",
+                                )
+                                .clicked()
+                            {
+                                out.roi_here = Some(km);
+                            }
+                        }
                     });
             })
             .response
             .on_hover_text(
-                "Build the smooth volume around one storm instead of the whole radar: the same \
-                 number of voxels over a smaller box gives finer cells",
+                "Build the smooth volume and the isosurfaces around one storm or the map centre \
+                 instead of the whole radar: the same number of voxels over a smaller box gives \
+                 finer cells",
             );
             if let Some(roi) = view.map_3d.roi.as_mut() {
                 if roi.lost {

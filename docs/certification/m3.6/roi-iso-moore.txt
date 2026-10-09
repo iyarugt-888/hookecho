@@ -1,0 +1,6 @@
+Moore 2013 KTLX20130520_201229_V06, reflectivity 50 dBZ shell
+core (55 dBZ within 40 km) centre: -17.7 km east, 4.9 km north of KTLX
+radar-wide: box half-width 200 km, grid 176x176x48, cell 2.29 km x 0.38 km
+region:     box half-width 25 km, grid 64x64x73, cell 0.79 km x 0.25 km
+shell vertices inside the region: radar-wide 1021, region 9327
+triangles (all shells): radar-wide 13380, region 20168

@@ -1143,6 +1143,20 @@ p95 ≤ 5.32 ms ([`docs/certification/m3.5/raymarch-trace-rtx2060.txt`](docs/cer
 
 **Evidence ledger — 2026-10-07, increment 7 (beam diagram; WeatherWise-class beam-rise visualization):** **Beam diagram** (command palette) draws every distinct tilt of the active pane's scan against range out to 100/230/460 km — beam centre and half-power edges, km MSL over the radar's own ground level — and reads them at the range under the pointer on the active pane (a range slider stands in on touch): each tilt's bottom–top and centre height there, and the heights no beam samples (below the lowest beam and between tilts whose spacing exceeds the beam), drawn in red on the cursor line. Geometry is [`beam_geometry::{beam_at_ground, tilt_profiles, unsampled_at}`](crates/wxdata/src/beam_geometry.rs): the inverse of the existing 4/3-earth `beam_point` for a ground range, each edge as its own ray to the same ground point, SAILS/MRLE repeats counted once. Tests: inverse agrees with `beam_point` to 1 mm for 0.5–19.5° at 10–230 km; 0.5° at 100 km is 1.4–1.5 km above the antenna; for VCP 212 the low tilts overlap near the radar (only a sub-100 m strip below the lowest beam, gaps only above 4°) and miss over three times as much of the column at 200 km; the readout's words. A GPU capture (`gpu_beam_diagram_snapshot`, KTLX, VCP 212, 120 km) is written under `target/parity-review/beam-diagram`. Stated limits on the window itself: standard refraction and the WSR-88D 0.925° beam; heights are above the radar's ground, not the terrain under the cursor (the cross-section ruler and map measure carry terrain AGL).
 
+**Evidence ledger — 2026-10-09, increment 8 (isosurfaces in a region; a drawn region; 1008.md C5):** isosurfaces build over the pane's region of interest like the smooth volume (`IsoSpec::roi`, `IsoKey::roi`; `volume3d::build_at`, mesh moved back to radar-relative km). Region also offers "N km around the map centre", a point region with no storm that follows nothing (`set_volume_roi_here`, `point_roi`). **Moore 2013** (`moore_region_isosurface_is_finer`), 50 dBZ shell around the 55 dBZ core 17.7 km W / 4.9 km N of KTLX:
+
+| Build | Grid | Cell (horizontal × vertical) | Shell vertices inside a ±25 km region |
+| --- | --- | --- | --- |
+| Radar-wide (±200 km) | 176² × 48 | 2.29 km × 0.38 km | 1,021 |
+| Region | 64² × 73 | 0.79 km × 0.25 km | 9,327 |
+
+Report: [`docs/certification/m3.6/roi-iso-moore.txt`](docs/certification/m3.6/roi-iso-moore.txt), `28d748c1…`. Test: `isosurfaces_build_over_a_region_and_land_where_it_is` (inside the box, centred where the radar-wide shells are, empty away from echo). Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,561 passed (`target/parity-review/m3.6/c5-*.log`). Open:
+
+- The Observed representation is still radar-wide.
+- A 3D ruler.
+- A region drawn by dragging.
+- A device walkthrough.
+
 ### M4 — Operational GIS
 
 #### M4.1 — Introduce independent GIS layers and groups

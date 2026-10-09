@@ -104,6 +104,8 @@ pub struct IsoKey {
     pub step: Option<u32>,
     pub storm_uv: Option<(u32, u32)>,
     pub max_dim: usize,
+    /// The region of interest the shells are built over, as [`Roi::key`]; `None` = whole radar.
+    pub roi: Option<[u32; 3]>,
 }
 
 /// Cached samples and the contributor metadata prepared for those samples.
@@ -749,6 +751,9 @@ pub struct IsoSpec {
     pub top_km: f32,
     /// Storm motion to take off a velocity volume, as in [`SmoothSpec`].
     pub storm_uv: Option<(f32, f32)>,
+    /// Build over this region instead of the radar's echo extent (ROADMAP_PARITY M3.6): the same
+    /// cell budget over a smaller box gives finer shells around one storm or a drawn area.
+    pub roi: Option<Roi>,
 }
 
 /// Build the isosurface shells of `sweeps`. Velocity is dealiased first, so a folded couplet does
@@ -769,11 +774,19 @@ pub fn build_iso_covered(
         return None;
     }
     apply_storm_motion(&mut sweeps, spec.moment, spec.storm_uv);
-    let full = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
-    let half = wxdata::volume3d::echo_extent_km(&sweeps, full).half_km;
+    let (center, half) = match spec.roi {
+        Some(roi) => (roi.center_km, roi.half_km.max(1.0)),
+        None => {
+            let full = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+            (
+                [0.0, 0.0],
+                wxdata::volume3d::echo_extent_km(&sweeps, full).half_km,
+            )
+        }
+    };
     let (n, nz) =
         wxdata::volume3d::plan_grid(half, spec.top_km, ISO_CELL_KM, ISO_MAX_VOXELS, spec.max_dim);
-    let v3 = wxdata::volume3d::build(&sweeps, n, nz, half, spec.top_km)?;
+    let v3 = wxdata::volume3d::build_at(&sweeps, n, nz, center, half, spec.top_km)?;
     let shells = iso_shells(spec.moment, spec.value, spec.step);
     // One triangle budget shared by every shell: the painter draws them all each frame.
     let budget = ISO_MAX_TRIS / shells.len().max(1);
@@ -785,6 +798,12 @@ pub fn build_iso_covered(
                 let mut mesh = wxdata::isosurface::isosurface(&v3, value, high_inside, budget);
                 if spec.smooth {
                     wxdata::isosurface::smooth(&mut mesh, 2);
+                }
+                // The mesh comes back about the box's centre; a region's box is off the radar,
+                // and the painter places meshes radar-relative.
+                for v in &mut mesh.verts {
+                    v[0] += center[0];
+                    v[1] += center[1];
                 }
                 (value, depth, mesh)
             })
@@ -1067,6 +1086,174 @@ mod tests {
         );
     }
 
+    /// Moore 2013 (scientific corpus cache): the 50 dBZ shell built radar-wide and over a 50 km
+    /// region around the storm core nearest the radar. Writes the cell sizes and the shell's
+    /// detail inside the region to `target/parity-review/m3.6/roi-iso-moore.txt`.
+    #[test]
+    #[ignore = "corpus: writes the Moore 2013 region isosurface comparison"]
+    fn moore_region_isosurface_is_finer() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let path = repo.join("target/scientific-corpus/KTLX20130520_201229_V06.gz");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("SKIP: {} not provisioned", path.display());
+            return;
+        };
+        let scan = Arc::new(wxdata::level2::decode_volume(bytes).expect("Moore 2013 decodes"));
+        let spec = |value: f32, roi: Option<Roi>| IsoSpec {
+            moment: Moment::Reflectivity,
+            value,
+            step: None,
+            smooth: false,
+            max_dim: 256,
+            top_km: 18.0,
+            storm_uv: None,
+            roi,
+        };
+        let build = |spec: &IsoSpec| build_iso(Sweeps::Scan(scan.clone()), spec).unwrap();
+        // The core: the 55 dBZ shell's vertices within 40 km of the radar.
+        let core: Vec<[f32; 3]> = build(&spec(55.0, None))
+            .iter()
+            .flat_map(|s| s.2.verts.clone())
+            .filter(|v| v[0].hypot(v[1]) < 40.0)
+            .collect();
+        assert!(!core.is_empty(), "a 55 dBZ core near KTLX");
+        let n = core.len() as f32;
+        let center = [
+            core.iter().map(|v| v[0]).sum::<f32>() / n,
+            core.iter().map(|v| v[1]).sum::<f32>() / n,
+        ];
+        let roi = Roi {
+            center_km: center,
+            half_km: 25.0,
+        };
+        let inside = |v: &[f32; 3]| {
+            (v[0] - center[0]).abs() <= roi.half_km && (v[1] - center[1]).abs() <= roi.half_km
+        };
+        let count = |shells: &[IsoShell]| -> (usize, usize) {
+            let verts = shells
+                .iter()
+                .flat_map(|s| s.2.verts.iter())
+                .filter(|v| inside(v))
+                .count();
+            let tris = shells.iter().map(|s| s.2.tris.len()).sum();
+            (verts, tris)
+        };
+        let whole = build(&spec(50.0, None));
+        let region = build(&spec(50.0, Some(roi)));
+        assert!(
+            region.iter().flat_map(|s| s.2.verts.iter()).all(|v| {
+                (v[0] - center[0]).abs() <= roi.half_km + 0.01
+                    && (v[1] - center[1]).abs() <= roi.half_km + 0.01
+            }),
+            "every region vertex lies in its box"
+        );
+        let full = {
+            let (mut sw, _) = Sweeps::Scan(scan.clone()).resolve(Moment::Reflectivity, true, false);
+            temporal::prepare(&mut sw, TemporalPolicy::Continuous).unwrap();
+            let r = wxdata::volume3d::max_sample_range_km(&sw).max(50.0);
+            wxdata::volume3d::echo_extent_km(&sw, r).half_km
+        };
+        let (wn, wnz) = wxdata::volume3d::plan_grid(full, 18.0, ISO_CELL_KM, ISO_MAX_VOXELS, 256);
+        let (rn, rnz) = wxdata::volume3d::plan_grid(25.0, 18.0, ISO_CELL_KM, ISO_MAX_VOXELS, 256);
+        let (wv, wt) = count(&whole);
+        let (rv, rt) = count(&region);
+        let report = format!(
+            "Moore 2013 KTLX20130520_201229_V06, reflectivity 50 dBZ shell\n\
+             core (55 dBZ within 40 km) centre: {:.1} km east, {:.1} km north of KTLX\n\
+             radar-wide: box half-width {full:.0} km, grid {wn}x{wn}x{wnz}, cell {:.2} km x {:.2} km\n\
+             region:     box half-width 25 km, grid {rn}x{rn}x{rnz}, cell {:.2} km x {:.2} km\n\
+             shell vertices inside the region: radar-wide {wv}, region {rv}\n\
+             triangles (all shells): radar-wide {wt}, region {rt}\n",
+            center[0],
+            center[1],
+            2.0 * full / (wn - 1) as f32,
+            18.0 / (wnz - 1) as f32,
+            50.0 / (rn - 1) as f32,
+            18.0 / (rnz - 1) as f32,
+        );
+        print!("{report}");
+        let dir = repo.join("target/parity-review/m3.6");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("roi-iso-moore.txt"), report).unwrap();
+        assert!(rv > wv, "the region resolves the shell in more detail");
+    }
+
+    /// A region's shells sit inside its box, about where the radar-wide shells are, and are
+    /// built on finer cells; a region elsewhere has none of that echo.
+    #[test]
+    fn isosurfaces_build_over_a_region_and_land_where_it_is() {
+        let inputs = mixed_inputs(Moment::Reflectivity);
+        let spec = IsoSpec {
+            moment: Moment::Reflectivity,
+            value: 30.0,
+            step: None,
+            smooth: false,
+            max_dim: 32,
+            top_km: 6.0,
+            storm_uv: None,
+            roi: None,
+        };
+        let build = |spec: &IsoSpec| {
+            build_iso(
+                Sweeps::Binned {
+                    sweeps: inputs.clone(),
+                    mask: None,
+                },
+                spec,
+            )
+            .unwrap()
+        };
+        let whole = build(&spec);
+        let whole_verts: Vec<[f32; 3]> = whole.iter().flat_map(|s| s.2.verts.clone()).collect();
+        assert!(!whole_verts.is_empty());
+        // Centre a region on the radar-wide shells' middle.
+        let n = whole_verts.len() as f32;
+        let mid = [
+            whole_verts.iter().map(|v| v[0]).sum::<f32>() / n,
+            whole_verts.iter().map(|v| v[1]).sum::<f32>() / n,
+        ];
+        let reach = whole_verts
+            .iter()
+            .map(|v| (v[0] - mid[0]).abs().max((v[1] - mid[1]).abs()))
+            .fold(0.0f32, f32::max);
+        let roi = Roi {
+            center_km: mid,
+            half_km: reach + 4.0,
+        };
+        let region = build(&IsoSpec {
+            roi: Some(roi),
+            ..spec
+        });
+        let verts: Vec<[f32; 3]> = region.iter().flat_map(|s| s.2.verts.clone()).collect();
+        assert!(!verts.is_empty(), "the region holds the echo");
+        for v in &verts {
+            assert!(
+                (v[0] - mid[0]).abs() <= roi.half_km + 0.01
+                    && (v[1] - mid[1]).abs() <= roi.half_km + 0.01,
+                "{v:?} outside the region about {mid:?}"
+            );
+        }
+        let rn = verts.len() as f32;
+        let rmid = [
+            verts.iter().map(|v| v[0]).sum::<f32>() / rn,
+            verts.iter().map(|v| v[1]).sum::<f32>() / rn,
+        ];
+        let whole_cell = 2.0 * wxdata::volume3d::max_sample_range_km(&inputs).max(50.0) / 32.0;
+        assert!(
+            (rmid[0] - mid[0]).abs() < whole_cell && (rmid[1] - mid[1]).abs() < whole_cell,
+            "region shells centred at {rmid:?}, radar-wide at {mid:?}"
+        );
+        // Far away from the echo: nothing.
+        let empty = build(&IsoSpec {
+            roi: Some(Roi {
+                center_km: [mid[0] + 200.0, mid[1] - 200.0],
+                half_km: 10.0,
+            }),
+            ..spec
+        });
+        assert!(empty.is_empty(), "no shells where there is no echo");
+    }
+
     #[test]
     fn smooth_strict_prepares_inputs_before_interpolation_and_preserves_continuous_samples() {
         let inputs = mixed_inputs(Moment::Reflectivity);
@@ -1192,6 +1379,7 @@ mod tests {
             max_dim: 32,
             top_km: 6.0,
             storm_uv: None,
+            roi: None,
         };
         let strict = build_iso_covered(
             Sweeps::Binned {
@@ -1312,6 +1500,7 @@ mod tests {
             step: None,
             storm_uv: None,
             max_dim: 32,
+            roi: None,
         };
         let iso_frame = IsoFrame {
             shells: Vec::new(),
@@ -1418,6 +1607,7 @@ mod tests {
             step: None,
             storm_uv: None,
             max_dim: 32,
+            roi: None,
         };
         assert!(!jobs.wants(&JobKey::Iso(0, iso.clone())));
         assert!(jobs.wants(&JobKey::Iso(1, iso)));
@@ -1759,6 +1949,7 @@ mod tests {
                 max_dim: 32,
                 top_km: 6.0,
                 storm_uv: None,
+                roi: None,
             },
             TemporalPolicy::Continuous,
         )
