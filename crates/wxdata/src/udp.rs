@@ -66,6 +66,9 @@
 
 use std::fmt;
 
+mod units;
+pub use units::{label_note, Quantity};
+
 /// One input an expression can read at a gate. Case-insensitive on the way in; see
 /// [`Input::parse`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -370,6 +373,18 @@ impl Func {
 pub struct Expr(ExprNode);
 
 impl Expr {
+    /// Where this formula adds, compares or chooses between different physical quantities, or
+    /// mixes heights above the antenna with heights above sea level, one plain sentence each
+    /// (1008.md C4). Advice, not refusal: a weighted index may mean it.
+    pub fn unit_diagnostics(&self) -> Vec<String> {
+        units::check(&self.0)
+    }
+
+    /// What this formula's value measures, as far as its operands say.
+    pub fn result_quantity(&self) -> Quantity {
+        units::result(&self.0)
+    }
+
     /// Every input this formula reads, each once.
     pub fn inputs(&self) -> Vec<Input> {
         fn walk(n: &ExprNode, out: &mut Vec<Input>) {

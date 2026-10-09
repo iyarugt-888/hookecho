@@ -168,6 +168,9 @@ impl UdpWindow {
                     ui.colored_label(egui::Color32::from_rgb(230, 130, 130), e.to_string());
                 }
             }
+            if let Ok(parsed) = &parsed {
+                unit_notes(ui, parsed, &self.new_units);
+            }
             let supported = parsed
                 .as_ref()
                 .is_ok_and(|e| e.column_depth() <= wxdata::udp_column::MAX_COLUMN_DEPTH);
@@ -202,6 +205,18 @@ impl UdpWindow {
     }
 }
 
+/// Unit and datum notes for a formula (1008.md C4), in amber: advice, since a weighted index may
+/// mean what it does, unlike a formula that does not parse.
+fn unit_notes(ui: &mut egui::Ui, expr: &wxdata::udp::Expr, units: &str) {
+    let amber = egui::Color32::from_rgb(230, 180, 90);
+    let label = wxdata::udp::label_note(units, expr.result_quantity());
+    for note in expr.unit_diagnostics().into_iter().chain(label) {
+        ui.add(
+            egui::Label::new(egui::RichText::new(format!("\u{26a0} {note}")).color(amber)).wrap(),
+        );
+    }
+}
+
 /// One saved product's editable row: name/units/expression fields plus a live compile-error
 /// readout, so a typo shows up here rather than only as a silent "—" in the gate inspector later.
 fn row(
@@ -233,6 +248,9 @@ fn row(
     let compiled = def.compile();
     if let Err(e) = &compiled {
         ui.colored_label(egui::Color32::from_rgb(230, 130, 130), e.to_string());
+    }
+    if let Ok(expr) = &compiled {
+        unit_notes(ui, expr, &def.units);
     }
     let per_gate = compiled.as_ref().is_ok_and(|e| !e.uses_column());
     let per_column = compiled.as_ref().is_ok_and(|e| e.uses_column());
@@ -359,4 +377,55 @@ fn reference(ui: &mut egui::Ui) {
              bare inputs (outside a vertical function) read the lowest level over the point.",
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn product(name: &str, units: &str, expression: &str) -> ProductDef {
+        ProductDef {
+            id: String::new(),
+            name: name.into(),
+            units: units.into(),
+            expression: expression.into(),
+            range: None,
+            palette: None,
+        }
+    }
+
+    /// Saved products with a unit mix, a datum mix and a units label that names another
+    /// quantity, and one that does not parse, as the editor shows them (1008.md C4).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the product editor's unit notes"]
+    fn gpu_unit_notes_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the editor");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m3.2");
+        std::fs::create_dir_all(&destination).unwrap();
+        let mut settings = Settings {
+            udp_products: vec![
+                product("Shear-ish", "dBZ", "REF + ZDR"),
+                product(
+                    "Hail above 0 C",
+                    "dBZ",
+                    "BEAM_HEIGHT_M >= FREEZING_LEVEL_M ? REF : 0/0",
+                ),
+                product("Wind core", "dBZ", "abs(VEL)"),
+                product("Typo", "dBZ", "REF >= 50 && ZDRR < 1"),
+            ],
+            ..Default::default()
+        };
+        gpu.save(&destination.join("unit-notes.png"), 520, 520, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(500.0);
+                for i in 0..settings.udp_products.len() {
+                    row(ui, &mut settings, i, &mut None, &mut None, &mut None);
+                    ui.separator();
+                }
+            });
+        })
+        .unwrap();
+    }
 }

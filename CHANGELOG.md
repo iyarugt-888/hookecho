@@ -30,6 +30,15 @@ drawn twice; a cancelled or expired warning is never drawn from the wire. The An
 "Wire arrival" beside "Warning arrival". Left empty, nothing changes. The relay has not yet been
 run against NWWS-OI itself.
 
+### Added: unit checks for user-defined products
+
+The product editor now notes, in amber under a formula, where it adds or compares different
+quantities (`REF + ZDR` adds dBZ to dB), where it compares a height above the radar with a height
+above sea level (`BEAM_HEIGHT_M >= FREEZING_LEVEL_M` is off by the antenna's altitude; use
+`BEAM_ALTITUDE_M`), and where the product's units label names something other than what the
+formula computes. These are advice — a weighted index may mean exactly that — and nothing is
+refused. The 32 reference products in `docs/presets/` all import cleanly and pass these checks.
+
 ### Added: colour stops for 3D volumes
 
 The 3D map's Smooth volumes have **Colour stops** under the opacity curve: two to eight colours
