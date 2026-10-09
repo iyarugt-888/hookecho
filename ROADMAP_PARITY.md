@@ -1139,6 +1139,19 @@ Capture: [`docs/certification/m2.4/storm-note.png`](docs/certification/m2.4/stor
 
 **Evidence ledger — 2026-10-09, increment 4 (bounded window prefetch; 1008.md C1):** the polar trail no longer depends on what the loop happened to download. `prefetch_trail_window` asks the loop's own prefetch path (`spawn_prefetch`, its in-flight budget and timeout) for the window's volumes that neither the scan cache nor the trail holds, newest first, at most `MAX_PREFETCH` per trail (16 desktop, 4 Android, none in the browser, whose cache is four volumes), so a long window cannot push the loop's frames out of a 30-volume cache. The status line says how many of the window's volumes are downloading, or how many are still not loaded once the bound is spent. Turning the trail off or changing its key stops new requests; one already running lands in the loop cache like any prefetch. Arrived volumes are folded by the existing exact sliding window. Test: `the_prefetch_asks_only_for_the_windows_missing_volumes` (outside the window, after the playhead, held and cached volumes are not asked for; newest first). Not yet exercised interactively or against a long archive window; MRMS MESH/AzShear trails remain the native MRMS accumulations (`hail_swath`, `rotation_track`), not frame-built grid trails; trails across sites and tilts remain open.
 
+**Evidence ledger — 2026-10-09, increment 5 (a real multi-volume trail; 1008.md C1):** `gpu_moore_trail_capture` takes the 14 KTLX volumes of 2013-05-20 19:34–20:29 UTC from the NEXRAD archive. It folds their 0.5° REF into the app's `SlidingTrail` (max, 60 min) and CC into its minimum, and renders both and the last volume on the RTX 2060. Results:
+
+- **Merging and coverage:** all 14 volumes merged; 0 missing; 21 s short of the hour.
+- **Exactness:** all **239,550** measured gates of the maximum equal a brute-force maximum over the frames (0 differ).
+- **Captures:** [`docs/certification/m3.4/`](docs/certification/m3.4/) (`moore-trail-max-ref.png` `a4c60b19…`, `moore-trail-min-cc.png`, `moore-last-volume-ref.png`, `moore-trail.txt` `db6451a5…`).
+- **Finding:** the CC-minimum trail is dominated by low-signal gates and shows no debris path. It needs a reflectivity floor to mean anything, and the app does not apply one yet.
+
+MRMS MESH/AzShear trails remain the native MRMS accumulations. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,569 passed (`target/parity-review/m3.4/c1-*.log`). Open:
+
+- A reflectivity floor for CC-minimum trails.
+- Trails across radars and tilts.
+- An interactive scrub.
+
 #### M3.5 — Add translucent volume rendering and richer surfaces
 
 **Priority:** P1. **Depends on:** M0.3, M1.1, M1.2, M3.2. **Original references:** ROADMAP_NEW §§H1, H2, H3, H7; ROADMAP_2 §§11.2, 14.

@@ -790,3 +790,144 @@ fn gpu_correlated_latency_trace() {
     std::fs::write(dir.join("correlated-trace.csv"), rows.join("\n") + "\n").unwrap();
     std::fs::write(dir.join("correlated-trace.txt"), report).unwrap();
 }
+
+/// ROADMAP_PARITY M3.4 / 1008.md C1: a real multi-volume trail. Downloads the KTLX volumes of
+/// 2013-05-20 19:30–20:30 UTC (the Moore tornado) from the public NEXRAD archive, folds the 0.5°
+/// reflectivity into the exact sliding-window maximum and the correlation coefficient into its
+/// minimum (`extrema::SlidingTrail`, as the app's trail layer does), checks every gate of the
+/// maximum against a brute-force maximum over the same frames, and renders both trails and the
+/// last single frame through the production renderer. Writes `target/parity-review/m3.4/`.
+#[test]
+#[ignore = "network + gpu: writes the Moore 2013 trail captures"]
+fn gpu_moore_trail_capture() {
+    use wxdata::extrema::{Extremum, SlidingTrail};
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = repo.join("target/parity-review/m3.4");
+    let cache = repo.join("target/trail-volumes");
+    std::fs::create_dir_all(&out).unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let day = chrono::NaiveDate::from_ymd_opt(2013, 5, 20).unwrap();
+    let from = day.and_hms_opt(19, 30, 0).unwrap().and_utc();
+    let to = day.and_hms_opt(20, 30, 0).unwrap().and_utc();
+    let ids: Vec<_> = rt
+        .block_on(level2::list_volumes("KTLX", day))
+        .expect("archive listing")
+        .into_iter()
+        .filter(|id| id.date_time().is_some_and(|t| t >= from && t <= to))
+        .filter(|id| !id.name().ends_with("_MDM"))
+        .collect();
+    assert!(ids.len() >= 8, "{} volumes in the hour", ids.len());
+    let mut refl = Vec::new();
+    let mut cc = Vec::new();
+    let mut names = Vec::new();
+    for id in ids {
+        let name = id.name().to_string();
+        let t = id.date_time().unwrap().timestamp();
+        let scan = rt
+            .block_on(level2::download_scan(id, Some(cache.clone())))
+            .expect("archive volume");
+        let (Ok(r), Ok(c)) = (
+            level2::bin_scan(&scan, Moment::Reflectivity, 0),
+            level2::bin_scan(&scan, Moment::CorrelationCoefficient, 0),
+        ) else {
+            continue;
+        };
+        names.push(name);
+        refl.push((t, r));
+        cc.push((t, c));
+    }
+    let newest = refl.iter().map(|(t, _)| *t).max().unwrap();
+    let window_s = 3600;
+    let mut max_trail = SlidingTrail::new(Extremum::Max, window_s, 64);
+    let mut min_trail = SlidingTrail::new(Extremum::Min, window_s, 64);
+    let mut merges = Vec::new();
+    for ((t, r), (_, c)) in refl.iter().zip(&cc) {
+        merges.push(format!("{:?}", max_trail.push(*t, r)));
+        min_trail.push(*t, c);
+    }
+    let trail = max_trail.at(newest).expect("a trail");
+    let cc_trail = min_trail.at(newest).expect("a CC trail");
+    // Every gate against a brute-force maximum over the frames the trail holds (codes are
+    // monotonic in reflectivity; codes below the first value code hold no measurement).
+    let held: Vec<&level2::BinnedSweep> = refl
+        .iter()
+        .filter(|(t, s)| *t >= newest - window_s && s.data.len() == trail.sweep.data.len())
+        .map(|(_, s)| s)
+        .collect();
+    let mut checked = 0usize;
+    let mut wrong = 0usize;
+    for i in 0..trail.sweep.data.len() {
+        let brute = held
+            .iter()
+            .map(|s| s.data[i])
+            .filter(|c| *c >= 2) // 0 below threshold, 1 range folded
+            .max();
+        if let Some(b) = brute {
+            checked += 1;
+            if trail.sweep.data[i] != b {
+                wrong += 1;
+            }
+        }
+    }
+    let (device, queue, adapter) = init_gpu(&rt).expect("GPU adapter");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let camera = Camera::at_lonlat(-97.45, 35.33, 9.0);
+    let mut draw = |sweep: &BinnedSweep, moment: Moment, file: &str| {
+        let mut cb = callback(sweep, &camera);
+        if let Some(up) = cb.radar_upload.as_mut() {
+            *up = crate::app::to_upload(
+                sweep,
+                crate::colormap::default_table(moment),
+                None,
+                false,
+                None,
+                None,
+                false,
+                None,
+            );
+        }
+        resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+        let pixels = read_target(&device, &queue, &target, SIZE);
+        image::save_buffer(out.join(file), &pixels, SIZE, SIZE, image::ColorType::Rgba8)
+            .expect("save capture");
+        format!("{:x}", Sha256::digest(&pixels))
+    };
+    let last = &refl.last().unwrap().1;
+    let h_last = draw(last, Moment::Reflectivity, "moore-last-volume-ref.png");
+    let h_max = draw(
+        &trail.sweep,
+        Moment::Reflectivity,
+        "moore-trail-max-ref.png",
+    );
+    let h_min = draw(
+        &cc_trail.sweep,
+        Moment::CorrelationCoefficient,
+        "moore-trail-min-cc.png",
+    );
+    let c = trail.coverage;
+    let report = format!(
+        "adapter: {} ({:?})\nKTLX 2013-05-20, 0.5 deg, window {} min ending {}\nvolumes ({}): {}\nmerges: {}\ncoverage: {} frames from {} to {}, {} missing at the trail's cadence, {} s short\nmaximum reflectivity: {checked} gates with a measurement checked against a brute-force maximum, {wrong} differ\nrgba sha256: last volume {h_last}, max REF trail {h_max}, min CC trail {h_min}\n",
+        adapter.get_info().name,
+        adapter.get_info().backend,
+        window_s / 60,
+        chrono::DateTime::from_timestamp(newest, 0).unwrap(),
+        names.len(),
+        names.join(", "),
+        merges.join(", "),
+        c.frames,
+        chrono::DateTime::from_timestamp(c.from, 0).unwrap(),
+        chrono::DateTime::from_timestamp(c.to, 0).unwrap(),
+        c.missing,
+        c.short_s,
+    );
+    print!("{report}");
+    std::fs::write(out.join("moore-trail.txt"), report).unwrap();
+    assert!(checked > 10_000);
+    assert_eq!(wrong, 0, "the trail is the exact maximum");
+}

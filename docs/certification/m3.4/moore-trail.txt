@@ -1,0 +1,7 @@
+adapter: NVIDIA GeForce RTX 2060 (Vulkan)
+KTLX 2013-05-20, 0.5 deg, window 60 min ending 2013-05-20 20:29:28 UTC
+volumes (14): KTLX20130520_193405_V06.gz, KTLX20130520_193821_V06.gz, KTLX20130520_194238_V06.gz, KTLX20130520_194655_V06.gz, KTLX20130520_195111_V06.gz, KTLX20130520_195527_V06.gz, KTLX20130520_195941_V06.gz, KTLX20130520_200356_V06.gz, KTLX20130520_200811_V06.gz, KTLX20130520_201229_V06.gz, KTLX20130520_201643_V06.gz, KTLX20130520_202058_V06.gz, KTLX20130520_202511_V06.gz, KTLX20130520_202928_V06.gz
+merges: Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged, Merged
+coverage: 14 frames from 2013-05-20 19:34:05 UTC to 2013-05-20 20:29:28 UTC, 0 missing at the trail's cadence, 21 s short
+maximum reflectivity: 239550 gates with a measurement checked against a brute-force maximum, 0 differ
+rgba sha256: last volume 07c7e5cfdf1e280c1cc5e1450026badb39dd1f44377e8df66675f7bebf3de251, max REF trail 37302784b7c2b081258308fe85d1c9d002c381788e0c2307c356136f15601825, min CC trail b7b6b07646b0cd62903223bdc87423d404cfd11123cf2ef7356a4bb2c3f804d5

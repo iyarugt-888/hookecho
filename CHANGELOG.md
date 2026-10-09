@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Verified: the max-value trail on a real tornado hour
+
+The reflectivity trail was built from the hour of KTLX scans around the 2013 Moore tornado and
+checked gate by gate against a straightforward maximum of the same scans: every one of 239,550
+gates matches. The minimum-CC trail on the same hour is mostly noise from weak echoes, so it
+does not yet show a debris path on its own.
+
 ### Added: notes on storms, saved in cases
 
 Right-click a storm in the Storms table to add a note. The note stays with that storm even when
