@@ -103,6 +103,7 @@ mod gis_layers;
 /// The imported-layer point symbols, for the Layer Manager's symbol legend.
 pub(crate) use gis_layers::paint_symbol as paint_gis_symbol;
 mod loop_capture;
+use loop_capture::LoopExport;
 mod map_click;
 mod map_volume;
 mod measure;
@@ -810,33 +811,6 @@ pub(crate) enum ShotDest {
     Api(std::sync::mpsc::Sender<Result<Vec<u8>, String>>),
 }
 
-/// In-progress loop export (GIF or MP4): steps the active timeline, grabbing one screenshot per
-/// frame.
-struct LoopExport {
-    dest: std::path::PathBuf,
-    format: crate::loopexport::LoopFormat,
-    frames: Vec<image::RgbaImage>,
-    /// Slots still to capture (counts down as frames are grabbed).
-    remaining: usize,
-    /// Frames to let the stepped radar paint once it is on screen, before grabbing.
-    settle: u8,
-    /// When the timeline was stepped to the frame being waited for (`loop_capture`).
-    step_at: Instant,
-    /// A screenshot has been requested; waiting for its event.
-    capturing: bool,
-    /// Playback speed the scrubber was set to when the export started — the exported clip plays
-    /// at the speed the user was watching, instead of a hardcoded 5 fps.
-    fps: f32,
-    /// Each captured frame's volume and valid time, for real timing and the sidecar.
-    volumes: Vec<Option<(String, DateTime<Utc>)>>,
-    /// Hold each frame for its real scan gap (`Settings::loop_real_timing`) or all alike.
-    real_timing: bool,
-    /// What each captured frame asked for and found (ROADMAP_PARITY M6.3), for the manifest.
-    records: Vec<crate::capture_manifest::FrameRecord>,
-    /// The frame being captured: the scan asked for, and whether the wait for it ran out.
-    asked: Option<String>,
-    timed_out: bool,
-}
 
 /// A pane's smooth volume grid: `n`, `nz`, half-width km, top km, centre km east/north.
 type SmoothDims = (u32, u32, f32, f32, [f32; 2]);

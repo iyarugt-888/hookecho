@@ -1023,6 +1023,9 @@ pub struct Settings {
     /// a pause, as they were.
     #[serde(default = "default_true")]
     pub loop_real_timing: bool,
+    /// The frame rate exported MP4 loops are encoded at: 30, or 60 for broadcast (1008.md F2).
+    #[serde(default = "default_mp4_fps")]
+    pub loop_mp4_fps: u32,
     /// How streaming mode dresses the map for air: margins, clock, caption, crawl, logo and
     /// whether the colour scale shows (`crate::broadcast`).
     #[serde(default)]
@@ -1339,6 +1342,10 @@ fn default_scan_sound() -> AlertSound {
 
 fn default_far_3d() -> f32 {
     2.5
+}
+
+fn default_mp4_fps() -> u32 {
+    crate::loopexport::MP4_FPS
 }
 
 fn default_true() -> bool {
@@ -2001,6 +2008,7 @@ impl Default for Settings {
             tile_disk_cache_mb: 0,
             share_card: true,
             loop_real_timing: true,
+            loop_mp4_fps: default_mp4_fps(),
             broadcast: Default::default(),
             scenes: Vec::new(),
             layer_order: Vec::new(),
@@ -3338,6 +3346,7 @@ mod tests {
             live_sweep_mode: LiveSweepMode::StrictCurrentSweep,
             share_card: true,
             loop_real_timing: true,
+            loop_mp4_fps: default_mp4_fps(),
             broadcast: Default::default(),
             scenes: Vec::new(),
             layer_order: Vec::new(),

@@ -321,6 +321,21 @@ impl HookEchoApp {
                             "Hold each exported frame for the real time to the next scan, scaled \
                              to the playback speed, instead of all alike",
                         );
+                    #[cfg(not(target_os = "android"))]
+                    ui.horizontal(|ui| {
+                        ui.label("MP4 rate");
+                        for fps in crate::loopexport::MP4_RATES {
+                            ui.selectable_value(
+                                &mut self.settings.loop_mp4_fps,
+                                fps,
+                                format!("{fps} fps"),
+                            )
+                            .on_hover_text(
+                                "Encoded frames per second. Weather frames are held, not \
+                                 blended: 60 fps suits broadcast systems that expect it",
+                            );
+                        }
+                    });
                     if ui
                         .add_enabled(
                             self.loop_export.is_none(),

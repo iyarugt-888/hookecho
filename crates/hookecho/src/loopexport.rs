@@ -115,8 +115,21 @@ pub fn frame_list(
         .collect()
 }
 
-/// The frame rate every exported MP4 is written at.
+/// The frame rate an exported MP4 is written at unless 60 is chosen (`Settings::loop_mp4_fps`).
 pub const MP4_FPS: u32 = 30;
+
+/// The encoded frame rates offered: 30, and 60 for broadcast (1008.md F2). A loop's weather
+/// frames are held, not interpolated: 60 fps repeats each picture twice as often.
+pub const MP4_RATES: [u32; 2] = [30, 60];
+
+/// `fps` if it is an offered rate, else [`MP4_FPS`].
+pub fn mp4_rate(fps: u32) -> u32 {
+    if MP4_RATES.contains(&fps) {
+        fps
+    } else {
+        MP4_FPS
+    }
+}
 
 /// How many output frames at `fps` each weather frame is shown for, given its hold `delays_ms`
 /// (ROADMAP_2 §6.2/§6.6: a deterministic, fixed-rate schedule). Counted from the loop's running
@@ -161,6 +174,16 @@ pub fn encode_mp4_timed(
     delays_ms: &[u32],
     path: &Path,
 ) -> anyhow::Result<()> {
+    encode_mp4_timed_at(frames, delays_ms, path, MP4_FPS)
+}
+
+/// [`encode_mp4_timed`] at `fps` (one of [`MP4_RATES`]).
+pub fn encode_mp4_timed_at(
+    frames: &[RgbaImage],
+    delays_ms: &[u32],
+    path: &Path,
+    fps: u32,
+) -> anyhow::Result<()> {
     if frames.is_empty() {
         anyhow::bail!("no frames captured");
     }
@@ -181,7 +204,7 @@ pub fn encode_mp4_timed(
             img.save(&file)?;
             files.push(file);
         }
-        encode_mp4_files(&files, delays_ms, path)
+        encode_mp4_files_at(&files, delays_ms, path, fps)
     })();
     let _ = std::fs::remove_dir_all(&dir);
     result
@@ -194,27 +217,44 @@ pub fn encode_mp4_files(
     delays_ms: &[u32],
     path: &Path,
 ) -> anyhow::Result<()> {
+    encode_mp4_files_at(files, delays_ms, path, MP4_FPS)
+}
+
+/// [`encode_mp4_files`] at `fps` (one of [`MP4_RATES`]).
+pub fn encode_mp4_files_at(
+    files: &[std::path::PathBuf],
+    delays_ms: &[u32],
+    path: &Path,
+    fps: u32,
+) -> anyhow::Result<()> {
+    let fps = mp4_rate(fps);
     anyhow::ensure!(!files.is_empty(), "no frames captured");
     anyhow::ensure!(files.len() == delays_ms.len(), "one delay per frame");
-    // Whole output frames per weather frame (`cfr_counts`), so ffmpeg's constant-rate output
-    // repeats frames to fill each hold and never has to drop one shorter than a frame period.
+    let list = concat_list(files, delays_ms, fps);
+    let list_path = path.with_extension("frames.txt");
+    std::fs::write(&list_path, list)?;
+    let result = run_ffmpeg(&list_path, path, fps);
+    let _ = std::fs::remove_file(&list_path);
+    result
+}
+
+/// The concat demuxer's list: whole output frames per weather frame (`cfr_counts`), so ffmpeg's
+/// constant-rate output repeats frames to fill each hold and never has to drop one shorter than a
+/// frame period.
+fn concat_list(files: &[std::path::PathBuf], delays_ms: &[u32], fps: u32) -> String {
     let mut list = String::new();
-    for (file, n) in files.iter().zip(cfr_counts(delays_ms, MP4_FPS)) {
+    for (file, n) in files.iter().zip(cfr_counts(delays_ms, fps)) {
         // Exact seconds (n / fps), not whole ms: 33 ms a frame would drift over a long loop.
         list.push_str(&concat_entry(
             &concat_path(file),
-            f64::from(n) / f64::from(MP4_FPS),
+            f64::from(n) / f64::from(fps),
         ));
     }
     // The concat demuxer ignores the last entry's duration unless the file is listed again.
     if let Some(last) = files.last() {
         list.push_str(&format!("file '{}'\n", concat_path(last)));
     }
-    let list_path = path.with_extension("frames.txt");
-    std::fs::write(&list_path, list)?;
-    let result = run_ffmpeg(&list_path, path);
-    let _ = std::fs::remove_file(&list_path);
-    result
+    list
 }
 
 /// A path as the concat list quotes it: forward slashes, and `'` escaped the way ffmpeg reads it.
@@ -230,7 +270,7 @@ fn concat_entry(name: &str, secs: f64) -> String {
     format!("file '{name}'\nduration {secs:.6}\n")
 }
 
-fn run_ffmpeg(list: &Path, out: &Path) -> anyhow::Result<()> {
+fn run_ffmpeg(list: &Path, out: &Path, fps: u32) -> anyhow::Result<()> {
     let mut ffmpeg = std::process::Command::new("ffmpeg");
     crate::platform::no_window(&mut ffmpeg);
     let status = ffmpeg
@@ -241,7 +281,7 @@ fn run_ffmpeg(list: &Path, out: &Path) -> anyhow::Result<()> {
             "-vf",
             "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-r",
-            &MP4_FPS.to_string(),
+            &fps.to_string(),
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -369,6 +409,28 @@ pub fn crop_center(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
 
 #[cfg(test)]
 mod tests {
+
+    /// At 60 fps every hold maps onto twice the encoded frames it has at 30, the durations in the
+    /// list stay exact, and an unoffered rate falls back to 30 (1008.md F2).
+    #[test]
+    fn sixty_fps_doubles_the_encoded_frames_without_drift() {
+        use super::*;
+        let delays = [250, 500, 1500, 333];
+        let at30 = cfr_counts(&delays, 30);
+        let at60 = cfr_counts(&delays, 60);
+        assert_eq!(at60.iter().sum::<u32>(), 155, "2.583 s at 60 fps");
+        assert_eq!(at30.iter().sum::<u32>(), 77);
+        assert_eq!(&at60[..3], &[15, 30, 90]);
+        let files: Vec<std::path::PathBuf> = (0..4).map(|i| format!("f{i}.png").into()).collect();
+        let list = concat_list(&files, &delays, 60);
+        assert!(
+            list.contains("file 'f1.png'\nduration 0.500000\n"),
+            "{list}"
+        );
+        assert!(list.ends_with("file 'f3.png'\n"), "the last listed twice");
+        assert_eq!(mp4_rate(60), 60);
+        assert_eq!(mp4_rate(24), MP4_FPS);
+    }
     #[test]
     fn a_fixed_rate_export_drops_no_frame_and_does_not_drift() {
         use super::cfr_counts;

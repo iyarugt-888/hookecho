@@ -20,6 +20,14 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Changed: a loop export pauses rather than recording the wrong scan
+
+When a scan does not load within 30 seconds, a GIF/MP4 loop export now pauses and asks: wait
+again, skip that frame, capture what is shown in its place, or finish with the frames so far. A
+partial manifest is saved beside the file meanwhile. Before, it silently recorded whatever was on
+screen. MP4 loops can also be encoded at 60 fps (next to the loop export buttons); frames are held, not
+blended.
+
 ### Added: export outlines for any radar product
 
 "Export map as GeoJSON" now outlines whatever product the map shows, not only reflectivity: by
