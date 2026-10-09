@@ -300,6 +300,7 @@ impl HookEchoApp {
             llsd_job: None,
             tornado_shown: None,
             couplet_inputs: None,
+            tds_inputs: None,
             rot_shown_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             celltrack_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tracks_cache: None,

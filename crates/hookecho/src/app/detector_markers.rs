@@ -1133,8 +1133,12 @@ mod llsd_preview_snapshots {
         let bytes = std::fs::read(root.join("scientific-corpus/KTLX20130520_201229_V06.gz"))
             .expect("cached Moore volume (provision the scientific corpus first)");
         let scan = level2::decode_volume(bytes).unwrap();
-        let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+        let (mut vel_pairs, mut cc_pairs, mut zdr) = (Vec::new(), Vec::new(), Vec::new());
         for tilt in 0..level2::elevation_angles(&scan).len() {
+            // As `compute_tds_uncached` reads it: ZDR discounts the debris signatures.
+            if let Ok(d) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
+                zdr.push(d);
+            }
             let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
             if let (Ok(z), Ok(cc)) = (
                 &z,
@@ -1156,7 +1160,8 @@ mod llsd_preview_snapshots {
         let tracked =
             wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default())
                 .update(0, columns);
-        let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+        let mut debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+        wxdata::tds::apply_zdr(&mut debris, &zdr);
         let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
         let ids = wxdata::llsd_analyst::identify(&analysed, |_, _| Default::default());
         let t = ids.first().expect("a Tornado ID verdict on Moore");
@@ -1167,6 +1172,7 @@ mod llsd_preview_snapshots {
             volume: "KTLX20130520_201229_V06".into(),
             volume_time: "2013-05-20T20:12:29Z".parse().ok(),
             inputs: input_coverage(vel_pairs.into_iter().flat_map(|(v, z)| [v, z]).collect()),
+            debris_inputs: wxdata::detection_lineage::debris_input_coverage(cc_pairs, zdr),
             stand_in: None,
         };
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");

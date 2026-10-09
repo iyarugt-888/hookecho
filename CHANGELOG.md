@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: when the debris evidence was scanned
+
+A Tornado ID verdict's hover, pinned card and Cell dock already said when the sweeps behind its
+rotation were scanned. They now say the same for its debris evidence: the reflectivity and
+correlation coefficient tilts the debris signatures were read from, and the lowest ZDR sweep
+that discounts them. The two are listed apart ("Rotation inputs scanned…", "Debris inputs
+scanned…") because they are different sweeps and can be a minute or more apart. The local API and
+`provenance.json` carry a `debris_inputs` record beside `inputs`. In `detections.csv`, Tornado ID
+rows gain two columns at the end for the debris interval, and the debris and rotation rows now
+fill the input-interval columns with their own sweeps' scan times. A volume without dual-pol
+reports the debris inputs as not recorded, never as the volume's time.
+
 ### Changed: one look, the workstation's
 
 The app now has a single colour scheme: the Dear ImGui look the workstation dock was designed in.

@@ -263,6 +263,8 @@ impl HookEchoApp {
                 .as_ref()
                 .filter(|(k, _)| *k == self.volume_key(idx))
                 .and_then(|(_, inputs)| inputs.clone()),
+            // Both pipelines read the app's debris for the newest pass; see `compute_tds_uncached`.
+            debris_inputs: self.debris_inputs(idx),
             stand_in: None,
         };
         match analysed {
@@ -531,6 +533,18 @@ impl HookEchoApp {
 
     /// When the sweeps behind this volume's fused columns were scanned, once they are computed;
     /// `None` when they are not (yet), or were not recorded.
+    /// When the sweeps behind this volume's debris signatures were scanned, if they were read.
+    pub(crate) fn debris_inputs(
+        &self,
+        idx: usize,
+    ) -> Option<wxdata::level2::temporal::TemporalCoverage> {
+        let key = self.volume_key(idx);
+        self.tds_inputs
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .and_then(|(_, inputs)| inputs.clone())
+    }
+
     pub(crate) fn llsd_inputs(
         &self,
         idx: usize,
@@ -615,6 +629,8 @@ impl HookEchoApp {
         // volume — this only runs once per new volume (cached on `volume_key`), but there is no
         // reason to pay for tilts high enough that lofted-debris relevance has already dropped off.
         const TILTS: usize = 4;
+        let key = self.volume_key(idx);
+        self.tds_inputs = Some((key.clone(), None));
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return Vec::new();
         };
@@ -636,6 +652,9 @@ impl HookEchoApp {
             pairs.len(),
             hits.len(),
         );
+        // When these sweeps were scanned: the debris evidence's input clocks.
+        let inputs = wxdata::detection_lineage::debris_input_coverage(pairs, zdr_tilts);
+        self.tds_inputs = Some((key, inputs));
         hits
     }
 

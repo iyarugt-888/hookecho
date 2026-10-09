@@ -12,7 +12,8 @@
 //! [`crate::level2::temporal::prepare`] under the continuous policy the detectors read with: rows
 //! from the previous antenna pass are counted, never relabelled, and a row without a clock stays
 //! unknown. When the inputs were not recorded the record says so instead of borrowing the volume's
-//! nominal time.
+//! nominal time. The rotation evidence's sweeps and the debris evidence's (reflectivity, CC and
+//! ZDR) are recorded apart: they are different tilts, and can be from different antenna passes.
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
@@ -41,6 +42,11 @@ pub struct DetectionLineage {
     /// The sweeps the rotation evidence was measured on and when they were scanned; `None` when
     /// they were not recorded.
     pub inputs: Option<TemporalCoverage>,
+    /// The sweeps the debris signatures beside the verdict were read from (reflectivity and CC
+    /// pairs, and the lowest ZDR sweep that discounts them) and when they were scanned; `None`
+    /// when not recorded, including a volume without dual-pol. Both pipelines read the same
+    /// debris for a volume's newest pass, so the record is the same for either.
+    pub debris_inputs: Option<TemporalCoverage>,
     /// Why the original pipeline stands in for the fused one, when it does.
     pub stand_in: Option<&'static str>,
 }
@@ -79,12 +85,98 @@ pub fn input_coverage(mut sweeps: Vec<BinnedSweep>) -> Option<TemporalCoverage> 
     temporal::prepare(&mut sweeps, TemporalPolicy::Continuous).ok()
 }
 
+/// The acquisition coverage of the debris signatures' inputs: the (reflectivity, CC) pairs given
+/// to [`crate::tds::detect_volume`], and the lowest ZDR sweep, the one [`crate::tds::apply_zdr`]
+/// discounts by. `None` with no pairs (no dual-pol on the volume) or a malformed sweep.
+pub fn debris_input_coverage(
+    pairs: Vec<(BinnedSweep, BinnedSweep)>,
+    zdr: Vec<BinnedSweep>,
+) -> Option<TemporalCoverage> {
+    if pairs.is_empty() {
+        return None;
+    }
+    let lowest_zdr = zdr
+        .into_iter()
+        .filter(|s| s.moment == crate::level2::Moment::DifferentialReflectivity)
+        .min_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg));
+    input_coverage(
+        pairs
+            .into_iter()
+            .flat_map(|(z, cc)| [z, cc])
+            .chain(lowest_zdr)
+            .collect(),
+    )
+}
+
 fn utc(ms: i64) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp_millis(ms)
 }
 
 fn clock(ms: i64) -> String {
     utc(ms).map_or_else(|| "unknown".into(), |t| t.format("%H:%M:%SZ").to_string())
+}
+
+/// One evidence's input lines: its tilts and when they were scanned, and the rows that are from
+/// the previous pass or carry no clock. `what` names the evidence ("Rotation", "Debris").
+fn coverage_lines(out: &mut Vec<String>, what: &str, inputs: Option<&TemporalCoverage>) {
+    let Some(c) = inputs else {
+        out.push(format!("{what} input scan times: not recorded"));
+        return;
+    };
+    let lower = what.to_lowercase();
+    let mut tilts: Vec<f32> = c.contributors.iter().map(|s| s.elevation_deg).collect();
+    tilts.sort_by(f32::total_cmp);
+    tilts.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+    let tilts = tilts
+        .iter()
+        .map(|e| format!("{e:.1}\u{b0}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match c.acquisition_range_ms() {
+        Some((a, b)) => out.push(format!(
+            "{what} inputs scanned {}\u{2013}{} on {tilts}",
+            clock(a),
+            clock(b)
+        )),
+        None => out.push(format!("{what} inputs on {tilts}; scan times unknown")),
+    }
+    let older = c.retained_older_rows();
+    if older > 0 {
+        out.push(format!(
+            "{older} {lower} input rows from the previous antenna pass (mixed times)"
+        ));
+    }
+    let unknown = c.unknown_time_rows();
+    if unknown > 0 {
+        out.push(format!("{unknown} {lower} input rows without a scan time"));
+    }
+}
+
+/// One evidence's inputs for an export: every clock as UTC RFC 3339, `null` where unknown.
+fn coverage_json(c: &TemporalCoverage) -> Value {
+    let rfc = |ms: Option<i64>| ms.and_then(utc).map(|t| t.to_rfc3339());
+    let range = c.acquisition_range_ms();
+    json!({
+        "policy": match c.policy {
+            TemporalPolicy::Continuous => "continuous",
+            TemporalPolicy::StrictCurrent => "strict_current",
+        },
+        "acquisition_start_utc": rfc(range.map(|r| r.0)),
+        "acquisition_end_utc": rfc(range.map(|r| r.1)),
+        "older_pass_rows": c.retained_older_rows(),
+        "unknown_time_rows": c.unknown_time_rows(),
+        "unobserved_rows": c.unobserved_rows(),
+        "sweeps": c.contributors.iter().map(|s| json!({
+            "moment": s.moment.short_name(),
+            "elevation_deg": s.elevation_deg,
+            "azimuth_rows": s.azimuth_rows,
+            "start_utc": rfc(s.used_start_ms),
+            "end_utc": rfc(s.used_end_ms),
+            "older_pass_rows": s.older_pass_rows,
+            "unknown_time_rows": s.unknown_time_rows,
+            "unobserved_rows": s.unobserved_rows,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 impl DetectionLineage {
@@ -119,37 +211,8 @@ impl DetectionLineage {
             (None, _) => format!("Volume {}", self.volume),
         };
         out.push(volume);
-        match &self.inputs {
-            None => out.push("Input scan times: not recorded".into()),
-            Some(c) => {
-                let mut tilts: Vec<f32> = c.contributors.iter().map(|s| s.elevation_deg).collect();
-                tilts.sort_by(f32::total_cmp);
-                tilts.dedup_by(|a, b| (*a - *b).abs() < 0.05);
-                let tilts = tilts
-                    .iter()
-                    .map(|e| format!("{e:.1}\u{b0}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                match c.acquisition_range_ms() {
-                    Some((a, b)) => out.push(format!(
-                        "Inputs scanned {}\u{2013}{} on {tilts}",
-                        clock(a),
-                        clock(b)
-                    )),
-                    None => out.push(format!("Inputs on {tilts}; scan times unknown")),
-                }
-                let older = c.retained_older_rows();
-                if older > 0 {
-                    out.push(format!(
-                        "{older} input rows from the previous antenna pass (mixed times)"
-                    ));
-                }
-                let unknown = c.unknown_time_rows();
-                if unknown > 0 {
-                    out.push(format!("{unknown} input rows without a scan time"));
-                }
-            }
-        }
+        coverage_lines(&mut out, "Rotation", self.inputs.as_ref());
+        coverage_lines(&mut out, "Debris", self.debris_inputs.as_ref());
         out
     }
 
@@ -160,31 +223,6 @@ impl DetectionLineage {
             .iter()
             .map(|(s, v)| ((*s).to_string(), Value::from(*v)))
             .collect();
-        let rfc = |ms: Option<i64>| ms.and_then(utc).map(|t| t.to_rfc3339());
-        let inputs = self.inputs.as_ref().map(|c| {
-            let range = c.acquisition_range_ms();
-            json!({
-                "policy": match c.policy {
-                    TemporalPolicy::Continuous => "continuous",
-                    TemporalPolicy::StrictCurrent => "strict_current",
-                },
-                "acquisition_start_utc": rfc(range.map(|r| r.0)),
-                "acquisition_end_utc": rfc(range.map(|r| r.1)),
-                "older_pass_rows": c.retained_older_rows(),
-                "unknown_time_rows": c.unknown_time_rows(),
-                "unobserved_rows": c.unobserved_rows(),
-                "sweeps": c.contributors.iter().map(|s| json!({
-                    "moment": s.moment.short_name(),
-                    "elevation_deg": s.elevation_deg,
-                    "azimuth_rows": s.azimuth_rows,
-                    "start_utc": rfc(s.used_start_ms),
-                    "end_utc": rfc(s.used_end_ms),
-                    "older_pass_rows": s.older_pass_rows,
-                    "unknown_time_rows": s.unknown_time_rows,
-                    "unobserved_rows": s.unobserved_rows,
-                })).collect::<Vec<_>>(),
-            })
-        });
         json!({
             "pipeline": match self.pipeline {
                 Pipeline::Fused => "fused",
@@ -194,7 +232,8 @@ impl DetectionLineage {
             "site": self.site,
             "volume": self.volume,
             "volume_time_utc": self.volume_time.map(|t| t.to_rfc3339()),
-            "inputs": inputs,
+            "inputs": self.inputs.as_ref().map(coverage_json),
+            "debris_inputs": self.debris_inputs.as_ref().map(coverage_json),
             "stand_in": self.stand_in,
         })
     }
@@ -232,6 +271,7 @@ mod tests {
             volume: "KTLX20130520_201229_V06".into(),
             volume_time: "2013-05-20T20:12:29Z".parse().ok(),
             inputs,
+            debris_inputs: None,
             stand_in: None,
         }
     }
@@ -266,12 +306,13 @@ mod tests {
         );
         assert_eq!(
             lines[2],
-            "Inputs scanned 20:12:29Z\u{2013}20:12:52Z on 0.5\u{b0}, 0.9\u{b0}"
+            "Rotation inputs scanned 20:12:29Z\u{2013}20:12:52Z on 0.5\u{b0}, 0.9\u{b0}"
         );
         assert_eq!(
-            lines[3], "1 input rows without a scan time",
+            lines[3], "1 rotation input rows without a scan time",
             "the timeless row with data"
         );
+        assert_eq!(lines[4], "Debris input scan times: not recorded");
         let j = l.to_json();
         assert_eq!(j["pipeline"], "fused");
         assert_eq!(j["algorithms"]["tornado_fusion"], "fusion-3");
@@ -296,9 +337,13 @@ mod tests {
         let lines = l.lines();
         assert!(lines[0].starts_with("Original Tornado ID"), "{lines:?}");
         assert!(lines[1].contains("still being computed"));
-        assert_eq!(lines.last().unwrap(), "Input scan times: not recorded");
+        assert_eq!(
+            lines[lines.len() - 2],
+            "Rotation input scan times: not recorded"
+        );
         let j = l.to_json();
         assert!(j["inputs"].is_null());
+        assert!(j["debris_inputs"].is_null());
         assert_eq!(
             j["algorithms"]["rotation"],
             crate::rotation::ALGORITHM_VERSION
@@ -317,5 +362,46 @@ mod tests {
         let mut bad = sweep(Moment::Velocity, 0.5, vec![1, 2]);
         bad.data.pop();
         assert!(input_coverage(vec![bad]).is_none());
+    }
+
+    #[test]
+    fn debris_inputs_are_their_own_sweeps_with_the_lowest_zdr() {
+        let t0 = 1_369_080_749_000i64; // 20:12:29Z
+        let pair = |elev: f32, t: i64| {
+            (
+                sweep(Moment::Reflectivity, elev, vec![t, t + 1_000]),
+                sweep(Moment::CorrelationCoefficient, elev, vec![t, t + 1_000]),
+            )
+        };
+        let c = debris_input_coverage(
+            vec![pair(0.5, t0), pair(0.9, t0 + 40_000)],
+            vec![
+                // The higher ZDR sweep is not read by the discount, so its late clock is not an
+                // input; the lowest is.
+                sweep(Moment::DifferentialReflectivity, 0.9, vec![t0 + 90_000, 0]),
+                sweep(Moment::DifferentialReflectivity, 0.5, vec![t0 + 2_000, 0]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(c.contributors.len(), 5, "two pairs and one ZDR sweep");
+        assert_eq!(c.acquisition_range_ms(), Some((t0, t0 + 41_000)));
+        let mut l = lineage(None);
+        l.debris_inputs = Some(c);
+        let lines = l.lines();
+        assert_eq!(lines[2], "Rotation input scan times: not recorded");
+        assert_eq!(
+            lines[3],
+            "Debris inputs scanned 20:12:29Z\u{2013}20:13:10Z on 0.5\u{b0}, 0.9\u{b0}"
+        );
+        assert_eq!(lines[4], "1 debris input rows without a scan time");
+        let j = l.to_json();
+        assert_eq!(
+            j["debris_inputs"]["acquisition_end_utc"],
+            "2013-05-20T20:13:10+00:00"
+        );
+        assert_eq!(j["debris_inputs"]["sweeps"][1]["moment"], "CC");
+        assert_eq!(j["debris_inputs"]["sweeps"][4]["moment"], "ZDR");
+        // No dual-pol on the volume: nothing recorded, not an empty interval.
+        assert!(debris_input_coverage(Vec::new(), Vec::new()).is_none());
     }
 }

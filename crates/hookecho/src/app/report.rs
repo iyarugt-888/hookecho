@@ -29,9 +29,10 @@ impacts.csv           Every manual storm motion's estimated arrival at each save
 impacts.md            The same as a readable report, motion by motion, with the people counted in
                       each hour's swath and which lookups were not made or failed.
 detections.csv        The debris signatures, rotation couplets and Tornado ID verdicts on the active\n\
-                      pane's volume, as shown, with their score and algorithm version. Tornado ID\n\
-                      rows say which pipeline made them and when their input sweeps were scanned\n\
-                      (blank where that was not recorded).\n\
+                      pane's volume, as shown, with their score and algorithm version, and when\n\
+                      the sweeps each was read from were scanned (blank where that was not\n\
+                      recorded). Tornado ID rows also say which pipeline made them, and give the\n\
+                      debris sweeps' scan times apart from the rotation sweeps'.\n\
 probes/*.csv          Whichever probes were open: region statistics, the gate inspector's vertical\n\
                       profile and time series, the cross-section.\n\
 grid.tif              The top gridded layer on the active pane, as a float32 GeoTIFF (EPSG:4326,\n\
@@ -40,8 +41,22 @@ grid.tif              The top gridded layer on the active pane, as a float32 Geo
 Radar data is public (NOAA NEXRAD Level II via the AWS Open Data programme) and is not included;\n\
 provenance.json names every volume used, so it can be fetched again.\n";
 
+/// An input record's scan interval as two CSV fields, UTC RFC 3339; blank when not recorded or
+/// when no row of it carries a clock.
+fn interval_fields(inputs: Option<&wxdata::level2::temporal::TemporalCoverage>) -> String {
+    let utc = |ms: i64| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_default()
+    };
+    inputs
+        .and_then(|c| c.acquisition_range_ms())
+        .map_or_else(|| ",".into(), |(a, b)| format!("{},{}", utc(a), utc(b)))
+}
+
 /// Tornado ID verdicts as `detections.csv` rows: the score in the confidence column, the
-/// pipeline's own version, and the input sweeps' scan interval (blank when not recorded).
+/// pipeline's own version, and the rotation and debris input sweeps' scan intervals (blank when
+/// not recorded).
 fn tornado_csv_rows(
     ids: &[wxdata::tornado_id::TornadoId],
     lineage: &wxdata::detection_lineage::DetectionLineage,
@@ -51,20 +66,12 @@ fn tornado_csv_rows(
         Pipeline::Fused => ("fused", wxdata::tornado_fusion::ALGORITHM_VERSION),
         Pipeline::Original => ("original", wxdata::tornado_id::ALGORITHM_VERSION),
     };
-    let utc = |ms: i64| {
-        chrono::DateTime::from_timestamp_millis(ms)
-            .map(|t| t.to_rfc3339())
-            .unwrap_or_default()
-    };
-    let (start, end) = lineage
-        .inputs
-        .as_ref()
-        .and_then(|c| c.acquisition_range_ms())
-        .map_or((String::new(), String::new()), |(a, b)| (utc(a), utc(b)));
+    let rotation = interval_fields(lineage.inputs.as_ref());
+    let debris = interval_fields(lineage.debris_inputs.as_ref());
     ids.iter()
         .map(|t| {
             format!(
-                "tornado_id,{:.4},{:.4},{:.3},,,{version},{},{pipeline},{start},{end}\n",
+                "tornado_id,{:.4},{:.4},{:.3},,,{version},{},{pipeline},{rotation},{debris}\n",
                 t.lat,
                 t.lon,
                 t.score,
@@ -348,7 +355,8 @@ impl HookEchoApp {
     /// The active pane's shown debris signatures and couplets as CSV rows.
     fn detections_csv(&self) -> String {
         let mut out = String::from(
-            "kind,lat,lon,confidence,range_km,tilts,algorithm,tier,pipeline,inputs_start_utc,inputs_end_utc\n",
+            "kind,lat,lon,confidence,range_km,tilts,algorithm,tier,pipeline,inputs_start_utc,inputs_end_utc,\
+             debris_inputs_start_utc,debris_inputs_end_utc\n",
         );
         let Some(name) = self.views[self.active]
             .volume
@@ -357,9 +365,24 @@ impl HookEchoApp {
         else {
             return out;
         };
+        // Each layer's own input sweeps, when they are of this volume.
+        #[allow(clippy::type_complexity)]
+        let of_this = |inputs: &Option<(
+            (usize, String, usize),
+            Option<wxdata::level2::temporal::TemporalCoverage>,
+        )>| {
+            interval_fields(
+                inputs
+                    .as_ref()
+                    .filter(|(k, _)| k.1 == name)
+                    .and_then(|(_, c)| c.as_ref()),
+            )
+        };
+        let debris_inputs = of_this(&self.tds_inputs);
+        let couplet_inputs = of_this(&self.couplet_inputs);
         for h in self.tds_shown_cache.peek(&name).into_iter().flatten() {
             out.push_str(&format!(
-                "debris,{:.4},{:.4},{:.3},{:.1},{},{},,,,\n",
+                "debris,{:.4},{:.4},{:.3},{:.1},{},{},,,{debris_inputs},,\n",
                 h.lat,
                 h.lon,
                 h.confidence,
@@ -370,7 +393,7 @@ impl HookEchoApp {
         }
         for c in self.rot_shown_cache.peek(&name).into_iter().flatten() {
             out.push_str(&format!(
-                "rotation,{:.4},{:.4},{:.3},{:.1},{},{},,,,\n",
+                "rotation,{:.4},{:.4},{:.3},{:.1},{},{},,,{couplet_inputs},,\n",
                 c.lat,
                 c.lon,
                 c.confidence,
@@ -532,14 +555,36 @@ mod lineage_export_tests {
             site: Some("KTLX".into()),
             volume: "KTLX20130520_201229_V06".into(),
             volume_time: None,
-            inputs: wxdata::detection_lineage::input_coverage(vec![z]),
+            inputs: wxdata::detection_lineage::input_coverage(vec![z.clone()]),
+            debris_inputs: None,
             stand_in: None,
         };
         let rows = tornado_csv_rows(std::slice::from_ref(&id), &lineage);
         assert_eq!(
             rows,
             "tornado_id,35.3300,-97.4800,0.820,,,fusion-3,tornado_debris,fused,\
-             2013-05-20T20:12:29+00:00,2013-05-20T20:12:52+00:00\n"
+             2013-05-20T20:12:29+00:00,2013-05-20T20:12:52+00:00,,\n"
+        );
+        // The debris sweeps' interval is a pair of columns of its own.
+        let mut cc = z.clone();
+        cc.moment = wxdata::level2::Moment::CorrelationCoefficient;
+        cc.bin_time_ms = vec![1_369_080_750_000, 1_369_080_760_000];
+        let mut zz = z;
+        zz.bin_time_ms = cc.bin_time_ms.clone();
+        let debris = DetectionLineage {
+            debris_inputs: wxdata::detection_lineage::debris_input_coverage(
+                vec![(zz, cc)],
+                Vec::new(),
+            ),
+            ..lineage.clone()
+        };
+        let rows = tornado_csv_rows(std::slice::from_ref(&id), &debris);
+        assert!(
+            rows.ends_with(
+                ",fused,2013-05-20T20:12:29+00:00,2013-05-20T20:12:52+00:00,\
+                 2013-05-20T20:12:30+00:00,2013-05-20T20:12:40+00:00\n"
+            ),
+            "{rows}"
         );
         // Not recorded: blank, never the volume's nominal time.
         let original = DetectionLineage {
@@ -550,7 +595,7 @@ mod lineage_export_tests {
         };
         let rows = tornado_csv_rows(&[id], &original);
         assert!(
-            rows.ends_with(",tornado-id-1,tornado_debris,original,,\n"),
+            rows.ends_with(",tornado-id-1,tornado_debris,original,,,,\n"),
             "{rows}"
         );
     }

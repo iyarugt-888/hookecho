@@ -1305,6 +1305,13 @@ pub struct HookEchoApp {
         (usize, String, usize),
         Option<wxdata::level2::temporal::TemporalCoverage>,
     )>,
+    /// When the sweeps behind `tds_cache`'s debris signatures were scanned (`detection_lineage`);
+    /// `None` inside when not recorded (no dual-pol on the volume).
+    #[allow(clippy::type_complexity)]
+    pub(crate) tds_inputs: Option<(
+        (usize, String, usize),
+        Option<wxdata::level2::temporal::TemporalCoverage>,
+    )>,
     /// The active pane's last Tornado ID verdicts, by volume, with where they came from: what the
     /// local API and the analysis export report. Set in `pane_detections`.
     #[allow(clippy::type_complexity)]
