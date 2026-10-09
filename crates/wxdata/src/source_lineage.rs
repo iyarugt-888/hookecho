@@ -16,9 +16,12 @@ use serde_json::{json, Value};
 use crate::overlay::AlertInfo;
 use crate::vtec::Vtec;
 
+/// An event's begin and end; either may be not given.
+pub type EventSpan = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
 /// A VTEC string's event begin and end (`YYMMDDTHHMMZ-YYMMDDTHHMMZ`); `000000T0000Z` is "not
 /// given" and reads as `None`. `None` overall when the string has no time range.
-pub fn vtec_times(vtec: &str) -> Option<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+pub fn vtec_times(vtec: &str) -> Option<EventSpan> {
     let inner = vtec.trim().trim_matches('/');
     let range = inner.split('.').nth(6)?;
     let (a, b) = range.split_once('-')?;
