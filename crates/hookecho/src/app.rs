@@ -808,6 +808,8 @@ pub(crate) enum ShotDest {
     Widget(std::path::PathBuf),
     /// The map image for an analysis export (ROADMAP_NEW K4); see `app/report.rs`.
     Report,
+    /// The thumbnail of the scene just saved under this name (`app/scenes.rs`).
+    SceneThumb(String),
     /// The window for the local API's snapshot endpoint, sent back to the waiting request.
     #[cfg(not(target_arch = "wasm32"))]
     Api(std::sync::mpsc::Sender<Result<Vec<u8>, String>>),

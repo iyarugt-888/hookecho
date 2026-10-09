@@ -8,6 +8,10 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: scene thumbnails
+
+A scene saved now keeps a small picture of the pane, shown beside its name in the scene list.
+
 ### Added: settings bundles carry your GIS layers
 
 Exporting settings now packs the files behind your imported GIS layers into the bundle, with a

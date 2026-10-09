@@ -1710,6 +1710,18 @@ Captures: [`docs/certification/m5.4/`](docs/certification/m5.4/) (`quality-analy
 
 **Evidence ledger — 2026-10-09, increment 3 (colour tables, annotations, scale side; 1008.md F1):** `Scene::{palettes, annotations}` (optional; older scenes leave both as they are) keep `Settings::palettes` and the freehand strokes (`case::CaseStroke`). Take sets the scene's tables (`scenes::scene_palettes`; an unnamed moment returns to the built-in table) and replaces the drawing. `palette_problem` checks each table before Take: a missing or unreadable table for the scene's own product **blocks**, and other moments get a note and keep the current table. `Broadcast::legend_side` (Right default, Left) puts the floating scale at the left edge in streaming mode and the output window (`ui::legend::vertical_rect`). The clock, logo, field cards and stale badge stand clear of it (`pane_scale`, `left_scale_clear`). The output window now honours `Broadcast::legend` as streaming mode does (`OutputWindow::painting`). Tests: `a_scene_keeps_its_colour_tables_and_never_airs_a_missing_one`, `a_scene_keeps_its_annotations_in_their_colours`, `the_scale_side_rides_in_the_dressing_and_older_styles_keep_it_right` (scene tests 13 passed). Real app: sandboxed debug launch with the output window open, the scale on the left and a built-in high-contrast REF table ([`docs/certification/m6.2/output-legend-left.png`](docs/certification/m6.2/output-legend-left.png), `adddb56b…`). Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,549 passed (logs in `target/parity-review/m6.2/`). Open: Take switching tables and drawing not captured live; thumbnails; Android scene surface; off-screen renders keep their own bottom-right bar.
 
+**Evidence ledger — 2026-10-09, increment 4 (scene thumbnails; 1008.md F1):** saving a scene requests a window screenshot (`ShotDest::SceneThumb`). When it arrives, the active pane's rect (in physical pixels) is cropped to a centred 16:9, scaled to 160×90 and kept with the scene as base64 PNG (`Scene::thumbnail`, additive; `scene_thumbnail`, `store_scene_thumbnail`). The scene list shows it beside the name, decoded once per picture (`OutputWindow::thumbs`). A capture already waiting means no thumbnail rather than a delayed one, and a scene renamed or deleted meanwhile gets none. Duplicates carry their original's picture. Test: `a_thumbnail_is_the_pane_centred_at_16_9`:
+
+- a two-colour window is cropped to the pane's colour only, at 160×90;
+- an off-image crop gives none;
+- older scenes have none.
+
+Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,576 passed (`target/parity-review/m6.2/f1t-*.log`). Open:
+
+- The thumbnail flow in the running app (a save, then the list) is not captured.
+- An Android scene surface.
+- Legend placement in off-screen renders.
+
 #### M6.3 — Harden deterministic capture and archive output
 
 **Priority:** P1. **Depends on:** M0.3, M1.2, M6.2. **Original references:** ROADMAP_2 §§6.2, 6.6, 8.4; ROADMAP_NEW §§M2, M3, M5.

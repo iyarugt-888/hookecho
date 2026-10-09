@@ -240,6 +240,7 @@ impl HookEchoApp {
                 ShotDest::Push(title) => self.push_snapshot(title, &image),
                 ShotDest::Widget(path) => self.save_widget_snapshot(&path, &image),
                 ShotDest::Report => self.write_report(&image),
+                ShotDest::SceneThumb(name) => self.store_scene_thumbnail(ctx, &name, &image),
                 #[cfg(not(target_arch = "wasm32"))]
                 ShotDest::Api(reply) => Self::answer_api_snapshot(&reply, &image),
             }

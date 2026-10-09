@@ -215,6 +215,45 @@ pub(crate) fn drawn_strokes(stored: &[crate::case::CaseStroke]) -> Vec<Stroke2d>
         .collect()
 }
 
+/// A scene's thumbnail from a window screenshot (1008.md F1): the part `crop` covers (physical
+/// pixels), centred to 16:9, scaled to 160 x 90 and encoded as base64 PNG. `None` when the crop
+/// misses the image or the encoding fails.
+pub(crate) fn scene_thumbnail(image: &egui::ColorImage, crop: egui::Rect) -> Option<String> {
+    use base64::Engine as _;
+    let (w, h) = (image.size[0] as f32, image.size[1] as f32);
+    let crop = crop.intersect(egui::Rect::from_min_size(
+        egui::Pos2::ZERO,
+        egui::vec2(w, h),
+    ));
+    if crop.width() < 16.0 || crop.height() < 9.0 {
+        return None;
+    }
+    // Centre a 16:9 window inside the crop.
+    let (cw, ch) = if crop.width() / crop.height() > 16.0 / 9.0 {
+        (crop.height() * 16.0 / 9.0, crop.height())
+    } else {
+        (crop.width(), crop.width() * 9.0 / 16.0)
+    };
+    let x0 = crop.center().x - cw / 2.0;
+    let y0 = crop.center().y - ch / 2.0;
+    let rgba: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
+    let full = image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, rgba)?;
+    let cut = image::imageops::crop_imm(
+        &full,
+        x0.max(0.0) as u32,
+        y0.max(0.0) as u32,
+        cw as u32,
+        ch as u32,
+    )
+    .to_image();
+    let small = image::imageops::resize(&cut, 160, 90, image::imageops::FilterType::Triangle);
+    let mut png = Vec::new();
+    small
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(base64::engine::general_purpose::STANDARD.encode(png))
+}
+
 impl OutputSize {
     pub(crate) fn from_label(label: &str) -> Option<OutputSize> {
         [
@@ -378,6 +417,7 @@ impl HookEchoApp {
             time: scene_time(v),
             view3d: Some(scene_view3d(v)),
             palettes: Some(self.settings.palettes.clone()),
+            thumbnail: None,
             annotations: Some(stored_strokes(&self.strokes)),
             name,
             site: v.site.clone(),
@@ -495,6 +535,64 @@ impl HookEchoApp {
         self.rebuild_overlays();
     }
 
+    /// The screenshot asked for when scene `name` was saved has arrived: keep its active pane as
+    /// the scene's thumbnail. A scene renamed or deleted meanwhile simply gets none.
+    pub(crate) fn store_scene_thumbnail(
+        &mut self,
+        ctx: &egui::Context,
+        name: &str,
+        image: &egui::ColorImage,
+    ) {
+        let n = self.views.len();
+        let rects = arranged_pane_rects(self.chrome_rect, n, self.pane_layout);
+        let ppp = ctx.pixels_per_point();
+        let Some(pane) = rects.get(self.active.min(n.saturating_sub(1))) else {
+            return;
+        };
+        let physical = egui::Rect::from_min_max(
+            (pane.min.to_vec2() * ppp).to_pos2(),
+            (pane.max.to_vec2() * ppp).to_pos2(),
+        );
+        if let Some(thumb) = scene_thumbnail(image, physical) {
+            if let Some(scene) = self
+                .settings
+                .scenes
+                .iter_mut()
+                .find(|s| s.name == name && s.thumbnail.is_none())
+            {
+                scene.thumbnail = Some(thumb);
+            }
+        }
+    }
+
+    /// The texture for a stored thumbnail, decoded once.
+    fn scene_thumb_texture(
+        thumbs: &mut std::collections::HashMap<u64, egui::TextureHandle>,
+        ctx: &egui::Context,
+        b64: &str,
+    ) -> Option<egui::TextureHandle> {
+        use base64::Engine as _;
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        b64.hash(&mut h);
+        let key = h.finish();
+        if let Some(t) = thumbs.get(&key) {
+            return Some(t.clone());
+        }
+        let png = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+        let img = image::load_from_memory(&png).ok()?.to_rgba8();
+        let tex = ctx.load_texture(
+            format!("scene_thumb_{key}"),
+            egui::ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                img.as_raw(),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
+        thumbs.insert(key, tex.clone());
+        Some(tex)
+    }
+
     /// Alt+1..9 applies the scene saved in that place, unless a text field has the keyboard.
     pub(crate) fn scene_hotkeys(&mut self, ctx: &egui::Context) {
         if self.settings.scenes.is_empty() || ctx.memory(|m| m.focused().is_some()) {
@@ -524,6 +622,15 @@ impl HookEchoApp {
                         String::new()
                     };
                     ui.label(egui::RichText::new(key).monospace().weak());
+                    if let Some(tex) = s.thumbnail.as_deref().and_then(|b64| {
+                        Self::scene_thumb_texture(&mut self.output.thumbs, ui.ctx(), b64)
+                    }) {
+                        ui.add(
+                            egui::Image::new(&tex)
+                                .fit_to_exact_size(egui::vec2(48.0, 27.0))
+                                .corner_radius(2.0),
+                        );
+                    }
                     let cued = self.output.cued.as_ref().is_some_and(|c| c == s);
                     if ui
                         .selectable_label(cued, &s.name)
@@ -561,6 +668,13 @@ impl HookEchoApp {
             if ui.button("Save the current view as a scene").clicked() {
                 let n = self.settings.scenes.len() + 1;
                 let scene = self.capture_scene(format!("Scene {n}"));
+                // A thumbnail of the pane as it is now; it arrives with the next frame's
+                // screenshot (unless another capture is already waiting).
+                if self.screenshot_pending.is_none() {
+                    self.screenshot_pending = Some(ShotDest::SceneThumb(scene.name.clone()));
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                }
                 self.settings.scenes.push(scene);
             }
             if let Some(i) = go {
@@ -1060,6 +1174,36 @@ mod tests {
         assert_eq!(strip.left(), map.left());
         assert!(strip.right() < map.left() + crate::ui::legend::VERTICAL_CLEAR);
         assert_eq!(strip.height(), map.height());
+    }
+
+    #[test]
+    fn a_thumbnail_is_the_pane_centred_at_16_9() {
+        use base64::Engine as _;
+        // A 400 x 300 window: the left half red, the right half blue; the pane is the right half.
+        let mut img = egui::ColorImage::filled([400, 300], egui::Color32::RED);
+        for y in 0..300 {
+            for x in 200..400 {
+                img.pixels[y * 400 + x] = egui::Color32::BLUE;
+            }
+        }
+        let pane = egui::Rect::from_min_max(egui::pos2(200.0, 0.0), egui::pos2(400.0, 300.0));
+        let b64 = scene_thumbnail(&img, pane).expect("a thumbnail");
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
+        let t = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!((t.width(), t.height()), (160, 90));
+        assert!(
+            t.pixels().all(|p| p.0[2] > 200 && p.0[0] < 50),
+            "only the pane, in its own colour"
+        );
+        // A crop outside the image gives none.
+        let off = egui::Rect::from_min_size(egui::pos2(500.0, 500.0), egui::vec2(50.0, 50.0));
+        assert!(scene_thumbnail(&img, off).is_none());
+        // Kept with the scene, and a scene saved before thumbnails has none.
+        let old: Scene =
+            serde_json::from_str(r#"{"name":"Old","lon":-97.0,"lat":35.0,"zoom":8.0}"#).unwrap();
+        assert!(old.thumbnail.is_none());
     }
 
     #[test]

@@ -109,6 +109,8 @@ pub(crate) struct OutputWindow {
     /// True while program's pane is being drawn into this window, so the map is dressed as
     /// streaming mode dresses it (the scale's switch and side).
     pub painting: bool,
+    /// Scene thumbnails decoded for the scene list, by a hash of their stored PNG.
+    pub thumbs: std::collections::HashMap<u64, egui::TextureHandle>,
     /// The size the window was last asked to be, so a change is sent once.
     sent: Option<(OutputSize, bool)>,
 }

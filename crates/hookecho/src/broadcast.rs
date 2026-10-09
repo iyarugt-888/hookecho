@@ -241,6 +241,10 @@ pub struct Scene {
     /// whatever is drawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Vec<crate::case::CaseStroke>>,
+    /// A 160 x 90 picture of the pane when it was saved, PNG in base64 (1008.md F1); `None`
+    /// until the screenshot arrives, and in a scene saved before thumbnails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 #[cfg(test)]
