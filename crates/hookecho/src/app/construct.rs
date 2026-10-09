@@ -349,6 +349,7 @@ impl HookEchoApp {
             // already on the ground, and doesn't re-banner them as new (see `alert_snapshot`).
             alert_features: seeded_alerts,
             alert_latency: Default::default(),
+            wire: Default::default(),
             arch_warns: LruCache::new(NonZeroUsize::new(50).unwrap()),
             arch_mds: LruCache::new(NonZeroUsize::new(50).unwrap()),
             arch_md_inflight: None,

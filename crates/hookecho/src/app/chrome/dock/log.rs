@@ -28,6 +28,8 @@ pub(super) struct LiveStats {
     retries: u32,
     /// New warnings: their `sent` → the app accepted them → the first frame built after.
     alerts: wxdata::alert_latency::Summary,
+    /// The same for warnings pushed from the NWWS-OI relay, when one is configured.
+    wire: wxdata::alert_latency::Summary,
     frame_age_s: Option<i64>,
     /// `(ingest lag s, decode ms)` of recent arrivals, oldest first.
     history: Vec<(f32, f32)>,
@@ -56,6 +58,7 @@ impl HookEchoApp {
             gpu_unobserved: v.live_queue_timings.unobserved(),
             retries: v.live_retries,
             alerts: self.alert_latency_summary(),
+            wire: self.wire_latency_summary(),
             frame_age_s: v
                 .displayed_radar_time()
                 .map(|d| (chrono::Utc::now() - d).num_seconds()),
@@ -248,7 +251,8 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     if s.retries > 0 {
         ws::kv(ui, t, "Retries", &s.retries.to_string(), Some(t.warn));
     }
-    alert_latency_rows(ui, t, &s.alerts);
+    alert_latency_rows(ui, t, &s.alerts, "Warning arrival");
+    alert_latency_rows(ui, t, &s.wire, "Wire arrival");
     // This app's own cost, measured here and kept here (ROADMAP_2 §14.1).
     if let Some(f) = s.frames {
         use crate::app::telemetry::{BUDGET_MS, STALL_MS};
@@ -489,14 +493,20 @@ fn queue_percentiles(samples_micros: &[u64]) -> Option<(f32, f32, usize)> {
 /// New warnings' delivery: from the NWS `sent` time to the app, and on to the first frame built
 /// with them. Nothing is shown before a new warning has arrived; messages active when the app
 /// started are not measured (`wxdata::alert_latency`).
-fn alert_latency_rows(ui: &mut egui::Ui, t: &ws::Tokens, a: &wxdata::alert_latency::Summary) {
+fn alert_latency_rows(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    a: &wxdata::alert_latency::Summary,
+    label: &str,
+) {
     let Some(sent) = a.sent_to_received else {
         return;
     };
+    let wire = label == "Wire arrival";
     ws::kv(
         ui,
         t,
-        "Warning arrival",
+        label,
         &format!(
             "p50 {:.0} / p95 {:.0} s · {}",
             sent.p50_s, sent.p95_s, sent.count
@@ -516,9 +526,14 @@ fn alert_latency_rows(ui: &mut egui::Ui, t: &ws::Tokens, a: &wxdata::alert_laten
         );
     }
     ui.label(ws::text(
-        "NWS sent time → this app accepted the poll that carried it (includes waiting for the \
-         2-minute poll; NWS clock against this computer's) → the first frame built after \
-         (not screen scan-out)",
+        if wire {
+            "NWS header time (to the minute) → this app received it from the NWWS-OI relay \
+             → the first frame built after (not screen scan-out)"
+        } else {
+            "NWS sent time → this app accepted the poll that carried it (includes waiting \
+             for the 2-minute poll; NWS clock against this computer's) → the first frame \
+             built after (not screen scan-out)"
+        },
         10.0,
         t.text_dim,
     ));

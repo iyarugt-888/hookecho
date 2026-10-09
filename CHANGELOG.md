@@ -20,6 +20,16 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: warnings straight from the NWS Weather Wire, if you run a relay
+
+Settings → MQTT has a new "Warning text topic". Point it at a topic your own NWWS-OI relay
+publishes to (`scripts/nwws-relay`, with your own free NWWS account) and a warning the wire
+carries before the alerts feed is drawn and announced at once, labelled "via NWWS-OI". When the
+feed publishes the same warning (the same VTEC event) its copy replaces the wire's, so nothing is
+drawn twice; a cancelled or expired warning is never drawn from the wire. The Analyst log shows
+"Wire arrival" beside "Warning arrival". Left empty, nothing changes. The relay has not yet been
+run against NWWS-OI itself.
+
 ### Added: radar-tracked storms and warnings in the impact report
 
 The analysis export's `impacts.csv` and `impacts.md` now include storms nobody set a manual motion

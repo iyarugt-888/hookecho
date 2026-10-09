@@ -140,6 +140,9 @@ impl HookEchoApp {
                         self.apply_palette(PaletteAction::SetMoment(m, srv), ctx);
                     }
                 }
+                crate::mqtt::Cmd::WarningText { text, received } => {
+                    self.accept_wire_warning(&text, received);
+                }
                 crate::mqtt::Cmd::Strike { lon, lat, time } => {
                     self.strikes.push_back((lon, lat, time));
                     // A busy night over a whole continent is a lot of strikes, and the painter

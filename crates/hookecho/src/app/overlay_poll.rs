@@ -163,6 +163,7 @@ impl HookEchoApp {
                     self.detect_new_warnings(&f);
                     crate::alert_snapshot::save(&f);
                     self.alert_features = f;
+                    self.remerge_wire_alerts();
                 }
                 OverlayMsg::Mds(f) => self.md_features = f,
                 OverlayMsg::Watches(f) => self.watch_features = f,

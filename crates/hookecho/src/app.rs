@@ -49,6 +49,7 @@ mod overlay_fetch;
 pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
 mod account_sync;
 mod alert_latency;
+mod wire_alerts;
 mod alerts_watch;
 mod beam_tools;
 pub(crate) mod camera_flight;
@@ -1385,6 +1386,8 @@ pub struct HookEchoApp {
     alert_features: Vec<GeoFeature>,
     /// New alerts' sent → accepted → first frame built (`app/alert_latency.rs`).
     alert_latency: wxdata::alert_latency::LatencyLog,
+    /// Warnings from the user's NWWS-OI relay, and their delivery (`app/wire_alerts.rs`).
+    wire: wire_alerts::WireAlerts,
     /// Archived storm-based warnings (feature W) keyed by 5-min UTC bucket (ts/300); shown while
     /// the active pane is scrubbed off-live.
     arch_warns: LruCache<i64, Vec<GeoFeature>>,

@@ -17,15 +17,24 @@ impl HookEchoApp {
     /// A frame finished building: the messages accepted before it are on the map if the warnings
     /// layer is on and the view shows live alerts rather than an archived bucket.
     pub(crate) fn note_alert_frame(&mut self) {
-        if self.alert_latency.awaiting_draw() {
-            let shown = self.filters.show_alerts && self.arch_warn_shown.is_none();
-            self.alert_latency.frame_built(chrono::Utc::now(), shown);
+        let shown = self.filters.show_alerts && self.arch_warn_shown.is_none();
+        for log in [&mut self.alert_latency, &mut self.wire.latency] {
+            if log.awaiting_draw() {
+                log.frame_built(chrono::Utc::now(), shown);
+            }
         }
     }
 
     /// Warnings' sent → in the app and in the app → frame built, for the Analyst log.
     pub(crate) fn alert_latency_summary(&self) -> wxdata::alert_latency::Summary {
         self.alert_latency
+            .summary(|s| wxdata::alert_latency::is_warning(&s.event))
+    }
+
+    /// The same for warnings pushed from the user's NWWS-OI relay.
+    pub(crate) fn wire_latency_summary(&self) -> wxdata::alert_latency::Summary {
+        self.wire
+            .latency
             .summary(|s| wxdata::alert_latency::is_warning(&s.event))
     }
 }

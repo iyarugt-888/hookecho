@@ -1660,6 +1660,19 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                  network itself.",
             );
         });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Warning text topic:");
+            ui.add(
+                egui::TextEdit::singleline(&mut settings.warnings_topic)
+                    .hint_text("hookecho/nwws/#"),
+            )
+            .on_hover_text(
+                "Subscribe to NWS warning text your own NWWS-OI relay republishes to this \
+                 broker (scripts/nwws-relay, with your own free NWWS account). A warning it \
+                 carries before the alerts feed is drawn at once and labelled as from NWWS-OI; \
+                 the feed's copy replaces it when it arrives. Empty is off.",
+            );
+        });
         ui.weak(
             "Publishes <prefix>/status and <prefix>/nearest every five minutes, and \
              <prefix>/alerts as warnings arrive. Takes effect on restart.",

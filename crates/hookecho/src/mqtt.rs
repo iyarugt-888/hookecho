@@ -33,6 +33,12 @@ pub enum Cmd {
     Product(String),
     /// Mute or unmute alert sound.
     Mute(bool),
+    /// One NWS warning text product, republished from NWWS-OI by the user's own relay
+    /// (`scripts/nwws-relay`), with when it arrived here.
+    WarningText {
+        text: String,
+        received: chrono::DateTime<chrono::Utc>,
+    },
     /// One lightning strike, republished by the user's own relay.
     Strike {
         lon: f64,
@@ -72,6 +78,22 @@ pub fn parse_strike(payload: &str) -> Option<Cmd> {
         time
     };
     Some(Cmd::Strike { lon, lat, time })
+}
+
+/// Longest warning product taken off the broker: the largest TOR/SVR/FFW products are a few KB,
+/// and a payload is whatever anyone with publish rights sent.
+const MAX_WARNING_TEXT: usize = 64 * 1024;
+
+/// A warning text product, when `topic` is on the warnings topic: kept as text (parsing is the
+/// app's, `wxdata::nwws`), stamped with when it arrived. Oversized payloads are dropped.
+pub fn warning_text(warnings_topic: &str, topic: &str, payload: &str) -> Option<Cmd> {
+    (!warnings_topic.is_empty()
+        && rumqttc::matches(topic, warnings_topic)
+        && payload.len() <= MAX_WARNING_TEXT)
+        .then(|| Cmd::WarningText {
+            text: payload.to_string(),
+            received: chrono::Utc::now(),
+        })
 }
 
 /// Parse one command from its topic suffix and payload.
@@ -267,6 +289,11 @@ pub fn spawn(settings: &Settings, subscribe: bool) {
     } else {
         String::new()
     };
+    let warnings_topic = if subscribe {
+        settings.warnings_topic.trim().to_string()
+    } else {
+        String::new()
+    };
     let sub_client = client.clone();
     let sub_prefix = prefix.clone();
     std::thread::spawn(move || {
@@ -290,6 +317,13 @@ pub fn spawn(settings: &Settings, subscribe: bool) {
                             log::warn!("mqtt: subscribing to {strikes_topic} failed: {e}");
                         }
                     }
+                    if !warnings_topic.is_empty() {
+                        // At least once: a warning is worth a redelivery, and the merge dedupes
+                        // a repeat by its VTEC event.
+                        if let Err(e) = sub_client.subscribe(&warnings_topic, QoS::AtLeastOnce) {
+                            log::warn!("mqtt: subscribing to {warnings_topic} failed: {e}");
+                        }
+                    }
                     if discovery_on {
                         for (topic, payload) in discovery(&sub_prefix) {
                             publish(&sub_client, &topic, payload, true);
@@ -298,6 +332,10 @@ pub fn spawn(settings: &Settings, subscribe: bool) {
                 }
                 Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(p))) => {
                     let payload = String::from_utf8_lossy(&p.payload);
+                    if let Some(cmd) = warning_text(&warnings_topic, &p.topic, &payload) {
+                        let _ = tx.send(cmd);
+                        continue;
+                    }
                     let Some(suffix) = p.topic.strip_prefix(&cmd_prefix) else {
                         // Anything else on this connection is a strike, since the strikes topic
                         // is the only other thing subscribed. Unparseable ones are silent: a
@@ -386,6 +424,21 @@ pub fn publish_alert(settings: &Settings, title: &str, body: &str, urgent: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the warnings topic (wildcards honoured) carries warning text, an unset topic carries
+    /// none, and an oversized payload is dropped (1008.md A1).
+    #[test]
+    fn warning_text_comes_only_off_its_own_topic() {
+        let text = "WUUS53 KDMX 090506\nSVRDMX\n";
+        assert!(matches!(
+            warning_text("hookecho/nwws/#", "hookecho/nwws/SVRDMX", text),
+            Some(Cmd::WarningText { text: t, .. }) if t == text
+        ));
+        assert!(warning_text("hookecho/nwws/#", "blitzortung/1.1/dn0x", text).is_none());
+        assert!(warning_text("", "hookecho/nwws/SVRDMX", text).is_none());
+        let huge = "x".repeat(MAX_WARNING_TEXT + 1);
+        assert!(warning_text("hookecho/nwws/#", "hookecho/nwws/SVRDMX", &huge).is_none());
+    }
 
     /// A payload off a broker is whatever anyone with publish rights sent, so the parser is a
     /// trust boundary and not a convenience.

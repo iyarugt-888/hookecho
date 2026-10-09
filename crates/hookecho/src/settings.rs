@@ -727,6 +727,13 @@ pub struct Settings {
     /// of that arrangement (see `scripts/strikes-relay/`).
     #[serde(default)]
     pub strikes_topic: String,
+    /// Topic the user's NWWS-OI relay republishes warning text products on, e.g.
+    /// `hookecho/nwws/#`. Empty is off, and the alerts feed alone is used, as before.
+    ///
+    /// The NWS Weather Wire pushes warnings as they are issued but needs the user's own account
+    /// and a held connection; `scripts/nwws-relay/` is the publisher end (1008.md A1).
+    #[serde(default)]
+    pub warnings_topic: String,
     /// Publish retained Home Assistant discovery configs so it creates the device by itself.
     ///
     /// Off by default, and deliberately: retained config topics on a broker that is not running
@@ -2069,6 +2076,7 @@ impl Default for Settings {
             mqtt_pass: String::new(),
             mqtt_prefix: default_mqtt_prefix(),
             strikes_topic: String::new(),
+            warnings_topic: String::new(),
             mqtt_discovery: false,
             background_alerts: false,
             pack_hires_dem: false,
@@ -3432,6 +3440,7 @@ mod tests {
             mqtt_pass: String::new(),
             mqtt_prefix: default_mqtt_prefix(),
             strikes_topic: String::new(),
+            warnings_topic: String::new(),
             mqtt_discovery: false,
             background_alerts: false,
             pack_hires_dem: false,
