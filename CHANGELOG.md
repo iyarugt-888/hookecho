@@ -30,6 +30,16 @@ drawn twice; a cancelled or expired warning is never drawn from the wire. The An
 "Wire arrival" beside "Warning arrival". Left empty, nothing changes. The relay has not yet been
 run against NWWS-OI itself.
 
+### Added: colour stops for 3D volumes
+
+The 3D map's Smooth volumes have **Colour stops** under the opacity curve: two to eight colours
+at values you choose, replacing the palette's colours in the volume. Drag a stop along the bar,
+click it to pick its colour, double-click the bar to add one, right-click one to remove it.
+Only the colours change — what is drawn, the values, the probe and exports stay the same — and
+nothing is rebuilt, so edits are immediate. Velocity volumes (coloured by speed) and the inverted
+debris volume don't offer them, and say so. Saved 3D presets keep their colour stops; older
+presets keep the palette.
+
 ### Added: radar-tracked storms and warnings in the impact report
 
 The analysis export's `impacts.csv` and `impacts.md` now include storms nobody set a manual motion

@@ -3783,6 +3783,7 @@ pub fn run_3d(
         top_km: v3.top_km,
         outside: 0.0,
         value_range: None,
+        lut_range: None,
     };
     let view = crate::render3d::View3d {
         threshold_idx: match threshold {
@@ -3920,6 +3921,7 @@ fn run_3d_velocity(
         top_km: folded.top_km,
         outside: folded.outside,
         value_range: None,
+        lut_range: None,
     };
 
     // Inbound is drawn green and outbound red in the stock velocity palette.
@@ -5068,6 +5070,7 @@ mod golden_tests {
                 top_km: 18.0,
                 outside: 0.0,
                 value_range: None,
+                lut_range: None,
             };
             let view3 = crate::render3d::View3d {
                 threshold_idx: crate::render3d::threshold_index(18.0, (v3.value_min, v3.value_max)),
@@ -5138,6 +5141,7 @@ mod golden_tests {
             top_km: 10.0,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -5161,6 +5165,91 @@ mod golden_tests {
             s >= r,
             "a curve at full opacity draws at least what the ramp did"
         );
+    }
+
+    /// Colour stops recolour what draws without changing what draws (M3.5, 1008.md C2): the
+    /// same 50 dBZ block with the palette and with all-green stops covers the same pixels, and
+    /// only the stops' render is green.
+    #[test]
+    #[ignore = "gpu"]
+    fn colour_stops_change_colour_not_coverage() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let idx = 2 + (((50.0 - lo) / (hi - lo)) * 253.0) as u8;
+        let (n, nz) = (24usize, 12usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 3..9 {
+            for j in 8..16 {
+                for i in 8..16 {
+                    data[i + n * j + n * n * k] = idx;
+                }
+            }
+        }
+        let palette = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 20.0,
+            center_km: [0.0, 0.0],
+            top_km: 10.0,
+            outside: 0.0,
+            value_range: None,
+            lut_range: Some((lo, hi)),
+        };
+        let green = crate::render3d::ColorStops::new(&[(lo, [0, 255, 0]), (hi, [0, 255, 0])])
+            .unwrap();
+        let recoloured = crate::render3d::Volume3dUpload {
+            lut: green.lut(&palette.lut, (lo, hi)),
+            ..palette.clone()
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok(a) = render_volume_once(&rt, &palette, crate::render3d::View3d::default()) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let b = render_volume_once(&rt, &recoloured, crate::render3d::View3d::default()).unwrap();
+        let drawn = |rgba: &[u8]| -> Vec<bool> {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| {
+                    (p[0] as i16 - 48).abs() + (p[1] as i16 - 48).abs() + (p[2] as i16 - 63).abs()
+                        > 30
+                })
+                .collect()
+        };
+        let (da, db) = (drawn(&a), drawn(&b));
+        let same = da.iter().zip(&db).filter(|(x, y)| x == y).count();
+        let greenish = |rgba: &[u8], mask: &[bool]| {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .zip(mask)
+                .filter(|(p, m)| **m && p[1] > p[0].saturating_add(40) && p[1] > p[2].saturating_add(40))
+                .count()
+        };
+        let (n_a, n_b) = (echo_pixels(&a), echo_pixels(&b));
+        println!(
+            "palette {n_a} px, stops {n_b} px, {same} of {} agree; green: palette {}, stops {}",
+            da.len(),
+            greenish(&a, &da),
+            greenish(&b, &db)
+        );
+        assert!(n_a > 0);
+        assert!(
+            (n_a as i64 - n_b as i64).abs() <= (n_a as i64 / 50).max(4),
+            "coverage unchanged within edge antialiasing: {n_a} vs {n_b}"
+        );
+        assert!(greenish(&b, &db) * 10 >= n_b * 9, "the stops' render is green");
+        assert!(greenish(&a, &da) * 10 < n_a, "the palette's 50 dBZ is not green");
     }
 
     /// Stops five to eight reach the shader (M3.5 increment 2): a curve solid up to 40 dBZ and
@@ -5195,6 +5284,7 @@ mod golden_tests {
             top_km: 10.0,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -5261,6 +5351,7 @@ mod golden_tests {
             top_km: 16.0,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -5380,6 +5471,7 @@ mod golden_tests {
                 top_km: v3.top_km,
                 outside: 0.0,
                 value_range: None,
+                lut_range: None,
             };
         let plain = upload(&plain_v3, crate::colormap::bake_lut(table, (lo, hi), None));
         let mut folded_v3 = wxdata::volume3d::Volume3d {

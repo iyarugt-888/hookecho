@@ -413,6 +413,10 @@ pub struct Volume3dPreset {
     /// which were all drawn for MIP and load as MIP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render: Option<crate::render3d::VolumeRender>,
+    /// Colour stops as `[value, r, g, b]` (M3.5, 1008.md C2), when the preset replaced the
+    /// palette's colours; absent in presets saved before colour stops, which keep the palette.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colors: Option<Vec<[f32; 4]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2975,6 +2979,7 @@ mod tests {
             curve: None,
             stops: None,
             render: None,
+            colors: None,
         };
         p.set_tf(Some(six));
         let json = serde_json::to_value(&p).unwrap();
@@ -3400,6 +3405,7 @@ mod tests {
                     [62.0, 0.8],
                     [70.0, 1.0],
                 ]),
+                colors: Some(vec![[45.0, 40.0, 60.0, 170.0], [70.0, 215.0, 40.0, 40.0]]),
             }],
             radar_relay_url: "http://relay.local:8080".to_string(),
             radar_provider_override: RadarProviderOverride::Backup,

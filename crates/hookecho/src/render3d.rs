@@ -254,6 +254,129 @@ impl From<[[f32; 2]; 4]> for TfStops {
     }
 }
 
+/// Colour stops (M3.5, 1008.md C2): two to [`MAX_STOPS`] `(value, rgb)` pairs in a product's own
+/// units, ascending, beside the opacity stops, replacing the palette's colours in a 3D volume.
+/// Colours interpolate between stops and hold past the ends. Only the volume's colour table is
+/// rebuilt from them ([`Self::lut`]): the sampled values, the probe and every export are unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorStops {
+    pts: Vec<(f32, [u8; 3])>,
+}
+
+impl ColorStops {
+    /// Sorted by value, non-finite values dropped, at most [`MAX_STOPS`]; `None` with fewer
+    /// than two.
+    pub fn new(points: &[(f32, [u8; 3])]) -> Option<Self> {
+        let mut pts: Vec<(f32, [u8; 3])> =
+            points.iter().copied().filter(|p| p.0.is_finite()).collect();
+        pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+        pts.truncate(MAX_STOPS);
+        (pts.len() >= 2).then_some(Self { pts })
+    }
+
+    /// Cool-to-warm across `(lo, hi)`: where an edit starts.
+    pub fn default_for((lo, hi): (f32, f32)) -> Self {
+        let at = |t: f32| lo + (hi - lo) * t;
+        Self::new(&[
+            (at(0.0), [40, 60, 170]),
+            (at(0.5), [235, 225, 60]),
+            (at(1.0), [215, 40, 40]),
+        ])
+        .expect("three stops")
+    }
+
+    pub fn points(&self) -> &[(f32, [u8; 3])] {
+        &self.pts
+    }
+
+    pub fn points_mut(&mut self) -> &mut [(f32, [u8; 3])] {
+        &mut self.pts
+    }
+
+    pub fn len(&self) -> usize {
+        self.pts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pts.is_empty()
+    }
+
+    /// The colour at `v`.
+    pub fn color(&self, v: f32) -> [u8; 3] {
+        let p = &self.pts;
+        if v <= p[0].0 {
+            return p[0].1;
+        }
+        for w in p.windows(2) {
+            if v <= w[1].0 {
+                let t = ((v - w[0].0) / (w[1].0 - w[0].0).max(f32::EPSILON)).clamp(0.0, 1.0);
+                let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+                return [
+                    mix(w[0].1[0], w[1].1[0]),
+                    mix(w[0].1[1], w[1].1[1]),
+                    mix(w[0].1[2], w[1].1[2]),
+                ];
+            }
+        }
+        p[p.len() - 1].1
+    }
+
+    /// A stop at `v` with the colour already there; `false` when full.
+    pub fn insert(&mut self, v: f32) -> bool {
+        if self.len() >= MAX_STOPS {
+            return false;
+        }
+        let c = self.color(v);
+        let mut pts = self.pts.clone();
+        pts.push((v, c));
+        *self = Self::new(&pts).expect("at least two");
+        true
+    }
+
+    /// Remove stop `i`; `false` when only two are left.
+    pub fn remove(&mut self, i: usize) -> bool {
+        if self.len() <= 2 || i >= self.len() {
+            return false;
+        }
+        self.pts.remove(i);
+        true
+    }
+
+    /// `base` (a volume's palette table, 256 RGBA entries over `range`) with every data entry's
+    /// colour taken from these stops and its alpha kept, so what the palette left transparent
+    /// stays transparent. Index 0 (empty) and 1 (range-folded) are unchanged.
+    pub fn lut(&self, base: &[u8], (lo, hi): (f32, f32)) -> Vec<u8> {
+        let mut out = base.to_vec();
+        if out.len() < 1024 {
+            return out;
+        }
+        let span = (hi - lo).max(f32::EPSILON);
+        for raw in 2usize..=255 {
+            let v = lo + (raw as f32 - 2.0) / 253.0 * span;
+            let c = self.color(v);
+            out[raw * 4..raw * 4 + 3].copy_from_slice(&c);
+        }
+        out
+    }
+
+    /// For saving: `[value, r, g, b]`.
+    pub fn to_saved(&self) -> Vec<[f32; 4]> {
+        self.pts
+            .iter()
+            .map(|(v, c)| [*v, c[0] as f32, c[1] as f32, c[2] as f32])
+            .collect()
+    }
+
+    pub fn from_saved(saved: &[[f32; 4]]) -> Option<Self> {
+        let byte = |x: f32| x.round().clamp(0.0, 255.0) as u8;
+        let pts: Vec<(f32, [u8; 3])> = saved
+            .iter()
+            .map(|s| (s[0], [byte(s[1]), byte(s[2]), byte(s[3])]))
+            .collect();
+        Self::new(&pts)
+    }
+}
+
 /// The transfer-function uniforms for `tf`: values and opacities of stops one to four and five
 /// to eight, and the count; `None` gives the "off" form (`tf_a[0] < 0`).
 pub fn tf_uniform(tf: Option<TfStops>) -> [[f32; 4]; 5] {
@@ -300,6 +423,10 @@ pub struct Volume3dUpload {
     /// For a user-defined product, the value range its palette was drawn over; `None` for a
     /// moment, whose range is fixed.
     pub value_range: Option<(f32, f32)>,
+    /// The value range `lut` indexes linearly (index 2 at the low end, 255 at the high), so
+    /// colour stops can rebuild it; `None` where it does not (velocity, indexed by speed; the
+    /// inverted CC table).
+    pub lut_range: Option<(f32, f32)>,
 }
 
 impl Volume3dUpload {
@@ -2473,7 +2600,72 @@ mod plane_tests {
 
 #[cfg(test)]
 mod tf_stops_tests {
-    use super::{tf_uniform, TfStops, MAX_STOPS};
+    use super::{tf_uniform, ColorStops, TfStops, MAX_STOPS};
+
+    /// Colour stops (1008.md C2): sorted and bounded like the opacity stops, interpolated and
+    /// held past the ends, inserting keeps the colours, and the rebuilt table changes only data
+    /// entries' colour, never their alpha or the empty and range-folded entries.
+    #[test]
+    fn colour_stops_recolour_only_the_data_entries() {
+        let c = ColorStops::new(&[(60.0, [255, 0, 0]), (0.0, [0, 0, 255]), (f32::NAN, [9; 3])])
+            .unwrap();
+        assert_eq!(c.points()[0].0, 0.0, "sorted, non-finite dropped");
+        assert_eq!(c.len(), 2);
+        assert!(ColorStops::new(&[(1.0, [0; 3])]).is_none());
+        assert_eq!(c.color(-10.0), [0, 0, 255]);
+        assert_eq!(c.color(90.0), [255, 0, 0]);
+        assert_eq!(c.color(30.0), [128, 0, 128]);
+        let mut d = c.clone();
+        assert!(d.insert(30.0));
+        // A new stop changes nothing until moved, but for its colour's rounding to a byte.
+        let (x, y) = (d.color(15.0), c.color(15.0));
+        assert!(
+            x.iter().zip(y).all(|(a, b)| a.abs_diff(b) <= 1),
+            "{x:?} {y:?}"
+        );
+        assert!(!d.remove(5) && d.remove(1) && !d.remove(0));
+        let many: Vec<(f32, [u8; 3])> = (0..12).map(|i| (i as f32, [0; 3])).collect();
+        assert_eq!(ColorStops::new(&many).unwrap().len(), MAX_STOPS);
+
+        let mut base = vec![0u8; 1024];
+        base[4..8].copy_from_slice(&[1, 2, 3, 4]); // range-folded
+        for raw in 2..256 {
+            base[raw * 4..raw * 4 + 4].copy_from_slice(&[7, 7, 7, (raw % 200) as u8]);
+        }
+        let lut = c.lut(&base, (0.0, 60.0));
+        assert_eq!(
+            &lut[..8],
+            &base[..8],
+            "empty and range-folded entries unchanged"
+        );
+        assert_eq!(
+            &lut[8..12],
+            &[0, 0, 255, 2],
+            "index 2 is the low end, alpha kept"
+        );
+        assert_eq!(
+            &lut[255 * 4..256 * 4],
+            &[255, 0, 0, 55],
+            "index 255 the high end"
+        );
+        assert!(lut.chunks(4).zip(base.chunks(4)).all(|(a, b)| a[3] == b[3]));
+        assert_eq!(
+            c.lut(&[1, 2], (0.0, 1.0)),
+            vec![1, 2],
+            "a short table is left alone"
+        );
+
+        let saved = c.to_saved();
+        assert_eq!(ColorStops::from_saved(&saved), Some(c.clone()));
+        assert_eq!(
+            ColorStops::from_saved(&[[0.0, -5.0, 300.0, 12.4], [1.0, 0.0, 0.0, 0.0]])
+                .unwrap()
+                .points()[0]
+                .1,
+            [0, 255, 12],
+            "saved channels clamp to bytes"
+        );
+    }
 
     #[test]
     fn stops_sort_clamp_and_keep_between_two_and_eight() {
@@ -2566,6 +2758,7 @@ mod roi_box_tests {
             top_km: 12.0,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         };
         let u = |c| {
             super::map_uniform(

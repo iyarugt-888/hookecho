@@ -347,6 +347,9 @@ pub struct Map3dState {
     /// `[value, opacity]` stops in that representation's own units (Phase H2, M3.5); `None`
     /// keeps the ramp.
     pub tf_curves: [Option<crate::render3d::TfStops>; 8],
+    /// Colour stops per representation (same indexing), in its own units, replacing the
+    /// palette's colours (M3.5, 1008.md C2); `None` keeps the palette. Display only.
+    pub color_stops: [Option<crate::render3d::ColorStops>; 8],
     /// MIP or translucent compositing for the Smooth volumes (ROADMAP_PARITY M3.5). Display only.
     pub volume_render: crate::render3d::VolumeRender,
     /// A region of interest the Smooth volumes are built over instead of the whole radar
@@ -450,6 +453,7 @@ impl Default for Map3dState {
             velocity_floor_ms: 15.0,
             ceilings: [None; 8],
             tf_curves: [None; 8],
+            color_stops: Default::default(),
             volume_render: crate::render3d::VolumeRender::Mip,
             roi: None,
             preset_name: String::new(),

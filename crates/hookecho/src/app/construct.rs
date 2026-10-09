@@ -810,6 +810,7 @@ impl HookEchoApp {
             smooth_vol_range: std::array::from_fn(|_| None),
             vol3d_max_dim,
             smooth_vol_pending: std::array::from_fn(|_| None),
+            smooth_vol_colors: std::array::from_fn(|_| None),
             smooth_vol_dims: std::array::from_fn(|_| None),
             max_texture_dim,
             volume3d_supported,

@@ -311,10 +311,12 @@ impl HookEchoApp {
         let loop_quality = self.views[data].timeline.playing;
         let source = self.shown_volume_key(data)?;
         let key = self.smooth_key_for(idx, source, loop_quality)?;
+        let colors = state.color_stops[state.representation as usize].clone();
         if self.smooth_vol_key[idx].as_ref() != Some(&key) {
             let job = JobKey::Smooth(idx, key.clone());
             if let Some(frame) = self.loop3d[idx].smooth.get(&key) {
-                let up = &frame.upload;
+                let up = &with_colors(&frame.upload, colors.as_ref());
+                self.smooth_vol_colors[idx] = colors.clone();
                 self.smooth_vol_dims[idx] =
                     Some((up.n, up.nz, up.half_km, up.top_km, up.center_km));
                 self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
@@ -349,6 +351,14 @@ impl HookEchoApp {
         if self.smooth_vol_key[idx].as_ref() != Some(&key) {
             return None;
         }
+        // Colour stops edited on the accepted frame: its colour table again, not its grid.
+        if self.smooth_vol_colors[idx] != colors {
+            if let Some(frame) = self.loop3d[idx].smooth.get(&key) {
+                self.smooth_vol_pending[idx] = Some(with_colors(&frame.upload, colors.as_ref()));
+                self.smooth_vol_colors[idx] = colors;
+                ctx.request_repaint();
+            }
+        }
 
         let (n, nz, half_km, top_km, center_km) = self.smooth_vol_dims[idx]?;
         let antenna_altitude_m =
@@ -366,6 +376,7 @@ impl HookEchoApp {
             top_km,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         };
         // Denoising a plain "high is interesting" field makes sense for reflectivity and spectrum
         // width; `SmoothDebris`'s inverted-CC volume is the opposite sense (low is interesting)
@@ -658,5 +669,57 @@ impl HookEchoApp {
             }),
             true,
         )
+    }
+}
+
+/// `up` with its colour table rebuilt from `stops` (M3.5, 1008.md C2), or `up` itself when there
+/// are none or its table is not linear in value (`lut_range`). The grid is shared bytes, copied
+/// only into the new upload: no volume is rebuilt.
+fn with_colors(
+    up: &Arc<crate::render3d::Volume3dUpload>,
+    stops: Option<&crate::render3d::ColorStops>,
+) -> Arc<crate::render3d::Volume3dUpload> {
+    match (stops, up.lut_range) {
+        (Some(stops), Some(range)) => Arc::new(crate::render3d::Volume3dUpload {
+            lut: stops.lut(&up.lut, range),
+            ..(**up).clone()
+        }),
+        _ => Arc::clone(up),
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::*;
+
+    fn upload(lut_range: Option<(f32, f32)>) -> Arc<crate::render3d::Volume3dUpload> {
+        Arc::new(crate::render3d::Volume3dUpload {
+            data: vec![9, 255, 0, 0],
+            n: 2,
+            nz: 1,
+            lut: vec![50; 1024],
+            half_km: 10.0,
+            center_km: [0.0, 0.0],
+            top_km: 5.0,
+            outside: 0.0,
+            value_range: None,
+            lut_range,
+        })
+    }
+
+    /// Colour stops make a new upload with only its colour table rebuilt; without stops, or
+    /// on a table that is not linear in value, the accepted upload itself is reused.
+    #[test]
+    fn colour_stops_rebuild_only_the_colour_table() {
+        let stops =
+            crate::render3d::ColorStops::new(&[(0.0, [0, 255, 0]), (1.0, [0, 255, 0])]).unwrap();
+        let up = upload(Some((0.0, 1.0)));
+        let out = with_colors(&up, Some(&stops));
+        assert!(!Arc::ptr_eq(&up, &out));
+        assert_eq!(out.data, up.data, "the grid is the same bytes");
+        assert_eq!(&out.lut[8..12], &[0, 255, 0, 50]);
+        assert!(Arc::ptr_eq(&up, &with_colors(&up, None)));
+        let speed = upload(None);
+        assert!(Arc::ptr_eq(&speed, &with_colors(&speed, Some(&stops))));
     }
 }

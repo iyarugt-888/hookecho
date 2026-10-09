@@ -819,6 +819,17 @@ pub(crate) fn map_3d_panel(
                     (lo, hi),
                     suffix,
                 );
+                // Only where the volume's colour table is linear in value (`lut_range`).
+                let colors_available = rep
+                    .smooth_moment()
+                    .is_some_and(|(m, invert)| m != Moment::Velocity && !invert);
+                ui::volume3d_window::color_stops(
+                    ui,
+                    &mut view.map_3d.color_stops[rep_i],
+                    (lo, hi),
+                    suffix,
+                    colors_available,
+                );
                 let mut floor = floor_value(&mut view.map_3d, rep).clamp(lo, hi);
                 out.presets_changed = ui::volume3d_window::presets_row(
                     ui,
@@ -829,6 +840,7 @@ pub(crate) fn map_3d_panel(
                     &mut view.map_3d.ceilings[rep_i],
                     &mut view.map_3d.tf_curves[rep_i],
                     &mut view.map_3d.volume_render,
+                    &mut view.map_3d.color_stops[rep_i],
                     &mut view.map_3d.preset_name,
                 );
                 *floor_value(&mut view.map_3d, rep) = floor;

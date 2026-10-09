@@ -2279,6 +2279,8 @@ pub struct HookEchoApp {
     /// The device's 3D texture edge limit, which caps the Smooth grid.
     vol3d_max_dim: usize,
     smooth_vol_pending: [Option<Arc<crate::render3d::Volume3dUpload>>; crate::view::MAX_PANES],
+    /// The colour stops the pane's Smooth volume was last uploaded with (`None`: its palette).
+    smooth_vol_colors: [Option<crate::render3d::ColorStops>; crate::view::MAX_PANES],
     smooth_vol_dims: [Option<SmoothDims>; crate::view::MAX_PANES],
     /// GPU 2D texture-size cap (device limit), used to clamp field-grid decimation on mobile GPUs.
     max_texture_dim: u32,

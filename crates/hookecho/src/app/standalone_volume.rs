@@ -171,6 +171,7 @@ fn build(
             top_km: volume.top_km,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         },
         range,
         layers,

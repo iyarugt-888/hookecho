@@ -689,6 +689,15 @@ pub fn build_smooth_covered(
         .product
         .is_some()
         .then_some((v3.value_min, v3.value_max));
+    // The range the table below indexes linearly, for colour stops: none for velocity, which is
+    // indexed by speed, or an inverted table.
+    let lut_range = if let Some(range) = product_range {
+        Some(range)
+    } else if spec.moment == Moment::Velocity || spec.invert {
+        None
+    } else {
+        Some((v3.value_min, v3.value_max))
+    };
     let lut = if let Some(range) = product_range {
         // A product's own colour table, else a ramp across the range it was drawn over.
         let ramp;
@@ -724,6 +733,7 @@ pub fn build_smooth_covered(
             top_km: v3.top_km,
             outside,
             value_range: product_range,
+            lut_range,
         }),
     })
 }
@@ -1638,6 +1648,7 @@ mod tests {
                     top_km: 1.0,
                     outside: 0.0,
                     value_range: None,
+                    lut_range: None,
                 }),
                 coverage: TemporalCoverage {
                     policy: TemporalPolicy::Continuous,

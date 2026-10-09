@@ -332,6 +332,151 @@ pub(crate) fn opacity_curve(
     });
 }
 
+/// Colour stops beside the opacity curve (M3.5, 1008.md C2): a checkbox, and when on a bar of
+/// the colours across the value range with a handle per stop. Drag a handle along the bar,
+/// click it to pick its colour, double-click the bar (or "+") to add one with the colour already
+/// there, right-click one (or "\u{2212}") to remove it. Only the volume's colour table changes;
+/// `available` false says why there are none instead (a table indexed by speed, or inverted).
+pub(crate) fn color_stops(
+    ui: &mut egui::Ui,
+    stops: &mut Option<crate::render3d::ColorStops>,
+    (lo, hi): (f32, f32),
+    suffix: &str,
+    available: bool,
+) {
+    if !available {
+        let why = "Colour stops: not offered here \u{2014} this volume's colours are indexed by \
+                   speed or inverted, not by value";
+        ui.add(egui::Label::new(egui::RichText::new(why).weak()).wrap());
+        return;
+    }
+    let mut on = stops.is_some();
+    if ui
+        .checkbox(&mut on, "Colour stops")
+        .on_hover_text(
+            "Replace the palette's colours in this 3D volume: drag a stop along the bar, click \
+             it for its colour, double-click the bar to add one, right-click one to remove it. \
+             Values, probe and exports are unchanged",
+        )
+        .changed()
+    {
+        *stops = on.then(|| crate::render3d::ColorStops::default_for((lo, hi)));
+    }
+    let Some(cs) = stops else {
+        return;
+    };
+    let w = ui.available_width().clamp(160.0, 300.0);
+    let (rect, bar_resp) = ui.allocate_exact_size(egui::vec2(w, 30.0), egui::Sense::click());
+    let bar = egui::Rect::from_min_max(
+        rect.min + egui::vec2(6.0, 4.0),
+        egui::pos2(rect.max.x - 6.0, rect.min.y + 18.0),
+    );
+    let painter = ui.painter_at(rect);
+    let span = (hi - lo).max(f32::EPSILON);
+    let x_of = |v: f32| bar.left() + ((v - lo) / span).clamp(0.0, 1.0) * bar.width();
+    let value_at = |x: f32| lo + ((x - bar.left()) / bar.width()).clamp(0.0, 1.0) * span;
+    let cols = 48;
+    for i in 0..cols {
+        let x0 = bar.left() + bar.width() * i as f32 / cols as f32;
+        let x1 = bar.left() + bar.width() * (i + 1) as f32 / cols as f32;
+        let c = cs.color(value_at((x0 + x1) / 2.0));
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(x0, bar.top()), egui::pos2(x1, bar.bottom())),
+            0.0,
+            egui::Color32::from_rgb(c[0], c[1], c[2]),
+        );
+    }
+    let id = ui.id().with("color_stops");
+    let n = cs.len();
+    let mut remove = None;
+    let mut pick = None;
+    for i in 0..n {
+        let pts = cs.points_mut();
+        let x = x_of(pts[i].0);
+        let handle =
+            egui::Rect::from_center_size(egui::pos2(x, bar.bottom() + 5.0), egui::vec2(14.0, 14.0));
+        let resp = ui.interact(handle, id.with(i), egui::Sense::click_and_drag());
+        if resp.dragged() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let left = if i > 0 { pts[i - 1].0 } else { lo };
+                let right = if i + 1 < n { pts[i + 1].0 } else { hi };
+                pts[i].0 = value_at(p.x).clamp(left, right);
+            }
+        }
+        if resp.clicked() {
+            pick = Some(i);
+        }
+        if resp.secondary_clicked() {
+            remove = Some(i);
+        }
+        let c = pts[i].1;
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                egui::pos2(x, bar.bottom()),
+                egui::pos2(x + 6.0, bar.bottom() + 10.0),
+                egui::pos2(x - 6.0, bar.bottom() + 10.0),
+            ],
+            egui::Color32::from_rgb(c[0], c[1], c[2]),
+            egui::Stroke::new(1.0, ui.visuals().strong_text_color()),
+        ));
+        resp.on_hover_text(format!(
+            "{:.1}{suffix} (click for its colour, right-click removes)",
+            pts[i].0
+        ));
+    }
+    if let Some(i) = pick {
+        ui.memory_mut(|m| m.data.insert_temp(id.with("picking"), i));
+    }
+    if let Some(i) = remove {
+        cs.remove(i);
+        ui.memory_mut(|m| m.data.remove::<usize>(id.with("picking")));
+    }
+    if bar_resp.double_clicked() {
+        if let Some(p) = bar_resp.interact_pointer_pos() {
+            cs.insert(value_at(p.x));
+        }
+    }
+    ui.horizontal(|ui| {
+        let picking: Option<usize> = ui
+            .memory(|m| m.data.get_temp(id.with("picking")))
+            .filter(|i| *i < cs.len());
+        if let Some(i) = picking {
+            let pts = cs.points_mut();
+            ui.label(format!("{:.1}{suffix}", pts[i].0));
+            ui.color_edit_button_srgb(&mut pts[i].1);
+        }
+        let gap = cs
+            .points()
+            .windows(2)
+            .max_by(|a, b| (a[1].0 - a[0].0).total_cmp(&(b[1].0 - b[0].0)))
+            .map(|w| (w[0].0 + w[1].0) / 2.0);
+        if ui
+            .add_enabled(
+                cs.len() < crate::render3d::MAX_STOPS,
+                egui::Button::new("+"),
+            )
+            .on_hover_text("Add a stop in the widest gap")
+            .clicked()
+        {
+            if let Some(v) = gap {
+                cs.insert(v);
+            }
+        }
+        if ui
+            .add_enabled(cs.len() > 2, egui::Button::new("\u{2212}"))
+            .on_hover_text("Remove the last stop before the end")
+            .clicked()
+        {
+            cs.remove(cs.len() - 2);
+        }
+        ui.weak(format!(
+            "{} of {} stops",
+            cs.len(),
+            crate::render3d::MAX_STOPS
+        ));
+    });
+}
+
 /// Saved 3D looks (Phase H2's presets): pick one for this representation to set its floor,
 /// ceiling and curve; or save what is set now under a name.
 #[allow(clippy::too_many_arguments)]
@@ -344,6 +489,7 @@ pub(crate) fn presets_row(
     ceiling: &mut Option<f32>,
     curve: &mut Option<Curve>,
     render: &mut crate::render3d::VolumeRender,
+    colors: &mut Option<crate::render3d::ColorStops>,
     name_buf: &mut String,
 ) -> bool {
     let mut changed = false;
@@ -367,6 +513,11 @@ pub(crate) fn presets_row(
                         *curve = p.tf();
                         // Presets from before translucent rendering were drawn for MIP.
                         *render = p.render.unwrap_or_default();
+                        // Presets from before colour stops keep the palette.
+                        *colors = p
+                            .colors
+                            .as_deref()
+                            .and_then(crate::render3d::ColorStops::from_saved);
                         changed = true;
                     }
                 }
@@ -388,7 +539,9 @@ pub(crate) fn presets_row(
         );
         if ui
             .add_enabled(!name_buf.trim().is_empty(), egui::Button::new("Save"))
-            .on_hover_text("Save this floor, ceiling, curve and rendering for this 3D product")
+            .on_hover_text(
+                "Save this floor, ceiling, curve, colours and rendering for this 3D product",
+            )
             .clicked()
         {
             let name = name_buf.trim().to_string();
@@ -401,6 +554,7 @@ pub(crate) fn presets_row(
                 curve: None,
                 stops: None,
                 render: Some(*render),
+                colors: colors.as_ref().map(|c| c.to_saved()),
             };
             preset.set_tf(*curve);
             presets.push(preset);
@@ -947,6 +1101,7 @@ mod tests {
             top_km: 20.0,
             outside: 0.0,
             value_range: None,
+            lut_range: None,
         });
         let output = ctx.run_ui(
             egui::RawInput {
@@ -1042,6 +1197,39 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the 3D colour-stop editor"]
+    fn gpu_color_stops_editor_snapshot() {
+        // The opacity curve and colour stops as the 3D map's Opacity curve section shows them,
+        // for review (1008.md C2); and the explanation where colour stops are not offered.
+        use crate::ui::workstation as ws;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the editor");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m3.5");
+        std::fs::create_dir_all(&destination).unwrap();
+        let tokens = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let range = (-20.0, 80.0);
+        for (name, available) in [("color-stops", true), ("color-stops-velocity", false)] {
+            let mut curve = Some(default_curve(range));
+            let mut colors = crate::render3d::ColorStops::new(&[
+                (10.0, [40, 60, 170]),
+                (35.0, [60, 190, 90]),
+                (50.0, [235, 225, 60]),
+                (65.0, [215, 40, 40]),
+            ]);
+            gpu.save(&destination.join(format!("{name}.png")), 360, 260, |ui| {
+                ws::panel_frame(&tokens).show(ui, |ui| {
+                    ws::style_scope(ui, &tokens);
+                    ui.set_max_width(280.0);
+                    opacity_curve(ui, &mut curve, range, " dBZ");
+                    color_stops(ui, &mut colors, range, " dBZ", available);
+                });
+            })
+            .unwrap();
         }
     }
 

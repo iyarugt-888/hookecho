@@ -169,6 +169,7 @@ fn upload(v3: &wxdata::volume3d::Volume3d) -> crate::render3d::Volume3dUpload {
         top_km: v3.top_km,
         outside: 0.0,
         value_range: None,
+        lut_range: None,
     }
 }
 
