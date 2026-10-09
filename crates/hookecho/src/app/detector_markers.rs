@@ -1193,6 +1193,7 @@ mod llsd_preview_snapshots {
             volume_time: "2013-05-20T20:12:29Z".parse().ok(),
             inputs: input_coverage(vel_pairs.into_iter().flat_map(|(v, z)| [v, z]).collect()),
             debris_inputs: wxdata::detection_lineage::debris_input_coverage(cc_pairs, zdr),
+            earlier_passes: Vec::new(),
             stand_in: None,
         };
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");

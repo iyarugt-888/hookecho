@@ -261,6 +261,7 @@ impl HookEchoApp {
             inputs: self.rotation_inputs(idx),
             // Both pipelines read the app's debris for the newest pass; see `compute_tds_uncached`.
             debris_inputs: self.debris_inputs(idx),
+            earlier_passes: Vec::new(),
             stand_in: None,
         };
         match analysed {
@@ -291,6 +292,7 @@ impl HookEchoApp {
                 lineage.pipeline = Pipeline::Fused;
                 lineage.algorithms = wxdata::detection_lineage::fused_algorithms();
                 lineage.inputs = self.llsd_inputs(idx);
+                lineage.earlier_passes = self.llsd_earlier_passes(idx);
                 let evidence = self.confirm_evidence(idx);
                 let minute = self.volume_minute(idx);
                 let confirm =
@@ -506,10 +508,19 @@ impl HookEchoApp {
             self.llsd_tracker = Some(LlsdTracking::new(site.clone()));
         }
         let tracking = self.llsd_tracker.as_mut().filter(|t| t.site == site)?;
-        let mut inputs = self.llsd_cache.as_ref().and_then(|(_, _, i)| i.clone());
+        // A volume's records carry over as it grows; another volume's are never borrowed.
+        let mut inputs = self
+            .llsd_cache
+            .as_ref()
+            .filter(|(k, ..)| k.1 == name)
+            .map(|(_, _, i)| i.clone())
+            .unwrap_or_default();
         if let Some((steps, coverage)) = results {
-            inputs = coverage;
+            inputs.newest = coverage;
             for step in steps {
+                if let Some(pass) = step.lineage {
+                    inputs.earlier.push(pass);
+                }
                 let tracked = tracking.tracker.update(step.time, step.columns);
                 let analysed = wxdata::llsd_analyst::analyse(
                     tracked.clone(),
@@ -527,8 +538,6 @@ impl HookEchoApp {
         Some(out)
     }
 
-    /// When the sweeps behind this volume's fused columns were scanned, once they are computed;
-    /// `None` when they are not (yet), or were not recorded.
     /// When the sweeps behind this volume's couplets were scanned, if they were read.
     pub(crate) fn rotation_inputs(
         &self,
@@ -553,6 +562,22 @@ impl HookEchoApp {
             .and_then(|(_, inputs)| inputs.clone())
     }
 
+    /// This volume's earlier low-level passes the fused tracker read, oldest first, with when
+    /// their sweeps were scanned; empty until computed, or for a volume with one pass.
+    pub(crate) fn llsd_earlier_passes(
+        &self,
+        idx: usize,
+    ) -> Vec<wxdata::detection_lineage::EarlierPass> {
+        let key = self.volume_key(idx);
+        self.llsd_cache
+            .as_ref()
+            .filter(|(k, _, _)| *k == key)
+            .map(|(_, _, inputs)| inputs.earlier.clone())
+            .unwrap_or_default()
+    }
+
+    /// When the sweeps behind this volume's fused columns were scanned, once they are computed;
+    /// `None` when they are not (yet), or were not recorded.
     pub(crate) fn llsd_inputs(
         &self,
         idx: usize,
@@ -561,7 +586,7 @@ impl HookEchoApp {
         self.llsd_cache
             .as_ref()
             .filter(|(k, _, _)| *k == key)
-            .and_then(|(_, _, inputs)| inputs.clone())
+            .and_then(|(_, _, inputs)| inputs.newest.clone())
     }
 
     /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
@@ -925,11 +950,21 @@ impl LlsdTracking {
 }
 
 /// One low-level pass's columns, oldest first, from the background job: when (seconds since the
-/// epoch), the columns, and, for a pass before the volume's newest, its own debris signatures.
+/// epoch), the columns, and, for a pass before the volume's newest, its own debris signatures and
+/// when the sweeps behind both were scanned.
 pub(crate) struct PassColumns {
     time: i64,
     columns: Vec<wxdata::rotation_columns::RotationColumn>,
     debris: Option<Vec<wxdata::tds::TdsHit>>,
+    lineage: Option<wxdata::detection_lineage::EarlierPass>,
+}
+
+/// When the sweeps behind the fused columns were scanned: the volume's newest pass, and each
+/// earlier low-level pass in it, oldest first (`detection_lineage`).
+#[derive(Clone, Default)]
+pub(crate) struct FusedInputs {
+    pub(crate) newest: Option<wxdata::level2::temporal::TemporalCoverage>,
+    pub(crate) earlier: Vec<wxdata::detection_lineage::EarlierPass>,
 }
 
 /// What [`HookEchoApp::compute_llsd`]'s job hands back: each pass's columns, and when the sweeps
@@ -960,16 +995,38 @@ fn pass_columns(
         };
         let mut debris = wxdata::tds::detect_volume(&inputs.dual_pol, 0.80, 40.0, 150.0, 4);
         wxdata::tds::apply_zdr(&mut debris, &inputs.zdr);
+        let columns = wxdata::rotation_columns::from_sweeps(&inputs.velocity);
+        // The detectors are done with this pass's sweeps: their clocks, without a copy.
+        let wxdata::low_passes::PassInputs {
+            velocity: pass_velocity,
+            dual_pol: pass_dual_pol,
+            zdr: pass_zdr,
+        } = inputs;
+        let lineage = wxdata::detection_lineage::EarlierPass {
+            time: pass.time,
+            inputs: wxdata::detection_lineage::input_coverage(
+                pass_velocity
+                    .into_iter()
+                    .flat_map(|(v, z)| [v, z])
+                    .collect(),
+            ),
+            debris_inputs: wxdata::detection_lineage::debris_input_coverage(
+                pass_dual_pol,
+                pass_zdr,
+            ),
+        };
         steps.push(PassColumns {
             time: pass.time.timestamp(),
-            columns: wxdata::rotation_columns::from_sweeps(&inputs.velocity),
+            columns,
             debris: Some(debris),
+            lineage: Some(lineage),
         });
     }
     steps.push(PassColumns {
         time: newest.timestamp(),
         columns: wxdata::rotation_columns::from_sweeps(&velocity),
         debris: None,
+        lineage: None,
     });
     let sweeps = velocity.into_iter().flat_map(|(v, z)| [v, z]).collect();
     (steps, wxdata::detection_lineage::input_coverage(sweeps))
@@ -1085,6 +1142,103 @@ pub(crate) fn tornado_alert_decision(
     let state = best.as_ref().map(|t| t.tier);
     let fire = best.filter(|t| previous.is_none_or(|was| t.tier > was));
     (fire, state)
+}
+
+#[cfg(test)]
+mod pass_lineage_corpus {
+    /// The fused job on a real SAILS volume (Mayfield 2021, KPAH 03:23:49Z, the scientific
+    /// corpus's cached copy), read as `compute_llsd` reads it: each earlier low-level pass comes
+    /// back with its own sweeps' scan times, and the lineage lists them.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "cached corpus volume: writes the earlier passes' lineage for review"]
+    fn earlier_passes_carry_their_own_scan_times_on_mayfield() {
+        use wxdata::level2::{self, Moment};
+        const TILTS: usize = 4;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let bytes = std::fs::read(root.join("scientific-corpus/KPAH20211211_032349_V06"))
+            .expect("cached Mayfield volume (provision the scientific corpus first)");
+        let scan = level2::decode_volume(bytes).unwrap();
+        let time: chrono::DateTime<chrono::Utc> = "2021-12-11T03:23:49Z".parse().unwrap();
+        let n = level2::elevation_angles(&scan).len();
+        let tilts = |m: Moment| -> Vec<level2::BinnedSweep> {
+            (0..n)
+                .filter_map(|t| level2::bin_scan(&scan, m, t).ok())
+                .collect()
+        };
+        let velocity: Vec<_> = (0..n)
+            .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Velocity, t, true).ok())
+            .zip(tilts(Moment::Reflectivity))
+            .take(TILTS)
+            .collect();
+        let dual_pol: Vec<_> = tilts(Moment::Reflectivity)
+            .into_iter()
+            .zip(tilts(Moment::CorrelationCoefficient))
+            .take(TILTS)
+            .collect();
+        let zdr: Vec<_> = tilts(Moment::DifferentialReflectivity)
+            .into_iter()
+            .take(TILTS)
+            .collect();
+        // The newest pass's debris, as `compute_tds_uncached` reads it (every ZDR tilt offered;
+        // the lowest is the one that counts).
+        let newest_debris = wxdata::detection_lineage::debris_input_coverage(
+            dual_pol.clone(),
+            tilts(Moment::DifferentialReflectivity),
+        );
+        let low = level2::elevation_angles(&scan)[0];
+        let is_low = |s: &level2::BinnedSweep| (s.elevation_deg - low).abs() < 0.15;
+        let lowest = wxdata::low_passes::Lowest {
+            velocity: velocity.first().is_some_and(|(v, _)| is_low(v)),
+            dual_pol: dual_pol.first().is_some_and(|(z, _)| is_low(z)),
+            zdr: zdr.first().is_some_and(is_low),
+        };
+        let passes = wxdata::low_passes::passes(&scan, time);
+        assert!(passes.len() >= 2, "a SAILS volume: {passes:?}");
+        let newest = passes.last().unwrap().time;
+        let (steps, newest_inputs) = super::pass_columns(
+            std::sync::Arc::new(scan),
+            passes.clone(),
+            newest,
+            velocity,
+            dual_pol,
+            zdr,
+            lowest,
+        );
+        let earlier: Vec<_> = steps.into_iter().filter_map(|s| s.lineage).collect();
+        assert_eq!(earlier.len(), passes.len() - 1, "every earlier pass, once");
+        for (p, pass) in earlier.iter().zip(&passes) {
+            assert_eq!(p.time, pass.time);
+            // Its own lowest tilt was scanned at the pass's time, before the newest pass.
+            let (start, _) = p.inputs.as_ref().unwrap().acquisition_range_ms().unwrap();
+            assert!(start <= p.time.timestamp_millis() + 1_000, "{p:?}");
+            assert!(p.time < newest);
+            assert!(p.debris_inputs.is_some(), "Mayfield has dual-pol");
+        }
+        let lineage = wxdata::detection_lineage::DetectionLineage {
+            pipeline: wxdata::detection_lineage::Pipeline::Fused,
+            algorithms: wxdata::detection_lineage::fused_algorithms(),
+            site: Some("KPAH".into()),
+            volume: "KPAH20211211_032349_V06".into(),
+            volume_time: Some(time),
+            inputs: newest_inputs,
+            debris_inputs: newest_debris,
+            earlier_passes: earlier,
+            stand_in: None,
+        };
+        let destination = root.join("parity-review/m1.4");
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::write(
+            destination.join("mayfield-earlier-passes.txt"),
+            lineage.lines().join("\n") + "\n",
+        )
+        .unwrap();
+        std::fs::write(
+            destination.join("mayfield-earlier-passes.json"),
+            serde_json::to_string_pretty(&lineage.to_json()).unwrap(),
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(test)]

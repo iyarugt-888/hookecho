@@ -1281,13 +1281,13 @@ pub struct HookEchoApp {
     /// The experimental LLSD pipeline's analysed columns for one volume (the settings flag
     /// `detectors.llsd_preview`), and the tracker that follows them from volume to volume on one
     /// site. See `compute_llsd`.
-    /// With the analysed columns, when the sweeps they were measured on were scanned
-    /// (`detection_lineage`); `None` when not recorded.
+    /// With the analysed columns, when the sweeps they and the volume's earlier low-level passes
+    /// were measured on were scanned (`detection_lineage`).
     #[allow(clippy::type_complexity)]
     llsd_cache: Option<(
         (usize, String, usize),
         Vec<wxdata::llsd_analyst::Analysed>,
-        Option<wxdata::level2::temporal::TemporalCoverage>,
+        detectors::FusedInputs,
     )>,
     /// The fused pipeline's tracking on the active site, fed once per low-level pass.
     llsd_tracker: Option<detectors::LlsdTracking>,

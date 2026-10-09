@@ -557,6 +557,7 @@ mod lineage_export_tests {
             volume_time: None,
             inputs: wxdata::detection_lineage::input_coverage(vec![z.clone()]),
             debris_inputs: None,
+            earlier_passes: Vec::new(),
             stand_in: None,
         };
         let rows = tornado_csv_rows(std::slice::from_ref(&id), &lineage);

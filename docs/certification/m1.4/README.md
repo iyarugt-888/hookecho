@@ -34,6 +34,7 @@ hover ends the same way with its own sweeps.
 | tornado-id-lineage-hover.png | `0818bcd57623ef269885adee2023ad5a5bf41778ffc606d9d868e2956645cff4` |
 | tornado-id-lineage.json | `12b78b670359a943370fce79ae4d2a31ac65685a8cade767f86807e21615e5dc` |
 | debris-hover.png | `7362faa1cb45c1d204c9cfe2121dfc65f35506baf80e8a0c66bbc34ba4d29e80` |
+| mayfield-earlier-passes.json | `8c2d6b4b9eb03c4ad3b210b03adce9012bc658865c109c171eef243d2e87cf80` |
 
 Reproduce with the corpus provisioned (`scripts/corpus/README.md`):
 
@@ -42,6 +43,9 @@ cargo test -p hookecho --lib gpu_tornado_id_lineage_hover -- --ignored
 ```
 
 The run writes all three files to `target/parity-review/m1.4/`.
+`mayfield-earlier-passes.json` comes from
+`cargo test -p hookecho --lib earlier_passes_carry_their_own_scan_times_on_mayfield -- --ignored`,
+which writes it beside them (see "Earlier low-level passes" below).
 
 ## What the record shows on Moore
 
@@ -87,6 +91,31 @@ The lowest ZDR sweep (0.5°, from the surveillance cut, 20:12:29–20:12:46Z) is
 None of the 6,480 debris input rows is from a previous antenna pass, has data without a clock,
 or is unobserved.
 
+## Earlier low-level passes
+
+Under SAILS or MRLE the radar rescans its lowest tilt partway through a volume, and the fused
+tracker reads each of those passes with its own lowest-tilt sweeps under the volume's upper tilts
+(`low_passes::at_pass`). A *likely* verdict needs its track to have read *likely* on two passes,
+so the fused lineage lists each earlier pass in the volume with when its rotation and debris
+sweeps were scanned. The background job takes these clocks from each pass's own sweeps after the
+detectors are done with them, without copying a sweep.
+
+[mayfield-earlier-passes.json](mayfield-earlier-passes.json) is that record for the Mayfield 2021
+volume `KPAH20211211_032349_V06` (SHA-256
+`e45d575393af3edbc059ede7821fe560384aca283cc7260e64a08f1ea3e14df4`), from the job the app runs.
+The volume has three low-level passes. The two earlier ones read:
+
+| Pass (lowest tilt done) | Its own 0.5° sweeps | Upper tilts (0.9°, 1.3°, 1.8°) |
+| --- | --- | --- |
+| 03:24:27Z | velocity and reflectivity 03:24:07–03:24:27Z; CC and ZDR 03:23:49–03:24:06Z | 03:24:28–03:26:37Z |
+| 03:26:22Z | velocity and reflectivity 03:26:02–03:26:22Z; CC and ZDR 03:25:44–03:26:01Z | 03:24:28–03:26:37Z |
+
+A pass's columns therefore reach up into tilts scanned up to two minutes after the pass itself,
+because the upper tilts are scanned once per volume. That is how `at_pass` was designed and
+measured (detectionplan.md, "Every low-level pass"). The record shows it so a reader does not
+take a pass's time for the time of all its evidence. The newest pass's rotation inputs span
+03:24:46–03:28:10Z.
+
 ## Rules the tests hold
 
 - **Input clocks** come from the sweeps' own `bin_time_ms`, through
@@ -103,9 +132,8 @@ or is unobserved.
 
 ## Not established
 
-- **Earlier passes' debris.** The fused pipeline also reads each earlier low-level pass's own
-  debris signatures for tracking. The record covers the volume's newest pass only, which both
-  pipelines read the same way.
+- **Passes in earlier volumes.** A track's pass count runs across volumes. The record lists the
+  earlier passes in the verdict's own volume, not those of previous volumes.
 - **Other layers.** Warnings and observations do not carry this record yet.
 - **Platforms.** Android and browser runtime, and full application interaction, are not
   certified.

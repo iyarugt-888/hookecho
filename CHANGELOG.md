@@ -18,8 +18,12 @@ scanned…") because they are different sweeps and can be a minute or more apart
 `provenance.json` carry a `debris_inputs` record beside `inputs`. In `detections.csv`, Tornado ID
 rows gain two columns at the end for the debris interval, and the debris and rotation rows now
 fill the input-interval columns with their own sweeps' scan times. The debris signature and
-rotation couplet markers' own hovers end with the same line for their sweeps. A volume without
-dual-pol reports the debris inputs as not recorded, never as the volume's time.
+rotation couplet markers' own hovers end with the same line for their sweeps. On a volume where
+the radar rescanned its lowest tilt partway through (SAILS or MRLE), a fused verdict also lists
+each earlier low-level pass it was tracked through, with when that pass's rotation and debris
+sweeps were scanned (`earlier_passes` in the exports): a Likely needs its track to read Likely on
+two passes, so those passes are inputs to the tier. A volume without dual-pol reports the debris
+inputs as not recorded, never as the volume's time.
 
 ### Changed: one look, the workstation's
 

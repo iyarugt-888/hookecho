@@ -47,8 +47,24 @@ pub struct DetectionLineage {
     /// when not recorded, including a volume without dual-pol. Both pipelines read the same
     /// debris for a volume's newest pass, so the record is the same for either.
     pub debris_inputs: Option<TemporalCoverage>,
+    /// The fused pipeline's earlier low-level passes in this volume (a SAILS or MRLE rescan of
+    /// the lowest tilt), oldest first. Each was tracked with its own sweeps and debris, and a
+    /// *likely* verdict needs its track to have read *likely* on two passes, so these are inputs
+    /// to the tier as well. Empty for the original pipeline and for a volume with one pass.
+    pub earlier_passes: Vec<EarlierPass>,
     /// Why the original pipeline stands in for the fused one, when it does.
     pub stand_in: Option<&'static str>,
+}
+
+/// One earlier low-level pass the fused tracker read: the pass's own time (when its lowest-tilt
+/// velocity sweep finished, [`crate::low_passes::Pass`]), and when the sweeps behind its rotation
+/// columns and its debris signatures were scanned. A pass reads its own lowest tilt under the
+/// volume's upper tilts ([`crate::low_passes::at_pass`]), so its inputs can end after its time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EarlierPass {
+    pub time: DateTime<Utc>,
+    pub inputs: Option<TemporalCoverage>,
+    pub debris_inputs: Option<TemporalCoverage>,
 }
 
 /// The fused pipeline's stages and versions.
@@ -159,6 +175,15 @@ fn coverage_lines(out: &mut Vec<String>, what: &str, inputs: Option<&TemporalCov
     }
 }
 
+/// An input record's scan interval in a few words: "20:10:02Z–20:11:40Z", or why there is none.
+fn span(inputs: Option<&TemporalCoverage>) -> String {
+    match inputs.map(TemporalCoverage::acquisition_range_ms) {
+        None => "not recorded".into(),
+        Some(None) => "scan times unknown".into(),
+        Some(Some((a, b))) => format!("{}\u{2013}{}", clock(a), clock(b)),
+    }
+}
+
 /// One evidence's inputs for an export: every clock as UTC RFC 3339, `null` where unknown.
 fn coverage_json(c: &TemporalCoverage) -> Value {
     let rfc = |ms: Option<i64>| ms.and_then(utc).map(|t| t.to_rfc3339());
@@ -220,6 +245,14 @@ impl DetectionLineage {
         out.push(volume);
         coverage_lines(&mut out, "Rotation", self.inputs.as_ref());
         coverage_lines(&mut out, "Debris", self.debris_inputs.as_ref());
+        for p in &self.earlier_passes {
+            out.push(format!(
+                "Earlier low-level pass (lowest tilt done {}): rotation {}, debris {}",
+                p.time.format("%H:%M:%SZ"),
+                span(p.inputs.as_ref()),
+                span(p.debris_inputs.as_ref())
+            ));
+        }
         out
     }
 
@@ -241,6 +274,11 @@ impl DetectionLineage {
             "volume_time_utc": self.volume_time.map(|t| t.to_rfc3339()),
             "inputs": self.inputs.as_ref().map(coverage_json),
             "debris_inputs": self.debris_inputs.as_ref().map(coverage_json),
+            "earlier_passes": self.earlier_passes.iter().map(|p| json!({
+                "time_utc": p.time.to_rfc3339(),
+                "inputs": p.inputs.as_ref().map(coverage_json),
+                "debris_inputs": p.debris_inputs.as_ref().map(coverage_json),
+            })).collect::<Vec<_>>(),
             "stand_in": self.stand_in,
         })
     }
@@ -279,6 +317,7 @@ mod tests {
             volume_time: "2013-05-20T20:12:29Z".parse().ok(),
             inputs,
             debris_inputs: None,
+            earlier_passes: Vec::new(),
             stand_in: None,
         }
     }
@@ -419,5 +458,65 @@ mod tests {
         assert_eq!(j["debris_inputs"]["sweeps"][4]["moment"], "ZDR");
         // No dual-pol on the volume: nothing recorded, not an empty interval.
         assert!(debris_input_coverage(Vec::new(), Vec::new()).is_none());
+    }
+
+    #[test]
+    fn earlier_passes_name_their_own_scan_times() {
+        let t0 = 1_369_080_749_000i64; // 20:12:29Z
+        let mut l = lineage(None);
+        l.earlier_passes = vec![
+            EarlierPass {
+                time: utc(t0 - 120_000).unwrap(),
+                inputs: input_coverage(vec![sweep(
+                    Moment::Velocity,
+                    0.5,
+                    vec![t0 - 120_000, t0 - 106_000],
+                )]),
+                debris_inputs: None,
+            },
+            EarlierPass {
+                time: utc(t0 - 60_000).unwrap(),
+                // Clocks on no row: an interval is never invented.
+                inputs: input_coverage(vec![sweep(Moment::Velocity, 0.5, vec![0, 0])]),
+                debris_inputs: debris_input_coverage(
+                    vec![(
+                        sweep(Moment::Reflectivity, 0.5, vec![t0 - 78_000, t0 - 61_000]),
+                        sweep(
+                            Moment::CorrelationCoefficient,
+                            0.5,
+                            vec![t0 - 78_000, t0 - 61_000],
+                        ),
+                    )],
+                    Vec::new(),
+                ),
+            },
+        ];
+        let lines = l.lines();
+        let n = lines.len();
+        assert_eq!(
+            lines[n - 2],
+            "Earlier low-level pass (lowest tilt done 20:10:29Z): rotation \
+             20:10:29Z\u{2013}20:10:43Z, debris not recorded"
+        );
+        assert_eq!(
+            lines[n - 1],
+            "Earlier low-level pass (lowest tilt done 20:11:29Z): rotation scan times unknown, \
+             debris 20:11:11Z\u{2013}20:11:28Z"
+        );
+        let j = l.to_json();
+        assert_eq!(
+            j["earlier_passes"][0]["time_utc"],
+            "2013-05-20T20:10:29+00:00"
+        );
+        assert!(j["earlier_passes"][0]["debris_inputs"].is_null());
+        assert_eq!(
+            j["earlier_passes"][1]["debris_inputs"]["acquisition_start_utc"],
+            "2013-05-20T20:11:11+00:00"
+        );
+        // One pass in the volume: nothing listed, an empty array exported.
+        assert!(lineage(None).to_json()["earlier_passes"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 }
