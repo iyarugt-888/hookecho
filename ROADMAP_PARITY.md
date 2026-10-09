@@ -1696,6 +1696,20 @@ Captures: [`docs/certification/m5.4/`](docs/certification/m5.4/) (`quality-analy
 
 **Evidence ledger — 2026-10-09, increment 2 (pause instead of a wrong frame; 60 fps; 1008.md F2):** a loop export whose stepped scan is not on screen within 30 s (the card's default; was 20 s) now **pauses** instead of capturing whatever is shown: it writes `<file>.partial.json` beside the destination (frames done with what each asked for and showed and its checksum, the scan waited for, `resume_at_index`, skipped frames) and opens "Loop export paused" — **Wait again**, **Skip this frame** (left out and listed under `skipped_frames`, never filled with another scan), **Capture what is shown** (the old behaviour, still listed as a problem) or **Finish with these** (encodes what was captured; the manifest says `status: "finished early"` against `logical_frames_planned`). `LoopExport` moved out of `app.rs` into `app/loop_capture.rs`. MP4 loops can be encoded at **60 fps** (`Settings::loop_mp4_fps`, 30 default; `loopexport::encode_mp4_timed_at`, `encode_mp4_files_at`); weather frames are held, never blended, and the manifest's `encoded_fps` and per-frame encoded counts follow the chosen rate. The output window already offers 1920×1080, 2560×1440 and 3840×2160. Tests: `a_pause_is_resumable_and_a_skip_is_recorded`, `sixty_fps_doubles_the_encoded_frames_without_drift` (0.25/0.5/1.5/0.333 s holds → 15/30/90/20 frames, 155 in all, exact concat durations), the existing capture-manifest and settings tests. **Not verified:** a real ffmpeg encode at 60 fps (ffmpeg is not installed on this machine); the pause window in an interactive session; repeat-run determinism and a sustained 30-minute capture; FTP/SFTP upload.
 
+**Evidence ledger — 2026-10-09, increment 3 (repeat-run determinism; 1008.md F2):** the same archived loop (`--watch --site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:20 --basemap none --size 512 --interval fixed --fps 4`) was rendered twice on the RTX 2060. Results:
+
+- **GIFs:** byte-identical (`333532ac…`).
+- **Sidecars:** identical except `rendered_utc`, including 7 frames with their volumes, valid times, starts and holds (2,250 ms).
+
+Evidence: [`docs/certification/m6.3/`](docs/certification/m6.3/). Scope: the off-screen path with archived inputs and no basemap. Open:
+
+- The in-app loop export.
+- Runs with a basemap.
+- Other GPUs.
+- A sustained 30-minute capture.
+- A 60 fps ffmpeg encode.
+- FTP/SFTP delivery.
+
 #### M6.4 — Deliver usable desktop and Android presentation
 
 **Priority:** P1. **Depends on:** M6.2, M6.3. **Original references:** ROADMAP_2 §§6.5, 13; ROADMAP_NEW §§M1, Q1, Q3.

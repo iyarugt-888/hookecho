@@ -1,0 +1,62 @@
+{
+  "broadcast": null,
+  "center": null,
+  "duration_ms": 2250,
+  "format": "gif",
+  "fps": 4.0,
+  "frame_px": [
+    512,
+    512
+  ],
+  "frames": [
+    {
+      "delay_ms": 250,
+      "start_ms": 0,
+      "valid_time_utc": "2013-05-20T19:51:11+00:00",
+      "volume": "KTLX20130520_195111_V06.gz"
+    },
+    {
+      "delay_ms": 250,
+      "start_ms": 250,
+      "valid_time_utc": "2013-05-20T19:55:27+00:00",
+      "volume": "KTLX20130520_195527_V06.gz"
+    },
+    {
+      "delay_ms": 250,
+      "start_ms": 500,
+      "valid_time_utc": "2013-05-20T19:59:41+00:00",
+      "volume": "KTLX20130520_195941_V06.gz"
+    },
+    {
+      "delay_ms": 250,
+      "start_ms": 750,
+      "valid_time_utc": "2013-05-20T20:03:56+00:00",
+      "volume": "KTLX20130520_200356_V06.gz"
+    },
+    {
+      "delay_ms": 250,
+      "start_ms": 1000,
+      "valid_time_utc": "2013-05-20T20:08:11+00:00",
+      "volume": "KTLX20130520_200811_V06.gz"
+    },
+    {
+      "delay_ms": 250,
+      "start_ms": 1250,
+      "valid_time_utc": "2013-05-20T20:12:29+00:00",
+      "volume": "KTLX20130520_201229_V06.gz"
+    },
+    {
+      "delay_ms": 750,
+      "start_ms": 1500,
+      "valid_time_utc": "2013-05-20T20:16:43+00:00",
+      "volume": "KTLX20130520_201643_V06.gz"
+    }
+  ],
+  "interval": "fixed",
+  "product": "REF",
+  "rendered_utc": "2026-10-09T16:08:12.704951300+00:00",
+  "site": "KTLX",
+  "source": "NOAA NEXRAD Level II, rendered by HookEcho",
+  "tilt_index": 0,
+  "zoom": null
+}

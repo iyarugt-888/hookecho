@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Verified: rendering the same loop twice gives the same file
+
+Rendering the same archived radar loop twice with `--watch` produced byte-identical GIFs, with
+identical frame lists apart from the render time.
+
 ### Verified: the max-value trail on a real tornado hour
 
 The reflectivity trail was built from the hour of KTLX scans around the 2013 Moore tornado and
