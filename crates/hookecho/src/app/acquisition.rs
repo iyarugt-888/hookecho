@@ -336,6 +336,14 @@ fn tag_goes_message(request: super::GoesRequest, msg: OverlayMsg) -> Result<Over
         OverlayMsg::Field(layer, field) if request.layer == Some(layer) => {
             OverlayMsg::GoesField(request, request.stamp(field))
         }
+        OverlayMsg::GoesBlended(layer, field, blend) if request.layer == Some(layer) => {
+            let mut stamped = request.stamp(field);
+            let mut grid = wxdata::field::GridProvenance::native(&stamped.data);
+            grid.blend = Some(blend);
+            stamped.stamp.grid = Some(grid);
+            stamped.stamp.is_derived = true;
+            OverlayMsg::GoesField(request, stamped)
+        }
         OverlayMsg::GoesFootprint(sector, fp)
             if request.layer.is_none() && sector == request.sector =>
         {

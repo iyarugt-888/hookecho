@@ -37,6 +37,13 @@ pub(crate) enum OverlayMsg {
     /// The latest grid for a national field layer (mosaic, rotation, MESH, AzShear, lightning).
     Field(crate::render::FieldLayer, wxdata::mrms::MrmsField),
     GoesField(GoesRequest, wxdata::field::Stamped<wxdata::mrms::MrmsField>),
+    /// A GOES band interpolated between two scans (1008.md E2), before it is tagged with its
+    /// request; the blend travels into the stamp.
+    GoesBlended(
+        crate::render::FieldLayer,
+        wxdata::mrms::MrmsField,
+        wxdata::field::TimeBlend,
+    ),
     GoesFootprintFor(GoesRequest, wxdata::goes_abi::Footprint),
     /// Atomic local build with its accepted frame identity and source coverage.
     DerivedFields(Box<radar_products::DerivedDelivery>),
@@ -259,11 +266,13 @@ pub(crate) enum OverlaySource {
     /// the second field (`settings.goes_satellite_west`, resolved at spawn time). `GoesColdTop`
     /// reuses Band 13 but transforms the fetched value before it reaches the field cache — see
     /// the handler's own comment.
+    /// A GOES band; the last field asks for it blended between scans (1008.md E2).
     Goes(
         crate::render::FieldLayer,
         wxdata::goes_abi::Satellite,
         wxdata::goes_abi::Sector,
         Option<DateTime<Utc>>,
+        bool,
     ),
     /// A two-band GOES ABI channel-difference product, CONUS sector — today only
     /// `FieldLayer::GoesDustDiff` (ROADMAP_NEW E6's split-window dust/ash technique, Band 13
@@ -858,7 +867,7 @@ impl OverlaySource {
                 crate::render::FieldLayer::SnowAnalysis,
                 wxdata::nohrsc::fetch(http, hours).await?,
             ),
-            OverlaySource::Goes(layer, satellite, sector, at) => {
+            OverlaySource::Goes(layer, satellite, sector, at, blend) => {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
@@ -867,8 +876,28 @@ impl OverlaySource {
                 };
                 // A mesoscale box is about 1000 km a side: square, and finer per degree.
                 let (nx, ny) = goes_grid(sector);
-                let mut field =
-                    wxdata::goes_abi::fetch_at(http, satellite, sector, band, at, nx, ny).await?;
+                let (mut field, blended) = match at.filter(|_| blend) {
+                    // Between scans, interpolated to the analysis time; the satellite's own
+                    // cadence bounds how far apart the two may be.
+                    Some(t) => {
+                        wxdata::goes_abi::fetch_blended_at(
+                            http,
+                            satellite,
+                            sector,
+                            band,
+                            t,
+                            chrono::Duration::minutes(15),
+                            nx,
+                            ny,
+                        )
+                        .await?
+                    }
+                    None => (
+                        wxdata::goes_abi::fetch_at(http, satellite, sector, band, at, nx, ny)
+                            .await?,
+                        None,
+                    ),
+                };
                 // Cold-cloud-top threshold overlay (ROADMAP_NEW E6): the exact same Band 13 data
                 // as GoesIr, re-expressed as "how many kelvin colder than the overshooting-top
                 // threshold" so this layer's own ramp (`GOES_COLD_TOP`) can hide ordinary cloud
@@ -881,7 +910,10 @@ impl OverlaySource {
                         *v = crate::render::field_ramps::COLD_TOP_THRESHOLD_K - *v;
                     }
                 }
-                OverlayMsg::Field(layer, field)
+                match blended {
+                    Some(b) => OverlayMsg::GoesBlended(layer, field, b),
+                    None => OverlayMsg::Field(layer, field),
+                }
             }
             OverlaySource::GoesDiff(layer, satellite) => {
                 use crate::render::FieldLayer as FL;

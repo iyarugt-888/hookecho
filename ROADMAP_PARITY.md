@@ -1688,6 +1688,21 @@ Captures: [`docs/certification/m5.4/`](docs/certification/m5.4/) (`quality-analy
 - A GPU crossfade during playback.
 - An interactive or Android run.
 
+**Evidence ledger — 2026-10-09, increment 3 (interpolated satellite frames; 1008.md E2):** the blend setting also applies to one GOES band of a fixed sector at an archive time. `goes_abi::fetch_blended_at` takes the two ABI scans either side within 15 minutes and blends them with `blend_frames`. The result travels as `OverlayMsg::GoesBlended` and is stamped derived with its `TimeBlend` at tagging, so the probe and the inspector say "interpolated". `GoesRequest::blend` is part of the request identity. `goes_blend_eligible` excludes:
+
+- moving mesoscale boxes;
+- RGB composites and the difference and cooling-rate layers;
+- a satellite loop's own scans;
+- live imagery.
+
+Test: `only_a_fixed_sectors_single_band_at_an_archive_time_is_blended`. **Live** (`goes_blend_live`): GOES-East CONUS band 13, scans starting 18:01:18 and 18:06:18 UTC. Of 134,806 cells with data in both, the blend equals the linear interpolation exactly; 67,085 changed by more than 0.5 K between the scans ([`docs/certification/m5.4/goes-blend-live.txt`](docs/certification/m5.4/goes-blend-live.txt), `0a1d23f7…`).
+
+Found on the way: a scan's decoded valid time follows its file-name start time by about 79 s. The blend weights by valid time and chooses scans by file-name time, so a radar time inside that gap falls back to the nearest scan. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,579 passed (`target/parity-review/m5.4/e2s-*.log`). Open:
+
+- Observations.
+- A GPU crossfade during playback.
+- An interactive run.
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output

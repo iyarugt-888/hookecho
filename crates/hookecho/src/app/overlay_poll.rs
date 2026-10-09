@@ -298,6 +298,11 @@ impl HookEchoApp {
                         }
                     }
                 }
+                // Tagged with its request before delivery (`acquisition::tag_goes_message`); an
+                // untagged blend has no request to be accepted by.
+                OverlayMsg::GoesBlended(layer, ..) => {
+                    log::warn!("GOES blend for {layer:?} arrived without its request; dropped");
+                }
                 OverlayMsg::GoesFootprintFor(request, fp) => {
                     if self.goes_request_current(request)
                         && request.accepts_time(fp.time)

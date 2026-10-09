@@ -47,7 +47,9 @@ impl Satellite {
 /// rapid scan) and moves as the event does — so where it is has to be read from each granule
 /// ([`Footprint`]), never assumed. Full disk (10-minute cadence, mostly ocean for a US-focused
 /// app) is not read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum Sector {
     #[default]
     Conus,
@@ -752,6 +754,100 @@ pub async fn fetch_at(
     fetch_key(client, satellite, &key, out_nx, out_ny).await
 }
 
+/// Band `band` at `target`, interpolated between the scans either side when both lie within
+/// `tolerance` of it and decode onto the same grid (1008.md E2): a fixed sector (CONUS, full
+/// disk) blends; a mesoscale box that moved between its scans does not. Otherwise, and at an
+/// exact scan, the nearest scan as [`fetch_at`] reads it. Returns the field (valid at `target`
+/// when blended) and the two scans it lies between.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_blended_at(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    sector: Sector,
+    band: u8,
+    target: chrono::DateTime<chrono::Utc>,
+    tolerance: chrono::Duration,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<(MrmsField, Option<crate::field::TimeBlend>)> {
+    let mut keys = Vec::new();
+    for hours in [-1i64, 0, 1] {
+        let Some(t) = target.checked_add_signed(chrono::Duration::hours(hours)) else {
+            continue;
+        };
+        keys.extend(
+            keys_in_hour(client, satellite, sector, band, t)
+                .await
+                .into_iter()
+                .filter_map(|k| Some((key_time(&k)?, k))),
+        );
+    }
+    let before = keys
+        .iter()
+        .filter(|(t, _)| *t < target && target - *t <= tolerance)
+        .max_by_key(|(t, _)| *t);
+    let after = keys
+        .iter()
+        .filter(|(t, _)| *t > target && *t - target <= tolerance)
+        .min_by_key(|(t, _)| *t);
+    let exact = keys.iter().any(|(t, _)| *t == target);
+    if let (false, Some((_, kb)), Some((_, ka))) = (exact, before, after) {
+        let (a, b) = futures_util::future::try_join(
+            fetch_key(client, satellite, kb, out_nx, out_ny),
+            fetch_key(client, satellite, ka, out_nx, out_ny),
+        )
+        .await?;
+        let stamped = |f: MrmsField| {
+            let valid = f.time;
+            crate::field::Stamped {
+                data: f,
+                stamp: crate::field::DataStamp {
+                    source_id: satellite_label(satellite).into(),
+                    product_id: format!("ABI band {band}"),
+                    issue_time: None,
+                    run_time: None,
+                    valid_time: valid,
+                    received_time: chrono::Utc::now(),
+                    source_latency: None,
+                    is_forecast: false,
+                    is_derived: false,
+                    quality: crate::field::QualitySummary::Unknown,
+                    grid: None,
+                },
+            }
+        };
+        if let Ok(blended) = crate::field::blend_frames(
+            &stamped(a),
+            &stamped(b),
+            target,
+            crate::field::ValueKind::Scalar,
+        ) {
+            let blend = blended.stamp.grid.as_ref().and_then(|g| g.blend);
+            return Ok((blended.data, blend));
+        }
+    }
+    Ok((
+        fetch_at(
+            client,
+            satellite,
+            sector,
+            band,
+            Some(target),
+            out_nx,
+            out_ny,
+        )
+        .await?,
+        None,
+    ))
+}
+
+fn satellite_label(satellite: Satellite) -> &'static str {
+    match satellite {
+        Satellite::East => "GOES-East",
+        Satellite::West => "GOES-West",
+    }
+}
+
 /// Where `sector` is pointed now: the box its newest band 13 granule covers (decoded coarse —
 /// only the bounds are wanted; the file is about a megabyte).
 pub async fn footprint(
@@ -955,6 +1051,75 @@ mod tests {
     /// The last hour of Mesoscale 1 band 13 scans, live: about sixty one-minute frames, a second
     /// listing served from the cache, and one granule prefetched into the object cache.
     /// `cargo test -p wxdata meso_loop_listing_live -- --ignored --nocapture`
+    /// Live (network): GOES-East CONUS band 13 two hours ago, a third of the way between two
+    /// consecutive scans, blended (`fetch_blended_at`) and checked cell by cell against the two
+    /// scans themselves. Writes `target/parity-review/m5.4/goes-blend-live.txt`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn goes_blend_live() {
+        let client = reqwest::Client::new();
+        let around = chrono::Utc::now() - chrono::Duration::hours(2);
+        let mut keys: Vec<(chrono::DateTime<chrono::Utc>, String)> =
+            keys_in_hour(&client, Satellite::East, Sector::Conus, 13, around)
+                .await
+                .into_iter()
+                .filter_map(|k| Some((key_time(&k)?, k)))
+                .collect();
+        keys.sort();
+        let pair = keys.windows(2).next().expect("two scans in the hour");
+        let (t0, t1) = (pair[0].0, pair[1].0);
+        let target = t0 + (t1 - t0) / 3;
+        let (nx, ny) = (600, 360);
+        let (blended, blend) = fetch_blended_at(
+            &client,
+            Satellite::East,
+            Sector::Conus,
+            13,
+            target,
+            chrono::Duration::minutes(15),
+            nx,
+            ny,
+        )
+        .await
+        .unwrap();
+        let blend = blend.expect("blended between the two scans");
+        assert_eq!(blended.time, target);
+        let a = fetch_key(&client, Satellite::East, &pair[0].1, nx, ny)
+            .await
+            .unwrap();
+        let b = fetch_key(&client, Satellite::East, &pair[1].1, nx, ny)
+            .await
+            .unwrap();
+        // The blend is weighted by the scans' decoded valid times, which follow the scan-start
+        // time in the file name.
+        assert_eq!((blend.before, blend.after), (a.time, b.time));
+        let w = blend.weight_after as f32;
+        let (mut both, mut worst, mut changed) = (0usize, 0f32, 0usize);
+        for ((x, y), m) in a.values.iter().zip(&b.values).zip(&blended.values) {
+            if x.is_finite() && y.is_finite() {
+                both += 1;
+                worst = worst.max((m - (x + (y - x) * w)).abs());
+                if (x - y).abs() > 0.5 {
+                    changed += 1;
+                }
+            } else {
+                assert!(m.is_nan());
+            }
+        }
+        let report = format!(
+            "GOES-East CONUS band 13 (brightness temperature, K)\nscans starting {t0} and {t1}, valid {} and {}\nblended at {target} (weight_after {:.3}, between the valid times)\ngrid {nx}x{ny}; cells finite in both scans {both}; cells that changed by more than 0.5 K between the scans {changed}\nworst |blend - linear interpolation| {worst:e} K\n",
+            a.time,
+            b.time,
+            blend.weight_after
+        );
+        print!("{report}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.4");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("goes-blend-live.txt"), report).unwrap();
+        assert!(both > 100_000 && worst < 1e-3);
+    }
+
     #[tokio::test]
     #[ignore = "network"]
     async fn meso_loop_listing_live() {

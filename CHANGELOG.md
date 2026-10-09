@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: satellite images at the radar's own time
+
+"Blend archived MRMS and satellite layers to the radar's time" now also shows a GOES band
+(CONUS) at the radar scan's exact time, interpolated between the satellite scans either side.
+Moving mesoscale boxes and RGB composites are never blended, and probes say when a value is
+interpolated.
+
 ### Added: compare a model field across models
 
 With a field from the Model fields browser on the map, open another model in the browser and

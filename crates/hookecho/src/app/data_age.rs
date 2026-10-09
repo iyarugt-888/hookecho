@@ -44,13 +44,14 @@ impl HookEchoApp {
         ui.add_space(6.0);
         ui.checkbox(
             &mut self.settings.blend_frames,
-            "Blend archived MRMS layers to the radar's time",
+            "Blend archived MRMS and satellite layers to the radar's time",
         )
         .on_hover_text(
-            "Show a continuous MRMS layer (reflectivity, rotation, hail size) at the radar \
-             scan's own time, interpolated between the frames either side within the threshold \
-             above, instead of the nearest frame. Probes and exports say the frame is \
-             interpolated. Categories (precipitation type) and accumulations are never blended.",
+            "Show a continuous MRMS layer (reflectivity, rotation, hail size) or one satellite \
+             band of a fixed sector at the radar scan's own time, interpolated between the \
+             frames either side, instead of the nearest frame. Probes and exports say the frame \
+             is interpolated. Categories, accumulations, RGB composites and moving mesoscale \
+             boxes are never blended.",
         );
     }
 }

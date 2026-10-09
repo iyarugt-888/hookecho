@@ -99,10 +99,46 @@ between the frames either side (`wxdata::field::blend_frames`,
 ## Not established (E2)
 
 - No interactive run with the setting on, and no Android run.
-- Satellite and observations are not blended. GOES frames are decoded one at a time, and a
-  moving mesoscale sector changes the grid. The satellite-only one-minute loop is M5.2
-  increment 1.
+- Satellite blending is increment 2, below. Observations are not blended. The satellite-only
+  one-minute loop is M5.2 increment 1.
 - No GPU crossfade between frames during playback; blending applies to archived MRMS analyses
   only.
 - The rotation and hail track products are maxima over a window, which the catalogue classes as
   scalar; their blend interpolates two windows' maxima.
+
+# Interpolated satellite frames (1008.md E2, increment 2)
+
+The same setting, now **Blend archived MRMS and satellite layers to the radar's time**, applies to
+a GOES band of a fixed sector (CONUS) at an archive time. The band's value at the radar scan's
+time is interpolated between the two ABI scans either side, up to 15 minutes from it
+(`wxdata::goes_abi::fetch_blended_at`, through the same `blend_frames`).
+
+- **Never blended** (`goes_blend_eligible`):
+  - a moving mesoscale box, whose grid changes between scans;
+  - an RGB composite or a derived difference or cooling rate;
+  - a satellite loop's own scans;
+  - live imagery.
+- **Labelling:** the blended frame is stamped derived with the same `TimeBlend`, so the probe and
+  the inspector say it is interpolated.
+- **Request identity:** the GOES request carries the blend, so a blended frame and a nearest-scan
+  frame are different requests.
+
+## Live check (network), 2026-10-09
+
+[goes-blend-live.txt](goes-blend-live.txt) (SHA-256 `0a1d23f797908a290c975cb3e787267c5f5160609f611461da8d8f5d6c29a8df`), from
+`cargo test -p wxdata --lib goes_blend_live -- --ignored --nocapture`:
+
+- **Input:** two consecutive GOES-East CONUS band 13 scans, starting 18:01:18 and 18:06:18 UTC.
+- **Result:** of 134,806 cells with data in both, the blend equals the linear interpolation
+  exactly. 67,085 of those cells changed by more than 0.5 K between the scans.
+
+**Two clocks:** the blend is weighted by each scan's decoded valid time, 18:02:37 and 18:07:37,
+which follows the scan-start time in its file name. The two scans are chosen by their file-name
+times. A radar time between a scan's start and its valid time is therefore refused by the blend,
+and the nearest scan is used instead, as before.
+
+## Still not established
+
+- No interactive run with satellite blending on.
+- Observations are not blended.
+- No GPU crossfade during playback.

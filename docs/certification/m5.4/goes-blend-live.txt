@@ -1,0 +1,5 @@
+GOES-East CONUS band 13 (brightness temperature, K)
+scans starting 2026-10-09 18:01:18 UTC and 2026-10-09 18:06:18 UTC, valid 2026-10-09 18:02:37 UTC and 2026-10-09 18:07:37 UTC
+blended at 2026-10-09 18:02:58 UTC (weight_after 0.070, between the valid times)
+grid 600x360; cells finite in both scans 134806; cells that changed by more than 0.5 K between the scans 67085
+worst |blend - linear interpolation| 0e0 K

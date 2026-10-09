@@ -11,12 +11,15 @@ pub(crate) struct GoesRequest {
     pub at: Option<DateTime<Utc>>,
     pub tolerance_minutes: u16,
     pub recipe: Option<&'static str>,
+    /// Interpolate between the scans either side of `at` (1008.md E2); only for a single band
+    /// of a fixed sector at an archive time.
+    pub blend: bool,
 }
 
 impl GoesRequest {
     pub(super) fn from_source(source: &OverlaySource, tolerance_minutes: u16) -> Option<Self> {
         let (layer, satellite, sector, at, recipe) = match source {
-            OverlaySource::Goes(layer, satellite, sector, at) => {
+            OverlaySource::Goes(layer, satellite, sector, at, _) => {
                 (Some(*layer), *satellite, *sector, *at, None)
             }
             OverlaySource::GoesDiff(layer, satellite)
@@ -35,6 +38,7 @@ impl GoesRequest {
             }
             _ => return None,
         };
+        let blend = matches!(source, OverlaySource::Goes(.., true));
         Some(Self {
             layer,
             west: satellite == Satellite::West,
@@ -42,6 +46,7 @@ impl GoesRequest {
             at,
             tolerance_minutes,
             recipe,
+            blend,
         })
     }
     fn satellite(self) -> Satellite {
@@ -66,7 +71,9 @@ impl GoesRequest {
             Some(layer @ L::GoesCoolingRate) => {
                 OverlaySource::GoesCoolingRate(layer, self.satellite())
             }
-            Some(layer) => OverlaySource::Goes(layer, self.satellite(), self.sector, self.at),
+            Some(layer) => {
+                OverlaySource::Goes(layer, self.satellite(), self.sector, self.at, self.blend)
+            }
         }
     }
     pub(super) fn footprint_request(self) -> Self {
@@ -194,6 +201,29 @@ impl GoesSlot {
     }
 }
 
+/// Whether a GOES layer is shown blended between scans: the setting is on, it is an archive time
+/// not a satellite loop's own scan, the sector is fixed (not a moving mesoscale box) and the
+/// layer is one band's values (not an RGB composite or a derived difference).
+pub(super) fn goes_blend_eligible(
+    setting: bool,
+    layer: crate::render::FieldLayer,
+    sector: Sector,
+    at: Option<DateTime<Utc>>,
+    looping: bool,
+) -> bool {
+    setting
+        && at.is_some()
+        && !looping
+        && !sector.is_meso()
+        && super::sat_loop::goes_layer_band(layer).is_some()
+        && !matches!(
+            layer,
+            crate::render::FieldLayer::GoesRgb
+                | crate::render::FieldLayer::GoesDustDiff
+                | crate::render::FieldLayer::GoesCoolingRate
+        )
+}
+
 impl HookEchoApp {
     fn goes_clock_for(&self, idx: usize) -> Option<Option<DateTime<Utc>>> {
         let timeline = &self.views.get(idx)?.timeline;
@@ -213,6 +243,7 @@ impl HookEchoApp {
             at: self.goes_clock_for(idx)?,
             tolerance_minutes: self.settings.time_mismatch_minutes,
             recipe: None,
+            blend: false,
         })
     }
     pub(super) fn goes_footprint_for(&self, idx: usize) -> Option<(Sector, Footprint)> {
@@ -248,14 +279,24 @@ impl HookEchoApp {
         if derived && at.is_some() {
             return None;
         }
+        let sector = if derived {
+            Sector::Conus
+        } else {
+            self.goes_sector_for_pane(idx)
+        };
         Some(GoesRequest {
             layer: Some(layer),
             west: self.settings.goes_satellite_west,
-            sector: if derived {
-                Sector::Conus
-            } else {
-                self.goes_sector_for_pane(idx)
-            },
+            sector,
+            // A moving mesoscale box, a multi-band composite and a satellite loop's own scan are
+            // never blended.
+            blend: goes_blend_eligible(
+                self.settings.blend_frames,
+                layer,
+                sector,
+                at,
+                self.sat_loop.current().is_some(),
+            ),
             at,
             tolerance_minutes: self.settings.time_mismatch_minutes,
             recipe: (layer == crate::render::FieldLayer::GoesRgb).then(|| {
@@ -388,5 +429,38 @@ impl HookEchoApp {
             ));
         }
         health
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_fixed_sectors_single_band_at_an_archive_time_is_blended() {
+        use crate::render::FieldLayer as L;
+        let t = Some(DateTime::from_timestamp(1_700_000_000, 0).unwrap());
+        let ir = L::GoesIr;
+        assert!(goes_blend_eligible(true, ir, Sector::Conus, t, false));
+        assert!(
+            !goes_blend_eligible(false, ir, Sector::Conus, t, false),
+            "setting off"
+        );
+        assert!(
+            !goes_blend_eligible(true, ir, Sector::Conus, None, false),
+            "live"
+        );
+        assert!(
+            !goes_blend_eligible(true, ir, Sector::Conus, t, true),
+            "a loop's own scan"
+        );
+        assert!(
+            !goes_blend_eligible(true, ir, Sector::Meso1, t, false),
+            "a moving box"
+        );
+        assert!(
+            !goes_blend_eligible(true, L::GoesRgb, Sector::Conus, t, false),
+            "composite"
+        );
     }
 }
