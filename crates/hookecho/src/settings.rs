@@ -198,6 +198,17 @@ impl LineDash {
     }
 }
 
+/// The restorable part of the output window: whether it is open, its size, fullscreen and strap.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutputPrefs {
+    pub open: bool,
+    /// "1080", "1440", "2160" or "free"; anything else reads as 1080.
+    pub size: String,
+    pub fullscreen: bool,
+    pub strap: String,
+}
+
 /// The symbol an imported layer draws at each point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PointSymbol {
@@ -1026,6 +1037,10 @@ pub struct Settings {
     /// The frame rate exported MP4 loops are encoded at: 30, or 60 for broadcast (1008.md F2).
     #[serde(default = "default_mp4_fps")]
     pub loop_mp4_fps: u32,
+    /// The output window as it was left (1008.md F3): reopened at launch, so an OBS window
+    /// capture finds "HookEcho Output" again after a restart without anyone reopening it.
+    #[serde(default)]
+    pub output_window: OutputPrefs,
     /// How streaming mode dresses the map for air: margins, clock, caption, crawl, logo and
     /// whether the colour scale shows (`crate::broadcast`).
     #[serde(default)]
@@ -2009,6 +2024,7 @@ impl Default for Settings {
             share_card: true,
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
+            output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),
             layer_order: Vec::new(),
@@ -3347,6 +3363,7 @@ mod tests {
             share_card: true,
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
+            output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),
             layer_order: Vec::new(),

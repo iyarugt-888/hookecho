@@ -135,6 +135,8 @@ impl HookEchoApp {
         // that holding a full desktop-sized window cost.
         // The browser gets the same treatment for the same reason, only harder: a wasm heap is
         // 32-bit, so thirty decoded volumes is not a large cache there, it is an out-of-memory.
+        // The output window as it was left, reopened for an OBS capture to find (1008.md F3).
+        let restored_output = output_window::OutputWindow::restored(&settings.output_window);
         let scan_cache_cap = if cfg!(target_os = "android") {
             ANDROID_LOOP_WINDOW + 2
         } else if cfg!(target_arch = "wasm32") {
@@ -466,7 +468,7 @@ impl HookEchoApp {
             ribbon_mode: RibbonMode::default(),
             measure: Vec::new(),
             storm_tracks: Default::default(),
-            output: Default::default(),
+            output: restored_output,
             frame_times: Default::default(),
             strokes: Vec::new(),
             draw_color: DRAW_COLORS[0],

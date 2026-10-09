@@ -20,6 +20,17 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: the output window comes back after a restart
+
+The output window (for OBS or a second screen) now reopens at launch with the size, fullscreen
+setting and title strap it was left with, so an OBS capture of "HookEcho Output" keeps working
+across restarts. `docs/obs-guide.md` walks through setting it up.
+
+### Fixed: debug builds stopped at launch
+
+The "Wind streamlines" layer was filed under a category the layers panel does not show, which
+stopped debug builds at startup and left the layer out of the panel in release builds.
+
 ### Changed: a loop export pauses rather than recording the wrong scan
 
 When a scan does not load within 30 seconds, a GIF/MP4 loop export now pauses and asks: wait

@@ -24,6 +24,23 @@ pub(crate) enum OutputSize {
 impl OutputSize {
     const ALL: [OutputSize; 4] = [Self::Hd1080, Self::Qhd1440, Self::Uhd2160, Self::Free];
 
+    /// The word settings keep it under.
+    fn key(self) -> &'static str {
+        match self {
+            Self::Hd1080 => "1080",
+            Self::Qhd1440 => "1440",
+            Self::Uhd2160 => "2160",
+            Self::Free => "free",
+        }
+    }
+
+    fn from_key(key: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|s| s.key() == key)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Hd1080 => "1920 × 1080",
@@ -87,10 +104,34 @@ pub(crate) struct OutputWindow {
     pub held: Option<crate::render::mercator::Camera>,
     pub size: OutputSize,
     pub fullscreen: bool,
-    /// A title strap along the top, when not empty.
+    /// A title strap (a lower third, bottom left above the crawl), when not empty.
     pub strap: String,
     /// The size the window was last asked to be, so a change is sent once.
     sent: Option<(OutputSize, bool)>,
+}
+
+impl OutputWindow {
+    /// The window as settings remember it.
+    pub(crate) fn restored(p: &crate::settings::OutputPrefs) -> Self {
+        Self {
+            // A desktop window: settings synced to a phone or a browser never open one there.
+            open: p.open && !cfg!(any(target_os = "android", target_arch = "wasm32")),
+            size: OutputSize::from_key(&p.size),
+            fullscreen: p.fullscreen,
+            strap: p.strap.clone(),
+            ..Default::default()
+        }
+    }
+
+    /// What settings should remember of it now.
+    pub(crate) fn prefs(&self) -> crate::settings::OutputPrefs {
+        crate::settings::OutputPrefs {
+            open: self.open,
+            size: self.size.key().to_string(),
+            fullscreen: self.fullscreen,
+            strap: self.strap.clone(),
+        }
+    }
 }
 
 /// Points to ask for so the window is `px` physical pixels at `ppp` pixels per point.
@@ -107,6 +148,11 @@ impl HookEchoApp {
     /// Draw the output window, while it is open.
     pub(crate) fn output_window(&mut self, ctx: &egui::Context) {
         self.scene_hotkeys(ctx);
+        // Kept in settings as it changes, so a restart reopens it as it was.
+        let prefs = self.output.prefs();
+        if prefs != self.settings.output_window {
+            self.settings.output_window = prefs;
+        }
         if !self.output.open || cfg!(target_arch = "wasm32") {
             return;
         }
@@ -197,7 +243,8 @@ impl HookEchoApp {
         let toggle = |ui: &mut egui::Ui, v: &mut bool, label: &str| ui.checkbox(v, label);
         ui.collapsing("Streaming overlay", |ui| {
             let b = &mut self.settings.broadcast;
-            crate::theme::slider(ui,
+            crate::theme::slider(
+                ui,
                 egui::Slider::new(&mut b.safe_margin_pct, 0.0..=15.0)
                     .suffix(" %")
                     .text("Safe margin"),
@@ -345,6 +392,32 @@ fn paint_strap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_output_window_reopens_as_it_was_left() {
+        let mut w = OutputWindow {
+            open: true,
+            size: OutputSize::Qhd1440,
+            fullscreen: true,
+            strap: "Severe weather coverage".into(),
+            ..Default::default()
+        };
+        let p = w.prefs();
+        assert_eq!(p.size, "1440");
+        let back = OutputWindow::restored(&p);
+        assert_eq!(
+            (back.open, back.size, back.fullscreen, back.strap.as_str()),
+            (true, OutputSize::Qhd1440, true, "Severe weather coverage")
+        );
+        w.size = OutputSize::Free;
+        assert_eq!(OutputWindow::restored(&w.prefs()).size, OutputSize::Free);
+        let odd = crate::settings::OutputPrefs {
+            size: "8k".into(),
+            ..Default::default()
+        };
+        let r = OutputWindow::restored(&odd);
+        assert_eq!((r.open, r.size), (false, OutputSize::Hd1080));
+    }
 
     #[test]
     fn program_stays_on_its_pane_and_a_closed_one_is_not_replaced() {
