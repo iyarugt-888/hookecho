@@ -843,6 +843,9 @@ pub struct Settings {
     /// instead of) the particles.
     #[serde(default)]
     pub wind_barbs: bool,
+    /// Draw the wind layer, and a wind picked in the model field browser, as streamlines.
+    #[serde(default)]
+    pub wind_streamlines: bool,
     /// Record a breadcrumb track of the session's GPS fixes, exportable as GPX. Off by default:
     /// where you drove is yours, and nothing records it unless you say so. The track lives in
     /// memory only until you save it.
@@ -2070,6 +2073,7 @@ impl Default for Settings {
             route_url: String::new(),
             battery_saver: false,
             wind_barbs: false,
+            wind_streamlines: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,
@@ -3423,6 +3427,7 @@ mod tests {
             route_url: String::new(),
             battery_saver: false,
             wind_barbs: false,
+            wind_streamlines: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
             gps_autoconnect: false,

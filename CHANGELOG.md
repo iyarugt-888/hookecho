@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wind streamlines
+
+**Wind streamlines** (command palette) draws the HRRR wind, or a wind picked in Model fields, as
+evenly spaced lines that follow the flow, with arrows downstream and coloured by speed. They show
+convergence lines, turning and spreading at a glance, which barbs and particles don't.
+
 ### Added: more ways to style imported map layers
 
 An imported layer can now have a fill colour of its own (or no fill), dashed or dotted lines and

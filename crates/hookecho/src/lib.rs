@@ -164,6 +164,7 @@ pub mod watch;
 pub mod webcache;
 pub mod wind_draw;
 pub mod wind_gpu;
+pub mod wind_streamlines;
 pub mod workspace;
 pub mod yall;
 pub mod zipwrite;
