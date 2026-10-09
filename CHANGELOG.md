@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: archived MRMS layers at the radar's own time
+
+A new setting, "Blend archived MRMS layers to the radar's time", shows reflectivity, rotation and
+hail layers at the radar scan's exact time instead of the nearest MRMS frame. The value is
+interpolated between the frames either side. Probes, the data inspector and grid exports say
+when a value is interpolated and between which frames. Accumulations and precipitation type are
+never blended, and a cell with no echo in either frame is left empty. Off by default.
+
 ### Added: quality profiles
 
 Settings → Map → Radar appearance has a Quality row with Low, Balanced, High and Analysis. One

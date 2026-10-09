@@ -13,6 +13,8 @@ use wxdata::{
 pub(crate) struct MrmsRequest {
     pub(super) product: String,
     pub(super) archive: Option<(chrono::DateTime<chrono::Utc>, u16)>,
+    /// Interpolate between the archived frames either side of the target (1008.md E2).
+    pub(super) blend: bool,
 }
 
 impl MrmsRequest {
@@ -282,10 +284,12 @@ mod tests {
         let live = MrmsRequest {
             product: "CONUS/Test".into(),
             archive: None,
+            blend: false,
         };
         let archive = MrmsRequest {
             product: live.product.clone(),
             archive: Some((live_time - chrono::Duration::hours(2), 2)),
+            blend: false,
         };
         let now = Instant::now();
         let field = fixture(live_time, 30.0);
@@ -322,10 +326,12 @@ mod tests {
         let live = MrmsRequest {
             product: "CONUS/Test".into(),
             archive: None,
+            blend: false,
         };
         let other = MrmsRequest {
             product: "CONUS/Other".into(),
             archive: None,
+            blend: false,
         };
         let now = Instant::now();
         let cadence = std::time::Duration::from_secs(120);
@@ -350,6 +356,7 @@ mod tests {
         let request = MrmsRequest {
             product: "CONUS/Test".into(),
             archive: None,
+            blend: false,
         };
         let now = Instant::now();
         let mut state = FieldState::default();
@@ -391,6 +398,7 @@ mod tests {
         let request = MrmsRequest {
             product: "CONUS/Test".into(),
             archive: Some((target, 2)),
+            blend: false,
         };
         assert!(request.accepts(&stamp));
         stamp.valid_time = target + chrono::Duration::minutes(2);

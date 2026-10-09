@@ -111,6 +111,21 @@ pub(crate) fn show(
         };
         ui.label(format!("Display transform: {transform}"));
     }
+    if let Some(note) = blend_note(stamp) {
+        ui.label(format!("Time: {note}"));
+    }
+}
+
+/// How an interpolated frame says so (1008.md E2): "interpolated between 20:10:00 and
+/// 20:12:00 UTC, 25% of the way"; `None` for a frame read as it is.
+pub fn blend_note(stamp: &wxdata::field::DataStamp) -> Option<String> {
+    let b = stamp.grid.as_ref()?.blend?;
+    Some(format!(
+        "interpolated between {} and {} UTC, {:.0}% of the way",
+        b.before.format("%H:%M:%S"),
+        b.after.format("%H:%M:%S"),
+        b.weight_after * 100.0
+    ))
 }
 
 #[cfg(test)]

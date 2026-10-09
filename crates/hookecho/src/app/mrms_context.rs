@@ -6,6 +6,8 @@ pub(crate) struct MrmsContext {
     pub layer: crate::render::FieldLayer,
     pub product: &'static str,
     pub archive: Option<(DateTime<Utc>, u16)>,
+    /// Interpolated between the archived frames either side (1008.md E2); see [`Self::blended`].
+    pub blend: bool,
 }
 
 impl MrmsContext {
@@ -21,12 +23,31 @@ impl MrmsContext {
             layer,
             product: wxdata::mrms::catalog::find(layer.slug())?.path(rotation, lightning, hail),
             archive: target.map(|time| (time, tolerance)),
+            blend: false,
         })
+    }
+    /// Blend between frames when `on`, the request names an archive time, and the layer's values
+    /// may be interpolated (scalar or probability; never categories or accumulations).
+    pub(super) fn blended(self, on: bool) -> Self {
+        let kind = self
+            .layer
+            .descriptor()
+            .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
+        Self {
+            blend: on
+                && self.archive.is_some()
+                && matches!(
+                    kind,
+                    wxdata::field::ValueKind::Scalar | wxdata::field::ValueKind::Probability
+                ),
+            ..self
+        }
     }
     pub(super) fn request(self) -> MrmsRequest {
         MrmsRequest {
             product: self.product.into(),
             archive: self.archive,
+            blend: self.blend,
         }
     }
     pub(super) fn source(self) -> OverlaySource {
@@ -38,8 +59,13 @@ impl MrmsContext {
             self.product,
             self.archive
                 .map(|(time, tolerance)| format!(
-                    "analysis {} UTC ±{tolerance} min",
-                    time.format("%Y-%m-%d %H:%M:%S")
+                    "analysis {} UTC ±{tolerance} min{}",
+                    time.format("%Y-%m-%d %H:%M:%S"),
+                    if self.blend {
+                        ", interpolated between frames"
+                    } else {
+                        ""
+                    }
                 ))
                 .unwrap_or_else(|| "latest analysis requested".into())
         )
@@ -80,6 +106,7 @@ impl HookEchoApp {
             target,
             self.settings.time_mismatch_minutes,
         )
+        .map(|c| c.blended(self.settings.blend_frames))
     }
     pub(super) fn mrms_context_wanted_by(&self, idx: usize, request: MrmsContext) -> bool {
         self.views.get(idx).is_some_and(|view| {
@@ -275,6 +302,35 @@ pub(super) mod tests {
             uniform: [0.0; 12],
             lut: vec![0; 1024],
         }
+    }
+
+    #[test]
+    fn only_archived_continuous_layers_are_blended_and_the_request_says_so() {
+        let archived = |layer| request(layer, 0);
+        let mesh = archived(L::Mesh).blended(true);
+        assert!(mesh.blend, "a scalar archived layer blends");
+        assert!(mesh.request().blend);
+        assert!(mesh.description().contains("interpolated between frames"));
+        assert_ne!(mesh, archived(L::Mesh), "a blended frame is its own slot");
+        assert!(!archived(L::Mesh).blended(false).blend, "off by default");
+        for never in [L::Qpe1h, L::PrecipType] {
+            assert!(
+                !archived(never).blended(true).blend,
+                "{never:?}: accumulations and categories are never interpolated"
+            );
+        }
+        let live = MrmsContext::resolve(L::Mesh, 30, 5, 60, None, 2).unwrap();
+        assert!(
+            !live.blended(true).blend,
+            "the latest frame is read as it is"
+        );
+        // A blended reply is not accepted by the nearest-frame request, nor the other way.
+        let t = time() + chrono::Duration::seconds(30);
+        let reply = field(mesh, t, 30.0);
+        assert!(mesh.accepts_field(&reply));
+        let msg = OverlayMsg::MrmsField(L::Mesh, reply, mesh.request());
+        assert!(mesh.accepts_message(&msg));
+        assert!(!archived(L::Mesh).accepts_message(&msg));
     }
 
     #[test]

@@ -1501,6 +1501,19 @@ Captures: [`docs/certification/m5.4/`](docs/certification/m5.4/) (`quality-analy
 - Dense-map and zoom golden images; leader lines.
 - Inspector notes for display transformations; transitions and interpolation (E2).
 
+**Evidence ledger — 2026-10-09, increment 2 (interpolated MRMS frames; 1008.md E2):** `wxdata::field::blend_frames` interpolates two real frames of one product on one grid to an instant strictly between them. Only scalar and probability `ValueKind`s are blended. A cell missing in either frame stays missing. The result carries `GridProvenance::blend` (`TimeBlend {before, after, weight_after}`) and is marked derived. `wxdata::mrms::fetch_blended_stamped` blends the archived frames either side within the tolerance, and reads an exact or unbracketed time as before. `Settings::blend_frames` ("Blend archived MRMS layers to the radar's time", off by default) puts the blend on `MrmsContext::blended`/`MrmsRequest::blend`, a separate request and cache slot, for archived scalar layers only. The layer probe, the data inspector and the grid exports' product name say "interpolated between … and … UTC, N% of the way". Tests:
+
+- `a_blend_lies_between_its_frames_and_says_so`
+- `categories_other_grids_and_other_products_are_not_blended`
+- `a_blend_takes_the_frames_either_side_and_never_for_categories`
+- `only_archived_continuous_layers_are_blended_and_the_request_says_so`
+
+**Live** (`mrms_blend_live`): MRMS reflectivity 10:18:37/10:20:38 UTC blended at 25%. All 1,444,512 cells with echo in both frames equal the linear interpolation exactly; the rest are missing ([`docs/certification/m5.4/mrms-blend-live.txt`](docs/certification/m5.4/mrms-blend-live.txt), `e1bf3eab…`). Observed, not changed: a pooled HTTP connection idle through the decode was closed by the bucket, and the next fetch on it failed. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,557 passed with `--no-fail-fast` (`target/parity-review/m5.4/e2-*.log`). An earlier run under full load failed the unrelated `tiles::tests::the_janitor_thread_sweeps_what_is_queued`, whose 2 s wait is a timing flake; it passed 5 of 5 alone and in the full rerun. Open:
+
+- Satellite and observation blending.
+- A GPU crossfade during playback.
+- An interactive or Android run.
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output

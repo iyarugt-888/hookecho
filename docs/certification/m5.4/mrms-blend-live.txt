@@ -1,0 +1,4 @@
+MRMS CONUS/MergedReflectivityQCComposite_00.50
+frames 2026-10-09 10:18:37 UTC and 2026-10-09 10:20:38 UTC
+blended at 2026-10-09 10:19:07.250 UTC (weight_after 0.250)
+cells 24500000; finite in both frames 1444512; checked 1444512; worst |blend - lerp| 0e0 dBZ

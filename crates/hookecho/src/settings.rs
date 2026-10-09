@@ -1037,6 +1037,11 @@ pub struct Settings {
     /// The frame rate exported MP4 loops are encoded at: 30, or 60 for broadcast (1008.md F2).
     #[serde(default = "default_mp4_fps")]
     pub loop_mp4_fps: u32,
+    /// Show a continuous archived field (MRMS reflectivity, rotation) at the radar's own time,
+    /// interpolated between the frames either side, instead of the nearest frame (1008.md E2).
+    /// Never for categories or accumulations; probes and exports say a frame is interpolated.
+    #[serde(default)]
+    pub blend_frames: bool,
     /// Percent of the wind particles drawn, set by the quality profile (`crate::quality`).
     #[serde(default = "default_particle_pct")]
     pub wind_particle_pct: u32,
@@ -2032,6 +2037,7 @@ impl Default for Settings {
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
             wind_particle_pct: default_particle_pct(),
+            blend_frames: false,
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),
@@ -3372,6 +3378,7 @@ mod tests {
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
             wind_particle_pct: default_particle_pct(),
+            blend_frames: false,
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),

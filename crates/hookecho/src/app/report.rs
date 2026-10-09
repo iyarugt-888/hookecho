@@ -184,6 +184,15 @@ impl HookEchoApp {
                     }
                     None => Self::probe_field_product(*layer),
                 };
+            // An interpolated frame is exported as one, never as a frame the source published.
+            let product = match state
+                .stamp
+                .as_ref()
+                .and_then(crate::ui::data_inspector::blend_note)
+            {
+                Some(note) => format!("{product} ({note})"),
+                None => product,
+            };
             Some((
                 *layer,
                 grid,

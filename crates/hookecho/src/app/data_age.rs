@@ -18,7 +18,8 @@ impl HookEchoApp {
     /// Preferences → App → Data age.
     pub(crate) fn data_age_rows(&mut self, ui: &mut egui::Ui) {
         ui.label("Radar counts as stale after");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut self.settings.radar_stale_minutes, 3..=120)
                 .suffix(" min")
                 .logarithmic(true),
@@ -30,7 +31,8 @@ impl HookEchoApp {
         );
         ui.add_space(6.0);
         ui.label("Warn when a layer's time is off the radar's by more than");
-        crate::theme::slider(ui,
+        crate::theme::slider(
+            ui,
             egui::Slider::new(&mut self.settings.time_mismatch_minutes, 1..=180)
                 .suffix(" min")
                 .logarithmic(true),
@@ -38,6 +40,17 @@ impl HookEchoApp {
         .on_hover_text(
             "A satellite, model or other layer whose valid time is further than this from the \
              radar scan it is shown with is marked with a warning.",
+        );
+        ui.add_space(6.0);
+        ui.checkbox(
+            &mut self.settings.blend_frames,
+            "Blend archived MRMS layers to the radar's time",
+        )
+        .on_hover_text(
+            "Show a continuous MRMS layer (reflectivity, rotation, hail size) at the radar \
+             scan's own time, interpolated between the frames either side within the threshold \
+             above, instead of the nearest frame. Probes and exports say the frame is \
+             interpolated. Categories (precipitation type) and accumulations are never blended.",
         );
     }
 }

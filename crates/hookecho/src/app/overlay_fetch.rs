@@ -525,13 +525,28 @@ impl OverlaySource {
             }
             OverlaySource::Field(layer, request) => {
                 let field = if let Some((target, minutes)) = request.archive {
-                    wxdata::mrms::fetch_nearest_stamped(
-                        http,
-                        &request.product,
-                        target,
-                        chrono::Duration::minutes(minutes as i64),
-                    )
-                    .await?
+                    let tolerance = chrono::Duration::minutes(minutes as i64);
+                    if request.blend {
+                        let kind = layer
+                            .descriptor()
+                            .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
+                        wxdata::mrms::fetch_blended_stamped(
+                            http,
+                            &request.product,
+                            target,
+                            tolerance,
+                            kind,
+                        )
+                        .await?
+                    } else {
+                        wxdata::mrms::fetch_nearest_stamped(
+                            http,
+                            &request.product,
+                            target,
+                            tolerance,
+                        )
+                        .await?
+                    }
                 } else {
                     wxdata::mrms::fetch_latest_stamped(http, &request.product).await?
                 };

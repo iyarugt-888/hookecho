@@ -255,6 +255,17 @@ impl HookEchoApp {
                 .field_state_for(idx, layer)
                 .filter(|_| self.mrms_ready_for(idx, layer))
                 .and_then(|state| state.stamp.clone());
+            // An interpolated frame's reading is not one either frame holds: say so.
+            if let Some(note) = line
+                .stamp
+                .as_ref()
+                .and_then(crate::ui::data_inspector::blend_note)
+            {
+                line.detail = Some(format!(
+                    "{}, {note}",
+                    line.detail.take().unwrap_or_default()
+                ));
+            }
             line.field = Some(layer);
             out.push(line);
         }

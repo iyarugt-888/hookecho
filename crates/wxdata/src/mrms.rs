@@ -400,6 +400,26 @@ async fn fetch_nearest(
         tolerance >= Duration::zero() && tolerance <= Duration::minutes(120),
         "MRMS archive tolerance must be between 0 and 120 minutes"
     );
+    let candidates = archive_candidates(http, product, target, tolerance).await?;
+    let key = nearest_archive_key(&candidates, target, tolerance)
+        .ok_or_else(|| anyhow::anyhow!("no {product} MRMS frame within {tolerance} of {target}"))?;
+    let field = fetch_key_stamped(http, product, key, no_echo).await?;
+    anyhow::ensure!(
+        !crate::time_align::TimeOffset::between(field.stamp.valid_time, target, tolerance)
+            .outside_tolerance,
+        "{product} decoded valid time {} differs from requested {target} by more than {tolerance}",
+        field.stamp.valid_time
+    );
+    Ok(field)
+}
+
+/// Every archived key of `product` in the hours `target ± tolerance` touches, with its time.
+async fn archive_candidates(
+    http: &reqwest::Client,
+    product: &str,
+    target: DateTime<Utc>,
+    tolerance: Duration,
+) -> anyhow::Result<Vec<(String, DateTime<Utc>)>> {
     let first = hour_start(target - tolerance)?;
     let last = hour_start(target + tolerance)?;
     let mut hours = Vec::new();
@@ -431,17 +451,66 @@ async fn fetch_nearest(
         Ok::<_, anyhow::Error>(keys_in_listing(&xml, product))
     }))
     .await?;
-    let candidates: Vec<_> = lists.into_iter().flatten().collect();
-    let key = nearest_archive_key(&candidates, target, tolerance)
-        .ok_or_else(|| anyhow::anyhow!("no {product} MRMS frame within {tolerance} of {target}"))?;
-    let field = fetch_key_stamped(http, product, key, no_echo).await?;
+    Ok(lists.into_iter().flatten().collect())
+}
+
+/// The analysis at `target` for a product of value kind `kind` (1008.md E2): the archived frame
+/// at exactly that time when there is one, else the two frames either side within `tolerance`
+/// blended in time ([`crate::field::blend_frames`]). Falls back to the nearest single frame when
+/// blending does not apply: a categorical or accumulated product, no frame on one side (the
+/// newest end of a live day), or frames on different grids.
+pub async fn fetch_blended_stamped(
+    http: &reqwest::Client,
+    product: &str,
+    target: DateTime<Utc>,
+    tolerance: Duration,
+    kind: crate::field::ValueKind,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     anyhow::ensure!(
-        !crate::time_align::TimeOffset::between(field.stamp.valid_time, target, tolerance)
-            .outside_tolerance,
-        "{product} decoded valid time {} differs from requested {target} by more than {tolerance}",
-        field.stamp.valid_time
+        tolerance >= Duration::zero() && tolerance <= Duration::minutes(120),
+        "MRMS archive tolerance must be between 0 and 120 minutes"
     );
-    Ok(field)
+    let candidates = archive_candidates(http, product, target, tolerance).await?;
+    if let Some((before, after)) = bracketing_keys(&candidates, target, tolerance, kind) {
+        let (a, b) = futures_util::future::try_join(
+            fetch_key_stamped(http, product, before, None),
+            fetch_key_stamped(http, product, after, None),
+        )
+        .await?;
+        if let Ok(blended) = crate::field::blend_frames(&a, &b, target, kind) {
+            return Ok(blended);
+        }
+    }
+    fetch_nearest(http, product, target, tolerance, None).await
+}
+
+/// The keys either side of `target` to blend, when `kind` may be blended and both exist within
+/// `tolerance`; `None` for an exact frame (read as it is) or no bracket.
+fn bracketing_keys(
+    candidates: &[(String, DateTime<Utc>)],
+    target: DateTime<Utc>,
+    tolerance: Duration,
+    kind: crate::field::ValueKind,
+) -> Option<(&str, &str)> {
+    let frames: Vec<_> = candidates
+        .iter()
+        .map(|(_, valid)| crate::time_align::FrameTime {
+            valid: *valid,
+            run: None,
+        })
+        .collect();
+    match crate::time_align::select(
+        &frames,
+        target,
+        crate::time_align::TimePolicy::InterpolateLinear,
+        Some(tolerance),
+        kind,
+    )? {
+        crate::time_align::FrameSelection::Blend { before, after, .. } => {
+            Some((candidates[before].0.as_str(), candidates[after].0.as_str()))
+        }
+        crate::time_align::FrameSelection::Single { .. } => None,
+    }
 }
 
 fn nearest_archive_key(
@@ -773,6 +842,139 @@ mod tests {
         assert_eq!(
             nearest_archive_key(&candidates, target, Duration::minutes(2)),
             Some(earlier.as_str())
+        );
+    }
+
+    /// Live (network): two consecutive archived reflectivity frames from about 90 minutes ago,
+    /// blended at a quarter of the way between them, checked cell by cell against the two frames.
+    /// Writes `target/parity-review/m5.4/mrms-blend-live.txt`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    #[ignore = "network: MRMS archive"]
+    async fn mrms_blend_live() {
+        use crate::field::ValueKind;
+        let http = reqwest::Client::new();
+        let around = Utc::now() - Duration::minutes(90);
+        let mut keys = archive_candidates(&http, REFLECTIVITY, around, Duration::minutes(10))
+            .await
+            .unwrap();
+        keys.sort_by_key(|(_, t)| *t);
+        let pair = keys
+            .windows(2)
+            .find(|w| (w[0].1 - around).abs() < Duration::minutes(10) && w[1].1 > w[0].1)
+            .expect("two consecutive frames");
+        let (t0, t1) = (pair[0].1, pair[1].1);
+        let at = t0 + (t1 - t0) / 4;
+        let blended = fetch_blended_stamped(
+            &http,
+            REFLECTIVITY,
+            at,
+            Duration::minutes(5),
+            ValueKind::Scalar,
+        )
+        .await
+        .unwrap();
+        // A fresh client for the reference frames: the decode above leaves the pooled
+        // connections idle long enough that the bucket has closed them.
+        let http = reqwest::Client::new();
+        let a = fetch_key_stamped(&http, REFLECTIVITY, &pair[0].0, None)
+            .await
+            .unwrap();
+        let b = fetch_key_stamped(&http, REFLECTIVITY, &pair[1].0, None)
+            .await
+            .unwrap();
+        let blend = blended.stamp.grid.as_ref().unwrap().blend.expect("blended");
+        assert_eq!((blend.before, blend.after), (t0, t1));
+        assert_eq!(blended.stamp.valid_time, at);
+        let (mut both, mut checked, mut worst) = (0usize, 0usize, 0f32);
+        for ((x, y), m) in a
+            .data
+            .values
+            .iter()
+            .zip(&b.data.values)
+            .zip(&blended.data.values)
+        {
+            if x.is_finite() && y.is_finite() {
+                both += 1;
+                let want = x + (y - x) * blend.weight_after as f32;
+                worst = worst.max((m - want).abs());
+                checked += 1;
+            } else {
+                assert!(
+                    m.is_nan(),
+                    "a cell missing in either frame is missing in the blend"
+                );
+            }
+        }
+        let report = format!(
+            "MRMS {REFLECTIVITY}\nframes {t0} and {t1}\nblended at {at} (weight_after {:.3})\n\
+             cells {}; finite in both frames {both}; checked {checked}; worst |blend - lerp| {worst:e} dBZ\n",
+            blend.weight_after,
+            blended.data.values.len()
+        );
+        print!("{report}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.4");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mrms-blend-live.txt"), report).unwrap();
+        assert!(both > 0 && worst < 1e-3);
+    }
+
+    #[test]
+    fn a_blend_takes_the_frames_either_side_and_never_for_categories() {
+        use crate::field::ValueKind;
+        let product = REFLECTIVITY;
+        let key = |hms: &str| {
+            format!("{product}/20260718/MRMS_MergedReflectivityQCComposite_00.50_20260718-{hms}.grib2.gz")
+        };
+        let xml = format!(
+            "<ListBucketResult><Contents><Key>{}</Key></Contents><Contents><Key>{}</Key></Contents>\
+             <Contents><Key>{}</Key></Contents></ListBucketResult>",
+            key("000000"),
+            key("000200"),
+            key("000400")
+        );
+        let candidates = keys_in_listing(&xml, product);
+        let at = |m: u32, s: u32| {
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 18)
+                .unwrap()
+                .and_hms_opt(0, m, s)
+                .unwrap()
+                .and_utc()
+        };
+        let tol = Duration::minutes(5);
+        let (a, b) = (key("000200"), key("000400"));
+        assert_eq!(
+            bracketing_keys(&candidates, at(3, 0), tol, ValueKind::Scalar),
+            Some((a.as_str(), b.as_str()))
+        );
+        assert_eq!(
+            bracketing_keys(&candidates, at(2, 0), tol, ValueKind::Scalar),
+            None,
+            "an exact frame is read as it is"
+        );
+        assert_eq!(
+            bracketing_keys(&candidates, at(5, 0), tol, ValueKind::Scalar),
+            None,
+            "nothing after the newest frame: the nearest is used"
+        );
+        assert_eq!(
+            bracketing_keys(&candidates, at(3, 0), tol, ValueKind::Categorical),
+            None
+        );
+        assert_eq!(
+            bracketing_keys(&candidates, at(3, 0), tol, ValueKind::Accumulation),
+            None
+        );
+        assert_eq!(
+            bracketing_keys(
+                &candidates,
+                at(3, 0),
+                Duration::seconds(30),
+                ValueKind::Scalar
+            ),
+            None,
+            "frames beyond the tolerance are not blended"
         );
     }
 

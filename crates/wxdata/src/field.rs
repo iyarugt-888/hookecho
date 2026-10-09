@@ -5,7 +5,9 @@ use chrono::{DateTime, Duration, Utc};
 pub use descriptor::{
     DataSource, FieldDescriptor, FieldFamily, FieldId, GeographicBounds, PaletteId, Unit, ValueKind,
 };
-pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
+pub use grid::{
+    blend_frames, BlendRefused, DisplayTransform, GridGeometry, GridProvenance, TimeBlend,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
