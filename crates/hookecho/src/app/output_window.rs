@@ -106,6 +106,9 @@ pub(crate) struct OutputWindow {
     pub fullscreen: bool,
     /// A title strap (a lower third, bottom left above the crawl), when not empty.
     pub strap: String,
+    /// True while program's pane is being drawn into this window, so the map is dressed as
+    /// streaming mode dresses it (the scale's switch and side).
+    pub painting: bool,
     /// The size the window was last asked to be, so a change is sent once.
     sent: Option<(OutputSize, bool)>,
 }
@@ -211,7 +214,9 @@ impl HookEchoApp {
                             let cam = *self.output.held.get_or_insert(self.views[idx].camera);
                             std::mem::replace(&mut self.views[idx].camera, cam)
                         });
+                        self.output.painting = true;
                         self.render_pane(ui, &octx, idx, rect, false, false, false, false, &[]);
+                        self.output.painting = false;
                         if let Some(pane_cam) = held {
                             self.output.held =
                                 Some(std::mem::replace(&mut self.views[idx].camera, pane_cam));
@@ -257,6 +262,18 @@ impl HookEchoApp {
             toggle(ui, &mut b.caption, "Source caption");
             toggle(ui, &mut b.crawl, "Warning crawl");
             toggle(ui, &mut b.legend, "Colour scale");
+            ui.add_enabled_ui(b.legend, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Scale at the");
+                    for side in [
+                        crate::broadcast::LegendSide::Left,
+                        crate::broadcast::LegendSide::Right,
+                    ] {
+                        ui.selectable_value(&mut b.legend_side, side, side.label());
+                    }
+                    ui.label("edge");
+                });
+            });
             let mut logo = b.logo.clone().unwrap_or_default();
             ui.horizontal(|ui| {
                 ui.label("Logo");

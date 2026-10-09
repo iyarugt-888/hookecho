@@ -632,7 +632,7 @@ pub fn builtin_alt(name: &str) -> Option<ColorTable> {
 }
 
 /// Parse the built-in alternate `name`, or `None` if there is no such alternate.
-fn resolve_builtin(name: &str) -> Option<ColorTable> {
+pub(crate) fn resolve_builtin(name: &str) -> Option<ColorTable> {
     let (_, _, src) = ALT_SRC.iter().find(|(n, _, _)| *n == name)?;
     parse_pal(src).ok()
 }

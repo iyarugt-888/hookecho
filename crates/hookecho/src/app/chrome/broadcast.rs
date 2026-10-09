@@ -10,7 +10,7 @@ use egui::{Align2, Color32, FontId, Pos2, Rect};
 const BAND_H: f32 = 34.0;
 const BAND_PX: f32 = 15.0;
 /// Room the clock leaves at the map's right edge for the vertical colour scale and its labels.
-const LEGEND_CLEAR: f32 = 76.0;
+const LEGEND_CLEAR: f32 = crate::ui::legend::VERTICAL_CLEAR;
 
 impl HookEchoApp {
     /// Draw the dressing over the map while streaming mode is on.
@@ -75,10 +75,11 @@ impl HookEchoApp {
                 Color32::from_rgb(240, 240, 245),
             );
         }
-        // The map draws the colour scale down its right edge (`ui::legend::draw_vertical`); the
-        // clock stands clear of it rather than on it.
+        // The map draws the colour scale down its right edge (`ui::legend::draw_vertical`), or
+        // its left (`Broadcast::legend_side`); the clock and the logo stand clear of it.
         let scale_shown = style.legend && v.show_legend && v.volume.is_some();
-        let clock_right = if scale_shown {
+        let scale_left = scale_shown && style.legend_side == crate::broadcast::LegendSide::Left;
+        let clock_right = if scale_shown && !scale_left {
             inner.right().min(rect.right() - LEGEND_CLEAR)
         } else {
             inner.right()
@@ -110,7 +111,12 @@ impl HookEchoApp {
                 let fit = (rect.height() * 0.09 / size.y)
                     .min(rect.width() * 0.30 / size.x)
                     .min(1.0);
-                let r = Rect::from_min_size(inner.left_top(), size * fit);
+                let left = if scale_left {
+                    inner.left().max(rect.left() + LEGEND_CLEAR)
+                } else {
+                    inner.left()
+                };
+                let r = Rect::from_min_size(Pos2::new(left, inner.top()), size * fit);
                 painter.image(
                     tex.id(),
                     r,

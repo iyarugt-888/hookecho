@@ -383,7 +383,8 @@ impl HookEchoApp {
         let font = egui::FontId::proportional(12.0);
         let color = freshness.color();
         let galley = painter.layout_no_wrap(text, font, color);
-        let at = prect.left_top() + egui::vec2(10.0, 10.0);
+        // Clear of a colour scale standing at the left edge.
+        let at = prect.left_top() + egui::vec2(10.0 + self.left_scale_clear(idx), 10.0);
         let back = egui::Rect::from_min_size(at, galley.size() + egui::vec2(14.0, 8.0));
         painter.rect_filled(back, 4.0, egui::Color32::from_black_alpha(215));
         painter.rect_stroke(

@@ -63,22 +63,52 @@ impl HookEchoApp {
         }
     }
 
-    /// The moment's scale, floating over the pane's right edge.
+    /// The edge pane `idx`'s floating scale stands at, and whether it is drawn there. Streaming
+    /// mode and the output window dress the picture: there the scale can be taken off it
+    /// (`Broadcast::legend`) or stand at the left edge (`Broadcast::legend_side`).
+    pub(crate) fn pane_scale(&self, idx: usize) -> (crate::broadcast::LegendSide, bool) {
+        let dressed = self.obs_mode || self.output.painting;
+        let side = if dressed {
+            self.settings.broadcast.legend_side
+        } else {
+            crate::broadcast::LegendSide::Right
+        };
+        let view = &self.views[idx];
+        // The WSV3 layout docks this same scale under the ribbon, so drawing it on the map too
+        // would be the third copy.
+        let wsv3_colorbar = self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
+        let drawn = view.show_legend
+            && !(dressed && !self.settings.broadcast.legend)
+            && !crate::platform::phone_layout()
+            && view.volume.is_some()
+            && !wsv3_colorbar;
+        (side, drawn)
+    }
+
+    /// How far in from the pane's left edge things in its top-left corner start, to stand clear
+    /// of a scale drawn at that edge.
+    pub(crate) fn left_scale_clear(&self, idx: usize) -> f32 {
+        match self.pane_scale(idx) {
+            (crate::broadcast::LegendSide::Left, true) => ui::legend::VERTICAL_CLEAR,
+            _ => 0.0,
+        }
+    }
+
+    /// The moment's scale, floating over the pane's right edge (or its left, when dressed so).
     pub(crate) fn paint_legend(&self, painter: &egui::Painter, prect: egui::Rect, idx: usize) {
-        // Streaming mode can take the scale off the picture (`Broadcast::legend`).
-        let legend_allowed = !(self.obs_mode && !self.settings.broadcast.legend);
+        let dressed = self.obs_mode || self.output.painting;
+        let legend_allowed = !(dressed && !self.settings.broadcast.legend);
+        let (side, scale_drawn) = self.pane_scale(idx);
+        let scale_rect = ui::legend::vertical_rect(prect, side);
         let view = &self.views[idx];
         if view.show_legend && legend_allowed && !crate::platform::phone_layout() {
-            // The moment's scale floats over this pane's right edge (no panel, no card) so the map
-            // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
-            // this same scale under the ribbon, so drawing it here too would be the third copy.
-            let wsv3_colorbar =
-                self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
-            if view.volume.is_some() && !wsv3_colorbar {
+            // The moment's scale floats over this pane's edge (no panel, no card) so the map
+            // keeps the pixels; the field/wind ramps still need their cards.
+            if scale_drawn {
                 if let Some((table, _, units)) = self.product_legend(idx) {
                     ui::legend::draw_vertical(
                         painter,
-                        prect,
+                        scale_rect,
                         view.moment,
                         &table,
                         None,
@@ -89,7 +119,7 @@ impl HookEchoApp {
                     let (df, dl) = display_units(view.moment, &self.settings);
                     ui::legend::draw_vertical(
                         painter,
-                        prect,
+                        scale_rect,
                         view.moment,
                         self.palettes.table(view.moment),
                         view.active_threshold(),
@@ -103,6 +133,8 @@ impl HookEchoApp {
             // Every pane ducks by the same amount rather than only the top row: in a 2x2 grid the
             // lower cards then sit a little further from their pane's edge, which nobody notices,
             // and the alternative is a rect comparison that has to know about window insets.
+            // A scale at the left edge has the cards step to the right of it.
+            let cards = prect.with_min_x(prect.left() + self.left_scale_clear(idx));
             let mut y = 48.0;
             // Whichever gridded layer the user actually sees on top — the last enabled one in
             // paint order — gets its scale keyed underneath. Without this, MESH/QPE/VIL and the
@@ -117,11 +149,11 @@ impl HookEchoApp {
             {
                 use crate::render::FieldLayer as FL;
                 if *top == FL::ModelDiff {
-                    y += ui::legend::draw_diff(painter, prect, self.diff_field, self.diff_mode, y);
+                    y += ui::legend::draw_diff(painter, cards, self.diff_field, self.diff_mode, y);
                 } else if *top == FL::Ensemble {
                     y += ui::legend::draw_ensemble(
                         painter,
-                        prect,
+                        cards,
                         &self.ensemble,
                         y,
                         self.settings.temp_unit,
@@ -137,22 +169,22 @@ impl HookEchoApp {
                     } else {
                         label_b.into()
                     };
-                    y += ui::legend::draw_compare_label(painter, prect, y, &model);
+                    y += ui::legend::draw_compare_label(painter, cards, y, &model);
                     y += ui::legend::draw_field(
                         painter,
-                        prect,
+                        cards,
                         self.diff_field.source_layer(),
                         y,
                         self.settings.temp_unit,
                     );
                 } else if *top == FL::UserColumn {
-                    y += self.paint_column_key(painter, prect, idx, y);
+                    y += self.paint_column_key(painter, cards, idx, y);
                 } else if *top == FL::ModelField {
-                    y += self.paint_model_field_key(painter, prect, idx, y);
+                    y += self.paint_model_field_key(painter, cards, idx, y);
                 } else if *top == FL::UserColumnTrail {
-                    y += self.paint_column_trail_key(painter, prect, idx, y);
+                    y += self.paint_column_trail_key(painter, cards, idx, y);
                 } else {
-                    y += ui::legend::draw_field(painter, prect, *top, y, self.settings.temp_unit);
+                    y += ui::legend::draw_field(painter, cards, *top, y, self.settings.temp_unit);
                 }
             }
             // Wind particles carry their own scale — it isn't a FieldLayer, so it needs its own
@@ -160,7 +192,7 @@ impl HookEchoApp {
             if self.show_wind && self.wind.is_some() {
                 ui::legend::draw_ramp(
                     painter,
-                    prect,
+                    cards,
                     &crate::render::field_ramps::WIND,
                     y,
                     self.settings.temp_unit,

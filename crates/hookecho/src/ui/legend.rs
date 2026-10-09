@@ -20,6 +20,23 @@ const BAR_H: f32 = 16.0;
 const INSET: f32 = 12.0;
 /// Card padding around the bar: title above, tick labels below.
 const PAD_X: f32 = 6.0;
+/// The vertical scale's bar width.
+const VERTICAL_W: f32 = 14.0;
+/// How far in from its edge of the map the vertical scale and its labels reach; dressing and
+/// cards on that side stand clear of it.
+pub const VERTICAL_CLEAR: f32 = 76.0;
+
+/// The rect to hand [`draw_vertical`] for a scale at `side` of `map`. It draws at its rect's
+/// right edge, so a left-hand scale gets a strip along the map's left edge.
+pub fn vertical_rect(map: Rect, side: crate::broadcast::LegendSide) -> Rect {
+    match side {
+        crate::broadcast::LegendSide::Right => map,
+        crate::broadcast::LegendSide::Left => Rect::from_min_max(
+            map.left_top(),
+            egui::pos2(map.left() + VERTICAL_W + INSET * 2.0, map.bottom()),
+        ),
+    }
+}
 
 /// Card backing. Opaque: basemap place labels are baked into the raster tiles underneath, so the
 /// only way to stop them reading through the legend is to not be translucent.
@@ -49,7 +66,7 @@ pub fn draw_vertical(
     disp_factor: f32,
     disp_label: &str,
 ) {
-    const W: f32 = 14.0;
+    const W: f32 = VERTICAL_W;
     const HEAD_H: f32 = 18.0;
     let (vmin, vmax) = match (table.stops.first(), table.stops.last()) {
         (Some(a), Some(b)) if b.value > a.value => (a.value, b.value),

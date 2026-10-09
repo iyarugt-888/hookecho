@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: scenes keep their colour tables and drawings; the scale can stand on the left
+
+A scene saved now also keeps the colour tables and anything drawn on the map, and Take puts
+them back. If the table for the product the scene shows can't be found, Take refuses and names
+the file rather than airing the scene in other colours. The streaming overlay can put the colour
+scale at the left edge; the clock, logo and cards make room for it. Scenes saved before keep the
+current tables and drawing.
+
 ### Measured: what the 3D volume costs to draw
 
 A GPU trace now times the 3D raymarch on a real volume (Moore 2013, 192 × 192 × 48 voxels, drawn

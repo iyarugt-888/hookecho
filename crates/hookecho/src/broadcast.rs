@@ -15,6 +15,9 @@ pub struct Broadcast {
     pub safe_margin_pct: f32,
     /// The product's colour scale.
     pub legend: bool,
+    /// Which edge of the picture the scale stands at (ROADMAP_PARITY M6.2); an older style
+    /// without one keeps it at the right.
+    pub legend_side: LegendSide,
     /// The one-line source caption: site, product, tilt, time, whose render.
     pub caption: bool,
     /// The valid time, large, top right, with the date and zone under it.
@@ -31,10 +34,30 @@ impl Default for Broadcast {
         Broadcast {
             safe_margin_pct: 5.0,
             legend: true,
+            legend_side: LegendSide::Right,
             caption: true,
             clock: true,
             crawl: true,
             logo: None,
+        }
+    }
+}
+
+/// The edge of the picture the vertical colour scale stands at, in streaming mode and the output
+/// window. Off-screen renders (`--watch`) draw a horizontal bar of their own and ignore it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LegendSide {
+    #[default]
+    Right,
+    Left,
+}
+
+impl LegendSide {
+    pub fn label(self) -> &'static str {
+        match self {
+            LegendSide::Right => "Right",
+            LegendSide::Left => "Left",
         }
     }
 }
@@ -46,6 +69,7 @@ impl Broadcast {
         Broadcast {
             safe_margin_pct: 0.0,
             legend: true,
+            legend_side: LegendSide::Right,
             caption: true,
             clock: false,
             crawl: false,
@@ -208,6 +232,15 @@ pub struct Scene {
     /// The 3D map; `None` (an older scene) leaves it as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view3d: Option<SceneView3d>,
+    /// The colour tables, as `Settings::palettes` keeps them (moment short name to a `.pal` path,
+    /// a `builtin:` name, or a browser's stored file); a moment it does not name uses the
+    /// built-in table. `None` (an older scene) leaves the palettes as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub palettes: Option<std::collections::BTreeMap<String, String>>,
+    /// The freehand annotations on the map, as a case keeps them. `None` (an older scene) leaves
+    /// whatever is drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<crate::case::CaseStroke>>,
 }
 
 #[cfg(test)]

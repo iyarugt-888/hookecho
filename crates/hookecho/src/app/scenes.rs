@@ -6,6 +6,8 @@
 //! Since scene format 2 (ROADMAP_PARITY M6.2) a scene also keeps the pane's product, tilt, SRV,
 //! field layers, thresholds and column product, and whether it is live or one archived instant;
 //! an older scene keeps the pane's current product and time for the parts it never stored.
+//! Scenes saved since also keep the colour tables and the freehand annotations; the colour
+//! scale's side rides in the dressing (`Broadcast::legend_side`).
 
 use super::*;
 use crate::broadcast::{Scene, SceneProduct, SceneTime, SceneView3d, SCENE_VERSION};
@@ -92,6 +94,22 @@ pub(crate) fn scene_readiness(
             Some(_) => {}
         }
     }
+    if let Some(pals) = &scene.palettes {
+        let on_air = scene.product.as_ref().map(|p| p.moment);
+        for (key, value) in pals {
+            let Some(why) = palette_problem(value, settings) else {
+                continue;
+            };
+            // The scene's own product in another colour table is a different picture under the
+            // scene's name; another moment's table is only kept as it is.
+            if on_air.is_some_and(|m| palette_key_is(key, m)) {
+                r.blocking.push(format!("{key} colour table: {why}"));
+            } else {
+                r.notes
+                    .push(format!("{key} colour table is kept as it is: {why}"));
+            }
+        }
+    }
     if let Some(SceneTime::Fixed { utc }) = scene.time {
         r.notes.push(format!(
             "archive scene: Take loads {} UTC",
@@ -125,6 +143,76 @@ pub(crate) fn scene_readiness(
         ));
     }
     r
+}
+
+/// Whether `key` in `Settings::palettes` names moment `m`'s table (CC also answers to its
+/// pre-rename key, as `Settings::palette_paths` reads it).
+fn palette_key_is(key: &str, m: Moment) -> bool {
+    key == m.short_name() || (m == Moment::CorrelationCoefficient && key == "RHO")
+}
+
+/// Why the colour table a scene names cannot be loaded here, or `None` when it can: a built-in
+/// alternate this build lacks, a file that is gone, or one that is not a colour table. A browser's
+/// stored file (`Settings::web_files`) carries its own content.
+pub(crate) fn palette_problem(value: &str, settings: &crate::settings::Settings) -> Option<String> {
+    if let Some(name) = value.strip_prefix(crate::colormap::BUILTIN_PREFIX) {
+        return crate::colormap::resolve_builtin(name)
+            .is_none()
+            .then(|| format!("built-in table \u{201c}{name}\u{201d} is not in this build"));
+    }
+    let text = match settings.web_files.get(value) {
+        Some(text) => text.clone(),
+        None => match std::fs::read_to_string(value) {
+            Ok(text) => text,
+            Err(_) => return Some(format!("no file at {value}")),
+        },
+    };
+    crate::colormap::parse_pal(&text)
+        .err()
+        .map(|e| format!("{value} is not a colour table ({e})"))
+}
+
+/// The colour tables Take leaves set: the scene's, except one that cannot load here, where the
+/// table set now stays (readiness has said so, or stopped Take when it is the scene's product).
+/// A moment the scene does not name goes back to the built-in table, as it was when saved.
+pub(crate) fn scene_palettes(
+    scene: &std::collections::BTreeMap<String, String>,
+    settings: &crate::settings::Settings,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (key, value) in scene {
+        if palette_problem(value, settings).is_none() {
+            out.insert(key.clone(), value.clone());
+        } else if let Some(now) = settings.palettes.get(key) {
+            out.insert(key.clone(), now.clone());
+        }
+    }
+    out
+}
+
+/// Annotation strokes as a scene (or a case) stores them.
+pub(crate) fn stored_strokes(strokes: &[Stroke2d]) -> Vec<crate::case::CaseStroke> {
+    strokes
+        .iter()
+        .map(|s| crate::case::CaseStroke {
+            points: s.points.clone(),
+            rgba: s.color.to_array(),
+        })
+        .collect()
+}
+
+/// Stored annotation strokes back on the map.
+pub(crate) fn drawn_strokes(stored: &[crate::case::CaseStroke]) -> Vec<Stroke2d> {
+    stored
+        .iter()
+        .map(|s| Stroke2d {
+            points: s.points.clone(),
+            // `Color32::to_array` wrote it premultiplied; read it back the same way.
+            color: egui::Color32::from_rgba_premultiplied(
+                s.rgba[0], s.rgba[1], s.rgba[2], s.rgba[3],
+            ),
+        })
+        .collect()
 }
 
 impl OutputSize {
@@ -289,6 +377,8 @@ impl HookEchoApp {
             product: Some(scene_product(v)),
             time: scene_time(v),
             view3d: Some(scene_view3d(v)),
+            palettes: Some(self.settings.palettes.clone()),
+            annotations: Some(stored_strokes(&self.strokes)),
             name,
             site: v.site.clone(),
             lon,
@@ -337,7 +427,7 @@ impl HookEchoApp {
     }
 
     /// Put a scene on pane `target`: camera (flown to), product and time, layers, colour scale,
-    /// dressing, strap, output size, GIS layers.
+    /// colour tables, annotations, dressing, strap, output size, GIS layers.
     fn apply_scene_to(&mut self, target: usize, scene: &Scene) {
         let camera = crate::render::mercator::Camera {
             center: crate::render::mercator::lonlat_to_world(scene.lon, scene.lat),
@@ -390,6 +480,15 @@ impl HookEchoApp {
                 .any(|s| OverlayToggle::from_slug(s) == Some(t));
         }
         self.settings.broadcast = scene.style.clone();
+        // Applied by the frame's end like any other palette change (`frame_end`).
+        if let Some(pals) = &scene.palettes {
+            self.settings.palettes = scene_palettes(pals, &self.settings);
+        }
+        // The scene's drawing replaces what is on the map, so the last scene's arrows do not
+        // stay on air over this one.
+        if let Some(strokes) = &scene.annotations {
+            self.strokes = drawn_strokes(strokes);
+        }
         self.output.strap = scene.strap.clone();
         if let Some(size) = OutputSize::from_label(&scene.size) {
             self.output.size = size;
@@ -807,6 +906,164 @@ mod tests {
             "{:?}",
             r.blocking
         );
+    }
+
+    #[test]
+    fn a_scene_keeps_its_colour_tables_and_never_airs_a_missing_one() {
+        let hc = "builtin:High contrast (reflectivity)";
+        let dir = std::env::temp_dir().join(format!("hookecho-scene-pal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let not_a_table = dir.join("notes.pal");
+        std::fs::write(&not_a_table, "hello").unwrap();
+        let gone = dir.join("gone.pal");
+        let mut settings = crate::settings::Settings::default();
+        settings
+            .palettes
+            .insert("VEL".into(), "builtin:something-set-now".into());
+        settings.palettes.insert("ZDR".into(), "zdr-now.pal".into());
+        settings.web_files.insert(
+            "cc.pal".into(),
+            crate::colormap::to_pal_string(crate::colormap::default_table(
+                Moment::CorrelationCoefficient,
+            )),
+        );
+        let pals: std::collections::BTreeMap<String, String> = [
+            ("REF".to_string(), hc.to_string()),
+            ("VEL".to_string(), gone.display().to_string()),
+            ("ZDR".to_string(), not_a_table.display().to_string()),
+            ("CC".to_string(), "cc.pal".to_string()),
+        ]
+        .into();
+        assert!(palette_problem(hc, &settings).is_none());
+        assert!(
+            palette_problem("cc.pal", &settings).is_none(),
+            "a browser's stored file"
+        );
+        assert!(palette_problem("builtin:Nope", &settings)
+            .unwrap()
+            .contains("Nope"));
+        assert!(palette_problem(&gone.display().to_string(), &settings)
+            .unwrap()
+            .contains("no file"));
+        assert!(
+            palette_problem(&not_a_table.display().to_string(), &settings)
+                .unwrap()
+                .contains("not a colour table")
+        );
+        let base: Scene =
+            serde_json::from_str(r#"{"name":"Pal","lon":-97.0,"lat":35.0,"zoom":8.0}"#).unwrap();
+        assert!(
+            base.palettes.is_none() && base.annotations.is_none(),
+            "an older scene"
+        );
+        let product = |moment| SceneProduct {
+            moment,
+            tilt: 0,
+            srv: false,
+            fields_on: Vec::new(),
+            thresholds: Vec::new(),
+            column_product: None,
+        };
+        // On air in reflectivity: the broken velocity and ZDR tables are notes.
+        let refl = Scene {
+            palettes: Some(pals.clone()),
+            product: Some(product(Moment::Reflectivity)),
+            ..base.clone()
+        };
+        let r = scene_readiness(&refl, &settings, Ok(0));
+        assert!(r.blocking.is_empty(), "{:?}", r.blocking);
+        assert_eq!(r.notes.len(), 2, "{:?}", r.notes);
+        assert!(
+            r.notes.iter().all(|n| n.contains("kept as it is")),
+            "{:?}",
+            r.notes
+        );
+        // On air in velocity, its own table missing stops Take.
+        let vel = Scene {
+            product: Some(product(Moment::Velocity)),
+            ..refl.clone()
+        };
+        let r = scene_readiness(&vel, &settings, Ok(0));
+        assert_eq!(r.blocking.len(), 1, "{:?}", r.blocking);
+        assert!(
+            r.blocking[0].starts_with("VEL colour table: no file"),
+            "{:?}",
+            r.blocking
+        );
+        // What Take sets: the scene's tables, the current ones where the scene's cannot load,
+        // and the built-in for a moment the scene does not name.
+        settings.palettes.insert("SW".into(), "sw-now.pal".into());
+        let set = scene_palettes(&pals, &settings);
+        assert_eq!(set.get("REF").map(String::as_str), Some(hc));
+        assert_eq!(
+            set.get("VEL").map(String::as_str),
+            Some("builtin:something-set-now")
+        );
+        assert_eq!(set.get("ZDR").map(String::as_str), Some("zdr-now.pal"));
+        assert_eq!(set.get("CC").map(String::as_str), Some("cc.pal"));
+        assert!(
+            !set.contains_key("SW"),
+            "not in the scene: back to the built-in table"
+        );
+        let back: Scene = serde_json::from_str(&serde_json::to_string(&refl).unwrap()).unwrap();
+        assert_eq!(back, refl);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_scene_keeps_its_annotations_in_their_colours() {
+        let drawn = vec![
+            Stroke2d {
+                points: vec![[-97.5, 35.3], [-97.4, 35.35]],
+                color: DRAW_COLORS[0],
+            },
+            Stroke2d {
+                points: vec![[-97.0, 35.0]],
+                color: egui::Color32::from_rgba_unmultiplied(90, 220, 255, 128),
+            },
+        ];
+        let stored = stored_strokes(&drawn);
+        let scene: Scene = serde_json::from_value(serde_json::json!({
+            "name": "Arrows", "lon": -97.0, "lat": 35.0, "zoom": 8.0,
+            "annotations": serde_json::to_value(&stored).unwrap()
+        }))
+        .unwrap();
+        assert_eq!(drawn_strokes(scene.annotations.as_deref().unwrap()), drawn);
+        // An empty drawing is kept as empty: Take clears the last scene's arrows.
+        let none: Scene = serde_json::from_value(serde_json::json!({
+            "name": "Clean", "lon": -97.0, "lat": 35.0, "zoom": 8.0, "annotations": []
+        }))
+        .unwrap();
+        assert_eq!(none.annotations, Some(Vec::new()));
+    }
+
+    #[test]
+    fn the_scale_side_rides_in_the_dressing_and_older_styles_keep_it_right() {
+        use crate::broadcast::{Broadcast, LegendSide};
+        let old: Broadcast = serde_json::from_str(r#"{"legend":true,"clock":false}"#).unwrap();
+        assert_eq!(old.legend_side, LegendSide::Right);
+        let left = Broadcast {
+            legend_side: LegendSide::Left,
+            ..old
+        };
+        let json = serde_json::to_string(&left).unwrap();
+        assert!(json.contains(r#""legend_side":"left""#), "{json}");
+        let scene: Scene = serde_json::from_value(serde_json::json!({
+            "name": "L", "lon": -97.0, "lat": 35.0, "zoom": 8.0,
+            "style": serde_json::from_str::<serde_json::Value>(&json).unwrap()
+        }))
+        .unwrap();
+        assert_eq!(scene.style.legend_side, LegendSide::Left);
+        // The scale's strip on the left: its bar sits in from the map's left edge.
+        let map = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 600.0));
+        assert_eq!(
+            crate::ui::legend::vertical_rect(map, LegendSide::Right),
+            map
+        );
+        let strip = crate::ui::legend::vertical_rect(map, LegendSide::Left);
+        assert_eq!(strip.left(), map.left());
+        assert!(strip.right() < map.left() + crate::ui::legend::VERTICAL_CLEAR);
+        assert_eq!(strip.height(), map.height());
     }
 
     #[test]
