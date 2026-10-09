@@ -712,7 +712,18 @@ pub fn body(
         let upload = (rect.height() >= 1.0 && rect.width() >= 1.0)
             .then(|| pending.take())
             .flatten();
-        let cb = Volume3dCallback { upload, uniform };
+        let ppp = ctx.pixels_per_point();
+        let target_px = crate::render3d::offscreen_px(
+            [rect.width() * ppp, rect.height() * ppp],
+            crate::render3d::raymarch_scale(cfg!(target_os = "android"), degraded),
+            // A floating window never reaches the smallest texture limit wgpu guarantees.
+            2048,
+        );
+        let cb = Volume3dCallback {
+            upload,
+            uniform,
+            target_px,
+        };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, cb));
     }

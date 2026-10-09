@@ -295,3 +295,116 @@ fn gpu_volume_modes_draw_where_the_storm_is() {
         lit(&side)
     );
 }
+
+/// A volume of the same shape is written into the textures already on the GPU (a 3D loop does
+/// this every frame); what draws must be the new volume, exactly as a fresh texture draws it.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_a_reused_volume_texture_draws_only_the_new_volume() {
+    use crate::render3d::View3d;
+    let v3 = volume();
+    let storm = upload(&v3);
+    let empty = crate::render3d::Volume3dUpload {
+        data: vec![0; storm.data.len()],
+        ..upload(&v3)
+    };
+    let mut gpu = Gpu::new();
+    let first = gpu.render(&storm, View3d::default(), 89.0);
+    assert!(lit(&first) > 2_000);
+    // Same shape, nothing in it: the storm must be gone, not left behind in the old texture.
+    assert_eq!(lit(&gpu.render(&empty, View3d::default(), 89.0)), 0);
+    // And back: the reused texture draws the storm as it did the first time.
+    assert_eq!(gpu.render(&storm, View3d::default(), 89.0), first);
+    let fresh = Gpu::new().render(&storm, View3d::default(), 89.0);
+    assert_eq!(first, fresh, "a fresh texture draws the same");
+}
+
+/// The app path: the volume raymarched into an offscreen image and copied over the pane. At full
+/// scale it draws what a direct march does; a view that has not changed is not marched again,
+/// and a new volume or camera is.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_the_offscreen_march_matches_a_direct_one_and_only_reruns_on_change() {
+    use crate::render3d::View3d;
+    let v3 = volume();
+    let storm = upload(&v3);
+    let mut gpu = Gpu::new();
+    let direct = gpu.render(&storm, View3d::default(), 89.0);
+    let uniform = |el: f32| {
+        crate::render3d::orbit_uniform(
+            180.0,
+            el,
+            3.2,
+            1.0,
+            storm.n,
+            storm.nz,
+            storm.half_km,
+            storm.top_km,
+            256,
+            View3d::default(),
+        )
+    };
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut res = crate::render3d::Volume3dResources::new(&gpu.device, format);
+    res.upload(&gpu.device, &gpu.queue, &storm);
+    let frame = |res: &mut crate::render3d::Volume3dResources, el: f32, size: u32| {
+        let u = uniform(el);
+        res.write_uniform(&gpu.queue, &u);
+        let mut enc = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        res.march(&gpu.device, &mut enc, &u, [size, size]);
+        let tv = gpu
+            .target
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &tv,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(BG),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            res.record_offscreen(&mut pass);
+        }
+        gpu.queue.submit(Some(enc.finish()));
+        super::read_target(&gpu.device, &gpu.queue, &gpu.target, SIZE)
+    };
+    let full = frame(&mut res, 89.0, SIZE);
+    let worst = full
+        .iter()
+        .zip(&direct)
+        .map(|(a, b)| (*a as i16 - *b as i16).unsigned_abs())
+        .max()
+        .unwrap();
+    // One sRGB round trip of premultiplied colour: a step or two per channel at most.
+    assert!(
+        worst <= 3,
+        "offscreen differs from the direct march by {worst}"
+    );
+    assert_eq!(res.marches, 1);
+    // The same view again: copied, not marched.
+    assert_eq!(frame(&mut res, 89.0, SIZE), full);
+    assert_eq!(res.marches, 1, "an unchanged view was raymarched again");
+    // The camera moves: marched again.
+    frame(&mut res, 60.0, SIZE);
+    assert_eq!(res.marches, 2);
+    // A new volume of the same shape: marched again.
+    res.upload(&gpu.device, &gpu.queue, &storm);
+    frame(&mut res, 60.0, SIZE);
+    assert_eq!(res.marches, 3);
+    // Half resolution (the phone scale): the storm is still where it was.
+    let half = frame(&mut res, 89.0, SIZE / 2);
+    let (a, b) = (echo_centroid_x(&half), echo_centroid_x(&direct));
+    assert!((a - b).abs() < 0.02, "half-scale centroid {a} vs {b}");
+    assert!((lit(&half) as f32 / lit(&direct) as f32 - 1.0).abs() < 0.1);
+}

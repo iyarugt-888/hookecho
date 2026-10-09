@@ -2228,6 +2228,8 @@ pub struct HookEchoApp {
     /// geometry and contributor coverage are accepted together, and hidden on mismatch.
     /// Heavy samples stay shared with the byte-bounded playback cache.
     smooth_vol_key: [Option<SmoothKey>; crate::view::MAX_PANES],
+    /// Panes whose GPU volume should be freed on their next paint (3D turned off).
+    smooth_vol_release: [bool; crate::view::MAX_PANES],
     /// Per pane: the isosurface shells shown and the [`IsoKey`] they were built for
     /// (ROADMAP_NEW H3).
     iso_mesh: [Option<(IsoKey, Arc<crate::loop3d::IsoFrame>)>; crate::view::MAX_PANES],

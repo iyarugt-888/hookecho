@@ -1131,6 +1131,7 @@ impl HookEchoApp {
             }
         }
         self.sync_gis_layers();
+        self.release_3d();
         for idx in 0..self.views.len() {
             self.sync_isosurface(idx, ctx);
             self.prebuild_loop3d(idx, ctx);

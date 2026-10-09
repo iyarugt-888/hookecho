@@ -3373,6 +3373,7 @@ mod shader_tests {
             ("overlay", super::OVERLAY_WGSL),
             ("mrms", super::MRMS_WGSL),
             ("raymarch", include_str!("../shaders/raymarch.wgsl")),
+            ("volume_blit", include_str!("../shaders/volume_blit.wgsl")),
             ("wind", include_str!("../shaders/wind.wgsl")),
         ];
         for (name, src) in shaders {

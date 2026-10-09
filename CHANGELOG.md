@@ -19,6 +19,26 @@ match the workstation's faders: the track filled with the accent up to the value
 accent grab. The timeline's first hour label no longer falls off the left edge. The high-contrast
 and colorblind-safe radar color tables stay in Settings → Palettes.
 
+### Fixed: the 3D volume heating up phones and tablets
+
+The 3D Volume view re-ran its full raymarch (hundreds of samples through the 3D texture for every
+pixel) on every frame, even when nothing on screen had changed, and at the tablet's full screen
+resolution. On a phone or tablet GPU that heats the chip until it throttles: the frame rate falls
+minute by minute and, once a frame takes too long, the GPU driver resets and the app crashes. The
+volume is now drawn once into an image and only drawn again when the camera, a setting or the
+data changes; every other frame just shows that image. On Android it is drawn at half the screen
+resolution (a quarter of the work, and a smooth volume looks the same), and a little lower still
+while frames are slow.
+
+### Fixed: 3D slowing down over time and running out of memory
+
+The 3D map kept every volume and isosurface it had ever built for a pane, even after 3D was
+turned off, the radar site changed or the pane closed, and each pane had its own large budget
+(up to about 740 MB each on desktop), so a long session kept climbing. 3D now shares one budget
+between the panes showing it and gives everything back when a pane leaves 3D or moves to another
+radar. Playing a loop in 3D also created a brand-new GPU volume texture for every frame; the
+existing one is now rewritten in place, in both the 3D map and the 3D volume window.
+
 ### Added: radar outlines in the GeoJSON export
 
 "Export map as GeoJSON…" now includes the displayed reflectivity scan's 35, 50 and 60 dBZ
