@@ -314,6 +314,25 @@ impl HookEchoApp {
                     "elevation_deg": vol.and_then(|vol| vol.elevations.get(v.tilt).copied()),
                     "volume": vol.map(|vol| vol.name.clone()),
                     "volume_time_utc": vol.map(|vol| vol.time.to_rfc3339()),
+                    // When an archived volume was received, from its cache receipt (1008.md A4);
+                    // null when unknown (live, cached before receipts, or swept).
+                    "archive_receipt": vol.and_then(|vol| {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            crate::paths::cache_dir()
+                                .and_then(|d| wxdata::level2::archive_receipt(&d, &vol.name))
+                                .map(|r| json!({
+                                    "received_utc": r.received_utc.to_rfc3339(),
+                                    "source": r.source,
+                                    "bytes": r.bytes,
+                                }))
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = vol;
+                            None::<serde_json::Value>
+                        }
+                    }),
                     "vcp": vol.map(|vol| vol.vcp.clone()),
                     "following_live": v.timeline.following,
                 })
@@ -331,6 +350,9 @@ impl HookEchoApp {
                 "rotation_min_confidence": self.settings.detectors.rotation_min_confidence,
             },
             "tornado_id": self.tornado_lineage_json(),
+            // Warnings and observations with their own clocks (1008.md A4).
+            "warnings": self.warning_lineage_json(),
+            "observations": self.metar_lineage_json(),
             "melting_level": self.freezing.as_ref().map(|l| json!({
                 "site": l.site,
                 "source": if l.epoch.is_some() { "observed sounding" } else { "HRRR analysis" },
@@ -350,6 +372,49 @@ impl HookEchoApp {
                 "Detections: HookEcho heuristics, not NWS products",
             ],
         })
+    }
+
+    /// Each warning in effect within 250 km of the active radar, with its own clocks and, for
+    /// one that arrived while the app ran, when it was received.
+    fn warning_lineage_json(&self) -> serde_json::Value {
+        let near = self.active_site_bounds(250.0);
+        let received = |id: &str| {
+            self.alert_latency
+                .samples()
+                .chain(self.wire.latency.samples())
+                .find(|s| s.id == id)
+                .map(|s| s.received)
+        };
+        let mut seen = std::collections::HashSet::new();
+        let records: Vec<serde_json::Value> = self
+            .alert_features
+            .iter()
+            .filter(|f| f.kind == wxdata::overlay::FeatureKind::Warning)
+            .filter(|f| match (near, f.bbox()) {
+                (Some((x0, y0, x1, y1)), Some((a0, b0, a1, b1))) => {
+                    a0 <= x1 && a1 >= x0 && b0 <= y1 && b1 >= y0
+                }
+                (None, _) => true,
+                (_, None) => false,
+            })
+            .filter_map(|f| f.alert.as_ref())
+            .filter(|a| seen.insert(a.id.clone()))
+            .map(|a| wxdata::source_lineage::warning_record(a, received(&a.id)))
+            .collect();
+        serde_json::Value::Array(records)
+    }
+
+    /// The surface observations on the map, with the stations' own clocks.
+    fn metar_lineage_json(&self) -> serde_json::Value {
+        if self.metars.is_empty() {
+            return serde_json::Value::Null;
+        }
+        let times: Vec<Option<i64>> = self.metars.iter().map(|o| o.obs_time).collect();
+        wxdata::source_lineage::observations_record(
+            "aviationweather.gov METAR",
+            &times,
+            self.metars_received,
+        )
     }
 
     /// The active pane's shown debris signatures and couplets as CSV rows.

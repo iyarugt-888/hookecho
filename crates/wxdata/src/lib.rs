@@ -102,6 +102,7 @@ pub mod rotation_objects;
 pub mod rotation_tracks;
 pub mod route;
 pub mod rtma;
+pub mod source_lineage;
 pub mod scan_age;
 pub mod scoretrack;
 pub mod severe;

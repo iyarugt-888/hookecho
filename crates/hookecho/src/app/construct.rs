@@ -582,6 +582,7 @@ impl HookEchoApp {
             metars: Vec::new(),
             tafs: Default::default(),
             metar_last_fetch: None,
+            metars_received: None,
             metar_bounds: None,
             show_gauges: false,
             gauges: Vec::new(),

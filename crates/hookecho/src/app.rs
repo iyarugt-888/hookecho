@@ -1796,6 +1796,8 @@ pub struct HookEchoApp {
     /// Raw TAF text by ICAO, for the station tooltips (empty where a station files none).
     tafs: std::collections::HashMap<String, String>,
     metar_last_fetch: Option<Instant>,
+    /// When the current `metars` reply was accepted, on the wall clock (their lineage, M1.4).
+    metars_received: Option<DateTime<Utc>>,
     /// The `(lat0, lon0, lat1, lon1)` bbox the current `metars` were fetched for.
     metar_bounds: Option<(f64, f64, f64, f64)>,
     /// River flood gauges (NWPS): toggle, current gauges, fetch clock + bbox (mirrors METAR).

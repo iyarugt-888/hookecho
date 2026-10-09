@@ -493,6 +493,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Metar(obs, tafs) => {
                     self.metars = obs;
+                    self.metars_received = Some(chrono::Utc::now());
                     self.tafs = tafs;
                 }
                 OverlayMsg::Webcams(sites) => {

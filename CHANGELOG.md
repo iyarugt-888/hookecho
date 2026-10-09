@@ -20,6 +20,14 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: where warnings, observations and archive volumes came from, in the export
+
+The analysis export's `provenance.json` now lists the warnings in effect near the radar with
+their own times — VTEC begin and end, sent, effective, expires, which feed brought them and, for
+ones that arrived while the app was running, when they arrived — and the surface observations'
+own station times. An archive volume downloaded into the cache now keeps a note of when it was
+received, so reopening it later still says so; older cached volumes say "unknown".
+
 ### Added: the gate inspector shows how the radar sent each gate
 
 A new "As transmitted" row shows the gate's raw code as it arrived in the Level II data, its word

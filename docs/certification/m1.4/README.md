@@ -138,6 +138,8 @@ take a pass's time for the time of all its evidence. The newest pass's rotation 
   whether it read *likely*; the newest six), across volumes. Their sweeps' own scan times are
   recorded only for the passes in the verdict's own volume (`earlier_passes`), and no reviewed
   hover capture of the cross-volume list exists yet.
-- **Other layers.** Warnings and observations do not carry this record yet.
+- **Other layers.** Since 2026-10-09 warnings and surface observations carry their own lineage
+  in `provenance.json` (`warnings`, `observations`), and archive volumes their cache receipt;
+  neither has a hover of its own yet.
 - **Platforms.** Android and browser runtime, and full application interaction, are not
   certified.

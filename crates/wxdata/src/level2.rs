@@ -1163,9 +1163,34 @@ pub async fn scan_from_volume_bytes(name: &str, bytes: Vec<u8>) -> anyhow::Resul
 /// bytes before decode used to let one unlucky poll pin a broken file to disk forever: every later
 /// read of that name kept coming from the cache, decoding the same incomplete download, even
 /// long after the real object had finished uploading.
+/// When an archive volume in the disk cache was received (1008.md A4 item 3): kept beside it as
+/// `<name>.receipt.json` when it is downloaded and cached, so reopening it later reports when it
+/// actually arrived, not when it was read back. A volume cached before receipts existed, or whose
+/// receipt the cache sweep removed, has none: its receipt is unknown, never "now".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ArchiveReceipt {
+    pub received_utc: chrono::DateTime<chrono::Utc>,
+    pub source: String,
+    pub bytes: u64,
+}
+
+/// Where a cached volume's receipt is kept.
+pub fn receipt_path(cache_dir: &std::path::Path, name: &str) -> PathBuf {
+    cache_dir
+        .join("volumes")
+        .join(format!("{name}.receipt.json"))
+}
+
+/// The receipt of cached volume `name`, when one was kept.
+pub fn archive_receipt(cache_dir: &std::path::Path, name: &str) -> Option<ArchiveReceipt> {
+    let text = std::fs::read_to_string(receipt_path(cache_dir, name)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow::Result<Scan> {
     use nexrad_data::aws::archive;
     let name = id.name().to_string();
+    let receipt_file = cache_dir.as_deref().map(|d| receipt_path(d, &name));
     let cache_file = cache_dir.map(|d| d.join("volumes").join(&name));
     let cached = cache_file
         .as_ref()
@@ -1181,7 +1206,7 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
                 .map_err(|e| anyhow::anyhow!("download_file: {e}"))?;
             crate::stats::net(f.data().len());
             let bytes = f.data().to_vec();
-            (f, Some(bytes))
+            (f, Some((bytes, chrono::Utc::now())))
         }
     };
     // bzip2 decompression plus the message decode is tens of MB of pure CPU. On the async worker
@@ -1200,11 +1225,21 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
     };
     // Only a whole volume is kept: a truncated download is shown for what it has, and fetched
     // again next time rather than cached as if it were the real thing.
-    if let (Some(p), Some(bytes), true) = (&cache_file, fresh_bytes, scan_complete(&scan)) {
+    if let (Some(p), Some((bytes, received)), true) =
+        (&cache_file, fresh_bytes, scan_complete(&scan))
+    {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        let receipt = ArchiveReceipt {
+            received_utc: received,
+            source: "AWS unidata-nexrad-level2 archive".into(),
+            bytes: bytes.len() as u64,
+        };
         let _ = std::fs::write(p, bytes);
+        if let (Some(r), Ok(text)) = (&receipt_file, serde_json::to_string(&receipt)) {
+            let _ = std::fs::write(r, text);
+        }
     }
     // Legacy (pre-2008) volumes carry no volume data block, so the decoder can't name the radar.
     // The volume's own filename can: "KTLX19910605_162126".
@@ -3902,6 +3937,29 @@ mod tests {
         }
     }
 
+    /// A volume cached before receipts existed, or whose receipt is unreadable, has no receipt:
+    /// unknown, never "now" (1008.md A4).
+    #[test]
+    fn a_missing_or_broken_receipt_is_unknown() {
+        let dir = std::env::temp_dir().join(format!("hookecho-receipt-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("volumes")).unwrap();
+        assert_eq!(archive_receipt(&dir, "KTLX20130520_201229_V06"), None);
+        std::fs::write(receipt_path(&dir, "KTLX20130520_201229_V06"), "{not json").unwrap();
+        assert_eq!(archive_receipt(&dir, "KTLX20130520_201229_V06"), None);
+        let r = ArchiveReceipt {
+            received_utc: "2026-10-09T05:00:00Z".parse().unwrap(),
+            source: "AWS unidata-nexrad-level2 archive".into(),
+            bytes: 12,
+        };
+        std::fs::write(
+            receipt_path(&dir, "KTLX20130520_201229_V06"),
+            serde_json::to_string(&r).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(archive_receipt(&dir, "KTLX20130520_201229_V06"), Some(r));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// The AWS archive reaches back to June 1991 — a decade earlier than the app used to claim.
     /// Those volumes are gzip files of legacy (pre-2008, pre-dual-pol) Type-1 messages, so this
     /// is really a test that the whole legacy path still decodes.
@@ -3914,14 +3972,24 @@ mod tests {
         let id = list_volumes("KTLX", day).await.unwrap().pop().unwrap();
         let name = id.name().to_string();
 
+        let before = chrono::Utc::now();
         let first = download_scan(id.clone(), Some(dir.clone())).await.unwrap();
         let path = dir.join("volumes").join(&name);
         assert!(path.exists(), "the raw volume lands on disk");
+        // Its receipt beside it (1008.md A4): when it arrived, from where, how many bytes.
+        let receipt = archive_receipt(&dir, &name).expect("a receipt for the cached volume");
+        assert!(receipt.received_utc >= before && receipt.received_utc <= chrono::Utc::now());
+        assert_eq!(receipt.bytes, std::fs::metadata(&path).unwrap().len());
 
         // Second time through must decode the same scan from the file; unplug the network by
         // trusting the byte count — a re-download would have to write the same bytes anyway, so
         // the real check is that the cached path produces an identical scan.
         let second = download_scan(id, Some(dir.clone())).await.unwrap();
+        assert_eq!(
+            archive_receipt(&dir, &name),
+            Some(receipt),
+            "a cache hit keeps the original receipt"
+        );
         assert_eq!(first.sweeps().len(), second.sweeps().len());
         assert_eq!(elevation_angles(&first), elevation_angles(&second));
         std::fs::remove_dir_all(&dir).unwrap();
