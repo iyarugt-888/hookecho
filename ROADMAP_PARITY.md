@@ -1322,6 +1322,17 @@ Report: [`docs/certification/m3.6/roi-iso-moore.txt`](docs/certification/m3.6/ro
 
 **Evidence ledger — 2026-10-09, increment 5 (symbols by attribute; 1008.md D2):** "Symbol by" gives each value of an attribute its own point symbol (`gis_import::symbol_by`: commonest values first through the five symbols, ties by value; the rest and features without the attribute keep the layer's symbol, counted in the legend), independent of colour-by; points paint with their own symbol and the Layer Manager shows a symbol legend. `GisLayerConfig::symbol_by` is omitted when off. Tests `values_get_their_own_symbols_commonest_first`, settings round trip; capture [`docs/certification/m4.3/`](docs/certification/m4.3/README.md) (SHA-256 `a6df060f…`). Open: dense asset-layer map captures, label priority beyond paint order, Android walkthrough.
 
+**Evidence ledger — 2026-10-09, increment 4 (GIS labels through the shared placer; label priority beyond paint order; 1008.md D2):** imported layers' labels no longer declutter on their own screen grid. They now go through the frame's shared label placer (`crate::labelplace`) at the lowest priority (`Minor`), after storm IDs, towns, stations and gauges. Results:
+
+- **No overlaps:** a GIS label never sits on one of those, nor on another GIS label. Collision uses the label's own rectangle, not a grid cell.
+- **No flicker:** labels shown last frame are offered their spots first, so names do not flicker while panning.
+- **Layer priority:** a layer can be marked **"Labels before other layers'"** (`GisLayerConfig::labels_first`, additive). Its labels are placed before other imported layers' labels whatever the paint order (`label_layer_order`), so a hospital name wins over a road name. Within each group, the topmost layer goes first.
+
+Test: `labels_first_layers_place_before_the_others_then_the_topmost` (order, and a town's spot never taken). The settings round trip covers the new field. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,577 passed (`target/parity-review/m4.3/d2l-*.log`). Open:
+
+- Dense asset-layer map captures in the running app.
+- An Android walkthrough.
+
 #### M4.4 — Restore and exchange GIS scenes reliably
 
 **Priority:** P1. **Depends on:** M2.4, M4.3. **Original references:** ROADMAP_2 §§5.5, 12.2; ROADMAP_NEW §§I6, K3, K4, M5.

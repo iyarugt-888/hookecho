@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: imported layers' labels make room for storms, towns and stations
+
+Labels from imported GIS layers now place after storm IDs, town names, stations and gauges, and
+never cover them or each other. A layer can be set to place its labels before other imported
+layers' ("Labels before other layers'"), for example hospitals over roads.
+
 ### Added: scene thumbnails
 
 A scene saved now keeps a small picture of the pane, shown beside its name in the scene list.

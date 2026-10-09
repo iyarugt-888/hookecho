@@ -6546,11 +6546,12 @@ impl HookEchoApp {
         // there, so they paint here through the same lon/lat projection as the strokes above.
         self.paint_gis_marks(&painter, prect, cam, vp);
         self.paint_gis_selection(&painter, prect, cam, vp);
-        // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
-        // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
-        // file reads as a scatter of names rather than an unreadable smear, and more appear as
-        // the map zooms in.
-        self.paint_gis_labels(&painter, prect, cam, vp);
+        // Labels from the chosen attribute (I4), for every geometry family, through the shared
+        // label placer after every other label layer: a label whose spot is taken is skipped, so
+        // a dense file reads as a scatter of names, and more appear as the map zooms in.
+        let mut labels = std::mem::take(&mut self.labels);
+        self.paint_gis_labels(&painter, prect, cam, vp, &mut labels);
+        self.labels = labels;
 
         // Saved watch zones, plus the one being clicked out right now.
         {

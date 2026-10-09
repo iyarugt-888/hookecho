@@ -356,6 +356,11 @@ pub struct GisLayerConfig {
     /// clickable, labelled, exported and targeted. Empty shows every feature.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub filter: String,
+    /// Its labels are placed before other imported layers' labels, whatever the paint order
+    /// (1008.md D2): a hospital name wins its spot over a road name. Storm, town and station
+    /// labels still come first.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub labels_first: bool,
 }
 
 impl Default for GisLayerConfig {
@@ -376,6 +381,7 @@ impl Default for GisLayerConfig {
             group: None,
             targets: false,
             filter: String::new(),
+            labels_first: false,
         }
     }
 }
@@ -3466,6 +3472,7 @@ mod tests {
                 group: Some("Boundaries".into()),
                 targets: true,
                 filter: "POP > 1000".into(),
+                labels_first: true,
             }],
             gis_groups: vec![GisGroup {
                 name: "Boundaries".into(),

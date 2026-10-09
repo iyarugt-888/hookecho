@@ -475,6 +475,13 @@ fn gis_layers(
             )
             .changed();
     });
+    changed |= ui
+        .checkbox(&mut layer.labels_first, "Labels before other layers'")
+        .on_hover_text(
+            "Place this layer's labels before other imported layers' labels, whatever the \
+             paint order. Storm, town and station labels still come first.",
+        )
+        .changed();
     ui.horizontal(|ui| {
         ui.label("Color by").on_hover_text(
             "Color features by an attribute: a ramp for numbers, a palette for categories",

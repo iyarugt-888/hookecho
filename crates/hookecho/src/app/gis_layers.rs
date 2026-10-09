@@ -1299,20 +1299,30 @@ impl HookEchoApp {
         }
     }
 
-    /// Labels of every shown layer with a label attribute, thinned to one per screen-grid cell
-    /// across all layers (topmost layer first, so it wins a contested cell).
+    /// Labels of every shown layer with a label attribute, through the frame's shared label
+    /// placer (`crate::labelplace`) at the lowest priority: storm IDs, towns, stations and gauges
+    /// keep their places, and a GIS label never sits on one (1008.md D2). Among the imported
+    /// layers, those marked "labels first" place before the rest, then the topmost layer first;
+    /// within a layer, labels shown last frame are offered their places first so names do not
+    /// flicker while the map pans.
     pub(crate) fn paint_gis_labels(
         &self,
         painter: &egui::Painter,
         prect: egui::Rect,
         cam: crate::render::mercator::Camera,
         vp: (f32, f32),
+        placer: &mut crate::labelplace::Placer,
     ) {
         let font = egui::FontId::proportional(11.5);
-        let (cell_w, cell_h) = (90.0_f32, 18.0_f32);
-        let mut taken = std::collections::HashSet::new();
         let mut drawn = 0;
-        for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
+        let shown = self.gis_marks_shown(cam.zoom);
+        for k in label_layer_order(
+            &shown
+                .iter()
+                .map(|(c, _)| (c.id, c.labels_first))
+                .collect::<Vec<_>>(),
+        ) {
+            let (config, layer) = shown[k];
             if !crate::gis_import::labels(config) {
                 continue;
             }
@@ -1322,7 +1332,10 @@ impl HookEchoApp {
                 c[1].saturating_add(90),
                 c[2].saturating_add(90),
             );
-            for &(at, src) in &layer.marks.anchors {
+            let key = |src: usize| crate::labelplace::key(&format!("gis:{}:{src}", config.id));
+            let mut anchors: Vec<([f64; 2], usize)> = layer.marks.anchors.clone();
+            anchors.sort_by_key(|(_, src)| !placer.was_shown(key(*src)));
+            for (at, src) in anchors {
                 if !layer.valid(Some(&src)) {
                     continue;
                 }
@@ -1333,10 +1346,6 @@ impl HookEchoApp {
                 let (sx, sy) = cam.world_to_screen(w, vp);
                 let p = egui::pos2(prect.left() + sx, prect.top() + sy);
                 if !prect.shrink(4.0).contains(p) {
-                    continue;
-                }
-                let cell = ((p.x / cell_w) as i32, (p.y / cell_h) as i32);
-                if !taken.insert(cell) {
                     continue;
                 }
                 let Some(text) = layer
@@ -1351,6 +1360,10 @@ impl HookEchoApp {
                 // Beside a point's dot, centred on a line or polygon's anchor; a dark halo keeps
                 // it legible over radar and basemap alike.
                 let pos = p + egui::vec2(6.0, -galley.size().y * 0.5);
+                let rect = egui::Rect::from_min_size(pos, galley.size()).expand(1.5);
+                if !placer.place(key(src), rect, crate::labelplace::Priority::Minor) {
+                    continue;
+                }
                 for d in [
                     egui::vec2(-1.0, 0.0),
                     egui::vec2(1.0, 0.0),
@@ -1370,10 +1383,41 @@ impl HookEchoApp {
     }
 }
 
+/// The order imported layers place their labels in, as indices into `layers` (`(id, labels
+/// first)`, bottom layer first as painted): "labels first" layers, then the rest, each group
+/// topmost layer first.
+pub(crate) fn label_layer_order(layers: &[(u64, bool)]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..layers.len()).rev().collect();
+    // Stable: within each group the topmost-first order stays.
+    order.sort_by_key(|&k| !layers[k].1);
+    order
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::settings::{GisLayerConfig, Settings};
+
+    #[test]
+    fn labels_first_layers_place_before_the_others_then_the_topmost() {
+        // Painted bottom to top: roads, hospitals (labels first), towns, schools (labels first).
+        let layers = [(1, false), (2, true), (3, false), (4, true)];
+        let order: Vec<u64> = label_layer_order(&layers)
+            .into_iter()
+            .map(|k| layers[k].0)
+            .collect();
+        assert_eq!(order, [4, 2, 3, 1]);
+        assert_eq!(label_layer_order(&[]), Vec::<usize>::new());
+        // A label placed first keeps its spot; a later layer's overlapping label is refused,
+        // and nothing imported can take a town's spot.
+        let mut placer = crate::labelplace::Placer::default();
+        placer.begin();
+        let r = |x: f32| egui::Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(40.0, 12.0));
+        assert!(placer.place(9, r(0.0), crate::labelplace::Priority::Place));
+        assert!(!placer.place(1, r(10.0), crate::labelplace::Priority::Minor));
+        assert!(placer.place(2, r(100.0), crate::labelplace::Priority::Minor));
+        assert!(!placer.place(3, r(110.0), crate::labelplace::Priority::Minor));
+    }
 
     #[test]
     fn layers_paint_in_their_own_order_on_their_own_side_and_only_when_shown() {
