@@ -5169,7 +5169,9 @@ mod golden_tests {
 
     /// The raymarch's cost on the device this runs on (1008.md C2): the Moore 2013 volume
     /// (scientific corpus cache) built as the 3D window builds it, uploaded once, then drawn at
-    /// 1024 x 1024 in each rendering mode at the three quality step counts; each figure is the
+    /// 1024 x 1024 in each rendering mode at the 3D Reflectivity window's Low/Medium/High step
+    /// counts (96/160/256) and the map 3D's ceilings above them (its High is 128 x 4 = 512,
+    /// `pane_upload`); each figure is the
     /// wall time from submitting one frame to the device reporting it done, median and p95 of 30
     /// after 5 warm-ups. Writes `target/parity-review/m3.5/raymarch-trace.txt`.
     /// `cargo test -p hookecho --release --lib raymarch_performance_trace -- --ignored --nocapture`
@@ -5250,7 +5252,7 @@ mod golden_tests {
             ("translucent", VolumeRender::Translucent),
             ("lit", VolumeRender::TranslucentLit),
         ] {
-            for steps in [96u32, 160, 256] {
+            for steps in [96u32, 160, 256, 384, 512] {
                 let uniform = crate::render3d::orbit_uniform(
                     30.0,
                     25.0,

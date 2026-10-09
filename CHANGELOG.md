@@ -19,8 +19,9 @@ current tables and drawing.
 ### Measured: what the 3D volume costs to draw
 
 A GPU trace now times the 3D raymarch on a real volume (Moore 2013, 192 × 192 × 48 voxels, drawn
-at 1024 × 1024). On an RTX 2060 a frame takes 1.2–3.2 ms (median) across the three render modes
-and quality settings, so empty-space skipping is not added; phones have not been traced.
+at 1024 × 1024). On an RTX 2060 a frame takes 1.0–5.1 ms (median) across the three render modes
+and every quality setting of the 3D window and the map's 3D. Empty-space skipping is therefore
+not added. Phones have not been traced.
 
 ### Added: how long new warnings take to arrive
 

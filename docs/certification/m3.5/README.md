@@ -34,20 +34,33 @@ all-green stops and compares them pixel by pixel:
 
 ## Performance trace, RTX 2060 (2026-10-09)
 
-[raymarch-trace-rtx2060.txt](raymarch-trace-rtx2060.txt) (SHA-256 `3927bf3df9ae7c899790333e7b7f1bc0dafd4921491b080db1ce84eed5585b9e`):
+[raymarch-trace-rtx2060.txt](raymarch-trace-rtx2060.txt) (SHA-256 `7025b7ec27ee2bc72a3207be8982f5681b109d43269dfe96a4fc858a99129917`):
 the Moore 2013 reflectivity volume (192 × 192 × 48 voxels, built as the 3D window builds it),
-uploaded once and drawn at 1024 × 1024, submit-to-done wall time over 30 frames after 5 warm-ups
-(`raymarch_performance_trace`):
+uploaded once and drawn at 1024 × 1024. Each figure is the submit-to-done wall time over 30 frames
+after 5 warm-ups (`raymarch_performance_trace`). The step counts cover two controls:
 
-| Mode | 96 steps | 160 steps | 256 steps |
-| --- | --- | --- | --- |
-| MIP | 1.59 ms | 2.42 ms | 3.17 ms |
-| Translucent | 1.24 ms | 1.94 ms | 2.73 ms |
-| Lit | 1.26 ms | 1.91 ms | 2.72 ms |
+- 96/160/256 are the 3D Reflectivity window's Low/Medium/High.
+- 256/384/512 are the map 3D's ceilings for its Low/Medium/High (64/96/128 × 4,
+  `pane_upload`). The map's march takes about one sample per voxel up to that ceiling, so these
+  are upper bounds for it.
 
-(medians; p95 at most 4.34 ms). Translucent is cheaper than MIP because rays stop once nearly
-opaque. At under 4 ms a frame even at the highest quality, empty-space skipping would not be
-beneficial on this desktop and is not added; whether a phone needs it is for an Android trace.
+| Mode | 96 | 160 | 256 | 384 | 512 steps |
+| --- | --- | --- | --- | --- | --- |
+| MIP | 1.35 ms | 2.17 ms | 3.41 ms | 3.23 ms | 4.26 ms |
+| Translucent | 0.99 ms | 1.50 ms | 2.29 ms | 3.72 ms | 4.79 ms |
+| Lit | 1.02 ms | 1.84 ms | 2.62 ms | 3.85 ms | 5.05 ms |
+
+These are medians; p95 is at most 5.32 ms (lit, 512). MIP at 384 below 256 is run-to-run noise
+at this scale.
+
+Translucent rendering stops each ray once it is nearly opaque. Even so, it is not cheaper than
+MIP at the high step counts. At under 6 ms a frame at the map's highest ceiling, empty-space
+skipping would not be beneficial on this desktop and is not added. Whether a phone needs it is
+for an Android trace.
+
+*Correction:* the first version of this section (commit `6066805`) timed only 96/160/256 and
+called 256 "the highest quality". That holds for the 3D window only; the map 3D's ceiling is 512.
+This run replaces it.
 
 ## Not established
 
