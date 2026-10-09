@@ -114,7 +114,7 @@ impl HookEchoApp {
         self.lock_source_time = ws.lock_source_time;
         self.link_storm = ws.link_storm;
         self.linked_probe = None;
-        self.linked_analysis = pane_time::LinkedTimeState::default();
+        self.linked_analysis = pane_time::LinkedTimes::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.
         for t in OverlayToggle::ALL {
             if t.session_only() {
@@ -179,6 +179,7 @@ impl HookEchoApp {
             v.models = src.models.clone();
             v.model_restore_raw = src.model_restore_raw.clone();
             v.model_group = src.model_group;
+            v.time_group = src.time_group;
             v.spatial_links = src.spatial_links;
             v.spatial_restore_raw = src.spatial_restore_raw.clone();
             v.model_link_snapshot = v.models.clone();

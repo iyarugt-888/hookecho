@@ -136,12 +136,45 @@ pub(super) fn picker(ui: &mut egui::Ui, pane: usize, links: &mut crate::pane_lin
             if let Some(group) = group { link.group = group; }
         });
     }
-    ui.add(egui::Label::new(egui::RichText::new("Joining adopts that group's camera or radar site. Independent keeps the current view. Model/run groups are separate; analysis time still uses its existing global link.").weak()).wrap());
+    ui.add(egui::Label::new(egui::RichText::new("Joining adopts that group's camera or radar site. Independent keeps the current view. Model/run groups are separate. Analysis time links within its own groups (below) while Link times is on.").weak()).wrap());
+}
+
+/// Pane `pane`'s analysis-time group (M5.1, 1008.md E1): panes in the same group share one
+/// linked clock while Link times is on, so a live group and an archive group can run side by side.
+pub(super) fn time_group_picker(ui: &mut egui::Ui, pane: usize, group: &mut u8, linking: bool) {
+    use crate::ui::a11y::Named as _;
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Analysis time");
+        egui::ComboBox::from_id_salt(("time_group", pane))
+            .width(104.0)
+            .selected_text(format!("Group {group}"))
+            .show_ui(ui, |ui| {
+                for g in 1..=crate::view::MAX_PANES as u8 {
+                    ui.selectable_value(group, g, format!("Group {g}"));
+                }
+            })
+            .response
+            .named(&format!("Pane {} analysis time group", pane + 1))
+            .on_hover_text(
+                "Panes in the same group share one analysis time: scrubbing or a jump moves the \
+                 whole group and no other. A pane alone in its group keeps its own time; joining \
+                 adopts the group's.",
+            );
+    });
+    if !linking {
+        ui.weak("Link times is off, so every pane keeps its own time.");
+    }
 }
 
 impl HookEchoApp {
     pub(super) fn all_pane_links_on(&self) -> bool {
-        self.link_times && self.link_storm && all_linked(&self.views)
+        self.link_times
+            && self.link_storm
+            && all_linked(&self.views)
+            && self
+                .views
+                .iter()
+                .all(|v| v.time_group == self.views[0].time_group)
     }
     pub(crate) fn spatial_group_ui(&mut self, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new("Pane links")
@@ -162,6 +195,12 @@ impl HookEchoApp {
                         self.linked_probe = None;
                     }
                 }
+                ui.separator();
+                let mut group = self.views[self.active].time_group;
+                time_group_picker(ui, self.active, &mut group, self.link_times);
+                // Joining adopts the group's analysis time on the next sync
+                // (`pane_time::sync_time_groups`); the group left keeps its own.
+                self.views[self.active].time_group = group;
             });
     }
     pub(super) fn toggle_spatial_link(&mut self, toggle: OverlayToggle) {
@@ -195,6 +234,27 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The time-group row under the spatial links, for review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the time group picker"]
+    fn gpu_time_group_picker_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the picker");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.1");
+        std::fs::create_dir_all(&destination).unwrap();
+        gpu.save(&destination.join("time-group-picker.png"), 420, 250, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(400.0);
+                let mut links = crate::pane_links::SpatialLinks::legacy(true, true, true);
+                picker(ui, 1, &mut links);
+                ui.separator();
+                let mut group = 2;
+                time_group_picker(ui, 1, &mut group, true);
+            });
+        })
+        .unwrap();
+    }
     use crate::pane_links::SpatialLinks;
     use crate::render::mercator::Camera;
     fn pane(site: &str, group: u8) -> MapView {

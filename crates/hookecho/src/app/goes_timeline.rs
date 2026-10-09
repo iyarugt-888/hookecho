@@ -101,8 +101,7 @@ impl HookEchoApp {
                         {
                             let previous = cur.saturating_sub(1);
                             if self.link_times && self.goes_follow_radar {
-                                self.linked_analysis
-                                    .select_external(Some(self.goes_times[previous]));
+                                self.select_linked_external(Some(self.goes_times[previous]));
                             } else {
                                 self.goes_follow_radar = false;
                                 self.goes_time_idx = Some(previous);
@@ -129,7 +128,7 @@ impl HookEchoApp {
                         {
                             let ni = cur + 1;
                             if self.link_times && self.goes_follow_radar {
-                                self.linked_analysis.select_external(Some(self.goes_times[ni]));
+                                self.select_linked_external(Some(self.goes_times[ni]));
                             } else {
                                 self.goes_follow_radar = false;
                                 self.goes_time_idx = if ni >= n - 1 { None } else { Some(ni) };
@@ -143,7 +142,7 @@ impl HookEchoApp {
                             .clicked()
                         {
                             if self.link_times && self.goes_follow_radar {
-                                self.linked_analysis.select_external(None);
+                                self.select_linked_external(None);
                             } else {
                                 self.goes_follow_radar = false;
                                 self.goes_time_idx = None;

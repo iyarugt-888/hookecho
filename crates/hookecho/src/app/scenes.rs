@@ -463,11 +463,7 @@ impl HookEchoApp {
                     SceneTime::Live => None,
                     SceneTime::Fixed { utc } => Some(utc),
                 };
-                self.linked_analysis.select_explicit(
-                    target,
-                    self.views[target].site.as_deref(),
-                    time,
-                );
+                self.select_linked_explicit(target, time);
             }
         }
         for t in OverlayToggle::ALL {

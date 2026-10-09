@@ -1744,7 +1744,7 @@ pub struct HookEchoApp {
     linked_probe: Option<(usize, (f64, f64))>,
     /// The map point under the pointer and its pane, whatever the cursor links (beam diagram).
     hover_lonlat: Option<(usize, (f64, f64))>,
-    linked_analysis: pane_time::LinkedTimeState,
+    linked_analysis: pane_time::LinkedTimes,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
     /// The mini loop's own camera while it is open; `None` until it borrows the pane's.
@@ -6934,13 +6934,7 @@ impl HookEchoApp {
         } else {
             v.timeline.go_head();
         }
-        if self.link_times {
-            self.linked_analysis.select_explicit(
-                self.active,
-                self.views[self.active].site.as_deref(),
-                time,
-            );
-        }
+        self.select_linked_explicit(self.active, time);
     }
 
     /// Save the active pane's current view as a named bookmark (archive time captured if scrubbed).

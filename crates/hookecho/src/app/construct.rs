@@ -543,7 +543,7 @@ impl HookEchoApp {
             hover_lonlat: None,
             link_storm: false,
             storm_link_at: None,
-            linked_analysis: pane_time::LinkedTimeState::default(),
+            linked_analysis: pane_time::LinkedTimes::default(),
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             mini_cam: None,

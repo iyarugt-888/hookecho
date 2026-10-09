@@ -1132,7 +1132,7 @@ impl HookEchoApp {
                 }
             }
         } else {
-            self.linked_analysis = pane_time::LinkedTimeState::default();
+            self.linked_analysis = pane_time::LinkedTimes::default();
             for idx in 0..self.views.len() {
                 self.sync_pane(idx, ctx);
             }

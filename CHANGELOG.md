@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: pane groups on different times
+
+With Link times on, each pane now belongs to an analysis-time group (Pane links → Analysis time).
+Panes in a group share one time, and different groups keep their own: for example, two panes
+replaying an event beside two panes following live. Scrubbing, a scene or a jump moves only that
+pane's group. Each pane's MRMS and model layers and its probes follow its own group's time. Every
+pane starts in group 1, so the app behaves as before until you split them.
+
 ### Added: archived MRMS layers at the radar's own time
 
 A new setting, "Blend archived MRMS layers to the radar's time", shows reflectivity, rotation and

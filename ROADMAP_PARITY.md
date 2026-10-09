@@ -1404,6 +1404,18 @@ Seven new ordinary controls and two new GPU controls are included. The manifest 
 Rust source hashes, 28 reviewed PNGs and four Sources diagnostics snapshots; checked code had
 no final source-guard changes. Claude-owned calculation work remains excluded from this increment.
 
+**Evidence ledger — 2026-10-09, analysis-time groups (1008.md E1):** `MapView::time_group` (1..=MAX_PANES, default 1) puts each pane in one analysis-time group. `pane_time::LinkedTimes` keeps one `LinkedTimeState` per group, and `sync_time_groups` runs each group's pass on its own: the source is the focused pane if it is a member, else the member last followed, and only members are moved. `select_linked_explicit` (palette jump, scene, event) and `select_linked_external` (satellite frame) move one group. `linked_analysis_time_for`/`linked_archive_time_for(idx)` feed each pane's MRMS/model requests (`model_target_time`) and probes from its own group. Badges name the group when there are several, and all-pane storm linking requires one time group. Migration: the old global link is group 1. A workspace writes `time-group` only for a pane outside group 1 (byte-identical otherwise), and a missing or invalid value loads as 1. UI: "Analysis time" group picker under Pane links ([`docs/certification/m5.1/time-group-picker.png`](docs/certification/m5.1/time-group-picker.png), `b262f4db…`). Tests:
+
+- `an_archive_group_and_a_live_group_keep_their_own_clocks`
+- `one_group_is_the_old_global_link`
+- `a_time_group_round_trips_and_older_or_odd_files_load_in_group_one`
+
+Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,560 passed (`target/parity-review/m5.1/e1-*.log`). Open:
+
+- A multi-group operator capture and an Android run.
+- GOES clock and sector ownership per group.
+- Per-group source drivers; comparison, ensemble and contour ownership.
+
 **M5.1 remains partial:** independent analysis-time groups, GOES decoded field/sector/catalog and
 tile-driver ownership, source driver selection, comparison/ensemble/contour ownership, and full
 application multi-group live/archive operator evidence remain. MRMS product-window settings,

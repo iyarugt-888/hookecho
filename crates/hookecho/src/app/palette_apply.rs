@@ -44,13 +44,7 @@ impl HookEchoApp {
                         view.volume = None;
                         view.loading = false;
                     }
-                    if self.link_times {
-                        self.linked_analysis.select_explicit(
-                            self.active,
-                            self.views[self.active].site.as_deref(),
-                            Some(target),
-                        );
-                    }
+                    self.select_linked_explicit(self.active, Some(target));
                 }
             }
             PaletteAction::SetModel(model) => {

@@ -313,6 +313,42 @@ mod spatial_link_tests {
         assert!(restored.spatial_restore_raw.is_none());
     }
     #[test]
+    fn a_time_group_round_trips_and_older_or_odd_files_load_in_group_one() {
+        let mut source = view("KTLX", -97.0);
+        source.time_group = 3;
+        let saved = PaneSnap::capture(&source);
+        assert_eq!(saved.extra.get("time-group"), Some(&serde_json::json!(3)));
+        let decoded: PaneSnap =
+            serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        let mut restored = view("KDMX", -88.0);
+        decoded.apply(&mut restored);
+        assert_eq!(restored.time_group, 3);
+        // Group 1 is not written, so a one-group workspace is what it was before groups.
+        let default = PaneSnap::capture(&view("KTLX", -97.0));
+        assert!(!default.extra.contains_key("time-group"));
+        for odd in [
+            serde_json::json!(0),
+            serde_json::json!(99),
+            serde_json::json!("x"),
+        ] {
+            let mut snap = saved.clone();
+            snap.extra.insert("time-group".into(), odd);
+            let mut v = view("KDMX", -88.0);
+            v.time_group = 2;
+            snap.apply(&mut v);
+            assert_eq!(v.time_group, 1);
+        }
+        let mut legacy = saved.clone();
+        legacy.extra.remove("time-group");
+        let mut v = view("KDMX", -88.0);
+        v.time_group = 2;
+        legacy.apply(&mut v);
+        assert_eq!(
+            v.time_group, 1,
+            "a workspace from before groups is one group"
+        );
+    }
+    #[test]
     fn spatial_links_legacy_flags_migrate_to_one_group_and_camera_uses_saved_focus() {
         let mut ws = starters().remove(0);
         ws.panes = vec![
@@ -485,6 +521,14 @@ impl PaneSnap {
                 ),
             ]
             .into_iter()
+            // The pane's analysis-time group (M5.1), only when it is not the default group 1,
+            // so a workspace from before groups, or with one group, stays byte-identical.
+            .chain((v.time_group != 1).then(|| {
+                (
+                    "time-group".to_string(),
+                    serde_json::Value::from(v.time_group),
+                )
+            }))
             // The pane's column user product, by name (`MapView::column_product`); the saved
             // definition itself lives with the products in Settings. Absent when none is shown,
             // so a file that never had one stays byte-identical.
@@ -531,6 +575,15 @@ impl PaneSnap {
             }
         }
         v.model_link_snapshot = v.models.clone();
+        // A missing or out-of-range group (a workspace from before groups, or a newer layout)
+        // is the default group 1: the old single global link.
+        v.time_group = self
+            .extra
+            .get("time-group")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|g| u8::try_from(g).ok())
+            .filter(|g| (1..=crate::view::MAX_PANES as u8).contains(g))
+            .unwrap_or(1);
         v.column_product = self
             .extra
             .get("column-product")

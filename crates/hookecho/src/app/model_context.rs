@@ -503,9 +503,12 @@ impl HookEchoApp {
         }
     }
     pub(super) fn model_target_time(&self, idx: usize) -> Option<DateTime<Utc>> {
-        // Retain the existing linked analysis clock; independent radar time drivers are M5.1's
-        // next integration. A pane outside that global link resolves its own archive playhead.
-        analysis_target_time(&self.views.get(idx)?.timeline, self.linked_archive_time())
+        // The pane's own time group's clock (M5.1): never another group's. A pane with time
+        // linking off resolves its own archive playhead.
+        analysis_target_time(
+            &self.views.get(idx)?.timeline,
+            self.linked_archive_time_for(idx),
+        )
     }
     pub(super) fn wanted_model_requests(&self) -> std::collections::HashSet<ModelRequest> {
         self.views

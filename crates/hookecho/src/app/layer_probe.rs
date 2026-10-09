@@ -111,7 +111,7 @@ impl HookEchoApp {
         let clock = |t: chrono::DateTime<chrono::Utc>| crate::timefmt::fmt_clock(t, tz, false);
         // What each source's time is measured against (ROADMAP_2 §10.2): the linked analysis
         // time when panes share one, else this pane's radar scan.
-        let linked = self.linked_analysis_time();
+        let linked = self.linked_analysis_time_for(idx);
         let reference = linked
             .map(|t| (t, "analysis"))
             .or_else(|| self.views[idx].displayed_radar_time().map(|t| (t, "radar")));
@@ -528,7 +528,7 @@ impl HookEchoApp {
             );
         let tokens = self.ws_tokens();
         let analysis_time = self
-            .linked_analysis_time()
+            .linked_analysis_time_for(idx)
             .or_else(|| self.views[idx].displayed_radar_time());
         let tolerance = chrono::Duration::minutes(i64::from(self.settings.time_mismatch_minutes));
         egui::Area::new(egui::Id::new("layer_probe"))

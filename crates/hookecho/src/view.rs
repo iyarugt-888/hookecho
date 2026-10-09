@@ -975,6 +975,9 @@ pub struct MapView {
     pub(crate) model_playback: crate::timeline::ModelPlayback,
     pub(crate) models: crate::model_pane::ModelControls,
     pub(crate) model_group: Option<u8>,
+    /// The analysis-time group (1..=MAX_PANES) whose linked clock this pane follows while time
+    /// linking is on (`app::pane_time`, M5.1). Every pane starts in group 1.
+    pub(crate) time_group: u8,
     pub(crate) spatial_links: crate::pane_links::SpatialLinks,
     pub(crate) spatial_restore_raw: Option<serde_json::Value>,
     pub(crate) spatial_camera_snapshot: crate::render::mercator::Camera,
@@ -1175,6 +1178,7 @@ impl MapView {
             model_playback: crate::timeline::ModelPlayback::default(),
             models: crate::model_pane::ModelControls::default(),
             model_group: Some(1),
+            time_group: 1,
             model_restore_raw: None,
             model_link_snapshot: crate::model_pane::ModelControls::default(),
             last_model_fields: Default::default(),
