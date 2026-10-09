@@ -225,7 +225,7 @@ type WorldLine = (Vec<(f64, f64)>, Vec<f32>);
 #[derive(Default)]
 pub struct StreamCache {
     key: Option<u64>,
-    traced: Option<std::time::Instant>,
+    traced: Option<wxdata::clock::Instant>,
     last_source: Option<(usize, i64)>,
     lines: Vec<WorldLine>,
 }
@@ -270,7 +270,7 @@ impl StreamCache {
                     .collect();
                 self.key = Some(key);
                 self.last_source = Some(source);
-                self.traced = Some(std::time::Instant::now());
+                self.traced = Some(wxdata::clock::Instant::now());
             } else {
                 stale = true;
             }
