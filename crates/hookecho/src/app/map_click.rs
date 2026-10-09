@@ -520,6 +520,7 @@ impl HookEchoApp {
                                 // across MultiPolygon parts); other features use the generic popup.
                                 // An imported layer hidden below its minimum zoom is not
                                 // there to click either.
+                                self.feature_chooser = None;
                                 let hits = self.overlay_hits(
                                     lon,
                                     lat,
@@ -545,15 +546,28 @@ impl HookEchoApp {
                                 });
                                 // An imported point or line under the click (drawn over the
                                 // polygons) opens its attributes, unless an alert is there.
-                                let mark = if cards.is_empty() {
+                                let marks = if cards.is_empty() {
                                     let cam = self.views[self.active].camera;
                                     let touch =
                                         ctx.input(|i| i.any_touches() || i.has_touch_screen());
-                                    self.gis_mark_hit(lon, lat, &cam, touch)
+                                    self.gis_mark_hits(lon, lat, &cam, touch)
                                 } else {
-                                    None
+                                    Vec::new()
                                 };
-                                if let Some((detail, layer, src)) = mark {
+                                // More than one feature (and no alert) under the click: list
+                                // them rather than open only the topmost.
+                                let choices = if cards.is_empty() {
+                                    self.click_choices(&marks, &hits)
+                                } else {
+                                    Vec::new()
+                                };
+                                let mark = marks.into_iter().next();
+                                if choices.len() > 1 {
+                                    self.detail = None;
+                                    self.warning_popup = None;
+                                    self.gate_popup = None;
+                                    self.feature_chooser = Some(choices);
+                                } else if let Some((detail, layer, src)) = mark {
                                     self.note_gis_pick(layer, src);
                                     self.warning_popup = None;
                                     self.gate_popup = None;

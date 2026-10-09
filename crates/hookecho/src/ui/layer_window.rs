@@ -379,6 +379,70 @@ fn gis_layers(
             )
             .on_hover_text("Width for this layer's polygon edges, lines, and point symbols")
             .changed();
+        egui::ComboBox::from_id_salt("imported_gis_dash")
+            .selected_text(layer.style.dash.label())
+            .width(80.0)
+            .show_ui(ui, |ui| {
+                for d in crate::settings::LineDash::ALL {
+                    changed |= ui
+                        .selectable_value(&mut layer.style.dash, d, d.label())
+                        .changed();
+                }
+            })
+            .response
+            .on_hover_text("How lines and polygon outlines are drawn");
+    });
+    ui.horizontal(|ui| {
+        let mut own = layer.style.fill_color.is_some();
+        if ui
+            .checkbox(&mut own, "Own fill")
+            .on_hover_text(
+                "Fill polygons in a colour of their own; with Color by, the attribute then \
+                 colours the fill and the outline keeps the layer colour",
+            )
+            .changed()
+        {
+            layer.style.fill_color = own.then_some(layer.style.color);
+            changed = true;
+        }
+        if let Some(fill) = layer.style.fill_color.as_mut() {
+            changed |= ui.color_edit_button_srgb(fill).changed();
+        }
+        ui.label("Fill");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.fill_opacity, 0.0..=1.0)
+                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+            )
+            .on_hover_text("How much of the polygon fill shows; 0% draws outlines only")
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Points");
+        egui::ComboBox::from_id_salt("imported_gis_symbol")
+            .selected_text(layer.style.symbol.label())
+            .width(80.0)
+            .show_ui(ui, |ui| {
+                for sym in crate::settings::PointSymbol::ALL {
+                    changed |= ui
+                        .selectable_value(&mut layer.style.symbol, sym, sym.label())
+                        .changed();
+                }
+            });
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.point_size, 0.0..=16.0)
+                    .step_by(0.5)
+                    .custom_formatter(|v, _| {
+                        if v <= 0.0 {
+                            "auto".to_string()
+                        } else {
+                            format!("{v:.1} px")
+                        }
+                    }),
+            )
+            .on_hover_text("Point symbol radius; auto follows the outline width")
+            .changed();
     });
     ui.horizontal(|ui| {
         ui.label("Opacity");
@@ -395,6 +459,19 @@ fn gis_layers(
         ui.label("Label")
             .on_hover_text("Label each feature with this attribute's value");
         changed |= attribute_combo(ui, "imported_gis_label", "None", keys, &mut layer.label);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Label text").on_hover_text(
+            "Build labels from several attributes, e.g. {NAME} ({POP}); used instead of Label \
+             when set. A feature with none of them is not labelled.",
+        );
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut layer.label_template)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("{NAME}"),
+            )
+            .changed();
     });
     ui.horizontal(|ui| {
         ui.label("Color by").on_hover_text(
@@ -500,7 +577,30 @@ fn gis_layers(
             )
             .changed();
     });
-    ui.weak("Color, outline and opacity apply to every geometry; Color by recolors each feature.");
+    ui.horizontal(|ui| {
+        ui.label("Show up to zoom");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut layer.style.max_zoom, 0.0..=16.0)
+                    .step_by(0.5)
+                    .custom_formatter(|v, _| {
+                        if v <= 0.0 {
+                            "always".to_string()
+                        } else {
+                            format!("{v:.1}")
+                        }
+                    }),
+            )
+            .on_hover_text(
+                "Hide this layer when zoomed in past this, e.g. a state outline giving way to \
+                 counties",
+            )
+            .changed();
+    });
+    ui.weak(
+        "Color, outline and opacity apply to every geometry; Color by recolors each feature. \
+         Styles never change the imported file.",
+    );
     out.changed |= changed;
 }
 

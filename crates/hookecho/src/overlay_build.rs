@@ -76,19 +76,41 @@ pub fn build_with_theme_and_imported_width(
     imported_stroke_px: f32,
     show_imported: bool,
 ) -> OverlayGeom {
-    let px = vec![show_imported.then_some(imported_stroke_px); features.len()];
+    let px = vec![show_imported.then_some(imported_stroke_px.into()); features.len()];
     build_layered(features, zoom, theme, &px)
 }
 
-/// Theme-aware overlay build where each imported feature reads its own layer's outline width
-/// (ROADMAP_PARITY M4.1): `imported_px[i]` for feature `i`, `None` leaving it out (its layer is
-/// below its minimum zoom), not drawing it transparent. Official products ignore it and keep
-/// the established 1.6 px edge; an imported feature past the end of `imported_px` is left out.
+/// How an imported layer outlines its polygons: its width and, when not solid, its dash's on
+/// and off lengths, all in screen pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImportedStroke {
+    pub width_px: f32,
+    pub dash_px: Option<(f32, f32)>,
+}
+
+impl From<f32> for ImportedStroke {
+    fn from(width_px: f32) -> Self {
+        ImportedStroke {
+            width_px,
+            dash_px: None,
+        }
+    }
+}
+
+/// The most dashes one build cuts outlines into; past it, outlines are drawn solid. A dashed
+/// county layer zoomed far in would otherwise cut every county's whole perimeter into dashes,
+/// on and off screen alike.
+const MAX_DASHES: usize = 200_000;
+
+/// Theme-aware overlay build where each imported feature reads its own layer's outline
+/// (ROADMAP_PARITY M4.1, M4.3): `imported[i]` for feature `i`, `None` leaving it out (its layer
+/// is outside its zoom range), not drawing it transparent. Official products ignore it and keep
+/// the established 1.6 px solid edge; an imported feature past the end of `imported` is left out.
 pub fn build_layered(
     features: &[GeoFeature],
     zoom: f64,
     theme: crate::settings::Theme,
-    imported_px: &[Option<f32>],
+    imported: &[Option<ImportedStroke>],
 ) -> OverlayGeom {
     let mut geom = OverlayGeom::default();
     let mut fill_tess = FillTessellator::new();
@@ -98,18 +120,36 @@ pub fn build_layered(
     // Fill tolerance is independent of the user-selected imported outline: a wide county border
     // should not make the polygon interior itself less accurate.
     let fill_opts = FillOptions::default().with_tolerance(px(1.6) * 0.5);
+    let mut dash_budget = MAX_DASHES;
 
     for (i, f) in features.iter().enumerate() {
-        let imported = imported_px.get(i).copied().flatten();
-        // An imported layer below its minimum zoom (I4) is left out, not drawn transparent.
-        if f.kind == wxdata::overlay::FeatureKind::Imported && imported.is_none() {
+        let layer = imported.get(i).copied().flatten();
+        // An imported layer outside its zoom range (I4) is left out, not drawn transparent.
+        if f.kind == wxdata::overlay::FeatureKind::Imported && layer.is_none() {
             continue;
         }
-        let stroke_w = px(feature_stroke_px(f.kind, imported.unwrap_or(1.6)));
-        let stroke_opts = StrokeOptions::default()
+        let width_px = feature_stroke_px(f.kind, layer.map_or(1.6, |l| l.width_px));
+        let stroke_w = px(width_px);
+        let mut stroke_opts = StrokeOptions::default()
             .with_line_width(stroke_w)
             .with_tolerance(stroke_w * 0.5);
         let path = feature_path(f);
+        let dashed = layer
+            .and_then(|l| l.dash_px)
+            .filter(|_| f.kind == FeatureKind::Imported)
+            .and_then(|(on, off)| {
+                // A dot is a sliver of dash, its round caps making the disc.
+                dash_path(f, px(on), px(off), &mut dash_budget).map(|p| (p, on <= 0.5))
+            });
+        let stroke_path = match dashed {
+            Some((p, dots)) => {
+                if dots {
+                    stroke_opts = stroke_opts.with_line_cap(lyon::tessellation::LineCap::Round);
+                }
+                p
+            }
+            None => path.clone(),
+        };
         let (fill_rgba, stroke_rgba) = high_contrast_feature_colors(f.fill, f.stroke, theme);
         let fill = color(fill_rgba);
         let stroke = color(stroke_rgba);
@@ -125,7 +165,7 @@ pub fn build_layered(
             }),
         );
         let _ = stroke_tess.tessellate_path(
-            &path,
+            &stroke_path,
             &stroke_opts,
             &mut BuffersBuilder::new(&mut buf, |v: StrokeVertex| OverlayVertex {
                 offset: [0.0; 3],
@@ -313,6 +353,90 @@ fn feature_path(f: &GeoFeature) -> Path {
     b.build()
 }
 
+/// A feature's rings cut into dashes `on` long with `off` gaps, in world units, the pattern
+/// running on round each ring including its closing edge. `None` (draw it solid) when that
+/// would take more dashes than `budget` has left; the budget is spent otherwise.
+fn dash_path(f: &GeoFeature, on: f32, off: f32, budget: &mut usize) -> Option<Path> {
+    if !(on > 0.0 && off > 0.0) {
+        return None;
+    }
+    let world = |&[lon, lat]: &[f64; 2]| {
+        let (x, y) = lonlat_to_world(lon, lat);
+        lyon::math::point(x as f32, y as f32)
+    };
+    let closed = f.kind != FeatureKind::Boundary;
+    // Count first, so a feature over the budget costs nothing to refuse.
+    let period = on + off;
+    let mut needed = 0usize;
+    for ring in &f.rings {
+        let pts: Vec<_> = ring.iter().map(world).collect();
+        let mut len: f32 = pts.windows(2).map(|w| (w[1] - w[0]).length()).sum();
+        if closed {
+            if let (Some(a), Some(b)) = (pts.first(), pts.last()) {
+                len += (*a - *b).length();
+            }
+        }
+        needed += (len / period).ceil() as usize + 1;
+        if needed > *budget {
+            return None;
+        }
+    }
+    *budget -= needed;
+    let mut b = Path::builder();
+    for ring in &f.rings {
+        let mut pts: Vec<_> = ring.iter().map(world).collect();
+        if closed && pts.len() > 2 && pts.first() != pts.last() {
+            pts.push(pts[0]);
+        }
+        // Where along the pattern the walk is: [0, on) draws, [on, period) skips.
+        let mut phase = 0.0f32;
+        let mut drawing = false;
+        for w in pts.windows(2) {
+            let (a, d) = (w[0], w[1] - w[0]);
+            let seg = d.length();
+            if seg <= 0.0 {
+                continue;
+            }
+            let mut t = 0.0f32;
+            while t < seg {
+                let left = if phase < on {
+                    on - phase
+                } else {
+                    period - phase
+                };
+                let step = left.min(seg - t);
+                // Past the precision of `t` the walk cannot advance; the rest of the edge is
+                // left as it is rather than looping.
+                if t + step <= t {
+                    break;
+                }
+                let p0 = a + d * (t / seg);
+                let p1 = a + d * ((t + step) / seg);
+                if phase < on {
+                    if !drawing {
+                        b.begin(p0);
+                        drawing = true;
+                    }
+                    b.line_to(p1);
+                }
+                t += step;
+                phase += step;
+                if phase >= on && drawing {
+                    b.end(false);
+                    drawing = false;
+                }
+                if phase >= period {
+                    phase -= period;
+                }
+            }
+        }
+        if drawing {
+            b.end(false);
+        }
+    }
+    Some(b.build())
+}
+
 fn append(geom: &mut OverlayGeom, buf: VertexBuffers<OverlayVertex, u32>) {
     let base = geom.vertices.len() as u32;
     geom.vertices.extend(buf.vertices);
@@ -417,23 +541,116 @@ mod high_contrast_tests {
             let xs = g.vertices.iter().map(|v| v.world[0]);
             xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min)
         };
-        let thin = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(1.0)]);
-        let wide = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(6.0)]);
+        let thin = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(1.0.into())]);
+        let wide = build_layered(std::slice::from_ref(&f), 6.0, theme, &[Some(6.0.into())]);
         assert!(
             extent(&wide) > extent(&thin),
             "a wider layer outline reaches further"
         );
         // Two layers' copies of one shape: the hidden one is left out, the other drawn as its
         // own layer says, exactly as if alone.
-        let both = build_layered(&[f.clone(), f.clone()], 6.0, theme, &[Some(1.0), None]);
+        let both = build_layered(
+            &[f.clone(), f.clone()],
+            6.0,
+            theme,
+            &[Some(1.0.into()), None],
+        );
         assert_eq!(both.indices.len(), thin.indices.len());
         assert_eq!(extent(&both), extent(&thin));
         // An official feature does not read the imported widths.
         let mut warning = f;
         warning.kind = wxdata::overlay::FeatureKind::Warning;
         let a = build_layered(std::slice::from_ref(&warning), 6.0, theme, &[None]);
-        let b = build_layered(std::slice::from_ref(&warning), 6.0, theme, &[Some(8.0)]);
+        let b = build_layered(
+            std::slice::from_ref(&warning),
+            6.0,
+            theme,
+            &[Some(8.0.into())],
+        );
         assert_eq!(extent(&a), extent(&b));
         assert!(!a.indices.is_empty());
+    }
+
+    /// The area the triangles of `g` cover, in world units squared.
+    fn area(g: &OverlayGeom) -> f64 {
+        g.indices
+            .chunks(3)
+            .map(|t| {
+                let [a, b, c] = [0, 1, 2].map(|k| g.vertices[t[k] as usize].world);
+                let (abx, aby) = (f64::from(b[0] - a[0]), f64::from(b[1] - a[1]));
+                let (acx, acy) = (f64::from(c[0] - a[0]), f64::from(c[1] - a[1]));
+                (abx * acy - aby * acx).abs() / 2.0
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_dashed_outline_covers_its_share_of_the_solid_one() {
+        let ring = vec![
+            [-98.0, 35.0],
+            [-97.0, 35.0],
+            [-97.0, 36.0],
+            [-98.0, 36.0],
+            [-98.0, 35.0],
+        ];
+        let mut f = square(ring.clone());
+        let theme = crate::settings::Theme::DearImGui;
+        let stroke = |dash| ImportedStroke {
+            width_px: 3.0,
+            dash_px: dash,
+        };
+        // The fill's triangles cover the square itself; what is left is the outline.
+        let world: Vec<(f64, f64)> = ring.iter().map(|p| lonlat_to_world(p[0], p[1])).collect();
+        let square_area = world
+            .windows(2)
+            .map(|w| w[0].0 * w[1].1 - w[1].0 * w[0].1)
+            .sum::<f64>()
+            .abs()
+            / 2.0;
+        let one = std::slice::from_ref(&f);
+        let outline =
+            |dash| area(&build_layered(one, 8.0, theme, &[Some(stroke(dash))])) - square_area;
+        let solid = outline(None);
+        let (on, off) = crate::settings::LineDash::Dashed.pattern(3.0).unwrap();
+        let share = outline(Some((on, off))) / solid;
+        let want = f64::from(on / (on + off));
+        assert!((share - want).abs() < 0.05, "{share} vs {want}");
+        let dots = outline(crate::settings::LineDash::Dotted.pattern(3.0)) / solid;
+        assert!(dots > 0.05 && dots < share, "{dots}");
+        // An official feature is never dashed.
+        f.kind = FeatureKind::Warning;
+        let one = std::slice::from_ref(&f);
+        let plain = build_layered(one, 8.0, theme, &[None]);
+        let asked = build_layered(one, 8.0, theme, &[Some(stroke(Some((on, off))))]);
+        assert_eq!(asked.indices.len(), plain.indices.len());
+    }
+
+    fn square(ring: Vec<[f64; 2]>) -> GeoFeature {
+        GeoFeature {
+            rings: vec![ring],
+            fill: [80, 140, 220, 60],
+            stroke: [80, 140, 220, 220],
+            kind: FeatureKind::Imported,
+            title: String::new(),
+            detail: String::new(),
+            alert: None,
+        }
+    }
+
+    #[test]
+    fn dashes_past_the_budget_fall_back_to_solid() {
+        let f = square(vec![
+            [-98.0, 35.0],
+            [-97.0, 35.0],
+            [-97.0, 36.0],
+            [-98.0, 35.0],
+        ]);
+        let on = 1e-4;
+        let mut budget = 10;
+        assert!(dash_path(&f, on, on, &mut budget).is_none());
+        assert_eq!(budget, 10, "a refusal spends nothing");
+        let mut budget = MAX_DASHES;
+        assert!(dash_path(&f, on, on, &mut budget).is_some());
+        assert!(budget < MAX_DASHES);
     }
 }

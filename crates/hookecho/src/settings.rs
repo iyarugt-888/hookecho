@@ -149,6 +149,84 @@ pub struct ImportedGisStyle {
     /// The map zoom below which the layer is hidden (and not clickable), so a dense file of
     /// parcels or sites does not smother a national view. 0 shows it at every zoom.
     pub min_zoom: f32,
+    /// The map zoom above which the layer is hidden, so a state outline gives way to the
+    /// county layer under it. 0 sets no maximum.
+    pub max_zoom: f32,
+    /// A polygon fill colour of its own, `None` filling in [`Self::color`] as before. With a
+    /// colour-by attribute, a separate fill is what the attribute colours, and the outline keeps
+    /// [`Self::color`].
+    pub fill_color: Option<[u8; 3]>,
+    /// Multiplies the fill's alpha on top of [`Self::opacity`]; 0 draws outlines only.
+    pub fill_opacity: f32,
+    /// How lines and polygon outlines are stroked.
+    pub dash: LineDash,
+    /// The symbol drawn at each point.
+    pub symbol: PointSymbol,
+    /// A point symbol's radius in screen pixels; 0 sizes it from the stroke width, as before.
+    pub point_size: f32,
+}
+
+/// How an imported layer's lines and polygon outlines are stroked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum LineDash {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+impl LineDash {
+    pub const ALL: [LineDash; 3] = [LineDash::Solid, LineDash::Dashed, LineDash::Dotted];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LineDash::Solid => "Solid",
+            LineDash::Dashed => "Dashed",
+            LineDash::Dotted => "Dotted",
+        }
+    }
+
+    /// On and off lengths in screen pixels for a stroke `width` wide; `None` when solid. A dot's
+    /// "on" is a sliver (half a pixel or less) drawn with round caps, so each dot is a disc
+    /// about as wide as the stroke.
+    pub fn pattern(self, width: f32) -> Option<(f32, f32)> {
+        match self {
+            LineDash::Solid => None,
+            LineDash::Dashed => Some((6.0 + 3.0 * width, 4.0 + 2.0 * width)),
+            LineDash::Dotted => Some((0.25, 2.0 + 2.0 * width)),
+        }
+    }
+}
+
+/// The symbol an imported layer draws at each point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PointSymbol {
+    #[default]
+    Circle,
+    Square,
+    Triangle,
+    Diamond,
+    Cross,
+}
+
+impl PointSymbol {
+    pub const ALL: [PointSymbol; 5] = [
+        PointSymbol::Circle,
+        PointSymbol::Square,
+        PointSymbol::Triangle,
+        PointSymbol::Diamond,
+        PointSymbol::Cross,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PointSymbol::Circle => "Circle",
+            PointSymbol::Square => "Square",
+            PointSymbol::Triangle => "Triangle",
+            PointSymbol::Diamond => "Diamond",
+            PointSymbol::Cross => "Cross",
+        }
+    }
 }
 
 impl ImportedGisStyle {
@@ -162,12 +240,9 @@ impl ImportedGisStyle {
     }
 
     pub fn fill_rgba(self) -> [u8; 4] {
-        [
-            self.color[0],
-            self.color[1],
-            self.color[2],
-            self.alpha(Self::FILL_ALPHA),
-        ]
+        let [r, g, b] = self.fill_color.unwrap_or(self.color);
+        let a = f32::from(self.alpha(Self::FILL_ALPHA)) * self.fill_opacity.clamp(0.0, 1.0);
+        [r, g, b, a.round() as u8]
     }
 
     pub fn stroke_rgba(self) -> [u8; 4] {
@@ -187,6 +262,27 @@ impl ImportedGisStyle {
     /// Whether the layer shows at a map zoom.
     pub fn visible_at(self, zoom: f64) -> bool {
         zoom >= f64::from(self.min_zoom)
+            && (self.max_zoom <= 0.0 || zoom <= f64::from(self.max_zoom))
+    }
+
+    /// A point symbol's radius in screen pixels: its own size, or from the stroke width (the
+    /// default 1.6 px stroke gives the 3.5 px dot shipped before sizes could be chosen).
+    pub fn point_radius(self) -> f32 {
+        if self.point_size > 0.0 {
+            self.point_size.clamp(1.0, 24.0)
+        } else {
+            2.5 + self.rendered_stroke_width() * 0.625
+        }
+    }
+
+    /// The style with `c` as the colour a colour-by attribute gives a feature: the fill when the
+    /// layer has a fill of its own, every part otherwise.
+    pub fn colored(mut self, c: [u8; 3]) -> Self {
+        match self.fill_color {
+            Some(_) => self.fill_color = Some(c),
+            None => self.color = c,
+        }
+        self
     }
 }
 
@@ -197,6 +293,12 @@ impl Default for ImportedGisStyle {
             stroke_width: Self::DEFAULT_STROKE_WIDTH,
             opacity: 1.0,
             min_zoom: 0.0,
+            max_zoom: 0.0,
+            fill_color: None,
+            fill_opacity: 1.0,
+            dash: LineDash::Solid,
+            symbol: PointSymbol::Circle,
+            point_size: 0.0,
         }
     }
 }
@@ -219,6 +321,10 @@ pub struct GisLayerConfig {
     pub style: ImportedGisStyle,
     /// The attribute whose value labels each feature, by name so it survives a re-import.
     pub label: Option<String>,
+    /// A label built from several attributes, e.g. `{NAME} ({POP})`; when set it is used
+    /// instead of [`Self::label`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label_template: String,
     /// The attribute that colours the features, or `None` for the layer's one colour.
     pub color_by: Option<String>,
     /// The attributes holding each feature's valid start and end.
@@ -246,6 +352,7 @@ impl Default for GisLayerConfig {
             visible: true,
             style: ImportedGisStyle::default(),
             label: None,
+            label_template: String::new(),
             color_by: None,
             time_start: None,
             time_end: None,
@@ -2609,6 +2716,78 @@ mod tests {
         assert_eq!(too_thin.rendered_stroke_width(), 0.5);
     }
 
+    #[test]
+    fn imported_gis_style_extras_default_to_the_shipped_look() {
+        // A style saved before fills, dashes, symbols and a maximum zoom existed reads back
+        // drawing exactly as it did.
+        let old: ImportedGisStyle = serde_json::from_str(
+            r#"{"color":[240,80,40],"stroke_width":1.6,"opacity":0.5,"min_zoom":0.0}"#,
+        )
+        .unwrap();
+        assert_eq!(old.fill_rgba(), [240, 80, 40, 30]);
+        assert_eq!(old.stroke_rgba(), [240, 80, 40, 110]);
+        assert_eq!(old.dash, LineDash::Solid);
+        assert_eq!(old.dash.pattern(1.6), None);
+        assert_eq!(old.symbol, PointSymbol::Circle);
+        assert_eq!(old.point_radius(), 3.5);
+        assert!(old.visible_at(18.0));
+
+        // A fill of its own, half shown; an attribute colour then goes to the fill only.
+        let own = ImportedGisStyle {
+            fill_color: Some([10, 20, 30]),
+            fill_opacity: 0.5,
+            ..old
+        };
+        assert_eq!(own.fill_rgba(), [10, 20, 30, 15]);
+        assert_eq!(own.stroke_rgba(), [240, 80, 40, 110]);
+        let by = own.colored([1, 2, 3]);
+        assert_eq!((by.color, by.fill_color), ([240, 80, 40], Some([1, 2, 3])));
+        let by = old.colored([1, 2, 3]);
+        assert_eq!((by.color, by.fill_color), ([1, 2, 3], None));
+        // No fill at all.
+        assert_eq!(
+            ImportedGisStyle {
+                fill_opacity: 0.0,
+                ..old
+            }
+            .fill_rgba()[3],
+            0
+        );
+
+        // A zoom range.
+        let ranged = ImportedGisStyle {
+            min_zoom: 5.0,
+            max_zoom: 9.0,
+            ..old
+        };
+        assert!(!ranged.visible_at(4.5));
+        assert!(ranged.visible_at(9.0));
+        assert!(!ranged.visible_at(9.5));
+
+        // A chosen point size, bounded.
+        assert_eq!(
+            ImportedGisStyle {
+                point_size: 8.0,
+                ..old
+            }
+            .point_radius(),
+            8.0
+        );
+        assert_eq!(
+            ImportedGisStyle {
+                point_size: 99.0,
+                ..old
+            }
+            .point_radius(),
+            24.0
+        );
+        // Dots are slivers (drawn round), dashes longer than their gaps.
+        let (on, off) = LineDash::Dotted.pattern(2.0).unwrap();
+        assert!(on <= 0.5 && off > 2.0);
+        let (on, off) = LineDash::Dashed.pattern(2.0).unwrap();
+        assert!(on > off);
+    }
+
     /// A workspace or scene puts the layers back by ID: their state and order as saved, a layer
     /// imported since hidden, group switches restored, and a layer since removed reported by name
     /// rather than bound to another layer, even one re-imported from the same file.
@@ -3079,8 +3258,15 @@ mod tests {
                     stroke_width: 3.25,
                     opacity: 0.5,
                     min_zoom: 6.5,
+                    max_zoom: 11.0,
+                    fill_color: Some([20, 30, 40]),
+                    fill_opacity: 0.25,
+                    dash: LineDash::Dotted,
+                    symbol: PointSymbol::Diamond,
+                    point_size: 6.5,
                 },
                 label: Some("NAME".into()),
+                label_template: "{NAME} ({POP})".into(),
                 color_by: Some("POP".into()),
                 time_start: Some("BEGIN".into()),
                 time_end: None,

@@ -19,6 +19,25 @@ match the workstation's faders: the track filled with the accent up to the value
 accent grab. The timeline's first hour label no longer falls off the left edge. The high-contrast
 and colorblind-safe radar color tables stay in Settings → Palettes.
 
+### Added: more ways to style imported map layers
+
+An imported layer can now have a fill colour of its own (or no fill), dashed or dotted lines and
+outlines, a choice of point symbol and size, a zoom past which it hides, and labels built from
+several attributes, like `{NAME} ({POP})`.
+
+### Added: choosing between overlapping map features, and exporting table rows
+
+A click on a spot where imported features overlap (two polygon layers, a point on a line, a
+shape under a watch) now lists what is there and lets you pick one, instead of opening whichever
+happened to come first. Warnings still open directly. A layer's feature table can export the rows
+its search leaves, or the rows picked in it, as GeoJSON.
+
+### Fixed: streaming mode on a tablet
+
+Streaming mode hides every control, and the only way out was the F8 key, so on a tablet it was a
+dead end, and Back left the app. Now a tap shows a small strip for a few seconds (exit, previous
+and next scene, save a still), and Back leaves streaming mode first.
+
 ### Fixed: the 3D volume heating up phones and tablets
 
 The 3D Volume view re-ran its full raymarch (hundreds of samples through the 3D texture for every

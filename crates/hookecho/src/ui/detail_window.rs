@@ -1,6 +1,7 @@
 //! Detail window shown when a map overlay feature (warning, watch, outlook, MD) is clicked.
 
 /// The currently-open detail popup.
+#[derive(Clone)]
 pub struct Detail {
     pub title: String,
     pub body: String,

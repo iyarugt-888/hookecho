@@ -72,6 +72,8 @@ mod model_groups;
 mod models;
 mod near_storm;
 mod output_window;
+mod presentation;
+mod feature_chooser;
 mod overlay_poll;
 mod overlay_toggle;
 mod packs_soundings;
@@ -1434,6 +1436,8 @@ pub struct HookEchoApp {
     overlay_ready: bool,
     overlay_last_fetch: Option<Instant>,
     detail: Option<Detail>,
+    /// Several features under one click: the list to choose from (ROADMAP_PARITY M4.3).
+    feature_chooser: Option<Vec<feature_chooser::ChoiceItem>>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
     pub(crate) cell_popup: Option<Cell>,
     /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the
@@ -2144,6 +2148,8 @@ pub struct HookEchoApp {
     hodo_last_fetch: Option<Instant>,
     /// Streamer/OBS mode: hide all chrome (drawer/pills/docks), leaving only the map.
     obs_mode: bool,
+    /// Streaming mode's touch controls (ROADMAP_PARITY M6.4).
+    presentation: presentation::Presentation,
     /// `?embed` in the browser build: chromeless map inside someone else's iframe (StormDesk).
     /// Hides chrome like OBS mode, and idles at one frame a minute until the visitor touches it —
     /// an embedded radar repainting at 10 fps costs the host page a whole core.
@@ -8358,6 +8364,10 @@ impl HookEchoApp {
         // handling. The occlusion rects are rebuilt from scratch every frame; a stale rect would
         // keep swallowing gestures over a sheet that closed.
         self.mobile_occlusion.clear();
+        // Streaming mode draws no chrome, but Back still has to reach it: it is the way out.
+        if bare && cfg!(target_os = "android") {
+            self.android_back(ctx);
+        }
         if !bare {
             // The phone draws its own top strips and back wiring first, and can ask for the rest
             // to be skipped entirely (the hide-all-chrome eye). Desktop draws the window frame

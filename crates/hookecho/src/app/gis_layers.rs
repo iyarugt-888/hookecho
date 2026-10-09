@@ -145,12 +145,77 @@ impl LoadedGis {
                 let mut feature = feature.clone();
                 let mut style = config.style;
                 if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
-                    style.color = c;
+                    style = style.colored(c);
                 }
                 crate::gis_import::apply_style(&mut feature, style);
                 (feature, src.get(i).copied().unwrap_or(i))
             })
             .collect()
+    }
+}
+
+/// One point symbol at `p`, `radius` pixels out, filled with `color` and edged in black so it
+/// reads over a bright core and a dark basemap alike.
+pub(crate) fn paint_symbol(
+    painter: &egui::Painter,
+    p: egui::Pos2,
+    symbol: crate::settings::PointSymbol,
+    radius: f32,
+    color: egui::Color32,
+) {
+    use crate::settings::PointSymbol;
+    let edge = egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180));
+    let r = radius;
+    let poly = |pts: Vec<egui::Pos2>| {
+        painter.add(egui::Shape::convex_polygon(pts, color, edge));
+    };
+    match symbol {
+        PointSymbol::Circle => {
+            painter.circle_filled(p, r, color);
+            painter.circle_stroke(p, r, edge);
+        }
+        PointSymbol::Square => {
+            let s = r * 0.9;
+            let rect = egui::Rect::from_center_size(p, egui::vec2(2.0 * s, 2.0 * s));
+            painter.rect_filled(rect, 0.0, color);
+            painter.rect_stroke(rect, 0.0, edge, egui::StrokeKind::Middle);
+        }
+        PointSymbol::Triangle => {
+            let s = r * 1.25;
+            poly(vec![
+                p + egui::vec2(0.0, -s),
+                p + egui::vec2(s * 0.866, s * 0.5),
+                p + egui::vec2(-s * 0.866, s * 0.5),
+            ]);
+        }
+        PointSymbol::Diamond => {
+            let s = r * 1.2;
+            poly(vec![
+                p + egui::vec2(0.0, -s),
+                p + egui::vec2(s, 0.0),
+                p + egui::vec2(0.0, s),
+                p + egui::vec2(-s, 0.0),
+            ]);
+        }
+        PointSymbol::Cross => {
+            let s = r * 1.1;
+            let w = (r * 0.45).max(1.5);
+            for (a, b) in [
+                (egui::vec2(-s, -s), egui::vec2(s, s)),
+                (egui::vec2(-s, s), egui::vec2(s, -s)),
+            ] {
+                painter.line_segment(
+                    [p + a, p + b],
+                    egui::Stroke::new(w + 2.0, egui::Color32::from_black_alpha(180)),
+                );
+            }
+            for (a, b) in [
+                (egui::vec2(-s, -s), egui::vec2(s, s)),
+                (egui::vec2(-s, s), egui::vec2(s, -s)),
+            ] {
+                painter.line_segment([p + a, p + b], egui::Stroke::new(w, color));
+            }
+        }
     }
 }
 
@@ -193,7 +258,18 @@ pub(crate) fn layer_features(
     config: &crate::settings::GisLayerConfig,
     layer: &LoadedGis,
 ) -> Vec<wxdata::gis::GisFeature> {
+    layer_features_of(config, layer, |_| true)
+}
+
+/// [`layer_features`] for only the source features `keep` accepts (a feature table's searched
+/// rows, or the one picked in it): every part of each, polygons, lines and points alike.
+pub(crate) fn layer_features_of(
+    config: &crate::settings::GisLayerConfig,
+    layer: &LoadedGis,
+    keep: impl Fn(usize) -> bool,
+) -> Vec<wxdata::gis::GisFeature> {
     use wxdata::gis::{Geometry, GisFeature};
+    let wanted = |src: Option<&usize>| src.is_some_and(|&s| keep(s));
     let mut out = Vec::new();
     let config_name = &config.name;
     let m = &layer.marks;
@@ -208,7 +284,7 @@ pub(crate) fn layer_features(
     };
     for (i, f) in layer.shapes.iter().enumerate() {
         let src = m.shape_src.get(i);
-        if layer.valid(src) && !f.rings.is_empty() {
+        if layer.valid(src) && wanted(src) && !f.rings.is_empty() {
             out.push(GisFeature {
                 geometry: Geometry::Polygon(f.rings.clone()),
                 properties: props(src),
@@ -217,7 +293,7 @@ pub(crate) fn layer_features(
     }
     for (i, line) in m.lines.iter().enumerate() {
         let src = m.line_src.get(i);
-        if layer.valid(src) {
+        if layer.valid(src) && wanted(src) {
             out.push(GisFeature {
                 geometry: Geometry::LineString(line.clone()),
                 properties: props(src),
@@ -226,7 +302,7 @@ pub(crate) fn layer_features(
     }
     for (i, p) in m.points.iter().enumerate() {
         let src = m.point_src.get(i);
-        if layer.valid(src) {
+        if layer.valid(src) && wanted(src) {
             out.push(GisFeature {
                 geometry: Geometry::Point(*p),
                 properties: props(src),
@@ -334,6 +410,14 @@ pub(crate) fn feature_text(props: &serde_json::Map<String, serde_json::Value>) -
     lines.join("\n")
 }
 
+/// What the feature table's export buttons write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExportRows {
+    /// Every row the search leaves, listed or past the display limit.
+    Listed,
+    Picked,
+}
+
 /// Most rows the feature table lists at once; a search narrows the rest.
 const MAX_TABLE_ROWS: usize = 500;
 
@@ -370,22 +454,30 @@ pub(crate) fn paint_order(settings: &crate::settings::Settings) -> (Vec<u64>, Ve
     )
 }
 
-/// The point or line of `marks` under world position `at`, if any: a point within `point_tol`, a
-/// line within `line_tol` of any segment (world units), points before lines (they sit on top),
-/// the last drawn first, features invalid at the view's time left out. Returns the source
-/// feature and the geometry's name.
-pub(crate) fn mark_at(
+/// Every source feature with a point or line under world position `at`: a point within
+/// `point_tol`, a line within `line_tol` of any segment (world units), features `valid` rejects
+/// (outside the view's time) left out. Points before lines (they sit on top), the last drawn
+/// first, so the first is what a click opens; each source feature once, with its geometry's name.
+pub(crate) fn mark_hits(
     marks: &Marks,
     valid: impl Fn(Option<&usize>) -> bool,
     at: (f64, f64),
     point_tol: f64,
     line_tol: f64,
-) -> Option<(usize, &'static str)> {
+) -> Vec<(usize, &'static str)> {
     let world = |ll: &[f64; 2]| crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+    let mut out: Vec<(usize, &'static str)> = Vec::new();
+    let mut push = |src: Option<&usize>, kind| {
+        if let Some(&s) = src {
+            if !out.iter().any(|(o, _)| *o == s) {
+                out.push((s, kind));
+            }
+        }
+    };
     for (i, p) in marks.points.iter().enumerate().rev() {
         let w = world(p);
         if (w.0 - at.0).hypot(w.1 - at.1) <= point_tol && valid(marks.point_src.get(i)) {
-            return marks.point_src.get(i).map(|&s| (s, "Point"));
+            push(marks.point_src.get(i), "Point");
         }
     }
     for (i, line) in marks.lines.iter().enumerate().rev() {
@@ -401,10 +493,10 @@ pub(crate) fn mark_at(
             (a.0 + t * dx - at.0).hypot(a.1 + t * dy - at.1) <= line_tol
         });
         if near && valid(marks.line_src.get(i)) {
-            return marks.line_src.get(i).map(|&s| (s, "Line"));
+            push(marks.line_src.get(i), "Line");
         }
     }
-    None
+    out
 }
 
 impl HookEchoApp {
@@ -537,6 +629,11 @@ impl HookEchoApp {
                 c.below.hash(&mut h);
                 c.style.color.hash(&mut h);
                 c.style.opacity.to_bits().hash(&mut h);
+                // Polygon outlines and fills are tessellated: their width, dash and fill too.
+                c.style.stroke_width.to_bits().hash(&mut h);
+                c.style.dash.hash(&mut h);
+                c.style.fill_color.hash(&mut h);
+                c.style.fill_opacity.to_bits().hash(&mut h);
             }
             self.show_imported_gis.hash(&mut h);
             h.finish()
@@ -569,17 +666,24 @@ impl HookEchoApp {
         [part(below), part(above)]
     }
 
-    /// Per overlay feature, the outline width of the imported layer it belongs to while that
-    /// layer shows at `zoom`, `None` when it is hidden there; official features read nothing
-    /// from it.
-    pub(crate) fn overlay_imported_px(&self, zoom: f64) -> Vec<Option<f32>> {
+    /// Per overlay feature, the outline (width and dash) of the imported layer it belongs to
+    /// while that layer shows at `zoom`, `None` when it is hidden there; official features read
+    /// nothing from it.
+    pub(crate) fn overlay_imported_px(
+        &self,
+        zoom: f64,
+    ) -> Vec<Option<crate::overlay_build::ImportedStroke>> {
         self.overlay_layer
             .iter()
             .map(|l| {
                 let c = self.settings.gis_layer((*l)?.0)?;
+                let width_px = c.style.rendered_stroke_width();
                 c.style
                     .visible_at(zoom)
-                    .then(|| c.style.rendered_stroke_width())
+                    .then(|| crate::overlay_build::ImportedStroke {
+                        width_px,
+                        dash_px: c.style.dash.pattern(width_px),
+                    })
             })
             .collect()
     }
@@ -695,47 +799,53 @@ impl HookEchoApp {
             .collect()
     }
 
-    /// The imported point or line under `(lon, lat)` on a map at `cam`, topmost layer first, as
-    /// the popup it opens: its title, every attribute, and its layer's colour. Within the drawn
-    /// symbol, plus a few pixels for a finger or an unsteady hand.
-    pub(crate) fn gis_mark_hit(
+    /// Every imported point or line under `(lon, lat)` on a map at `cam`, topmost layer first,
+    /// each as the popup it opens: its title, every attribute, and its layer's colour. Within the
+    /// drawn symbol, plus a few pixels for a finger or an unsteady hand.
+    pub(crate) fn gis_mark_hits(
         &self,
         lon: f64,
         lat: f64,
         cam: &crate::render::mercator::Camera,
         touch: bool,
-    ) -> Option<(Detail, u64, usize)> {
+    ) -> Vec<(Detail, u64, usize)> {
         let at = crate::render::mercator::lonlat_to_world(lon, lat);
         let slack = if touch { 12.0 } else { 4.0 };
         let px = cam.world_per_pixel();
+        let mut out = Vec::new();
         for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
             let width = f64::from(config.style.rendered_stroke_width());
-            let point_tol = (2.5 + width * 0.625 + slack) * px;
+            let point_tol = (f64::from(config.style.point_radius()) + slack) * px;
             let line_tol = (width / 2.0 + slack) * px;
-            let Some((src, kind)) =
-                mark_at(&layer.marks, |s| layer.valid(s), at, point_tol, line_tol)
-            else {
-                continue;
-            };
-            let props = layer.marks.props.get(src)?;
-            let c = config.style.stroke_rgba();
-            return Some((
-                Detail {
-                    title: crate::gis_import::props_title(props, kind),
-                    body: format!(
-                        "{}\n\nLayer: {}",
-                        crate::gis_import::props_detail(props),
-                        config.name
-                    ),
-                    color: c,
-                    image: None,
-                    link: None,
-                },
-                config.id,
-                src,
-            ));
+            for (src, kind) in mark_hits(&layer.marks, |s| layer.valid(s), at, point_tol, line_tol)
+            {
+                let Some(props) = layer.marks.props.get(src) else {
+                    continue;
+                };
+                out.push((
+                    Detail {
+                        title: crate::gis_import::props_title(props, kind),
+                        body: format!(
+                            "{}\n\nLayer: {}",
+                            crate::gis_import::props_detail(props),
+                            config.name
+                        ),
+                        color: config.style.stroke_rgba(),
+                        image: None,
+                        link: None,
+                    },
+                    config.id,
+                    src,
+                ));
+            }
         }
-        None
+        out
+    }
+
+    /// The imported layer and source feature `f` (one of `self.overlays`) was drawn from.
+    pub(crate) fn overlay_source_of(&self, f: &GeoFeature) -> Option<(u64, usize)> {
+        let i = self.overlays.iter().position(|o| std::ptr::eq(o, f))?;
+        self.overlay_layer.get(i).copied().flatten()
     }
 
     /// Everything the map's GeoJSON export writes (ROADMAP_NEW I6): annotations, markers, zones,
@@ -777,10 +887,7 @@ impl HookEchoApp {
             };
             let name = |src: Option<&usize>, kind: &str| {
                 let props = src.and_then(|&s| l.marks.props.get(s));
-                let by_label = c
-                    .label
-                    .as_deref()
-                    .and_then(|k| crate::gis_import::label_text(props?, k));
+                let by_label = props.and_then(|p| crate::gis_import::feature_label(c, p));
                 by_label.unwrap_or_else(|| {
                     props.map_or_else(
                         || kind.to_string(),
@@ -852,12 +959,28 @@ impl HookEchoApp {
     /// Write one layer's shown features — valid at the view's time and passing its filter — as
     /// GeoJSON with their own attributes (ROADMAP_PARITY M4.4).
     pub(crate) fn export_gis_layer(&mut self, id: u64) {
+        self.export_gis_features(id, None, "shown");
+    }
+
+    /// Write layer `id`'s shown features as GeoJSON — all of them, or only the source features in
+    /// `only` (a feature table's searched rows, or its picked one) — named `<layer>-<what>`.
+    pub(crate) fn export_gis_features(&mut self, id: u64, only: Option<&[usize]>, what: &str) {
         let (Some(config), Some(layer)) = (self.settings.gis_layer(id), self.gis_loaded(id)) else {
             return;
         };
-        let features = layer_features(config, layer);
+        let features = match only {
+            None => layer_features(config, layer),
+            Some(srcs) => {
+                let set: std::collections::HashSet<usize> = srcs.iter().copied().collect();
+                layer_features_of(config, layer, |s| set.contains(&s))
+            }
+        };
+        if features.is_empty() {
+            self.toast(ToastKind::Error, "No features to export".to_string());
+            return;
+        }
         let name = format!(
-            "{}-shown.geojson",
+            "{}-{what}.geojson",
             config
                 .name
                 .rsplit_once('.')
@@ -895,7 +1018,7 @@ impl HookEchoApp {
             .count();
         let rows = feature_table(layer, &keys, &st.query, st.sort);
         let mut open = true;
-        let (mut zoom, mut copy) = (None, None);
+        let (mut zoom, mut copy, mut export) = (None, None, None);
         egui::Window::new(format!("{name} \u{2014} features"))
             .id(egui::Id::new("gis_feature_table"))
             .open(&mut open)
@@ -908,6 +1031,25 @@ impl HookEchoApp {
                         "{} of {total} shown features (filter and time applied)",
                         rows.len()
                     ));
+                });
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(!rows.is_empty(), egui::Button::new("Export these rows"))
+                        .on_hover_text(
+                            "These rows' features as GeoJSON, with their own attributes \
+                             (all of them, not only the ones listed)",
+                        )
+                        .clicked()
+                    {
+                        export = Some(ExportRows::Listed);
+                    }
+                    if ui
+                        .add_enabled(st.selected.is_some(), egui::Button::new("Export picked"))
+                        .on_hover_text("The picked feature as GeoJSON")
+                        .clicked()
+                    {
+                        export = Some(ExportRows::Picked);
+                    }
                 });
                 egui::ScrollArea::both().show(ui, |ui| {
                     egui::Grid::new("gis_feature_grid")
@@ -969,6 +1111,23 @@ impl HookEchoApp {
                     }
                 });
             });
+        match export {
+            Some(ExportRows::Listed) => {
+                let srcs: Vec<usize> = rows.iter().map(|r| r.src).collect();
+                let what = if st.query.trim().is_empty() {
+                    "listed"
+                } else {
+                    "search"
+                };
+                self.export_gis_features(st.layer, Some(&srcs), what);
+            }
+            Some(ExportRows::Picked) => {
+                if let Some(src) = st.selected {
+                    self.export_gis_features(st.layer, Some(&[src]), "picked");
+                }
+            }
+            None => {}
+        }
         if let Some(src) = copy {
             if let Some(props) = self
                 .gis_loaded(st.layer)
@@ -1070,13 +1229,30 @@ impl HookEchoApp {
                     })
             };
             let width = style.rendered_stroke_width();
+            let dash = style.dash.pattern(width);
             for (i, line) in marks.lines.iter().enumerate() {
                 if !layer.valid(marks.line_src.get(i)) {
                     continue;
                 }
                 let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
                 let color = color_of(marks.line_src.get(i));
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
+                match (style.dash, dash) {
+                    (crate::settings::LineDash::Dotted, Some((_, gap))) => {
+                        painter.extend(egui::Shape::dotted_line(
+                            &pts,
+                            color,
+                            gap + width,
+                            width * 0.5 + 0.25,
+                        ));
+                    }
+                    (_, Some((on, off))) => {
+                        let stroke = egui::Stroke::new(width, color);
+                        painter.extend(egui::Shape::dashed_line(&pts, stroke, on, off));
+                    }
+                    (_, None) => {
+                        painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
+                    }
+                }
             }
             for (i, point) in marks.points.iter().enumerate() {
                 if !layer.valid(marks.point_src.get(i)) {
@@ -1089,15 +1265,9 @@ impl HookEchoApp {
                 let color = color_of(marks.point_src.get(i));
                 // Outlined rather than a plain dot: an imported site has to stay visible over
                 // both a bright radar core and a dark basemap, which one flat color cannot
-                // manage. The outline width also scales point symbols so a mixed-geometry file
-                // keeps one coherent visual weight. The default 1.6 px remains a 3.5 px dot.
-                let radius = 2.5 + width * 0.625;
-                painter.circle_filled(p, radius, color);
-                painter.circle_stroke(
-                    p,
-                    radius,
-                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
-                );
+                // manage. Without a size of its own, the outline width scales point symbols so
+                // a mixed-geometry file keeps one coherent visual weight.
+                paint_symbol(painter, p, style.symbol, style.point_radius(), color);
             }
         }
     }
@@ -1116,9 +1286,9 @@ impl HookEchoApp {
         let mut taken = std::collections::HashSet::new();
         let mut drawn = 0;
         for (config, layer) in self.gis_marks_shown(cam.zoom).into_iter().rev() {
-            let Some(key) = config.label.as_deref() else {
+            if !crate::gis_import::labels(config) {
                 continue;
-            };
+            }
             let c = config.style.stroke_rgba();
             let text_color = egui::Color32::from_rgb(
                 c[0].saturating_add(90),
@@ -1146,7 +1316,7 @@ impl HookEchoApp {
                     .marks
                     .props
                     .get(src)
-                    .and_then(|props| crate::gis_import::label_text(props, key))
+                    .and_then(|props| crate::gis_import::feature_label(config, props))
                 else {
                     continue;
                 };
@@ -1244,23 +1414,31 @@ mod tests {
         let (_, marks) = crate::gis_import::to_renderable(features);
         let tol = 1e-5; // about 2 km of world at these latitudes
         let all = |_: Option<&usize>| true;
+        let first = |m: &Marks, v: &dyn Fn(Option<&usize>) -> bool, a, p, l| {
+            mark_hits(m, v, a, p, l).into_iter().next()
+        };
         // On the point (which also sits on the line): the point, drawn on top, wins.
         assert_eq!(
-            mark_at(&marks, all, at(-97.0, 35.0), tol, tol),
+            first(&marks, &all, at(-97.0, 35.0), tol, tol),
             Some((1, "Point"))
         );
         // Along the line away from the point.
         assert_eq!(
-            mark_at(&marks, all, at(-96.5, 35.001), tol, tol),
+            first(&marks, &all, at(-96.5, 35.001), tol, tol),
             Some((0, "Line"))
         );
         // Off both.
-        assert_eq!(mark_at(&marks, all, at(-96.5, 35.5), tol, tol), None);
+        assert_eq!(first(&marks, &all, at(-96.5, 35.5), tol, tol), None);
         // The point outside the view's time is not there to click; the line under it is.
         let not_point = |s: Option<&usize>| s != Some(&1);
         assert_eq!(
-            mark_at(&marks, not_point, at(-97.0, 35.0), tol, tol),
+            first(&marks, &not_point, at(-97.0, 35.0), tol, tol),
             Some((0, "Line"))
+        );
+        // Everything under the point, for the chooser: the point, then the line it sits on.
+        assert_eq!(
+            mark_hits(&marks, all, at(-97.0, 35.0), tol, tol),
+            [(1, "Point"), (0, "Line")]
         );
     }
 
@@ -1332,6 +1510,17 @@ mod tests {
             .collect();
         assert_eq!(names, ["big early", "big late"]);
         assert_eq!(out[0].properties["hookecho"], "imported");
+        // A table's rows (or its picked one): only those features, and still only shown ones —
+        // a hidden feature asked for by number is not written.
+        let names_of = |srcs: &[usize]| -> Vec<String> {
+            layer_features_of(&config, &layer, |s| srcs.contains(&s))
+                .iter()
+                .map(|f| f.properties["NAME"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(names_of(&[2]), ["big late"]);
+        assert_eq!(names_of(&[1, 2]), ["big late"], "feature 1 is filtered out");
+        assert!(names_of(&[]).is_empty());
     }
 
     /// The table lists what the layer shows, searches any column, sorts numbers as numbers and
