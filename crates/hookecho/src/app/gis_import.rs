@@ -115,6 +115,8 @@ impl HookEchoApp {
                     other => log::warn!("no alert sound row named '{other}'"),
                 }
             }
+            // A bundle of several shapefiles: let the person choose which, each its own layer.
+            K::GisFile if self.offer_bundle(&import) => {}
             K::GisFile => match crate::gis_import::load_import(&import) {
                 Ok(loaded) => {
                     // Remember it the same two ways an imported `.pal` is remembered: a path

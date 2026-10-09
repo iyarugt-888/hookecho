@@ -20,6 +20,12 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: choose which shapefiles to import from a zip
+
+A zip holding several shapefiles now asks which to bring in, and each one becomes its own layer
+(reopened as itself next time), instead of all of them merged into one. "All as one layer" still
+does the old thing.
+
 ### Changed: new warnings arrive sooner
 
 Measured live, a new warning reached the alerts feed within about a minute of being issued, and

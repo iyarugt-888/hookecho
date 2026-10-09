@@ -49,6 +49,7 @@ mod overlay_fetch;
 pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
 mod account_sync;
 mod alert_latency;
+mod gis_bundle;
 mod wire_alerts;
 mod alerts_watch;
 mod beam_tools;
@@ -1450,6 +1451,8 @@ pub struct HookEchoApp {
     overlay_last_fetch: Option<Instant>,
     /// When the 30 s warning-polygon poll last went out (`fetch_schedule`).
     warning_poll_at: Option<Instant>,
+    /// A zipped bundle of several shapefiles waiting for the person to pick (`app/gis_bundle.rs`).
+    gis_bundle: Option<gis_bundle::BundlePick>,
     detail: Option<Detail>,
     /// Several features under one click: the list to choose from (ROADMAP_PARITY M4.3).
     feature_chooser: Option<Vec<feature_chooser::ChoiceItem>>,

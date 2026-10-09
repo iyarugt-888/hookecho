@@ -24,6 +24,7 @@ impl HookEchoApp {
             }
         }
         self.settings_frame(ctx, dock_layout);
+        self.bundle_picker(ctx);
         let pf_status: Vec<ui::placefile_window::PlacefileStatus> = self
             .placefiles
             .iter()

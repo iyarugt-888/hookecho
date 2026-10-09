@@ -633,6 +633,42 @@ pub(crate) fn load_shapefile_zip(bytes: &[u8]) -> Result<Loaded, String> {
     })
 }
 
+/// A layer source naming one dataset inside a zipped bundle, `bundle.zip#roads.shp` (1008.md D1):
+/// the bundle's path and the dataset's path inside it, or the source and `None` for anything else.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn split_dataset(source: &str) -> (&str, Option<&str>) {
+    match source.rsplit_once('#') {
+        Some((path, dataset)) if is_zip(path) && is_shapefile(dataset) => (path, Some(dataset)),
+        _ => (source, None),
+    }
+}
+
+/// Every dataset in a zipped bundle, separately, for the bundle picker.
+pub(crate) fn zip_datasets(bytes: &[u8]) -> Result<Vec<wxdata::shapefile::Dataset>, String> {
+    wxdata::shapefile::parse_zip(bytes).map_err(|e| format!("{e:#}"))
+}
+
+/// One dataset of a zipped bundle, by its path inside the zip (case-insensitively). A bundle
+/// that no longer holds it says so by name rather than loading another one.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn load_shapefile_zip_dataset(bytes: &[u8], dataset: &str) -> Result<Loaded, String> {
+    let sets = zip_datasets(bytes)?;
+    let names: Vec<String> = sets.iter().map(|d| d.name.clone()).collect();
+    let d = sets
+        .into_iter()
+        .find(|d| d.name.eq_ignore_ascii_case(dataset))
+        .ok_or_else(|| {
+            format!(
+                "the zip no longer holds {dataset} (it holds {})",
+                names.join(", ")
+            )
+        })?;
+    Ok(Loaded {
+        features: d.features,
+        note: (!d.notes.is_empty()).then(|| d.notes.join("; ")),
+    })
+}
+
 /// A shapefile handed over as one file's bytes — what a browser or a phone's picker gives. Its
 /// `.dbf` and `.prj` are separate files that were not picked, so the shapes come without
 /// attributes; the note says so instead of leaving the click popup mysteriously empty.
@@ -703,6 +739,10 @@ pub(crate) fn load_shapefile_path(path: &std::path::Path) -> Result<Loaded, Stri
 pub(crate) fn load_path(path: &str) -> Result<Loaded, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        if let (zip, Some(dataset)) = split_dataset(path) {
+            let bytes = std::fs::read(zip).map_err(|e| e.to_string())?;
+            return load_shapefile_zip_dataset(&bytes, dataset);
+        }
         if is_shapefile(path) {
             return load_shapefile_path(std::path::Path::new(path));
         }
@@ -1298,5 +1338,68 @@ mod tests {
         assert!(is_binary("a.kmz") && is_binary("a.shp") && !is_binary("a.kml"));
         assert!(!is_shapefile("c.geojson"));
         assert!(!is_shapefile("c.shp.json"));
+    }
+}
+
+#[cfg(test)]
+mod bundle_tests {
+    use super::*;
+
+    /// A bundle of two real datasets (the pinned Oklahoma counties in NAD83 and in UTM 14N, in
+    /// folders of their own): listed separately, each loadable by name — directly and as a
+    /// layer's `bundle.zip#dataset` source — and a name the bundle lacks is refused by name.
+    #[test]
+    fn a_bundle_dataset_loads_as_itself() {
+        let fixture = |f: &str| {
+            std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../wxdata/tests/data/gis")
+                    .join(f),
+            )
+            .unwrap()
+        };
+        let mut entries = Vec::new();
+        for (zip, folder) in [
+            ("ok_counties_nad83.zip", "nad83"),
+            ("ok_counties_26914.zip", "utm"),
+        ] {
+            let bytes = fixture(zip);
+            for e in wxdata::zip::entries(&bytes).unwrap() {
+                let file = e.name.rsplit('/').next().unwrap().to_string();
+                let data = wxdata::zip::read(&bytes, &e, 64 << 20).unwrap();
+                entries.push((format!("{folder}/{file}"), data));
+            }
+        }
+        let bundle = crate::zipwrite::zip(&entries, chrono::Utc::now());
+        let sets = zip_datasets(&bundle).unwrap();
+        assert_eq!(sets.len(), 2);
+        let names: Vec<&str> = sets.iter().map(|d| d.name.as_str()).collect();
+        let utm = names
+            .iter()
+            .find(|n| n.starts_with("utm/"))
+            .expect("the UTM dataset")
+            .to_string();
+        let loaded = load_shapefile_zip_dataset(&bundle, &utm.to_ascii_uppercase()).unwrap();
+        assert_eq!(loaded.features.len(), 77);
+        let Err(refused) = load_shapefile_zip_dataset(&bundle, "roads/roads.shp") else {
+            panic!("a dataset the bundle lacks must be refused");
+        };
+        assert!(
+            refused.contains("no longer holds roads/roads.shp"),
+            "{refused}"
+        );
+
+        let dir = std::env::temp_dir().join(format!("hookecho_bundle_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ok.zip");
+        std::fs::write(&path, &bundle).unwrap();
+        let source = format!("{}#{utm}", path.to_string_lossy());
+        let reopened = load_path(&source).unwrap();
+        assert_eq!(
+            reopened.features.len(),
+            77,
+            "the layer reopens as its own dataset"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

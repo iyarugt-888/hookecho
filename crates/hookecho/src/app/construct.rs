@@ -390,6 +390,7 @@ impl HookEchoApp {
             overlay_ready: false,
             overlay_last_fetch: None,
             warning_poll_at: None,
+            gis_bundle: None,
             detail: None,
             feature_chooser: None,
             cell_popup: None,
