@@ -814,6 +814,7 @@ impl BinnedSweep {
             nyquist_decoded_mps: self.row_value(&self.row_nyquist_mps, lon, lat),
             unambiguous_range_km: self.row_value(&self.row_unambiguous_km, lon, lat),
             sample,
+            encoding: None,
         })
     }
 }
@@ -859,6 +860,83 @@ pub struct GateInspection {
     pub nyquist_decoded_mps: Option<f32>,
     /// The unambiguous range (km) decoded from the same radial; `None` when not carried.
     pub unambiguous_range_km: Option<f32>,
+    /// How the radar encoded this gate in the radial that wrote it (1008.md C3), when the caller
+    /// looked it up ([`gate_encoding`]); `None` otherwise, or for a derived moment.
+    pub encoding: Option<GateEncoding>,
+}
+
+/// What a raw gate code means (Level II Message 31: 0 below threshold, 1 range folded).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GateCode {
+    Value(f32),
+    BelowThreshold,
+    RangeFolded,
+}
+
+/// One gate as the radar transmitted it: the raw code in its word size, the scale and offset
+/// that decode it (`(code - offset) / scale`), what the code means, and which gate of the source
+/// radial it is. Read from the source radial itself, not from the app's 8-bit display binning.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GateEncoding {
+    pub raw: u16,
+    pub word_bits: u8,
+    pub scale: f32,
+    pub offset: f32,
+    pub code: GateCode,
+    pub source_gate: usize,
+}
+
+/// The source encoding of the gate `sample` came from in `binned`, found by its source radial
+/// (elevation number, azimuth number and collection time) and the centre range of the binned gate
+/// the app shows (not the point's own range, which can fall nearer the next gate's centre).
+/// `None` when the sample has no source radial, the radial is not in `scan`, the range falls
+/// outside the radial's gates, or `moment` is derived rather than transmitted (KDP).
+pub fn gate_encoding(
+    scan: &Scan,
+    moment: Moment,
+    binned: &BinnedSweep,
+    sample: &GateSample,
+) -> Option<GateEncoding> {
+    if moment == Moment::SpecificDifferentialPhase {
+        return None;
+    }
+    let key = sample.source_radial.as_ref()?;
+    let radial = scan
+        .sweeps()
+        .iter()
+        .filter(|s| u16::from(s.elevation_number()) == key.elevation_number)
+        .flat_map(|s| s.radials())
+        .find(|r| {
+            r.azimuth_number() == key.azimuth_number && r.collection_timestamp() == key.collected_ms
+        })?;
+    let data = moment.select(radial)?;
+    let interval = data.gate_interval_km();
+    if interval <= 0.0 {
+        return None;
+    }
+    let centre =
+        f64::from(binned.first_gate_km) + f64::from(binned.gate_interval_km) * sample.gate as f64;
+    let idx = ((centre - data.first_gate_range_km()) / interval).round();
+    if idx < 0.0 || idx >= f64::from(data.gate_count()) {
+        return None;
+    }
+    let source_gate = idx as usize;
+    let raw = data.raw_gate_values().nth(source_gate)?;
+    let (scale, offset) = (data.scale(), data.offset());
+    let code = match raw {
+        0 => GateCode::BelowThreshold,
+        1 => GateCode::RangeFolded,
+        r if scale == 0.0 => GateCode::Value(f32::from(r)),
+        r => GateCode::Value((f32::from(r) - offset) / scale),
+    };
+    Some(GateEncoding {
+        raw,
+        word_bits: data.data_word_size(),
+        scale,
+        offset,
+        code,
+        source_gate,
+    })
 }
 
 /// An AWS archive volume identifier (re-exported so callers needn't depend on `nexrad-data`).

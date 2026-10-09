@@ -3415,7 +3415,8 @@ impl HookEchoApp {
             None
         };
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
-        let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
+        let mut inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
+        inspection.encoding = level2::gate_encoding(&scan, moment, &raw, &inspection.sample);
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
         let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels);
         let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, levels);

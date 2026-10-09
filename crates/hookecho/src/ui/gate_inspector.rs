@@ -235,6 +235,11 @@ pub(crate) fn attributes(
         ),
         (popup.moment.short_name(), {
             let mut rows = vec![("Raw value", raw_value)];
+            // As transmitted (1008.md C3): the gate's own code, word size and decoding.
+            rows.push((
+                "As transmitted",
+                encoding_text(i.encoding.as_ref(), popup.moment),
+            ));
             if popup.moment == Moment::Velocity {
                 rows.push(("Dealiased value", opt(i.dealiased_value, " m/s", 1)));
                 // Decoded from the radial that wrote this row, else an estimate read off the
@@ -550,6 +555,27 @@ fn vertical_profile(ui: &mut egui::Ui, popup: &GateInspectorPopup) {
     );
 }
 
+/// The "As transmitted" row: the source code and how it decodes, or why there is none.
+fn encoding_text(e: Option<&wxdata::level2::GateEncoding>, moment: Moment) -> String {
+    use wxdata::level2::GateCode;
+    let Some(e) = e else {
+        return if moment == Moment::SpecificDifferentialPhase {
+            "derived from \u{3a6}DP, not transmitted".into()
+        } else {
+            "not found in the source radial".into()
+        };
+    };
+    let what = match e.code {
+        GateCode::BelowThreshold => "below threshold".to_string(),
+        GateCode::RangeFolded => "range folded".to_string(),
+        GateCode::Value(v) => format!("{v:.3} {}", moment.units()),
+    };
+    format!(
+        "code {} ({}-bit, gate {}) \u{b7} scale {}, offset {} \u{2192} {what}",
+        e.raw, e.word_bits, e.source_gate, e.scale, e.offset
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,6 +610,14 @@ mod tests {
                 nyquist_mps: (moment == Moment::Velocity).then_some(32.0),
                 nyquist_decoded_mps: None,
                 unambiguous_range_km: None,
+                encoding: Some(wxdata::level2::GateEncoding {
+                    raw: 142,
+                    word_bits: 8,
+                    scale: 2.0,
+                    offset: 66.0,
+                    code: wxdata::level2::GateCode::Value(38.0),
+                    source_gate: 120,
+                }),
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),

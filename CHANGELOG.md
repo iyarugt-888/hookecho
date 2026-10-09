@@ -20,6 +20,12 @@ with this computer's; the drawn stage is the CPU frame, not the moment the scree
 and writes the same measurement, every poll's clock against the server's `Date` header, and a
 readable report.
 
+### Added: the gate inspector shows how the radar sent each gate
+
+A new "As transmitted" row shows the gate's raw code as it arrived in the Level II data, its word
+size, the scale and offset that decode it, and what it means — a value, below threshold or range
+folded — read from the radial that wrote it rather than from the app's display colours.
+
 ### Added: the output window comes back after a restart
 
 The output window (for OBS or a second screen) now reopens at launch with the size, fullscreen

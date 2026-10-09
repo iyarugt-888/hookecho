@@ -1246,6 +1246,115 @@ fn radial_blocks_by_hand(bytes: Vec<u8>) -> Vec<(u16, u16)> {
     out
 }
 
+/// Every reflectivity moment block's (scale, offset), read straight from the ICD byte layout
+/// (`DREF`, then reserved 4, gates 2, first gate 2, interval 2, TOVER 2, SNR threshold 2, flags 1,
+/// word size 1, scale f32, offset f32), independently of the decoder.
+fn ref_blocks_by_hand(bytes: Vec<u8>) -> Vec<(f32, f32, u8)> {
+    let file = nexrad_data::volume::File::new(bytes);
+    let file = if file.compressed() {
+        file.decompress().unwrap()
+    } else {
+        file
+    };
+    let mut out = Vec::new();
+    for record in file.records().unwrap() {
+        let record = if record.compressed() {
+            record.decompress().unwrap()
+        } else {
+            nexrad_data::volume::Record::new(record.data().to_vec())
+        };
+        let data = record.data();
+        let mut i = 0;
+        while i + 28 <= data.len() {
+            if &data[i..i + 4] == b"DREF" {
+                let f = |at: usize| {
+                    f32::from_be_bytes([
+                        data[i + at],
+                        data[i + at + 1],
+                        data[i + at + 2],
+                        data[i + at + 3],
+                    ])
+                };
+                out.push((f(20), f(24), data[i + 19]));
+                i += 28;
+                continue;
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// M3.1 / 1008.md C3: the gate inspector's "as transmitted" encoding is the source radial's own.
+/// Over the lowest reflectivity tilt of every offline volume, each sampled gate's source code
+/// decodes to the value the app shows there (to within its 8-bit display step), codes 0 and 1
+/// are below threshold and range folded exactly where the app says so, and every (scale, offset)
+/// used is one the byte-level read of the moment blocks found.
+#[test]
+fn gate_encoding_matches_the_moment_blocks_and_the_shown_value() {
+    use level2::{GateCode, Moment};
+    let m = corpus::manifest();
+    for f in m.fixtures.iter().filter(|f| f.tier == "offline") {
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let blocks = ref_blocks_by_hand(bytes.clone());
+        assert!(!blocks.is_empty(), "{}: no DREF blocks found by hand", f.id);
+        let scan = level2::decode_volume(bytes).unwrap();
+        // The app's binning, which keeps each row's source radial.
+        let sweep = level2::bin_scan_opts_recorded(&scan, Moment::Reflectivity, 0, false).unwrap();
+        let step = (sweep.value_max - sweep.value_min) / 253.0;
+        let (lat0, lon0) = (f64::from(sweep.radar_lat), f64::from(sweep.radar_lon));
+        let (mut values, mut below, mut checked) = (0, 0, 0);
+        for i in -60..=60 {
+            for j in -60..=60 {
+                let (lon, lat) = (lon0 + f64::from(i) * 0.02, lat0 + f64::from(j) * 0.016);
+                let Some(sample) = sweep.sample_at(lon, lat) else {
+                    continue;
+                };
+                let Some(e) = level2::gate_encoding(&scan, Moment::Reflectivity, &sweep, &sample)
+                else {
+                    continue;
+                };
+                checked += 1;
+                assert!(
+                    blocks
+                        .iter()
+                        .any(|b| b.0 == e.scale && b.1 == e.offset && b.2 == e.word_bits),
+                    "{}: scale {} offset {} not in any DREF block",
+                    f.id,
+                    e.scale,
+                    e.offset
+                );
+                match e.code {
+                    GateCode::Value(v) => {
+                        values += 1;
+                        let shown = sample.value.expect("a value where the radar sent one");
+                        assert!(
+                            (shown - v).abs() <= step,
+                            "{}: code {} decodes to {v}, shown {shown}",
+                            f.id,
+                            e.raw
+                        );
+                    }
+                    GateCode::BelowThreshold => {
+                        below += 1;
+                        assert!(sample.value.is_none() && !sample.folded, "{}", f.id);
+                    }
+                    GateCode::RangeFolded => assert!(sample.folded, "{}", f.id),
+                }
+            }
+        }
+        println!(
+            "{}: {checked} gates checked, {values} with values, {below} below threshold",
+            f.id
+        );
+        assert!(
+            values > 100 && below > 100,
+            "{}: too few gates checked",
+            f.id
+        );
+    }
+}
+
 /// M3.1: the Nyquist velocity and unambiguous range each radial was collected with are decoded
 /// from its own radial block, not estimated, and every binned row carries its writer's values.
 #[test]
