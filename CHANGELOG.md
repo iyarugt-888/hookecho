@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Docs: certification evidence index
+
+`docs/certification/README.md` now indexes the reviewed evidence card by card, and
+`manifest.json` lists every evidence file with its checksum. It says plainly that release
+readiness is not claimed, and why.
+
 ### Added: the soak test can drive the renderer
 
 `hookecho --soak SITE [MINUTES] --render` also draws each new volume and builds its 3D view on
