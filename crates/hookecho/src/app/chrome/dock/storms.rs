@@ -35,6 +35,7 @@ enum StormAction {
     Center,
     Details,
     Track,
+    Note,
 }
 
 /// Filter after sorting so the indices still address the source cells and their evidence.
@@ -750,6 +751,40 @@ impl HookEchoApp {
             .iter()
             .map(|c| self.dock.storm_ids.lineage_mark(&c.id))
             .collect();
+        // Notes (1008.md B3): each row's live notes, found through the storm history so a note
+        // stays with its storm through a renumbering; and every note, for the list.
+        let resolve = |cell: &str, scan: Option<i64>| match self.dock.storm_ids.resolve(cell, scan)
+        {
+            Resolved::Current(now) => Some(now),
+            _ => None,
+        };
+        let row_notes: Vec<Vec<String>> = cells
+            .iter()
+            .map(|c| {
+                crate::app::storm_notes::notes_for_row(
+                    &self.storm_tracks.notes,
+                    site.as_deref(),
+                    &c.id,
+                    resolve,
+                )
+                .into_iter()
+                .map(|n| n.text.trim().to_string())
+                .collect()
+            })
+            .collect();
+        let note_lines: Vec<String> = self.storm_tracks.notes.iter().map(|n| n.line()).collect();
+        // A draft written against another radar's table is dropped, not saved onto this one.
+        if self
+            .storm_tracks
+            .note_draft
+            .as_ref()
+            .is_some_and(|d| Some(d.site.as_str()) != site.as_deref())
+        {
+            self.storm_tracks.note_draft = None;
+        }
+        let mut note_draft = self.storm_tracks.note_draft.take();
+        let mut note_done: Option<bool> = None;
+        let mut delete_note: Option<usize> = None;
         let (sort, desc) = (self.dock.storm_sort, self.dock.storm_desc);
         let mut query = self.dock.storm_query.clone();
         // The row of the selected storm, when it is in this table: not whichever cell has the ID
@@ -788,6 +823,11 @@ impl HookEchoApp {
                 );
                 if collapsed {
                     return;
+                }
+                if let Some(draft) = note_draft.as_mut() {
+                    ui.add_space(4.0);
+                    note_done = crate::app::storm_notes::editor(ui, draft);
+                    ui.separator();
                 }
                 if cells.is_empty() {
                     ui.add_space(8.0);
@@ -1021,6 +1061,9 @@ impl HookEchoApp {
                                     if let Some((_, why)) = &lineage[i] {
                                         ui.label(format!("Lineage: {why}"));
                                     }
+                                    for note in &row_notes[i] {
+                                        ui.label(format!("Note: {note}"));
+                                    }
                                     ui.weak("Right-click for details, centering or manual motion.");
                                 });
                                 resp.context_menu(|ui| {
@@ -1044,6 +1087,10 @@ impl HookEchoApp {
                                         .clicked()
                                     {
                                         pick = Some((i, StormAction::Track));
+                                        ui.close();
+                                    }
+                                    if ui.button("Add a note\u{2026}").clicked() {
+                                        pick = Some((i, StormAction::Note));
                                         ui.close();
                                     }
                                 });
@@ -1119,8 +1166,39 @@ impl HookEchoApp {
                     10.5,
                     t.text_faint,
                 ));
+                if !note_lines.is_empty() {
+                    ui.collapsing(format!("Notes ({})", note_lines.len()), |ui| {
+                        for (k, line) in note_lines.iter().enumerate() {
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .small_button("\u{d7}")
+                                    .on_hover_text("Delete this note")
+                                    .clicked()
+                                {
+                                    delete_note = Some(k);
+                                }
+                                ui.label(ws::text(line, 11.0, t.text));
+                            });
+                        }
+                    });
+                }
             },
         );
+        match note_done {
+            Some(true) => {
+                if let Some(d) = note_draft.take() {
+                    self.storm_tracks.notes.push(d);
+                }
+            }
+            Some(false) => note_draft = None,
+            None => {}
+        }
+        self.storm_tracks.note_draft = note_draft;
+        if let Some(k) = delete_note {
+            if k < self.storm_tracks.notes.len() {
+                self.storm_tracks.notes.remove(k);
+            }
+        }
         self.dock.storm_query = query;
         self.dock.apply_header(DockWin::Storms, header);
         if let Some(key) = resort {
@@ -1145,6 +1223,15 @@ impl HookEchoApp {
             if matches!(action, StormAction::Details) {
                 self.cell_details = true;
                 self.dock.bring_forward(DockWin::Cell);
+            }
+            if matches!(action, StormAction::Note) {
+                if let Some(site) = site.as_deref() {
+                    self.storm_tracks.note_draft = Some(crate::app::storm_notes::StormNote::draft(
+                        site,
+                        &c,
+                        chrono::Utc::now(),
+                    ));
+                }
             }
             self.select_storm_from(c, false);
         }

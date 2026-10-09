@@ -60,9 +60,28 @@ pub struct CaseManifest {
     /// the rest of the case. They reopen as historical, never as a live estimate.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_tracks: Vec<CaseTrack>,
+    /// Notes on storms (1008.md B3), each with the radar, SCIT cell and table time it was written
+    /// against. Additive like `manual_tracks`; they reopen as historical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub storm_notes: Vec<CaseStormNote>,
     /// Free text for whoever opens it next.
     #[serde(default)]
     pub notes: String,
+}
+
+/// A note on a storm as a case keeps it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaseStormNote {
+    pub text: String,
+    pub site: String,
+    /// SCIT's cell ID when it was written.
+    pub cell: String,
+    /// The storm table's time; absent when the table carried none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan: Option<DateTime<Utc>>,
+    /// Where the storm was, `[lon, lat]`.
+    pub at: [f64; 2],
+    pub written: DateTime<Utc>,
 }
 
 /// A manual storm-motion track as a case keeps it.
@@ -199,6 +218,14 @@ mod tests {
             }],
             udp_products: Vec::new(),
             manual_tracks: Vec::new(),
+            storm_notes: vec![CaseStormNote {
+                text: "wall cloud".into(),
+                site: "KTLX".into(),
+                cell: "K3".into(),
+                scan: Some(time),
+                at: [-97.5, 35.3],
+                written: time,
+            }],
             notes: "Moore, EF5".into(),
         }
     }

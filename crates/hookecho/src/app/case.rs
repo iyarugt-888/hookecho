@@ -51,6 +51,12 @@ impl HookEchoApp {
                 .iter()
                 .map(crate::app::storm_track::ManualTrack::to_case)
                 .collect(),
+            storm_notes: self
+                .storm_tracks
+                .notes
+                .iter()
+                .map(crate::app::storm_notes::StormNote::to_case)
+                .collect(),
             notes: String::new(),
         }
     }
@@ -137,6 +143,17 @@ impl HookEchoApp {
                     t.speed_kmh.to_bits(),
                     t.t0,
                 )
+            });
+        // Storm notes come back historical: listed with their own time, never attached to the
+        // storm that carries their old cell ID today.
+        let notes: Vec<crate::app::storm_notes::StormNote> = case
+            .storm_notes
+            .iter()
+            .map(crate::app::storm_notes::StormNote::from_case)
+            .collect();
+        let added = added
+            + merge_by(&mut self.storm_tracks.notes, &notes, |n| {
+                (n.site.clone(), n.cell.clone(), n.scan, n.text.clone())
             });
         self.settings.save();
         self.rebuild_overlays();

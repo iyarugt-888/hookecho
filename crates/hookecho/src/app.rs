@@ -135,6 +135,7 @@ pub(crate) use overlay_toggle::OverlayToggle;
 pub(crate) use pane_layout::arranged_pane_rects;
 mod request_book;
 mod scale_bar;
+pub(crate) mod storm_notes;
 pub(crate) mod storm_track;
 pub(crate) mod telemetry;
 pub(crate) use request_book::{

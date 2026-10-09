@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: notes on storms, saved in cases
+
+Right-click a storm in the Storms table to add a note. The note stays with that storm even when
+the radar renumbers it, shows when you hover the storm's row, and is listed under the table.
+Saved cases keep the notes. When a case is reopened, its notes are listed as from the case,
+with their own time, and are not attached to today's storms.
+
 ### Added: split and merge marks in the Storms table
 
 A storm that split from another, shed one, or absorbed one now says so on its row in the Storms

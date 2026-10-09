@@ -608,6 +608,10 @@ impl TrackDrag {
 #[derive(Default)]
 pub(crate) struct StormTracks {
     pub tracks: Vec<ManualTrack>,
+    /// Notes on storms (`app::storm_notes`), live and reopened from cases.
+    pub notes: Vec<super::storm_notes::StormNote>,
+    /// A note being written, until saved or cancelled.
+    pub note_draft: Option<super::storm_notes::StormNote>,
     pub selected: Option<usize>,
     drag: Option<TrackDrag>,
     /// A line being clicked out, point by point, before its motion is dragged.
