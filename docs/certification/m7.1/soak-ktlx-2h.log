@@ -1,0 +1,267 @@
+[2026-10-09T16:51:27Z INFO  wgpu_hal::vulkan::adapter] Found 6 cooperative matrix configurations supported by wgpu
+soak KTLX: 120 min, a cycle every 30 s, injecting cut-off volumes
+   0.0 min  new KTLX20261009_164410_V06  decode 75 ms  bin 18 sweeps 11 ms · 131 MB · drew REF tilt 1 3 ms, 3D 14+86 ms, GPU 10 MB
+   0.5 min  no change · 125 MB
+   1.0 min  no change · 125 MB
+   1.5 min  no change · 125 MB
+   2.0 min  no change · 124 MB
+   2.5 min  no change · 124 MB
+   3.0 min  no change · 124 MB
+   3.5 min  no change · 124 MB
+   4.0 min  no change · 124 MB
+   4.5 min  no change · 124 MB
+   5.0 min  no change · 124 MB
+   5.5 min  no change · 124 MB
+   6.0 min  no change · 124 MB
+   6.5 min  new KTLX20261009_165058_V06  decode 236 ms  bin 18 sweeps 354 ms · 129 MB · drew VEL tilt 1 7 ms, 3D 374+9 ms, GPU 10 MB
+   7.0 min  no change · 129 MB
+   7.5 min  no change · 129 MB
+   8.0 min  no change · 127 MB
+   8.5 min  no change · 126 MB
+   9.0 min  no change · 126 MB
+   9.5 min  no change · 126 MB
+  10.0 min  no change · 119 MB
+  10.5 min  no change · 119 MB
+  11.0 min  no change · 119 MB
+  11.5 min  no change · 119 MB
+  12.0 min  no change · 119 MB
+  12.5 min  no change · 119 MB
+  13.0 min  no change · 119 MB
+  13.5 min  new KTLX20261009_165801_V06  decode 98 ms  bin 18 sweeps 15 ms · 119 MB · drew CC tilt 1 4 ms, 3D 16+9 ms, GPU 10 MB
+  14.0 min  no change · 119 MB
+  14.5 min  no change · 119 MB
+  15.0 min  no change · 119 MB
+  15.5 min  no change · 119 MB
+  16.0 min  no change · 119 MB
+  16.5 min  no change · 119 MB
+  17.0 min  no change · 119 MB
+  17.5 min  no change · 119 MB
+  18.0 min  no change · 119 MB
+  18.5 min  no change · 119 MB
+  19.0 min  no change · 119 MB
+  19.5 min  no change · 119 MB
+  20.0 min  no change · 119 MB
+  20.5 min  no change · 119 MB
+  21.0 min  no change · 119 MB
+  21.5 min  no change · 119 MB
+  22.0 min  new KTLX20261009_170619_V06  decode 84 ms  bin 18 sweeps 12 ms · 122 MB · drew ZDR tilt 1 4 ms, 3D 15+9 ms, GPU 10 MB
+  22.5 min  no change · 122 MB
+  23.0 min  no change · 122 MB
+  23.5 min  no change · 120 MB
+  24.0 min  no change · 120 MB
+  24.5 min  no change · 120 MB
+  25.0 min  no change · 120 MB
+  25.5 min  no change · 120 MB
+  26.0 min  no change · 29 MB
+  26.5 min  no change · 26 MB
+  27.0 min  no change · 26 MB
+  27.5 min  no change · 27 MB
+  28.0 min  no change · 27 MB
+  28.5 min  new KTLX20261009_171311_V06  decode 102 ms  bin 18 sweeps 11 ms · 32 MB · drew REF tilt 2 58 ms, 3D 14+10 ms, GPU 10 MB
+  29.0 min  no change · 30 MB
+  29.5 min  no change · 30 MB
+  30.0 min  no change · 30 MB
+  30.5 min  no change · 30 MB
+  31.0 min  no change · 30 MB
+  31.5 min  no change · 30 MB
+  32.0 min  no change · 30 MB
+  32.5 min  no change · 30 MB
+  33.0 min  no change · 30 MB
+  33.5 min  no change · 30 MB
+  34.0 min  no change · 30 MB
+  34.5 min  no change · 30 MB
+  35.0 min  no change · 30 MB
+  35.5 min  new KTLX20261009_172004_V06  decode 88 ms  bin 18 sweeps 13 ms · 32 MB · drew VEL tilt 2 4 ms, 3D 15+9 ms, GPU 10 MB
+  36.0 min  no change · 32 MB
+  36.5 min  no change · 30 MB
+  37.0 min  no change · 30 MB
+  37.5 min  no change · 30 MB
+  38.0 min  no change · 30 MB
+  38.5 min  no change · 30 MB
+  39.0 min  no change · 30 MB
+  39.5 min  no change · 30 MB
+  40.0 min  no change · 30 MB
+  40.5 min  no change · 30 MB
+  41.0 min  no change · 30 MB
+  41.5 min  no change · 30 MB
+  42.0 min  no change · 30 MB
+  42.5 min  new KTLX20261009_172701_V06  decode 95 ms  bin 18 sweeps 12 ms · 33 MB · drew CC tilt 2 7 ms, 3D 16+9 ms, GPU 10 MB
+  43.0 min  no change · 34 MB
+  43.5 min  no change · 34 MB
+  44.0 min  no change · 34 MB
+  44.5 min  no change · 34 MB
+  45.0 min  no change · 34 MB
+  45.5 min  no change · 34 MB
+  46.0 min  no change · 34 MB
+  46.5 min  no change · 34 MB
+  47.0 min  no change · 34 MB
+  47.5 min  no change · 34 MB
+  48.0 min  no change · 34 MB
+  48.5 min  no change · 34 MB
+  49.0 min  no change · 34 MB
+  49.5 min  new KTLX20261009_173358_V06  decode 91 ms  bin 18 sweeps 11 ms · 34 MB · drew ZDR tilt 2 6 ms, 3D 14+9 ms, GPU 10 MB
+  50.0 min  no change · 34 MB
+  50.5 min  no change · 31 MB
+  51.0 min  no change · 31 MB
+  51.5 min  no change · 31 MB
+  52.0 min  no change · 32 MB
+  52.5 min  no change · 32 MB
+  53.0 min  no change · 32 MB
+  53.5 min  no change · 32 MB
+  54.0 min  no change · 32 MB
+  54.5 min  no change · 32 MB
+  55.0 min  no change · 32 MB
+  55.5 min  no change · 31 MB
+  56.0 min  no change · 31 MB
+  56.5 min  new KTLX20261009_174101_V06  decode 82 ms  bin 18 sweeps 11 ms · 35 MB · drew REF tilt 3 5 ms, 3D 14+9 ms, GPU 10 MB
+  57.0 min  no change · 33 MB
+  57.5 min  no change · 33 MB
+  58.0 min  no change · 33 MB
+  58.5 min  no change · 33 MB
+  59.0 min  no change · 33 MB
+  59.5 min  no change · 33 MB
+  60.0 min  no change · 33 MB
+  60.5 min  no change · 33 MB
+  61.0 min  no change · 33 MB
+  61.5 min  no change · 33 MB
+  62.0 min  no change · 33 MB
+  62.5 min  no change · 33 MB
+  63.0 min  no change · 33 MB
+  63.5 min  new KTLX20261009_174753_V06  decode 84 ms  bin 18 sweeps 11 ms · 34 MB · drew VEL tilt 3 4 ms, 3D 14+9 ms, GPU 10 MB
+  64.0 min  no change · 34 MB
+  64.5 min  no change · 34 MB
+  65.0 min  no change · 34 MB
+  65.5 min  no change · 34 MB
+  66.0 min  no change · 34 MB
+  66.5 min  no change · 34 MB
+  67.0 min  no change · 34 MB
+  67.5 min  no change · 34 MB
+  68.0 min  no change · 34 MB
+  68.5 min  no change · 34 MB
+  69.0 min  no change · 32 MB
+  69.5 min  no change · 32 MB
+  70.0 min  no change · 32 MB
+  70.5 min  new KTLX20261009_175449_V06  decode 99 ms  bin 18 sweeps 12 ms · 33 MB · drew CC tilt 3 5 ms, 3D 15+9 ms, GPU 10 MB
+  71.0 min  no change · 33 MB
+  71.5 min  no change · 34 MB
+  72.0 min  no change · 34 MB
+  72.5 min  no change · 34 MB
+  73.0 min  no change · 34 MB
+  73.5 min  no change · 34 MB
+  74.0 min  no change · 34 MB
+  74.5 min  no change · 34 MB
+  75.0 min  no change · 34 MB
+  75.5 min  no change · 34 MB
+  76.0 min  no change · 34 MB
+  76.5 min  no change · 34 MB
+  77.0 min  no change · 34 MB
+  77.5 min  new KTLX20261009_180151_V06  decode 79 ms  bin 18 sweeps 11 ms · 35 MB · drew ZDR tilt 3 5 ms, 3D 14+9 ms, GPU 10 MB
+  78.0 min  no change · 35 MB
+  78.5 min  no change · 35 MB
+  79.0 min  no change · 35 MB
+  79.5 min  no change · 35 MB
+  80.0 min  no change · 35 MB
+  80.5 min  no change · 35 MB
+  81.0 min  no change · 35 MB
+  81.5 min  no change · 35 MB
+  82.0 min  no change · 33 MB
+  82.5 min  no change · 33 MB
+  83.0 min  no change · 33 MB
+  83.5 min  no change · 33 MB
+  84.0 min  no change · 33 MB
+  84.5 min  new KTLX20261009_180854_V06  decode 80 ms  bin 18 sweeps 12 ms · 86 MB · drew REF tilt 4 24 ms, 3D 13+9 ms, GPU 10 MB
+  85.0 min  no change · 86 MB
+  85.5 min  no change · 85 MB
+  86.0 min  no change · 85 MB
+  86.5 min  no change · 85 MB
+  87.0 min  no change · 85 MB
+  87.5 min  no change · 85 MB
+  88.0 min  no change · 85 MB
+  88.5 min  no change · 85 MB
+  89.0 min  no change · 85 MB
+  89.5 min  no change · 85 MB
+  90.0 min  no change · 85 MB
+  90.5 min  no change · 85 MB
+  91.0 min  no change · 85 MB
+  91.5 min  new KTLX20261009_181557_V06  decode 81 ms  bin 18 sweeps 11 ms · 91 MB · drew VEL tilt 4 4 ms, 3D 14+9 ms, GPU 10 MB
+  92.0 min  no change · 91 MB
+  92.5 min  no change · 91 MB
+  93.0 min  no change · 91 MB
+  93.5 min  no change · 91 MB
+  94.0 min  no change · 91 MB
+  94.5 min  no change · 91 MB
+  95.0 min  no change · 91 MB
+  95.5 min  no change · 91 MB
+  96.0 min  no change · 91 MB
+  96.5 min  no change · 91 MB
+  97.0 min  no change · 91 MB
+  97.5 min  no change · 91 MB
+  98.0 min  no change · 91 MB
+  98.8 min  new KTLX20261009_182252_V06  decode 77 ms  bin 18 sweeps 11 ms · 89 MB · drew CC tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+  99.0 min  no change · 89 MB
+  99.5 min  no change · 89 MB
+ 100.0 min  no change · 89 MB
+ 100.5 min  no change · 88 MB
+ 101.0 min  no change · 88 MB
+ 101.5 min  no change · 88 MB
+ 102.0 min  no change · 88 MB
+ 102.5 min  no change · 88 MB
+ 103.0 min  no change · 88 MB
+ 103.5 min  no change · 88 MB
+ 104.0 min  no change · 35 MB
+ 104.5 min  no change · 35 MB
+ 105.0 min  no change · 34 MB
+ 105.5 min  new KTLX20261009_182949_V06  decode 87 ms  bin 18 sweeps 11 ms · 87 MB · drew ZDR tilt 4 4 ms, 3D 14+9 ms, GPU 10 MB
+ 106.0 min  no change · 86 MB
+ 106.5 min  no change · 86 MB
+ 107.0 min  no change · 86 MB
+ 107.5 min  no change · 86 MB
+ 108.0 min  no change · 86 MB
+ 108.5 min  no change · 86 MB
+ 109.0 min  no change · 86 MB
+ 109.5 min  no change · 86 MB
+ 110.0 min  no change · 86 MB
+ 110.5 min  no change · 86 MB
+ 111.0 min  no change · 86 MB
+ 111.5 min  no change · 86 MB
+ 112.0 min  no change · 86 MB
+ 112.5 min  new KTLX20261009_183641_V06  decode 77 ms  bin 18 sweeps 11 ms · 88 MB · drew REF tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 113.0 min  no change · 87 MB
+ 113.5 min  no change · 87 MB
+ 114.0 min  no change · 87 MB
+ 114.5 min  no change · 87 MB
+ 115.0 min  no change · 87 MB
+ 115.5 min  no change · 86 MB
+ 116.0 min  no change · 86 MB
+ 116.5 min  no change · 86 MB
+ 117.0 min  no change · 86 MB
+ 117.5 min  no change · 86 MB
+ 118.0 min  no change · 86 MB
+ 118.5 min  no change · 86 MB
+ 119.0 min  new KTLX20261009_184338_V06  decode 79 ms  bin 18 sweeps 10 ms · 90 MB · drew VEL tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 119.5 min  no change · 90 MB
+{
+  "cycles": 240,
+  "volumes": 18,
+  "failures": 0,
+  "fail_streak": 0,
+  "worst_fail_streak": 0,
+  "injected": 5,
+  "injected_refused": 5,
+  "decode_ms_max": 235.9599,
+  "decode_ms_total": 1692.8337999999999,
+  "bin_ms_max": 354.1911,
+  "last_volume_s": 7140.8709822,
+  "rss_baseline_mb": 119.109375,
+  "rss_last_mb": 90.37890625,
+  "rss_max_mb": 131.3203125,
+  "renders": 18,
+  "render_failures": 0,
+  "render_ms_max": 58.4225,
+  "build3d_ms_max": 373.89709999999997,
+  "upload3d_ms_max": 85.97789999999999,
+  "gpu_baseline_mb": 9.5478515625,
+  "gpu_last_mb": 9.54736328125,
+  "gpu_max_mb": 9.7822265625,
+  "problems": []
+}

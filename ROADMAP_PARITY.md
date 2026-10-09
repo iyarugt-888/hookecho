@@ -1798,6 +1798,40 @@ Evidence: [`docs/certification/m6.3/`](docs/certification/m6.3/). Scope: the off
 
 **Agent prompt:** `Implement M7.1 using section 6. Extend the current soak tool to exercise real application/render state and account for resources and injected recoveries.`
 
+**Evidence ledger — 2026-10-09, increment 1 (render profile and a 2-hour live soak; 1008.md H2):** `--soak` gains two options:
+
+- **`--render`** (`soak::RenderProfile`): one long-lived GPU device. A scenario clock rotates REF/VEL/CC/ZDR over the lowest four tilts; each new volume is drawn by the map renderer, then the 3D smooth volume is built and uploaded. GPU allocator bytes are tracked like RSS. Post-warm-up growth fails the soak, and so does any failed render.
+- **`--jsonl PATH`:** a run header, then one timestamped line per cycle.
+
+The sweep's map callback moved to `headless::sweep_callback` for reuse. Tests:
+
+- `the_scenario_clock_rotates_products_then_tilts`
+- `gpu_growth_and_any_failed_render_fail_the_soak`
+- `gpu_render_profile_holds_its_memory`: 40 offline cycles on Moore 2013, GPU flat at 9.5 MB.
+
+**Live 2-hour profile, KTLX, RTX 2060, release build — passed:**
+
+| Measure | Result |
+| --- | --- |
+| Cycles | 240 |
+| New volumes | 18 |
+| Failures | 0 |
+| Injected cut-off volumes refused | 5 of 5 |
+| Renders | 18, all four products, 0 failed |
+| Draw p50 | 4.4 ms |
+| 3D build p50 | 14.2 ms |
+| 3D upload p50 | 8.8 ms |
+| GPU baseline / max / end | 9.55 / 9.78 / 9.55 MB |
+| RSS baseline / end | 119 / 90 MB |
+
+Evidence: [`docs/certification/m7.1/`](docs/certification/m7.1/) (`soak-ktlx-2h.jsonl` `29f7beff…`, `summary.json` `bb6adaaf…`). Maxima coincide with concurrent compiles; the run was not isolated. Open:
+
+- The 12- and 24-hour profiles.
+- The app's UI loop (pacing, presentation, panes, playback, GIS, output).
+- Device/surface-loss, offline and model/ABI fault injection.
+- A severe-weather cadence.
+- Android.
+
 #### M7.2 — Certify Android lifecycle, input, and memory
 
 **Priority:** P0 release gate. **Depends on:** M2.4, M3.6, M4.2, M5.4, M6.4, M7.1. **Original references:** ROADMAP_2 §§2.6, 13, 14; ROADMAP_NEW §§Q1, Q3, O1.

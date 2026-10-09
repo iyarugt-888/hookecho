@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the soak test can drive the renderer
+
+`hookecho --soak SITE [MINUTES] --render` also draws each new volume and builds its 3D view on
+one GPU device, rotating products and tilts, and fails on any render error or on GPU memory that
+keeps growing. `--jsonl PATH` writes one line per cycle. A 2-hour run on live KTLX passed with
+GPU memory flat.
+
 ### Changed: imported layers' labels make room for storms, towns and stations
 
 Labels from imported GIS layers now place after storm IDs, town names, stations and gauges, and

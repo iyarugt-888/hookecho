@@ -1,0 +1,61 @@
+{
+  "header": {
+    "adapter": "NVIDIA GeForce RTX 2060 (Vulkan)",
+    "build": "0.12.0-beta.2",
+    "inject": true,
+    "minutes": 120,
+    "profile": "render",
+    "run": "soak",
+    "site": "KTLX",
+    "started_utc": "2026-10-09T16:51:27.623732100+00:00"
+  },
+  "runner_summary": {
+    "cycles": 240,
+    "volumes": 18,
+    "failures": 0,
+    "fail_streak": 0,
+    "worst_fail_streak": 0,
+    "injected": 5,
+    "injected_refused": 5,
+    "decode_ms_max": 235.9599,
+    "decode_ms_total": 1692.8337999999999,
+    "bin_ms_max": 354.1911,
+    "last_volume_s": 7140.8709822,
+    "rss_baseline_mb": 119.109375,
+    "rss_last_mb": 90.37890625,
+    "rss_max_mb": 131.3203125,
+    "renders": 18,
+    "render_failures": 0,
+    "render_ms_max": 58.4225,
+    "build3d_ms_max": 373.89709999999997,
+    "upload3d_ms_max": 85.97789999999999,
+    "gpu_baseline_mb": 9.5478515625,
+    "gpu_last_mb": 9.54736328125,
+    "gpu_max_mb": 9.7822265625,
+    "problems": []
+  },
+  "derived": {
+    "cycles": 240,
+    "new_volumes": 18,
+    "failed_cycles": 0,
+    "renders": 18,
+    "render_ms_p50": 4.4205,
+    "render_ms_max": 58.4225,
+    "build3d_ms_p50": 14.241200000000001,
+    "upload3d_ms_p50": 8.7802,
+    "decode_ms_p50": 84.2139,
+    "gpu_mb_min": 9.54736328125,
+    "gpu_mb_max": 9.7822265625,
+    "gpu_mb_last": 9.54736328125,
+    "rss_mb_min": 26.40625,
+    "rss_mb_max": 131.3203125,
+    "rss_mb_last": 90.37890625,
+    "products_drawn": [
+      "CC",
+      "REF",
+      "VEL",
+      "ZDR"
+    ]
+  },
+  "passed": true
+}
