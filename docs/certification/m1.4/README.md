@@ -85,8 +85,9 @@ and velocity. The app bins each moment from the newest cut that carries it
 (`level2::newest_moment_sweep`), so the debris detector pairs CC from the surveillance cut with
 reflectivity from the Doppler cut, one antenna rotation (about 17 seconds) later. At 1.8° one cut
 carries both. The record shows this as it is and does not change it. Whether the debris detector
-should take reflectivity from the cut its CC came from is a detection question. Answering it
-needs a backtest, because the measured detection results were made with the current pairing.
+should take reflectivity from the cut its CC came from was backtested on 2026-10-09 (1008.md G1,
+detectionplan.md): it lowered false episodes slightly but found a few fewer tornadoes, so the
+current pairing stays and the record keeps reporting it.
 The lowest ZDR sweep (0.5°, from the surveillance cut, 20:12:29–20:12:46Z) is the ninth input.
 None of the 6,480 debris input rows is from a previous antenna pass, has data without a clock,
 or is unobserved.
