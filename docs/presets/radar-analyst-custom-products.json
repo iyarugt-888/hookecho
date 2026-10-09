@@ -1,0 +1,610 @@
+{
+  "format": "hookecho-product",
+  "version": 1,
+  "products": [
+    {
+      "id": "curated-radar-g01-hail-like-v1",
+      "name": "Hail-like high-Z low-ZDR screen",
+      "units": "dBZ",
+      "expression": "REF >= 50 && ZDR <= 1 && CC <= 0.97 ? REF : 0/0",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "ZDR",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g02-hail-core-index-v1",
+      "name": "Hail-core screening index (heuristic)",
+      "units": "index",
+      "expression": "REF >= 50 && ZDR <= 1 && CC < 0.97 ? clamp((REF-50)/2 + (1-CC)*100 + (1-ZDR)*4,0,40) : 0/0",
+      "range": [
+        0,
+        40
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "ZDR",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g03-low-cc-echo-v1",
+      "name": "Strong echo with very low CC",
+      "units": "dBZ",
+      "expression": "REF >= 35 && CC <= 0.85 ? REF : 0/0",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g04-cc-deficit-v1",
+      "name": "Strong-echo CC deficit (not probability)",
+      "units": "1-CC x100",
+      "expression": "REF >= 35 && CC < 0.95 ? (1-CC)*100 : 0/0",
+      "range": [
+        0,
+        50
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g05-high-zdr-v1",
+      "name": "High-ZDR large-drop screen",
+      "units": "dB",
+      "expression": "REF >= 30 && ZDR >= 2 && CC >= 0.96 ? ZDR : 0/0",
+      "range": [
+        0,
+        6
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "ZDR",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g06-high-kdp-v1",
+      "name": "High-KDP rain-core screen",
+      "units": "deg/km",
+      "expression": "REF >= 40 && KDP >= 1.5 && CC >= 0.95 ? KDP : 0/0",
+      "range": [
+        0,
+        8
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "KDP",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g07-rain-pol-v1",
+      "name": "Joint KDP and ZDR rain signature",
+      "units": "deg/km",
+      "expression": "REF >= 40 && KDP >= 1 && ZDR >= 1 && CC >= 0.96 ? KDP : 0/0",
+      "range": [
+        0,
+        8
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "KDP",
+        "ZDR",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g08-high-sw-v1",
+      "name": "High spectrum width in precipitation",
+      "units": "m/s",
+      "expression": "REF >= 30 && SW >= 5 ? SW : 0/0",
+      "range": [
+        0,
+        20
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "SW"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g09-fast-radial-v1",
+      "name": "High radial speed (not rotation)",
+      "units": "m/s",
+      "expression": "REF >= 30 && abs(VEL) >= 20 ? abs(VEL) : 0/0",
+      "range": [
+        0,
+        70
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "VEL"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-g10-lowlevel-highz-v1",
+      "name": "Intense echo below 1.5 km ARL",
+      "units": "dBZ",
+      "expression": "BEAM_HEIGHT_M <= 1500 && REF >= 50 ? REF : 0/0",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "BEAM_HEIGHT_M",
+        "REF"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-g11-lowlevel-lowcc-v1",
+      "name": "Low-level CC deficit in strong echo",
+      "units": "1-CC x100",
+      "expression": "BEAM_HEIGHT_M <= 1500 && REF >= 35 && CC < 0.90 ? (1-CC)*100 : 0/0",
+      "range": [
+        0,
+        50
+      ],
+      "palette": null,
+      "requires": [
+        "BEAM_HEIGHT_M",
+        "REF",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "gate",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-g12-hail-growth-v1",
+      "name": "High-Z gate in -10 to -20 C layer",
+      "units": "dBZ",
+      "expression": "BEAM_ALTITUDE_M >= MINUS10C_HEIGHT_M && BEAM_ALTITUDE_M <= MINUS20C_HEIGHT_M && REF >= 45 ? REF : 0/0",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "BEAM_ALTITUDE_M",
+        "MINUS10C_HEIGHT_M",
+        "MINUS20C_HEIGHT_M",
+        "REF"
+      ],
+      "environment": [
+        "MINUS10C_HEIGHT_M",
+        "MINUS20C_HEIGHT_M"
+      ],
+      "kind": "gate",
+      "altitude": "msl"
+    },
+    {
+      "id": "curated-radar-c01-composite-v1",
+      "name": "Column maximum reflectivity",
+      "units": "dBZ",
+      "expression": "max_vertical(REF)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-c02-40top-v1",
+      "name": "40 dBZ highest sampled height",
+      "units": "m ARL",
+      "expression": "last_height_above(REF,40)",
+      "range": [
+        0,
+        16000
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c03-50top-v1",
+      "name": "50 dBZ highest sampled height",
+      "units": "m ARL",
+      "expression": "last_height_above(REF,50)",
+      "range": [
+        0,
+        16000
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c04-40base-v1",
+      "name": "40 dBZ lowest sampled height",
+      "units": "m ARL",
+      "expression": "first_height_above(REF,40)",
+      "range": [
+        0,
+        12000
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c05-40span-v1",
+      "name": "40 dBZ sampled vertical span",
+      "units": "m",
+      "expression": "last_height_above(REF,40) - first_height_above(REF,40)",
+      "range": [
+        0,
+        16000
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c06-maxheight-v1",
+      "name": "Height of maximum reflectivity",
+      "units": "m ARL",
+      "expression": "max_height(REF)",
+      "range": [
+        0,
+        16000
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c07-frac40-v1",
+      "name": "Fraction of valid tilts at 40+ dBZ",
+      "units": "fraction",
+      "expression": "fraction_vertical(REF >= 40)",
+      "range": [
+        0,
+        1
+      ],
+      "palette": null,
+      "requires": [
+        "REF"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-c08-count50-v1",
+      "name": "Count of sampled tilts at 50+ dBZ",
+      "units": "tilts",
+      "expression": "count_above(REF,50)",
+      "range": [
+        0,
+        20
+      ],
+      "palette": null,
+      "requires": [
+        "REF"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-c09-lowcc-v1",
+      "name": "Minimum CC within 0-2.5 km strong echo",
+      "units": "ratio",
+      "expression": "min_layer(CC,0,2500,REF >= 35)",
+      "range": [
+        0.5,
+        1
+      ],
+      "palette": null,
+      "requires": [
+        "CC",
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c10-kdp-mid-v1",
+      "name": "Maximum KDP in 1-5 km rain echo",
+      "units": "deg/km",
+      "expression": "max_layer(KDP,1000,5000,REF >= 30 && CC >= 0.95)",
+      "range": [
+        0,
+        8
+      ],
+      "palette": null,
+      "requires": [
+        "KDP",
+        "REF",
+        "CC",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c11-mid-z-v1",
+      "name": "Maximum reflectivity 3-8 km ARL",
+      "units": "dBZ",
+      "expression": "max_layer(REF,3000,8000)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c12-hailfrac-v1",
+      "name": "Fraction of valid tilts with hail-like polarimetry",
+      "units": "fraction",
+      "expression": "fraction_vertical(REF >= 50 && ZDR <= 1 && CC <= 0.97)",
+      "range": [
+        0,
+        1
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "ZDR",
+        "CC"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "none"
+    },
+    {
+      "id": "curated-radar-c13-cccount-v1",
+      "name": "Low-CC strong echo tilt count below 3 km",
+      "units": "tilts",
+      "expression": "count_vertical(REF >= 35 && CC <= 0.85 && BEAM_HEIGHT_M <= 3000)",
+      "range": [
+        0,
+        15
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "CC",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c14-warmhail-v1",
+      "name": "Maximum Z from 0 C to -20 C height",
+      "units": "dBZ",
+      "expression": "max_vertical(REF,BEAM_ALTITUDE_M >= FREEZING_LEVEL_M && BEAM_ALTITUDE_M <= MINUS20C_HEIGHT_M)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_ALTITUDE_M",
+        "FREEZING_LEVEL_M",
+        "MINUS20C_HEIGHT_M"
+      ],
+      "environment": [
+        "FREEZING_LEVEL_M",
+        "MINUS20C_HEIGHT_M"
+      ],
+      "kind": "column",
+      "altitude": "msl"
+    },
+    {
+      "id": "curated-radar-c15-coldhail-v1",
+      "name": "Maximum Z from -10 C to -20 C height",
+      "units": "dBZ",
+      "expression": "max_vertical(REF,BEAM_ALTITUDE_M >= MINUS10C_HEIGHT_M && BEAM_ALTITUDE_M <= MINUS20C_HEIGHT_M)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_ALTITUDE_M",
+        "MINUS10C_HEIGHT_M",
+        "MINUS20C_HEIGHT_M"
+      ],
+      "environment": [
+        "MINUS10C_HEIGHT_M",
+        "MINUS20C_HEIGHT_M"
+      ],
+      "kind": "column",
+      "altitude": "msl"
+    },
+    {
+      "id": "curated-radar-c16-freeze-penetration-v1",
+      "name": "Highest sampled 45 dBZ above 0 C",
+      "units": "m above 0C",
+      "expression": "max_vertical(BEAM_ALTITUDE_M,REF >= 45 && BEAM_ALTITUDE_M >= FREEZING_LEVEL_M) - FREEZING_LEVEL_M",
+      "range": [
+        0,
+        10000
+      ],
+      "palette": null,
+      "requires": [
+        "BEAM_ALTITUDE_M",
+        "REF",
+        "FREEZING_LEVEL_M"
+      ],
+      "environment": [
+        "FREEZING_LEVEL_M"
+      ],
+      "kind": "column",
+      "altitude": "msl"
+    },
+    {
+      "id": "curated-radar-c17-kdp-integral-v1",
+      "name": "Vertical KDP integral from 1 to 4 km",
+      "units": "deg",
+      "expression": "integral_layer(KDP,1000,4000)/1000",
+      "range": [
+        0,
+        20
+      ],
+      "palette": null,
+      "requires": [
+        "KDP",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c18-lowlevel-max-v1",
+      "name": "Maximum reflectivity 0-2 km ARL",
+      "units": "dBZ",
+      "expression": "max_layer(REF,0,2000)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c19-cc-belowpeak-v1",
+      "name": "Mean CC in 40+ dBZ core below peak Z",
+      "units": "ratio",
+      "expression": "mean_layer(CC,0,max_height(REF),REF >= 40)",
+      "range": [
+        0.5,
+        1
+      ],
+      "palette": null,
+      "requires": [
+        "CC",
+        "REF",
+        "BEAM_HEIGHT_M"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "curated-radar-c20-fast-tilt-v1",
+      "name": "Maximum radial speed in precipitating column",
+      "units": "m/s",
+      "expression": "max_vertical(abs(VEL),REF >= 30)",
+      "range": [
+        0,
+        80
+      ],
+      "palette": null,
+      "requires": [
+        "VEL",
+        "REF"
+      ],
+      "environment": [],
+      "kind": "column",
+      "altitude": "none"
+    }
+  ]
+}
