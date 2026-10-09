@@ -753,6 +753,7 @@ impl HookEchoApp {
             hodo_site: None,
             hodo_last_fetch: None,
             obs_mode: false,
+            presentation: Default::default(),
             embed: is_embed(),
             embed_live: false,
             last_input: Instant::now(),

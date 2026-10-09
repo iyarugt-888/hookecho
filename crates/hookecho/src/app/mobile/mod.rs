@@ -130,7 +130,8 @@ fn paint_colorbar(
 impl super::HookEchoApp {
     /// Whether back would dismiss something in-app rather than leaving the app.
     fn mobile_has_dismissable(&self) -> bool {
-        self.marker_popup.is_some()
+        self.obs_mode
+            || self.marker_popup.is_some()
             || self.gate_popup.is_some()
             || self.suitability_popup.is_some()
             || self.detail.is_some()
@@ -180,6 +181,11 @@ impl super::HookEchoApp {
             ($($opt:expr),* $(,)?) => {
                 $(if $opt.is_some() { $opt = None; return; })*
             };
+        }
+        // Streaming mode hides every control: Back is the way out of it, before anything else.
+        if self.obs_mode {
+            self.exit_presentation();
+            return;
         }
         clear!(
             self.marker_popup,

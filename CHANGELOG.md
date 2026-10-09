@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: streaming mode on a tablet
+
+Streaming mode hides every control, and the only way out was the F8 key, so on a tablet it was a
+dead end, and Back left the app. Now a tap shows a small strip for a few seconds (exit, previous
+and next scene, save a still), and Back leaves streaming mode first.
+
 ### Fixed: the 3D volume heating up phones and tablets
 
 The 3D Volume view re-ran its full raymarch (hundreds of samples through the 3D texture for every

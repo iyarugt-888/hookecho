@@ -1147,6 +1147,8 @@ impl HookEchoApp {
         self.sync_model_isotherms();
         self.sync_overlay();
 
+        // Streaming mode's touch strip: the way out (and between scenes) without a keyboard.
+        self.presentation_controls(root);
         // Streaming mode's broadcast dressing: clock, caption, crawl, logo.
         self.broadcast_dressing(root);
         // OBS-mode hint so the chrome-free view is still escapable. Top centre: the corners are
@@ -1156,11 +1158,7 @@ impl HookEchoApp {
                 .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
                 .interactable(false)
                 .show(root, |ui| {
-                    let txt = if self.obs_tour {
-                        "OBS · tour (F8 exit · F9 stop tour)"
-                    } else {
-                        "OBS mode (F8 exit · F9 tour)"
-                    };
+                    let txt = self.presentation_hint();
                     egui::Frame::new()
                         .fill(egui::Color32::from_black_alpha(150))
                         .corner_radius(0)
