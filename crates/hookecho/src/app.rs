@@ -91,6 +91,7 @@ mod pane_upload;
 mod placefiles_sync;
 mod prefs_app;
 mod prefs_map;
+mod quality;
 mod rebuild;
 mod route_frame;
 mod self_update_ui;

@@ -43,6 +43,7 @@ impl HookEchoApp {
         ui.add_space(4.0);
         ui.separator();
         ui.label(egui::RichText::new("Radar appearance").strong());
+        self.quality_row(ui);
         let mut smooth = self.settings.smooth_radar;
         ui.horizontal(|ui| {
             let width = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;

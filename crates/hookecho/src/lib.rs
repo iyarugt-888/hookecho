@@ -95,6 +95,7 @@ pub mod platform;
 pub mod plugins;
 pub mod products;
 pub mod profiling;
+pub mod quality;
 /// ROADMAP_NEW B6.11 step 7: run more than one `Level2LiveProvider` for a site concurrently and
 /// compare their health, without changing which one is rendered. Native only, like
 /// `relay_provider` — see that module's doc comment for why.

@@ -1487,6 +1487,20 @@ detection remains with Claude.
 
 **Agent prompt:** `Implement M5.4 using section 6. Consolidate existing render controls into measured quality profiles and stabilize labeling without altering analytical values.`
 
+**Evidence ledger — 2026-10-09, increment 1 (quality profiles; 1008.md E4):** `crate::quality::QualityProfile` {Low, Balanced, High, Analysis} is a rendering contract. Each profile sets the map 3D quality (64/96/128 steps), the 3D window's samples (96/160/256), blending (Analysis turns it off) and the share of wind particles drawn (50/75/100/100 %; `Settings::wind_particle_pct`, `wind_draw::set_particle_pct`, honoured by the CPU particles and the GPU draw count). `app::quality::apply_profile` puts a profile on every pane, the 3D window and the settings. The row under Settings → Map → Radar appearance shows the profile in effect, or "Custom". High equals the existing desktop defaults. Tests:
+
+- `a_profile_changes_how_things_draw_and_never_what_they_are`: product, tilt, SRV, layers, thresholds, time and every other setting are unchanged under each profile.
+- `a_knob_set_by_hand_reads_as_custom`.
+- `every_profile_uses_steps_the_3d_controls_offer`.
+- `profiles_read_back_by_name`.
+
+Captures: [`docs/certification/m5.4/`](docs/certification/m5.4/) (`quality-analysis.png` `677b4c53…`, `quality-custom.png` `9267dc2c…`). Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,553 passed (logs in `target/parity-review/m5.4/`). Label priority already puts storm-cell IDs ahead of place, station, placefile and minor labels (`labelplace::Priority`). Open:
+
+- Measured per-profile frame budgets and an Android walkthrough; adaptive reduction beyond the existing slow-frame guard.
+- Contours, field texture detail and label density in the profiles.
+- Dense-map and zoom golden images; leader lines.
+- Inspector notes for display transformations; transitions and interpolation (E2).
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output

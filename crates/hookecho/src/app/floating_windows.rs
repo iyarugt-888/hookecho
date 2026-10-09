@@ -1151,6 +1151,7 @@ impl HookEchoApp {
         self.sync_yall(ctx);
         // One Smoothing toggle for radar and every gridded layer.
         crate::render::set_field_smoothing(self.settings.smooth_radar);
+        crate::wind_draw::set_particle_pct(self.settings.wind_particle_pct);
         self.sync_model_isotherms();
         self.sync_overlay();
 

@@ -54,6 +54,19 @@ pub(crate) const MAX_STEP_PX: f64 = 20.0;
 const PX_PER_PARTICLE: f32 = 1200.0;
 const COUNT_RANGE: (f32, f32) = (400.0, 3000.0);
 
+/// Percent of the particles drawn, CPU and GPU alike: the quality profile's share
+/// (`Settings::wind_particle_pct`), set once a frame.
+static PARTICLE_PCT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+pub fn set_particle_pct(pct: u32) {
+    PARTICLE_PCT.store(pct.clamp(1, 100), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The share of particles drawn, 0..=1.
+pub fn particle_share() -> f32 {
+    PARTICLE_PCT.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
+}
+
 /// A matched pair of wind component grids plus the run they came from.
 pub struct WindField {
     pub u: MrmsField,
@@ -261,7 +274,9 @@ impl Particles {
     /// Advect every particle one frame. `dt` is clamped by the caller's contract to a sane frame
     /// time — a hitch or a resume from background must not teleport the whole field.
     pub fn update(&mut self, field: &WindField, cam: &Camera, vp: (f32, f32), dt: f32) {
-        let want = ((vp.0 * vp.1 / PX_PER_PARTICLE).clamp(COUNT_RANGE.0, COUNT_RANGE.1)) as usize;
+        let want = ((vp.0 * vp.1 / PX_PER_PARTICLE).clamp(COUNT_RANGE.0, COUNT_RANGE.1)
+            * particle_share())
+        .max(1.0) as usize;
         if self.p.len() != want || self.vp != vp {
             self.vp = vp;
             self.p.resize_with(want, || Particle {

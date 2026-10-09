@@ -1037,6 +1037,9 @@ pub struct Settings {
     /// The frame rate exported MP4 loops are encoded at: 30, or 60 for broadcast (1008.md F2).
     #[serde(default = "default_mp4_fps")]
     pub loop_mp4_fps: u32,
+    /// Percent of the wind particles drawn, set by the quality profile (`crate::quality`).
+    #[serde(default = "default_particle_pct")]
+    pub wind_particle_pct: u32,
     /// The output window as it was left (1008.md F3): reopened at launch, so an OBS window
     /// capture finds "HookEcho Output" again after a restart without anyone reopening it.
     #[serde(default)]
@@ -1361,6 +1364,10 @@ fn default_far_3d() -> f32 {
 
 fn default_mp4_fps() -> u32 {
     crate::loopexport::MP4_FPS
+}
+
+fn default_particle_pct() -> u32 {
+    100
 }
 
 fn default_true() -> bool {
@@ -2024,6 +2031,7 @@ impl Default for Settings {
             share_card: true,
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
+            wind_particle_pct: default_particle_pct(),
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),
@@ -3363,6 +3371,7 @@ mod tests {
             share_card: true,
             loop_real_timing: true,
             loop_mp4_fps: default_mp4_fps(),
+            wind_particle_pct: default_particle_pct(),
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),

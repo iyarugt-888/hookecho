@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: quality profiles
+
+Settings → Map → Radar appearance has a Quality row with Low, Balanced, High and Analysis. One
+choice sets the 3D quality on the map and in the 3D window, whether radar gates are blended, and
+how many wind particles are drawn. Analysis shows each gate as it is, at the finest 3D. A profile
+never changes a value: products, thresholds, colour tables, probes and exports are untouched.
+High is what the desktop app already used, so nothing changes until you pick one.
+
 ### Added: scenes keep their colour tables and drawings; the scale can stand on the left
 
 A scene saved now also keeps the colour tables and anything drawn on the map, and Take puts

@@ -52,7 +52,7 @@ pub struct Volume3dState {
 }
 
 /// The three quality rungs, coarsest first. 256 is what the window shipped with.
-const STEP_PRESETS: [(&str, u32); 3] = [("Low", 96), ("Medium", 160), ("High", 256)];
+pub(crate) const STEP_PRESETS: [(&str, u32); 3] = [("Low", 96), ("Medium", 160), ("High", 256)];
 
 impl Default for Volume3dState {
     fn default() -> Self {

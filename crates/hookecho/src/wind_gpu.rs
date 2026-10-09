@@ -402,7 +402,9 @@ impl WindGpu {
 
             pass.set_pipeline(&self.points);
             pass.set_bind_group(1, &self.pos_src_bg[self.cur], &[]);
-            pass.draw(0..6, 0..COUNT);
+            // The quality profile's share: every particle still advects, fewer are drawn.
+            let drawn = ((COUNT as f32 * crate::wind_draw::particle_share()) as u32).max(1);
+            pass.draw(0..6, 0..drawn);
         }
         if let Some(t) = self.trails.get_mut(&pane) {
             t.cur = b;
