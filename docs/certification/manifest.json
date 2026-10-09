@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-09T18:53:44+00:00",
-  "generated_from_commit": "0b1353ebf839fa852a49028acca698e65e940b79",
+  "generated_utc": "2026-10-09T20:43:37+00:00",
+  "generated_from_commit": "ee1c563899a055f0f0f4d5f35deef8740ff0ca93",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -201,7 +201,7 @@
     {
       "card": "M5.3",
       "title": "Broaden field inspection within supported models",
-      "ledger_entries": 10,
+      "ledger_entries": 11,
       "latest_entry": "2026-10-09",
       "status_line": "implementation: in progress (regional inventory discovery and a discovered-field layer, increment 1; GFS, increment 2; browsed winds as barbs, increment 5; ECMWF, increment 6); verification: partial (unit on real `.idx` lines; live HRRR inventory and field; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.3"
@@ -209,7 +209,7 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 2,
+      "ledger_entries": 3,
       "latest_entry": "2026-10-09",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
@@ -265,8 +265,8 @@
     {
       "card": "M7.3",
       "title": "Publish certification and operational documentation",
-      "ledger_entries": 0,
-      "latest_entry": null,
+      "ledger_entries": 1,
+      "latest_entry": "2026-10-09",
       "status_line": null,
       "evidence_dir": null
     }
@@ -1078,6 +1078,11 @@
       "bytes": 36720
     },
     {
+      "path": "docs/certification/m5.3/gfs-ecmwf-diff-live.txt",
+      "sha256": "f80c9ef0ecd27f95ef4a5034449b8f15a5aa234a84cce597a5b2f29defe6dbf3",
+      "bytes": 275
+    },
+    {
       "path": "docs/certification/m5.3/hiresw-arw-f06.png",
       "sha256": "1ce49f15fada18de4c4914913dfd9dcbf5ab799f7dcae3359ea80221086728dd",
       "bytes": 136976
@@ -1091,6 +1096,11 @@
       "path": "docs/certification/m5.3/README.md",
       "sha256": "938758f444b71036bb4137202e7e5d9ee273147aae03e66f0325138f2e7cb2c4",
       "bytes": 1895
+    },
+    {
+      "path": "docs/certification/m5.4/goes-blend-live.txt",
+      "sha256": "0a1d23f797908a290c975cb3e787267c5f5160609f611461da8d8f5d6c29a8df",
+      "bytes": 413
     },
     {
       "path": "docs/certification/m5.4/mrms-blend-live.txt",
@@ -1109,8 +1119,8 @@
     },
     {
       "path": "docs/certification/m5.4/README.md",
-      "sha256": "18c43df41aa908338f45f5d6f8af15a20ebde4c4a641dcd09cd6f24a166a43a1",
-      "bytes": 6188
+      "sha256": "2d5475f0d15f2a41edcefc56079b4e26652f0c527db8c425fc06ac70e6851fef",
+      "bytes": 8015
     },
     {
       "path": "docs/certification/m6.2/output-legend-left.png",
