@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: choosing between overlapping map features, and exporting table rows
+
+A click on a spot where imported features overlap (two polygon layers, a point on a line, a
+shape under a watch) now lists what is there and lets you pick one, instead of opening whichever
+happened to come first. Warnings still open directly. A layer's feature table can export the rows
+its search leaves, or the rows picked in it, as GeoJSON.
+
 ### Fixed: streaming mode on a tablet
 
 Streaming mode hides every control, and the only way out was the F8 key, so on a tablet it was a

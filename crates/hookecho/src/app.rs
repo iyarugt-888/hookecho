@@ -74,6 +74,7 @@ mod models;
 mod near_storm;
 mod output_window;
 mod presentation;
+mod feature_chooser;
 mod overlay_poll;
 mod overlay_toggle;
 mod packs_soundings;
@@ -1436,6 +1437,8 @@ pub struct HookEchoApp {
     overlay_ready: bool,
     overlay_last_fetch: Option<Instant>,
     detail: Option<Detail>,
+    /// Several features under one click: the list to choose from (ROADMAP_PARITY M4.3).
+    feature_chooser: Option<Vec<feature_chooser::ChoiceItem>>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
     pub(crate) cell_popup: Option<Cell>,
     /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the

@@ -686,6 +686,7 @@ impl HookEchoApp {
         if let Some((i, day)) = self.rules_window.backtest_request.take() {
             self.start_backtest(i, day);
         }
+        self.feature_chooser_window(ctx);
         if let Some(detail) = &self.detail {
             let tex = detail
                 .image

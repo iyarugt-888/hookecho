@@ -131,6 +131,7 @@ impl super::HookEchoApp {
     /// Whether back would dismiss something in-app rather than leaving the app.
     fn mobile_has_dismissable(&self) -> bool {
         self.obs_mode
+            || self.feature_chooser.is_some()
             || self.marker_popup.is_some()
             || self.gate_popup.is_some()
             || self.suitability_popup.is_some()
@@ -188,6 +189,7 @@ impl super::HookEchoApp {
             return;
         }
         clear!(
+            self.feature_chooser,
             self.marker_popup,
             self.gate_popup,
             self.suitability_popup,

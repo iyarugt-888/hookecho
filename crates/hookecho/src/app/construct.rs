@@ -387,6 +387,7 @@ impl HookEchoApp {
             overlay_ready: false,
             overlay_last_fetch: None,
             detail: None,
+            feature_chooser: None,
             cell_popup: None,
             cell_details: false,
             cell_follow_toggle: false,
