@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: split and merge marks in the Storms table
+
+A storm that split from another, shed one, or absorbed one now says so on its row in the Storms
+table ("split", "merge"). Hover the row to see which storms.
+
 ### Internal: one rule for continuing a live scan from another source
 
 The radar data library has one decision for whether data from a second live source can continue

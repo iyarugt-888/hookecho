@@ -813,6 +813,17 @@ Remaining open:
 
 **Evidence ledger — 2026-10-06, increment 2 (the Compare set by storm):** the Cell window's open storms (its Compare set) were a list of SCIT IDs, so after a renumbering a renamed storm left the set and a different storm given its old ID could join the comparison in its place. When a new SCIT table arrives the set is now carried through the storm history (`StormIdentity::carry_ids`): a renamed storm keeps its place under its new ID, a storm no longer in the table leaves, and an ID the history has no record of stays only while the table still has it; the last-selection marker is carried the same way so a rename is not taken for a new selection. Test: `an_open_set_of_storms_carries_through_a_rename_and_drops_a_recycled_id`; full workspace 2,376 passed, Clippy `-D warnings`, the WASM library check.
 
+**Evidence ledger — 2026-10-09, increment 5 (lineage marker in the Storms table; 1008.md B1):** each row whose storm has lineage carries a tag, quieter than and left of the rotation flags: "split" (split from, or split off it), "merge" (absorbed one) or "split+merge". The row's hover and accessible name say which storms ("Lineage: split from #1; absorbed #3"). The implementation is `StormIdentity::lineage_mark`, reading the history both ways through `lineage_parts`, which the History line now shares; rows are drawn by `paint_row_marks`. Tests:
+
+- `a_storm_without_lineage_has_no_tag_and_a_split_tags_both`
+- The merge assertion added to `a_split_and_merge_read_on_both_storms_and_a_merged_pick_says_where_it_went`
+
+Capture: [`docs/certification/m2.2/storm-row-lineage.png`](docs/certification/m2.2/storm-row-lineage.png) (`0f263f82…`), rows drawn by the table's own painter. Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,567 passed (`target/parity-review/m2.2/b1-*.log`). The table's legend line now also says "split/merge storm lineage". Open:
+
+- A whole-dock capture on live SCIT.
+- Desktop and Android walkthroughs.
+- Archive replay from local cells.
+
 #### M2.3 — Extend impacts to geolocated communities and assets
 
 **Priority:** P0. **Depends on:** M2.1, M1.4. **Original references:** ROADMAP_2 §§2.3, 2.4; ROADMAP_NEW §§L3, L4, R5.

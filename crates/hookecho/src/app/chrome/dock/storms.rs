@@ -72,6 +72,33 @@ pub(super) fn row_cells(c: &wxdata::level3::Cell, score: Option<u8>) -> ([String
     (cols, flags)
 }
 
+/// A row's marks at its right end: the rotation flags in the warning colour, and to their left
+/// the storm's split/merge lineage tag (M2.2), quieter.
+fn paint_row_marks(p: &egui::Painter, r: Rect, flags: &str, lineage: Option<&str>, t: &ws::Tokens) {
+    let mut left = r.right() - 8.0;
+    if !flags.is_empty() {
+        left = p
+            .text(
+                egui::pos2(left, r.center().y),
+                egui::Align2::RIGHT_CENTER,
+                flags,
+                FontId::monospace(11.0),
+                t.danger,
+            )
+            .left()
+            - 6.0;
+    }
+    if let Some(tag) = lineage {
+        p.text(
+            egui::pos2(left, r.center().y),
+            egui::Align2::RIGHT_CENTER,
+            tag,
+            FontId::proportional(10.0),
+            t.text_dim,
+        );
+    }
+}
+
 /// The active radar's persistent storm history (ROADMAP_PARITY M2.1): fed once per SCIT table,
 /// so each storm keeps one stable local ID across scans and provider-ID changes, with the evidence
 /// for every link in [`wxdata::storm_history`].
@@ -405,6 +432,61 @@ impl StormIdentity {
         out
     }
 
+    /// A storm's lineage in both directions, as phrases: the storm it split from, storms it
+    /// absorbed, storms that split off it.
+    fn lineage_parts(&self, s: &wxdata::storm_history::Storm) -> Vec<String> {
+        use wxdata::storm_history::Lineage;
+        let mut parts: Vec<String> = s
+            .lineage
+            .iter()
+            .filter_map(|l| match l {
+                Lineage::SplitFrom(p) => Some(format!("split from #{}", p.0)),
+                Lineage::MergedInto(_) => None,
+            })
+            .collect();
+        // What other storms' lineage says about this one.
+        let related = |want: fn(&Lineage) -> Option<wxdata::storm_history::StormId>| {
+            self.history
+                .storms()
+                .iter()
+                .filter(|o| o.lineage.iter().any(|l| want(l) == Some(s.id)))
+                .map(|o| format!("#{}", o.id.0))
+                .collect::<Vec<_>>()
+        };
+        let absorbed = related(|l| match l {
+            Lineage::MergedInto(x) => Some(*x),
+            _ => None,
+        });
+        if !absorbed.is_empty() {
+            parts.push(format!("absorbed {}", absorbed.join(", ")));
+        }
+        let children = related(|l| match l {
+            Lineage::SplitFrom(x) => Some(*x),
+            _ => None,
+        });
+        if !children.is_empty() {
+            parts.push(format!("split off {}", children.join(", ")));
+        }
+        parts
+    }
+
+    /// The Storms table's lineage tag for a cell's storm (M2.2): "split" when it split from a
+    /// storm or one split off it, "merge" when it absorbed one, both when both; with the phrases
+    /// behind it for the row's hover. `None` for a storm with no lineage.
+    pub(crate) fn lineage_mark(&self, cell_id: &str) -> Option<(&'static str, String)> {
+        let s = self.storm_of(cell_id)?;
+        let parts = self.lineage_parts(s);
+        let split = parts.iter().any(|p| p.starts_with("split"));
+        let merged = parts.iter().any(|p| p.starts_with("absorbed"));
+        let tag = match (split, merged) {
+            (true, true) => "split+merge",
+            (true, false) => "split",
+            (false, true) => "merge",
+            (false, false) => return None,
+        };
+        Some((tag, parts.join("; ")))
+    }
+
     /// The storm a SCIT cell of the current table belongs to.
     pub(crate) fn storm_of(&self, cell_id: &str) -> Option<&wxdata::storm_history::Storm> {
         let id = self.current.iter().find(|(c, ..)| c == cell_id)?.1;
@@ -414,7 +496,7 @@ impl StormIdentity {
     /// One line on a cell's storm: its stable ID, how long and over how many scans it has been
     /// tracked, the SCIT IDs it has carried, its lineage and whether its last link is tentative.
     pub(crate) fn describe(&self, cell_id: &str) -> Option<String> {
-        use wxdata::storm_history::{Confidence, Lineage};
+        use wxdata::storm_history::Confidence;
         let s = self.storm_of(cell_id)?;
         let first = s.observations.first()?.time;
         let last = s.observations.last()?.time;
@@ -444,33 +526,8 @@ impl StormIdentity {
                 ids[1..].join(", ")
             ));
         }
-        for l in &s.lineage {
-            if let Lineage::SplitFrom(p) = l {
-                line.push_str(&format!(" · split from #{}", p.0));
-            }
-        }
-        // What other storms' lineage says about this one: storms it absorbed, storms split off it.
-        let related = |want: fn(&Lineage) -> Option<wxdata::storm_history::StormId>| {
-            self.history
-                .storms()
-                .iter()
-                .filter(|o| o.lineage.iter().any(|l| want(l) == Some(s.id)))
-                .map(|o| format!("#{}", o.id.0))
-                .collect::<Vec<_>>()
-        };
-        let absorbed = related(|l| match l {
-            Lineage::MergedInto(x) => Some(*x),
-            _ => None,
-        });
-        if !absorbed.is_empty() {
-            line.push_str(&format!(" · absorbed {}", absorbed.join(", ")));
-        }
-        let children = related(|l| match l {
-            Lineage::SplitFrom(x) => Some(*x),
-            _ => None,
-        });
-        if !children.is_empty() {
-            line.push_str(&format!(" · split off {}", children.join(", ")));
+        for part in self.lineage_parts(s) {
+            line.push_str(&format!(" · {part}"));
         }
         if s.associations
             .last()
@@ -688,6 +745,10 @@ impl HookEchoApp {
         let stable: Vec<Option<u64>> = cells
             .iter()
             .map(|c| self.dock.storm_ids.storm_of(&c.id).map(|s| s.id.0))
+            .collect();
+        let lineage: Vec<Option<(&'static str, String)>> = cells
+            .iter()
+            .map(|c| self.dock.storm_ids.lineage_mark(&c.id))
             .collect();
         let (sort, desc) = (self.dock.storm_sort, self.dock.storm_desc);
         let mut query = self.dock.storm_query.clone();
@@ -919,25 +980,28 @@ impl HookEchoApp {
                                     );
                                     x += COLS[k].2;
                                 }
-                                if !flags.is_empty() {
-                                    p.text(
-                                        egui::pos2(r.right() - 8.0, r.center().y),
-                                        egui::Align2::RIGHT_CENTER,
-                                        &flags,
-                                        FontId::monospace(11.0),
-                                        t.danger,
-                                    );
-                                }
+                                paint_row_marks(
+                                    p,
+                                    r,
+                                    &flags,
+                                    lineage[i].as_ref().map(|(tag, _)| *tag),
+                                    &t,
+                                );
                                 let resp = resp.named_toggle(
                                     &format!(
-                                        "Storm {}: severity {}{}",
+                                        "Storm {}: severity {}{}{}",
                                         c.id,
                                         cols[0],
                                         if flags.is_empty() {
                                             String::new()
                                         } else {
                                             format!(", rotation {flags}")
-                                        }
+                                        },
+                                        lineage[i]
+                                            .as_ref()
+                                            .map_or_else(String::new, |(_, why)| format!(
+                                                ", {why}"
+                                            ))
                                     ),
                                     on,
                                 );
@@ -953,6 +1017,9 @@ impl HookEchoApp {
                                     }
                                     for line in explanations[i].lines() {
                                         ui.label(line);
+                                    }
+                                    if let Some((_, why)) = &lineage[i] {
+                                        ui.label(format!("Lineage: {why}"));
                                     }
                                     ui.weak("Right-click for details, centering or manual motion.");
                                 });
@@ -1043,7 +1110,7 @@ impl HookEchoApp {
                 ui.painter()
                     .line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.line));
                 ui.label(ws::text(
-                    "T tornado vortex · M mesocyclone",
+                    "T tornado vortex · M mesocyclone · split/merge storm lineage",
                     10.5,
                     t.text_faint,
                 ));
@@ -1369,6 +1436,75 @@ mod tests {
             note.starts_with("merged into storm #") && note.ends_with("(now cell C3)"),
             "{note}"
         );
+        // The table row's tag: the survivor split earlier (one of the pair split from the
+        // other) and has now absorbed its partner.
+        let (tag, why) = ids.lineage_mark("C3").unwrap();
+        assert!(tag == "merge" || tag == "split+merge", "{tag}");
+        assert!(why.contains(&format!("absorbed #{}", gone.0)), "{why}");
+    }
+
+    /// Rows with each lineage tag beside and without rotation flags, drawn by the table's own
+    /// row painters, for review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the storm row lineage capture"]
+    fn gpu_storm_row_lineage_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the rows");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m2.2");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let rows = [
+            ("K3 #12", "TM", Some("split+merge")),
+            ("Q4 #7", "", Some("split")),
+            ("A1 #3", "M", Some("merge")),
+            ("B9 #15", "T", None),
+        ];
+        gpu.save(&destination.join("storm-row-lineage.png"), 300, 120, |ui| {
+            ws::panel_frame(&t).show(ui, |ui| {
+                for (n, (id, flags, tag)) in rows.iter().enumerate() {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(280.0, 22.0), Sense::hover());
+                    if n % 2 == 1 {
+                        ui.painter()
+                            .rect_filled(r, 0.0, t.panel_hi.gamma_multiply(0.45));
+                    }
+                    ui.painter().text(
+                        egui::pos2(r.left() + 8.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        *id,
+                        FontId::monospace(11.0),
+                        egui::Color32::WHITE,
+                    );
+                    paint_row_marks(ui.painter(), r, flags, *tag, &t);
+                }
+            });
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn a_storm_without_lineage_has_no_tag_and_a_split_tags_both() {
+        use wxdata::level3::Cell;
+        let at = |id: &str, lat: f64, min: i64| Cell {
+            id: id.into(),
+            lon: -97.5,
+            lat,
+            time: chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0),
+            ..Default::default()
+        };
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("A1", 35.3, 0)]);
+        assert_eq!(ids.lineage_mark("A1"), None);
+        ids.feed(Some("KTLX"), &[at("A1", 35.3045, 5), at("B2", 35.273, 5)]);
+        assert_eq!(
+            ids.lineage_mark("A1"),
+            Some(("split", "split off #2".to_string()))
+        );
+        assert_eq!(
+            ids.lineage_mark("B2"),
+            Some(("split", "split from #1".to_string()))
+        );
+        assert_eq!(ids.lineage_mark("Z9"), None, "a cell not in the table");
     }
 
     #[test]
