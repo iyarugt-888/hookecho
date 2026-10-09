@@ -26,6 +26,8 @@ pub(crate) struct Imported<'a> {
     pub keys: &'a [String],
     /// The colour-by legend, when one is on.
     pub legend: Option<&'a crate::gis_import::Legend>,
+    /// The symbol-by legend and how many more values keep the layer's symbol, when one is on.
+    pub symbols: Option<(&'a crate::gis_import::SymbolLegend, usize)>,
     /// With a time mapping or a filter: how many features are shown, of all.
     pub time_count: Option<(usize, usize)>,
     /// Why the edited layer's filter does not parse (the previous one stays in use).
@@ -491,6 +493,24 @@ fn gis_layers(
         }
     }
     ui.horizontal(|ui| {
+        ui.label("Symbol by").on_hover_text(
+            "Give each value of an attribute its own point symbol (the commonest values first); \
+             the rest keep the layer's symbol",
+        );
+        changed |= attribute_combo(
+            ui,
+            "imported_gis_symbol_by",
+            "None (one symbol)",
+            keys,
+            &mut layer.symbol_by,
+        );
+    });
+    if layer.symbol_by.is_some() {
+        if let Some((legend, others)) = imported.symbols {
+            symbol_legend(ui, legend, others, layer.style.symbol);
+        }
+    }
+    ui.horizontal(|ui| {
         ui.label("Valid from").on_hover_text(
             "Show each feature only from the time in this attribute, following the timeline",
         );
@@ -605,6 +625,34 @@ fn gis_layers(
 }
 
 /// The imported layer's colour key: a gradient bar with its range, or a swatch per category.
+/// Each value's symbol, as the map draws it, and what the remaining values share.
+fn symbol_legend(
+    ui: &mut egui::Ui,
+    legend: &crate::gis_import::SymbolLegend,
+    others: usize,
+    own: crate::settings::PointSymbol,
+) {
+    let fg = ui.visuals().text_color();
+    for (value, symbol) in legend {
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            crate::app::paint_gis_symbol(ui.painter(), rect.center(), *symbol, 5.5, fg);
+            ui.label(if value.is_empty() {
+                "(empty)"
+            } else {
+                value.as_str()
+            });
+        });
+    }
+    if others > 0 {
+        ui.weak(format!(
+            "{others} more value{} drawn as the layer's {}",
+            if others == 1 { "" } else { "s" },
+            own.label().to_ascii_lowercase()
+        ));
+    }
+}
+
 fn color_legend(ui: &mut egui::Ui, legend: &crate::gis_import::Legend) {
     use crate::gis_import::Legend;
     let swatch = |ui: &mut egui::Ui, [r, g, b]: [u8; 3]| {
@@ -646,5 +694,36 @@ fn color_legend(ui: &mut egui::Ui, legend: &crate::gis_import::Legend) {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The symbol-by legend as the Layer Manager shows it (1008.md D2), for review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the symbol-by legend"]
+    fn gpu_symbol_legend_snapshot() {
+        use crate::settings::PointSymbol;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the legend");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m4.3");
+        std::fs::create_dir_all(&destination).unwrap();
+        let legend: crate::gis_import::SymbolLegend = vec![
+            ("school".into(), PointSymbol::Circle),
+            ("hospital".into(), PointSymbol::Square),
+            ("fire station".into(), PointSymbol::Triangle),
+            ("shelter".into(), PointSymbol::Diamond),
+            ("siren".into(), PointSymbol::Cross),
+        ];
+        gpu.save(&destination.join("symbol-legend.png"), 300, 190, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.strong("Symbol by TYPE");
+                symbol_legend(ui, &legend, 2, PointSymbol::Circle);
+            });
+        })
+        .unwrap();
     }
 }

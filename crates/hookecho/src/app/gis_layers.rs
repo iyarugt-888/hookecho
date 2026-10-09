@@ -13,6 +13,15 @@
 use super::*;
 use crate::gis_import::{ColoredBy, Marks, TimeBounds};
 
+/// A layer's symbol-by attribute, each source feature's symbol, the legend, and how many more
+/// values keep the layer's own symbol.
+pub(crate) type SymbolsBy = (
+    String,
+    Vec<Option<crate::settings::PointSymbol>>,
+    crate::gis_import::SymbolLegend,
+    usize,
+);
+
 /// A layer's valid windows and the start/end attributes they were read with.
 pub(crate) type ImportedTime = ((Option<String>, Option<String>), TimeBounds);
 
@@ -23,6 +32,9 @@ pub(crate) struct LoadedGis {
     pub marks: Marks,
     /// The features' colours by the layer's colour-by attribute, and their legend.
     pub colors: Option<ColoredBy>,
+    /// The features' point symbols by the layer's symbol-by attribute: the attribute, each
+    /// source feature's symbol, the legend and how many values share the layer's own symbol.
+    pub symbols: Option<SymbolsBy>,
     pub time: Option<ImportedTime>,
     /// Per source feature, whether it is valid at the view's time; `None` without a time mapping.
     time_mask: Option<Vec<bool>>,
@@ -47,6 +59,7 @@ impl LoadedGis {
             shapes,
             marks,
             colors: None,
+            symbols: None,
             time: None,
             time_mask: None,
             filter: None,
@@ -127,6 +140,15 @@ impl LoadedGis {
             Some(key) => {
                 let (colors, legend) = crate::gis_import::color_by(&self.marks, key);
                 self.colors = Some((key.clone(), colors, legend));
+                changed = true;
+            }
+        }
+        match &config.symbol_by {
+            None => changed |= self.symbols.take().is_some(),
+            Some(key) if self.symbols.as_ref().is_some_and(|s| &s.0 == key) => {}
+            Some(key) => {
+                let (symbols, legend, others) = crate::gis_import::symbol_by(&self.marks, key);
+                self.symbols = Some((key.clone(), symbols, legend, others));
                 changed = true;
             }
         }
@@ -1267,7 +1289,12 @@ impl HookEchoApp {
                 // both a bright radar core and a dark basemap, which one flat color cannot
                 // manage. Without a size of its own, the outline width scales point symbols so
                 // a mixed-geometry file keeps one coherent visual weight.
-                paint_symbol(painter, p, style.symbol, style.point_radius(), color);
+                let symbol = layer
+                    .symbols
+                    .as_ref()
+                    .and_then(|(_, s, _, _)| *s.get(*marks.point_src.get(i)?)?)
+                    .unwrap_or(style.symbol);
+                paint_symbol(painter, p, symbol, style.point_radius(), color);
             }
         }
     }

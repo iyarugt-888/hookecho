@@ -113,6 +113,9 @@ impl HookEchoApp {
             _ => Vec::new(),
         };
         let legend = edited_layer.and_then(|l| l.colors.as_ref().map(|(_, _, g)| g.clone()));
+        let symbols = edited_layer
+            .and_then(|l| l.symbols.as_ref())
+            .map(|(_, _, g, others)| (g.clone(), *others));
         let time_count = edited_layer
             .and_then(|l| l.shown.as_ref())
             .map(|m| (m.iter().filter(|&&s| s).count(), m.len()));
@@ -121,6 +124,7 @@ impl HookEchoApp {
             rows: &rows,
             keys: &label_keys,
             legend: legend.as_ref(),
+            symbols: symbols.as_ref().map(|(legend, others)| (legend, *others)),
             time_count,
             filter_error: edited_layer.and_then(|l| l.filter_error.clone()),
         };

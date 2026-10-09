@@ -98,6 +98,8 @@ mod cell_markers;
 mod community_targets;
 mod detector_markers;
 mod gis_layers;
+/// The imported-layer point symbols, for the Layer Manager's symbol legend.
+pub(crate) use gis_layers::paint_symbol as paint_gis_symbol;
 mod loop_capture;
 mod map_click;
 mod map_volume;

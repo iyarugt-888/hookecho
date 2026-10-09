@@ -327,6 +327,10 @@ pub struct GisLayerConfig {
     pub label_template: String,
     /// The attribute that colours the features, or `None` for the layer's one colour.
     pub color_by: Option<String>,
+    /// The attribute whose values each get their own point symbol (1008.md D2), or `None` for
+    /// the layer's one symbol. Colour and symbol can follow different attributes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_by: Option<String>,
     /// The attributes holding each feature's valid start and end.
     pub time_start: Option<String>,
     pub time_end: Option<String>,
@@ -354,6 +358,7 @@ impl Default for GisLayerConfig {
             label: None,
             label_template: String::new(),
             color_by: None,
+            symbol_by: None,
             time_start: None,
             time_end: None,
             below: false,
@@ -3285,6 +3290,7 @@ mod tests {
                 label: Some("NAME".into()),
                 label_template: "{NAME} ({POP})".into(),
                 color_by: Some("POP".into()),
+                symbol_by: Some("TYPE".into()),
                 time_start: Some("BEGIN".into()),
                 time_end: None,
                 below: true,

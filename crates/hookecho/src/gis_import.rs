@@ -284,6 +284,52 @@ pub(crate) fn color_by(marks: &Marks, key: &str) -> (Vec<Option<[u8; 3]>>, Legen
     (colors, Legend::Categories { values, others })
 }
 
+/// Point symbols by an attribute's values (1008.md D2): the commonest values get the symbols in
+/// [`crate::settings::PointSymbol::ALL`] order; the rest, and features without the attribute,
+/// keep the layer's own symbol (`None`). Numbers are categories here too: a symbol is a kind, not
+/// a quantity.
+pub(crate) type SymbolLegend = Vec<(String, crate::settings::PointSymbol)>;
+
+pub(crate) fn symbol_by(
+    marks: &Marks,
+    key: &str,
+) -> (
+    Vec<Option<crate::settings::PointSymbol>>,
+    SymbolLegend,
+    usize,
+) {
+    use crate::settings::PointSymbol;
+    let text = |v: &serde_json::Value| match v {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        other => other.to_string(),
+    };
+    let values: Vec<Option<String>> = marks
+        .props
+        .iter()
+        .map(|p| p.get(key).filter(|v| !v.is_null()).map(text))
+        .collect();
+    let mut counts: std::collections::HashMap<&str, usize> = Default::default();
+    for v in values.iter().flatten() {
+        *counts.entry(v.as_str()).or_default() += 1;
+    }
+    let mut order: Vec<(&str, usize)> = counts.into_iter().collect();
+    order.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let legend: SymbolLegend = order
+        .iter()
+        .zip(PointSymbol::ALL)
+        .map(|((v, _), s)| (v.to_string(), s))
+        .collect();
+    let others = order.len().saturating_sub(PointSymbol::ALL.len());
+    let symbols = values
+        .iter()
+        .map(|v| {
+            let v = v.as_deref()?;
+            legend.iter().find(|(l, _)| l == v).map(|(_, s)| *s)
+        })
+        .collect();
+    (symbols, legend, others)
+}
+
 /// Each feature's valid window (I5), from the attributes mapped to its start and end: `None` on
 /// a side means unbounded there (no attribute chosen, or this feature's value is missing or not
 /// a time).
@@ -981,6 +1027,39 @@ mod tests {
             shown_at(&ends, "2020-01-01T00:00:00Z".parse().unwrap()),
             [true; 3]
         );
+    }
+
+    /// Symbols by attribute (1008.md D2): the commonest values get the symbols in order, ties by
+    /// value; values past the five symbols, and features without the attribute, keep the
+    /// layer's own symbol.
+    #[test]
+    fn values_get_their_own_symbols_commonest_first() {
+        use crate::settings::PointSymbol::*;
+        let vals = [
+            "hospital", "school", "school", "siren", "school", "hospital", "shelter", "eoc",
+            "fire", "",
+        ];
+        let mut props: Vec<serde_json::Value> = vals.iter().map(|v| json!(v)).collect();
+        props.push(json!(null));
+        let marks = marks_with(&props);
+        let (symbols, legend, others) = symbol_by(&marks, "v");
+        assert_eq!(legend[0], ("school".to_string(), Circle));
+        assert_eq!(legend[1], ("hospital".to_string(), Square));
+        assert_eq!(legend.len(), 5);
+        assert_eq!(
+            others, 2,
+            "seven distinct values (the empty one too), five symbols"
+        );
+        assert_eq!(symbols[1], Some(Circle));
+        assert_eq!(symbols[0], Some(Square));
+        assert_eq!(symbols[10], None, "no attribute: the layer's symbol");
+        let unlisted = symbols
+            .iter()
+            .zip(&vals)
+            .filter(|(s, v)| s.is_none() && !legend.iter().any(|(l, _)| l == *v))
+            .count();
+        assert_eq!(unlisted, 2, "shelter and siren, last in the tie by value");
+        assert!(symbol_by(&marks, "missing").0.iter().all(Option::is_none));
     }
 
     #[test]
