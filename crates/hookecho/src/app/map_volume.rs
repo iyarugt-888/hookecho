@@ -297,6 +297,43 @@ pub(crate) fn point_roi(center: [f64; 2], half_km: f32) -> crate::view::VolumeRo
     }
 }
 
+/// The region of interest a drawn box asks for: the smallest square that covers it, centred on
+/// it, `(west, south, east, north)` in degrees. Half-widths are kept between 5 and 80 km: a
+/// smaller box would be a few voxels, a larger one no finer than the whole radar.
+pub(crate) fn box_roi(bbox: (f64, f64, f64, f64)) -> crate::view::VolumeRoi {
+    let (w, s, e, n) = bbox;
+    let mid = ((s + n) / 2.0).to_radians().cos();
+    let half_ew = (e - w).abs() * 111.32 * mid / 2.0;
+    let half_ns = (n - s).abs() * 110.57 / 2.0;
+    point_roi(
+        [(w + e) / 2.0, (s + n) / 2.0],
+        (half_ew.max(half_ns) as f32).clamp(5.0, 80.0),
+    )
+}
+
+impl HookEchoApp {
+    /// "Use as 3D region" on a drawn box: the active pane's region becomes the square over it.
+    pub(crate) fn take_region_box_roi(&mut self) {
+        if !self.region.ui_mut().take_roi_request() {
+            return;
+        }
+        let Some(bbox) = self.region.samples().map(|s| s.bbox) else {
+            return;
+        };
+        let roi = box_roi(bbox);
+        let idx = self.active;
+        let half = roi.half_km;
+        self.views[idx].map_3d.roi = Some(roi);
+        self.toast(
+            ToastKind::Success,
+            format!(
+                "3D region set: the drawn box, {:.0} km across. Turn on the 3D map to see it.",
+                half * 2.0
+            ),
+        );
+    }
+}
+
 pub(crate) fn roi_in_radar_frame(
     radar: [f64; 2],
     roi: &crate::view::VolumeRoi,
@@ -311,7 +348,22 @@ pub(crate) fn roi_in_radar_frame(
 
 #[cfg(test)]
 mod roi_tests {
-    use super::roi_in_radar_frame;
+    use super::{box_roi, roi_in_radar_frame};
+
+    /// A drawn box becomes the square that covers it: centred on it, as wide as its longer side,
+    /// and never smaller than 5 km or larger than 80 km in half-width. It follows no storm.
+    #[test]
+    fn a_drawn_box_becomes_the_square_over_it() {
+        // 0.5 deg of longitude at 35 N is about 45.6 km, 0.2 deg of latitude 22.1 km.
+        let r = box_roi((-97.5, 35.0, -97.0, 35.2));
+        assert!((r.center[0] + 97.25).abs() < 1e-9 && (r.center[1] - 35.1).abs() < 1e-9);
+        assert!((r.half_km - 22.8).abs() < 0.2, "{}", r.half_km);
+        assert!(!r.follow && r.storm.is_none());
+        // The same box drawn from the other corners.
+        assert_eq!(box_roi((-97.0, 35.2, -97.5, 35.0)).half_km, r.half_km);
+        assert_eq!(box_roi((-97.3, 35.0, -97.29, 35.01)).half_km, 5.0);
+        assert_eq!(box_roi((-100.0, 33.0, -94.0, 37.0)).half_km, 80.0);
+    }
 
     #[test]
     fn a_region_lands_where_its_storm_is_from_the_radar() {

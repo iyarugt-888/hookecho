@@ -68,6 +68,11 @@ impl RegionStatsState {
         self.hl_pass = pass;
     }
 
+    /// The window's choices, for its "Use as 3D region" request.
+    pub(crate) fn ui_mut(&mut self) -> &mut crate::ui::region_stats_window::RegionStatsUi {
+        &mut self.ui
+    }
+
     /// Close the box: its samples, its corners and any outline.
     pub(crate) fn clear(&mut self) {
         self.samples = None;
@@ -163,5 +168,6 @@ impl HookEchoApp {
         if !crate::ui::region_stats_window::show(ctx, s, &mut self.region.ui, &mut self.drawer) {
             self.region.clear();
         }
+        self.take_region_box_roi();
     }
 }

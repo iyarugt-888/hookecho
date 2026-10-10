@@ -71,6 +71,7 @@ impl HookEchoApp {
             let pts = crate::app::region_stats::highlight_points(s, &h);
             self.region.set_highlight(pass, pts);
         }
+        self.take_region_box_roi();
         if header == ws::HeaderAction::Close {
             self.region.clear();
         }

@@ -1262,6 +1262,8 @@ Report: [`docs/certification/m3.6/roi-iso-moore.txt`](docs/certification/m3.6/ro
 - A region drawn by dragging.
 - A device walkthrough.
 
+**Evidence ledger — 2026-10-10, increment 9 (a region drawn on the map; 1008.md C5):** the Region statistics window (floating and docked) offers **Use as 3D region**. The drawn box becomes the active pane's region of interest: the smallest square covering it, half-width 5–80 km, following no storm (`map_volume::box_roi`, `take_region_box_roi`). **Browser walkthrough** (WebGPU): a 105 × 100 km box drawn with two clicks south of Oklahoma City; then 3D → Volume reads "Region: 105 km around a point" with 0.52 km cells, and the 3D loop built over it ([`docs/certification/m3.6/`](docs/certification/m3.6/README.md), `1f53f53e…`). The walkthrough build used the warning banner as its confirmation; it is now a success notice, which was not re-captured. Test: `a_drawn_box_becomes_the_square_over_it`. Checks: clippy, wasm, workspace tests (2,589 passed, 0 failed, 203 ignored) in `target/parity-review/m3.6/c5b-*.log`. Open: the Observed representation is still radar-wide, a 3D ruler, and a device walkthrough.
+
 ### M4 — Operational GIS
 
 #### M4.1 — Introduce independent GIS layers and groups

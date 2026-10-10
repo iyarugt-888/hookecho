@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: draw the 3D region on the map
+
+Draw a box with Region statistics, then press "Use as 3D region". The 3D volume is then built
+over that box, at a finer grid, instead of around a storm or the whole radar.
+
 ### Added: `--watch --legend-left`
 
 Pictures rendered with `--watch` can put their colour scale at the left, above the caption, as

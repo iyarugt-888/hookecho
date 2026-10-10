@@ -77,6 +77,8 @@ pub struct RegionStatsUi {
     pub hist: usize,
     pub x: usize,
     pub y: usize,
+    /// "Use as 3D region" was pressed; the app takes it ([`Self::take_roi_request`]).
+    pub roi_requested: bool,
 }
 
 impl Default for RegionStatsUi {
@@ -85,11 +87,31 @@ impl Default for RegionStatsUi {
             hist: 0,
             x: 0,
             y: 1,
+            roi_requested: false,
         }
     }
 }
 
+/// The button that makes the drawn box the pane's 3D region of interest (ROADMAP_PARITY M3.6).
+fn roi_button(ui: &mut egui::Ui, st: &mut RegionStatsUi) {
+    if ui
+        .button("Use as 3D region")
+        .on_hover_text(
+            "Build the 3D volume over this box instead of the whole radar: the smallest square \
+             that covers it, at a finer grid. It stays put and follows no storm.",
+        )
+        .clicked()
+    {
+        st.roi_requested = true;
+    }
+}
+
 impl RegionStatsUi {
+    /// Whether "Use as 3D region" was pressed since the last call.
+    pub fn take_roi_request(&mut self) -> bool {
+        std::mem::take(&mut self.roi_requested)
+    }
+
     /// Pull every index back inside `n` moments, for a new box whose volume had fewer.
     pub fn clamp_to(&mut self, n: usize) {
         let last = n.saturating_sub(1);
@@ -164,6 +186,7 @@ pub fn show(
                     "Every gate in the box: position, then each moment",
                     || s.to_csv(),
                 );
+                roi_button(ui, st);
             });
         });
         ui.separator();
@@ -256,6 +279,7 @@ pub fn dock_body(
             "Every gate in the box: position, then each moment",
             || s.to_csv(),
         );
+        roi_button(ui, st);
     });
     let count = s.moments.len().to_string();
     ws::fold_section(
@@ -1065,6 +1089,7 @@ mod tests {
             hist: 6,
             x: 5,
             y: 4,
+            roi_requested: false,
         };
         st.clamp_to(3);
         assert_eq!(
@@ -1072,7 +1097,8 @@ mod tests {
             RegionStatsUi {
                 hist: 2,
                 x: 2,
-                y: 2
+                y: 2,
+                roi_requested: false,
             }
         );
         assert_eq!(extent([3.0f32, 3.0].into_iter()), (2.5, 3.5));

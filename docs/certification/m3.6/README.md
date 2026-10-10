@@ -35,3 +35,38 @@ Every region vertex lies inside the region's box.
 - A ruler in the 3D view.
 - A region drawn by dragging on the map; the region goes around the map centre.
 - A device walkthrough.
+
+## A region drawn on the map (1008.md C5, 2026-10-10)
+
+Region statistics already draws a box with two clicks. Its window (floating, or the
+workstation's Region dock) now offers **Use as 3D region**. The active pane's region of interest
+becomes the smallest square that covers the box (`map_volume::box_roi`): centred on the box, as
+wide as its longer side, with the half-width kept to 5–80 km. It follows no storm, and the app
+confirms with a notice.
+
+**Walkthrough** in the browser build (WebGPU, built-in Chromium, KTLX live):
+
+1. With Region statistics, two clicks drew a 105 × 100 km box south of Oklahoma City, and the
+   window offered the button ([drawn-region-box.jpg](drawn-region-box.jpg)).
+2. "Use as 3D region", then 3D → Volume: the panel reads "Region: 105 km around a point", with
+   0.52 km cells, and the loop's 3D frames building over it
+   ([drawn-region-volume.jpg](drawn-region-volume.jpg)).
+
+| File | SHA-256 |
+| --- | --- |
+| drawn-region-box.jpg | `7d983b418f20b986e1a51a58fce94fbe6757680a9373cd9395d857acebb33d37` |
+| drawn-region-volume.jpg | `1f53f53e1bd1be411fdddc0d8dc1ddff38f485b5c8fd3a559e7724f4c079abd3` |
+
+The walkthrough build showed the confirmation as a red warning card ("New 3D region"), which is
+the style for new warnings. It was changed to a success notice afterwards; that change is not
+in these captures.
+
+Test: `a_drawn_box_becomes_the_square_over_it`:
+
+- the centre, and the half-width from the longer side;
+- corners given in either order;
+- the 5 and 80 km bounds;
+- no storm and no following.
+
+**Not established:** the Observed representation is still radar-wide; there is no 3D ruler; no
+desktop or device walkthrough.
