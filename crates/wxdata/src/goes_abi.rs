@@ -580,6 +580,89 @@ pub async fn prefetch_key(
     granule_bytes(client, satellite, key).await.map(|_| ())
 }
 
+/// Download `key` and, on native builds, decode it at `out_nx × out_ny` into the decoded-frame
+/// cache ([`decoded`]), so the satellite loop shows it without decoding when its turn comes
+/// (1008.md E2, M5.2). The decode runs off the async worker. The browser has one thread and
+/// decoding ahead would only move the stall, so there it downloads only, like [`prefetch_key`].
+pub async fn decode_ahead(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    key: &str,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if decoded::get(key, out_nx, out_ny).is_some() {
+            return Ok(());
+        }
+        let bytes = granule_bytes(client, satellite, key).await?;
+        let field = crate::task::blocking(move || decode(bytes, out_nx, out_ny)).await??;
+        decoded::put(key, out_nx, out_ny, std::sync::Arc::new(field));
+        Ok(())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (out_nx, out_ny);
+        prefetch_key(client, satellite, key).await
+    }
+}
+
+/// Decoded scans, newest use last, bounded by bytes: what [`decode_ahead`] prepared and what
+/// [`fetch_key`] decoded, so a loop that wraps or steps back does not decode the same scan again.
+/// Native only.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod decoded {
+    use super::MrmsField;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    /// Most bytes of decoded values kept: about 28 CONUS frames at 1200×700, or 100 mesoscale
+    /// frames at 480×480.
+    pub(crate) const BUDGET_BYTES: usize = 96 << 20;
+
+    type Entry = ((String, usize, usize), Arc<MrmsField>);
+    static CACHE: Mutex<VecDeque<Entry>> = Mutex::new(VecDeque::new());
+
+    fn size(f: &MrmsField) -> usize {
+        f.values.len() * std::mem::size_of::<f32>()
+    }
+
+    /// The decoded field for `key` at this size, marked most recently used.
+    pub(crate) fn get(key: &str, nx: usize, ny: usize) -> Option<Arc<MrmsField>> {
+        let mut cache = CACHE.lock().ok()?;
+        let i = cache
+            .iter()
+            .position(|((k, x, y), _)| k == key && *x == nx && *y == ny)?;
+        let entry = cache.remove(i)?;
+        let field = Arc::clone(&entry.1);
+        cache.push_back(entry);
+        Some(field)
+    }
+
+    /// Keep `field`, dropping the least recently used fields past [`BUDGET_BYTES`].
+    pub(crate) fn put(key: &str, nx: usize, ny: usize, field: Arc<MrmsField>) {
+        let Ok(mut cache) = CACHE.lock() else {
+            return;
+        };
+        cache.retain(|((k, x, y), _)| !(k == key && *x == nx && *y == ny));
+        cache.push_back(((key.to_string(), nx, ny), field));
+        let mut total: usize = cache.iter().map(|(_, f)| size(f)).sum();
+        while total > BUDGET_BYTES && cache.len() > 1 {
+            if let Some((_, f)) = cache.pop_front() {
+                total -= size(&f);
+            }
+        }
+    }
+
+    /// Fields held and their bytes, for the tests.
+    #[cfg(test)]
+    pub(crate) fn held() -> (usize, usize) {
+        let cache = CACHE.lock().unwrap();
+        (cache.len(), cache.iter().map(|(_, f)| size(f)).sum())
+    }
+}
+
 /// The newest CONUS CMIP key for `band` on `satellite`, checking this UTC hour and falling back to
 /// the previous one (covers the few minutes after an hour rolls over before anything has landed).
 async fn latest_key(
@@ -663,8 +746,15 @@ async fn fetch_key(
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(field) = decoded::get(key, out_nx, out_ny) {
+        return Ok((*field).clone());
+    }
     let bytes = granule_bytes(client, satellite, key).await?;
-    decode(bytes, out_nx, out_ny)
+    let field = decode(bytes, out_nx, out_ny)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    decoded::put(key, out_nx, out_ny, std::sync::Arc::new(field.clone()));
+    Ok(field)
 }
 
 /// Cloud top height (km above mean sea level) from the ABI Level 2 ACHA product, CONUS, every five
@@ -1234,6 +1324,115 @@ mod tests {
             .join("../../target/parity-review/m5.2");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("loop-decode-live.txt"), report).unwrap();
+    }
+
+    /// The decoded-frame cache keeps the most recently used fields within its byte budget and
+    /// never confuses two output sizes of one scan.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_decoded_frame_cache_is_bounded_and_keyed_by_size() {
+        use std::sync::Arc;
+        let field = |nx: usize, ny: usize| {
+            Arc::new(MrmsField {
+                values: vec![1.0; nx * ny],
+                nx,
+                ny,
+                lon_west: -100.0,
+                lon_east: -90.0,
+                lat_north: 40.0,
+                lat_south: 30.0,
+                time: chrono::Utc::now(),
+            })
+        };
+        // A CONUS frame is 1200x700 f32: 3.36 MB. Forty of them overflow the 96 MB budget.
+        for i in 0..40 {
+            decoded::put(&format!("test-scan-{i}"), 1200, 700, field(1200, 700));
+        }
+        let (n, bytes) = decoded::held();
+        assert!(bytes <= decoded::BUDGET_BYTES, "{bytes}");
+        assert!(n >= 25, "{n} frames kept");
+        assert!(
+            decoded::get("test-scan-0", 1200, 700).is_none(),
+            "the oldest went first"
+        );
+        assert!(decoded::get("test-scan-39", 1200, 700).is_some());
+        // The same scan at another size is another entry.
+        assert!(decoded::get("test-scan-39", 480, 480).is_none());
+        // Using a frame keeps it: after it is read, the next eviction takes another one.
+        let survivor = "test-scan-20";
+        assert!(decoded::get(survivor, 1200, 700).is_some());
+        for i in 40..50 {
+            decoded::put(&format!("test-scan-{i}"), 1200, 700, field(1200, 700));
+        }
+        assert!(
+            decoded::get(survivor, 1200, 700).is_some(),
+            "recently used is kept"
+        );
+    }
+
+    /// Live (network): decode-ahead as the loop uses it. Ten CONUS band 13 scans decoded two at
+    /// a time, as the loop's prefetch runs them, then fetched as the loop shows them. Writes
+    /// `target/parity-review/m5.2/loop-decode-ahead-live.txt`. Run with `--release`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "network"]
+    async fn loop_decode_ahead_live() {
+        let client = reqwest::Client::new();
+        let to = chrono::Utc::now();
+        let (nx, ny) = (1200usize, 700usize);
+        let frames = scan_frames(
+            &client,
+            Satellite::East,
+            Sector::Conus,
+            13,
+            to - chrono::Duration::minutes(60),
+            to,
+        )
+        .await
+        .unwrap();
+        let keys: Vec<String> = frames
+            .iter()
+            .rev()
+            .take(10)
+            .map(|f| f.key.clone())
+            .collect();
+        // Downloads first, so the timing below is the decode alone, as with a warm prefetch.
+        for k in &keys {
+            prefetch_key(&client, Satellite::East, k).await.unwrap();
+        }
+        let t = std::time::Instant::now();
+        for pair in keys.chunks(2) {
+            let jobs = pair
+                .iter()
+                .map(|k| decode_ahead(&client, Satellite::East, k, nx, ny));
+            for r in futures_util::future::join_all(jobs).await {
+                r.unwrap();
+            }
+        }
+        let ahead = t.elapsed().as_secs_f64();
+        let mut shown_ms = Vec::new();
+        for k in &keys {
+            let t = std::time::Instant::now();
+            let f = fetch_key(&client, Satellite::East, k, nx, ny)
+                .await
+                .unwrap();
+            shown_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            assert!(f.values.iter().any(|v| v.is_finite()));
+        }
+        shown_ms.sort_by(|a, b| a.total_cmp(b));
+        let report = format!(
+            "GOES-East CONUS band 13 -> {nx}x{ny}, {} scans, {}\nprofile: {}\ndecoded ahead two at a time in {ahead:.2} s: {:.1} frames/s\nshown from the cache: p50 {:.1} ms, max {:.1} ms a frame\n",
+            keys.len(),
+            to,
+            if cfg!(debug_assertions) { "debug" } else { "release" },
+            keys.len() as f64 / ahead,
+            shown_ms[shown_ms.len() / 2],
+            shown_ms[shown_ms.len() - 1],
+        );
+        print!("{report}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.2");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("loop-decode-ahead-live.txt"), report).unwrap();
     }
 
     #[tokio::test]

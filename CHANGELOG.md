@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: satellite loops decode ahead
+
+On desktop the satellite loop decodes the frames ahead of the one showing and keeps up to
+96 MB of them. After the first pass, a CONUS loop of up to 2 hours, or a 1-hour mesoscale loop,
+no longer waits on decoding each frame.
+
 ### Docs: live latency measured in the browser
 
 `docs/certification/m1.2/` records five minutes of live KTLX in the browser version. From a

@@ -1619,6 +1619,13 @@ detection remains with Claude.
 
 Infrared mesoscale fits all three loop speeds. Visible and CONUS now fit 2 and 4 fps but not 8 fps, which would need decode-ahead. Evidence: [`docs/certification/m5.2/`](docs/certification/m5.2/README.md). Checks: clippy, wasm, workspace tests (2,587 passed, 0 failed, 203 ignored) in `target/parity-review/m5.2/goes-par-*.log`. Open: 8 fps for large bands, and Android and browser timings.
 
+**Evidence ledger — 2026-10-10, increment 3 (decode-ahead; 1008.md E2):** on desktop the loop's prefetch decodes ahead (`goes_abi::decode_ahead`, off the async worker) into a decoded-frame cache bounded at 96 MB, least recently used out first (`goes_abi::decoded`). `fetch_key` reads and fills the cache. The browser still decodes on show. **Live, release** (CONUS band 13, 1200×700, ten scans):
+
+- A frame from the cache costs p50 0.6 ms.
+- Decoding ahead two at a time runs at 3.3 frames/s; concurrent decodes contend, and the soaks were running.
+
+So the first pass of a large-band loop stays at about 3–5 fps. In later passes decoding no longer limits 8 fps for loops whose frames fit (CONUS up to 2 h, mesoscale up to 1 h); upload and draw were not measured in a running loop. Larger loops evict what they need next and fall back to decoding ([`docs/certification/m5.2/`](docs/certification/m5.2/README.md), `7436b2c5…`). Test: `the_decoded_frame_cache_is_bounded_and_keyed_by_size`. Checks: clippy, wasm, workspace tests (2,593 passed, 0 failed, 205 ignored) in `target/parity-review/m5.2/e2d-*.log`. Open: an interactive loop measured at 8 fps, and Android and browser timings.
+
 #### M5.3 — Broaden field inspection within supported models
 
 **Priority:** P1. **Depends on:** M1.4, M5.1. **Original references:** ROADMAP_NEW §§A1, F1, F3, F4, F5, F6; ROADMAP_2 §§9, 10.

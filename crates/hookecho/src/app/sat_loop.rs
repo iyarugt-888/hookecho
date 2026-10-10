@@ -7,8 +7,10 @@
 //! scan that never landed is a visible gap on the loop's strip rather than a closed-up step. The
 //! loop steps only once the frame on screen is the one asked for (or after a bounded wait, when
 //! that frame is marked failed), so playback never runs ahead into blank frames. A few frames
-//! ahead are downloaded into the object cache (disk, or IndexedDB in the browser) without being
-//! decoded, so memory holds one decoded frame per layer however long the loop is.
+//! ahead are downloaded into the object cache (disk, or IndexedDB in the browser). On desktop they
+//! are also decoded ahead into a cache bounded at 96 MB (`goes_abi::decode_ahead`), because a
+//! CONUS or visible frame takes about 200 ms to decode (1008.md E2). The browser, with one thread,
+//! still decodes each frame when it is shown.
 use super::*;
 use wxdata::goes_abi::{ScanFrame, ScanGap, Sector};
 
@@ -447,13 +449,15 @@ impl HookEchoApp {
         } else {
             wxdata::goes_abi::Satellite::East
         };
+        // Decoded at the size the GOES layers ask for, so the frame is a cache hit when shown.
+        let (nx, ny) = goes_grid(key.sector);
         for object in targets {
             l.inflight.insert(object.clone());
             let tx = l.prefetch_tx.clone().expect("set above");
             let http = self.http.clone();
             let ctx = ctx.clone();
             self.spawner.spawn(async move {
-                let ok = wxdata::goes_abi::prefetch_key(&http, satellite, &object)
+                let ok = wxdata::goes_abi::decode_ahead(&http, satellite, &object, nx, ny)
                     .await
                     .inspect_err(|e| log::debug!("satellite prefetch {object}: {e:#}"))
                     .is_ok();
