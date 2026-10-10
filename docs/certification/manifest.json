@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T15:35:42+00:00",
-  "generated_from_commit": "765b6b4244d5464ff8aee93bcba2cb87d8dbe3f7",
+  "generated_utc": "2026-10-10T16:09:58+00:00",
+  "generated_from_commit": "1f40cc7fcc833abce29e119aa4587788717df3de",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -209,7 +209,7 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 6,
+      "ledger_entries": 7,
       "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
@@ -1189,8 +1189,8 @@
     },
     {
       "path": "docs/certification/m5.4/README.md",
-      "sha256": "c17d96b37646c3d8f95d805bc48bcbd326aeb2fee9c7ac0d2082b3a6e7453fc1",
-      "bytes": 12043
+      "sha256": "4a3cdc922627615e254480423570f8c186eb70b87491406e011a153bfbb252a7",
+      "bytes": 12868
     },
     {
       "path": "docs/certification/m6.2/output-legend-left.png",
