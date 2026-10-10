@@ -68,5 +68,36 @@ Test: `a_drawn_box_becomes_the_square_over_it`:
 - the 5 and 80 km bounds;
 - no storm and no following.
 
-**Not established:** the Observed representation is still radar-wide; there is no 3D ruler; no
-desktop or device walkthrough.
+**Not established:** no 3D ruler; no desktop or device walkthrough. (The Observed representation
+now follows the region: see below.)
+
+## The Observed representation follows the region (1008.md C5, 2026-10-10)
+
+With a region of interest set, the Observed 3D view keeps only the gates whose ground position
+falls inside the region's square (`pane_upload::clip_observed_to_roi`). That is the same region
+the smooth volume and the isosurfaces build over. Every other gate is blanked before upload. The
+region is part of the upload's identity (`ObservedKey::with_roi`), so setting, moving or
+clearing it rebuilds. Ground range is the slant range times the cosine of the tilt at each
+gate's centre. The coverage readout still describes the whole scan.
+
+**Walkthrough** in the browser build (WebGPU, KTLX live, weak echo):
+
+1. Observed with no region: echo scattered all around the radar
+   ([observed-before-region.jpg](observed-before-region.jpg)).
+2. A 65 × 70 km box drawn east-southeast of the radar, then "Use as 3D region". The notice now
+   reads "3D region set: the drawn box, 70 km across" in the success style
+   ([region-notice.jpg](region-notice.jpg)), which settles the earlier red-card note.
+3. Observed again: gates remain only inside the box, between Shawnee and Ada; the echo around
+   Norman and the radar is gone ([observed-in-region.jpg](observed-in-region.jpg)).
+
+| File | SHA-256 |
+| --- | --- |
+| observed-before-region.jpg | `c427e400d52fad575eb0eaa151f2b797468ebec89d1ab7990785fbc42c8734e2` |
+| region-notice.jpg | `ec8fc3b7b90f783c922fd625a96f212a65579826794fd0c4ce269c55261bc74c` |
+| observed-in-region.jpg | `edf9d0745514714858fb8037e4710d0637d16b6bd2afb005323b05adeaf17644` |
+
+Tests:
+
+- `the_observed_view_keeps_only_the_regions_gates`: four radials, a 20 km square 50 km east.
+  Only the east radial's gates 40–59 are kept, and an empty gate stays empty.
+- `a_region_is_part_of_the_observed_upload_identity`: no region, a region, a moved region.

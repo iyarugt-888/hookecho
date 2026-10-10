@@ -561,14 +561,15 @@ impl HookEchoApp {
             crate::theme::is_high_contrast(self.settings.theme),
             controls,
         )
-        .expect("observed upload has a source volume");
+        .expect("observed upload has a source volume")
+        .with_roi(self.volume_roi_km(idx).map(crate::loop3d::Roi::key));
         if self.views[idx].map_3d.observed_key.as_ref() == Some(&key) {
             return (None, true);
         }
         // Full native resolution: every gate of every radial goes to the GPU as a texel, and the
         // shader draws each radial as a strip on its own beam surface. `max_texture_dim` is only
         // a ceiling; a sweep wider than it is max-pooled and reported, never silently thinned.
-        let observed = match level2::observed_volume_with_passes(
+        let mut observed = match level2::observed_volume_with_passes(
             &scan,
             moment,
             self.max_texture_dim as usize,
@@ -585,6 +586,13 @@ impl HookEchoApp {
                 return (None, false);
             }
         };
+        // A region of interest keeps only its own gates, as the smooth volume and the
+        // isosurfaces do; the coverage readout still describes the whole scan.
+        if let Some(roi) = self.volume_roi_km(idx) {
+            for sweep in &mut observed.sweeps {
+                clip_observed_to_roi(sweep, roi);
+            }
+        }
         self.views[idx].map_3d.observed_layers = observed.layers.clone();
         self.views[idx].map_3d.observed_coverage = Some(observed.coverage.clone());
         // A selection surviving a moment switch or a tilt dropping out of the volume would dim
@@ -672,6 +680,31 @@ impl HookEchoApp {
     }
 }
 
+/// Blank (`0`, no data) every gate of `sweep` whose ground position falls outside `roi`'s square
+/// (km east and north of the radar). Ground range is the slant range times the cosine of the
+/// tilt, at each gate's centre: under the 4/3-earth beam the two differ by well under a gate's
+/// length at the ranges a region spans.
+pub(crate) fn clip_observed_to_roi(sweep: &mut level2::ObservedSweep, roi: crate::loop3d::Roi) {
+    let [cx, cy] = roi.center_km;
+    let half = roi.half_km;
+    let width = sweep.width;
+    for (row, r) in sweep.radials.iter().enumerate() {
+        let (sin_az, cos_az) = r.azimuth_deg.to_radians().sin_cos();
+        let cos_el = r.elevation_deg.to_radians().cos();
+        let cells = &mut sweep.values[row * width..(row + 1) * width];
+        for (g, v) in cells.iter_mut().enumerate().take(r.gate_count as usize) {
+            if *v == 0 {
+                continue;
+            }
+            let ground = (r.first_gate_km + (g as f32 + 0.5) * r.gate_interval_km) * cos_el;
+            let (x, y) = (ground * sin_az, ground * cos_az);
+            if (x - cx).abs() > half || (y - cy).abs() > half {
+                *v = 0;
+            }
+        }
+    }
+}
+
 /// `up` with its colour table rebuilt from `stops` (M3.5, 1008.md C2), or `up` itself when there
 /// are none or its table is not linear in value (`lut_range`). The grid is shared bytes, copied
 /// only into the new upload: no volume is rebuilt.
@@ -685,6 +718,60 @@ fn with_colors(
             ..(**up).clone()
         }),
         _ => Arc::clone(up),
+    }
+}
+
+#[cfg(test)]
+mod observed_roi_tests {
+    use super::*;
+
+    /// A region keeps only the gates over it: a sweep of four radials (N, E, S, W) at 0.5 deg,
+    /// gates every km to 100 km, clipped to the 20 km square centred 50 km east of the radar,
+    /// keeps the east radial's gates from 40 to 60 km and nothing else. Empty gates stay empty.
+    #[test]
+    fn the_observed_view_keeps_only_the_regions_gates() {
+        let radial = |az: f32| level2::ObservedRadial {
+            collected_ms: None,
+            azimuth_deg: az,
+            spacing_deg: 1.0,
+            elevation_deg: 0.5,
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            gate_count: 100,
+        };
+        let mut values = vec![200u8; 4 * 100];
+        values[100 + 50] = 0;
+        let mut sweep = level2::ObservedSweep {
+            source_cut: 0,
+            elevation_number: 1,
+            radials: vec![radial(0.0), radial(90.0), radial(180.0), radial(270.0)],
+            width: 100,
+            pool: 1,
+            values,
+        };
+        clip_observed_to_roi(
+            &mut sweep,
+            crate::loop3d::Roi {
+                center_km: [50.0, 0.0],
+                half_km: 10.0,
+            },
+        );
+        let kept: Vec<(usize, usize)> = sweep
+            .values
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v != 0)
+            .map(|(i, _)| (i / 100, i % 100))
+            .collect();
+        assert!(
+            kept.iter().all(|&(row, _)| row == 1),
+            "only the east radial"
+        );
+        let gates: Vec<usize> = kept.iter().map(|&(_, g)| g).collect();
+        assert_eq!(gates.first(), Some(&40));
+        assert_eq!(gates.last(), Some(&59));
+        assert!(!gates.contains(&50), "an empty gate stays empty");
+        assert_eq!(gates.len(), 19);
     }
 }
 

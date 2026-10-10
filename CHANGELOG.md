@@ -17,7 +17,8 @@ greyed where it was written, with its time.
 ### Added: draw the 3D region on the map
 
 Draw a box with Region statistics, then press "Use as 3D region". The 3D volume is then built
-over that box, at a finer grid, instead of around a storm or the whole radar.
+over that box, at a finer grid, instead of around a storm or the whole radar. The Observed 3D
+view also keeps only the gates inside a region, whether drawn or around a storm.
 
 ### Added: `--watch --legend-left`
 

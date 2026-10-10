@@ -148,6 +148,8 @@ pub struct ObservedKey {
     palette: u64,
     high_contrast: bool,
     controls: [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
+    /// The region of interest the gates were clipped to (`loop3d::Roi::key`), if any.
+    roi: Option<[u32; 3]>,
 }
 
 impl ObservedKey {
@@ -171,7 +173,15 @@ impl ObservedKey {
             palette,
             high_contrast,
             controls,
+            roi: None,
         })
+    }
+
+    /// The same upload clipped to a region of interest (ROADMAP_PARITY M3.6): moving or clearing
+    /// the region rebuilds it.
+    pub(crate) fn with_roi(mut self, roi: Option<[u32; 3]>) -> Self {
+        self.roi = roi;
+        self
     }
 
     pub(crate) fn matches_source(
@@ -1683,6 +1693,49 @@ mod tests {
         assert_eq!(
             Volume::new(scan_at(&[0.5]), "archive".into(), now).acquisition_for(Some("KTLX")),
             None
+        );
+    }
+
+    /// The region of interest is part of the observed upload's identity: setting, moving or
+    /// clearing it rebuilds the clipped gates (ROADMAP_PARITY M3.6).
+    #[test]
+    fn a_region_is_part_of_the_observed_upload_identity() {
+        use level2::temporal::TemporalPolicy as P;
+        let mut view = MapView::new(Some("KTLX".into()), Camera::at_lonlat(-97.0, 35.0, 8.0));
+        view.volume = Some(Volume::from_live_captured(
+            scan_at(&[0.5]),
+            "source".into(),
+            Utc::now(),
+            None,
+        ));
+        let key = || {
+            ObservedKey::new(
+                &view,
+                Moment::Reflectivity,
+                P::Continuous,
+                0,
+                false,
+                [0; 12 + MAX_HIGHLIGHTED_LAYERS],
+            )
+            .unwrap()
+        };
+        let roi = crate::loop3d::Roi {
+            center_km: [50.0, 0.0],
+            half_km: 10.0,
+        };
+        let moved = crate::loop3d::Roi {
+            center_km: [51.0, 0.0],
+            ..roi
+        };
+        assert_eq!(key(), key().with_roi(None));
+        assert_ne!(key(), key().with_roi(Some(roi.key())));
+        assert_ne!(
+            key().with_roi(Some(roi.key())),
+            key().with_roi(Some(moved.key()))
+        );
+        assert_eq!(
+            key().with_roi(Some(roi.key())),
+            key().with_roi(Some(roi.key()))
         );
     }
 
