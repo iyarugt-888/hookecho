@@ -1597,6 +1597,14 @@ detection remains with Claude.
 - *Desktop/Android/browser evidence:* no interactive run. The listing and prefetch are the same async code on every platform (IndexedDB cache in the browser); not exercised on Android or in the browser.
 - *Known limitations / open:* the loop drives GOES layers only; it does not yet drive a linked time group or radar to the satellite's clock. Difference/cooling-rate layers (latest-only) are hidden while the loop runs. Decoding is still per displayed frame, so the real frame rate is bounded by decode time (unmeasured on devices). No RGB same-scan rejection beyond the existing fetch rule.
 
+**Evidence ledger — 2026-10-10, increment 2 (what a loop frame costs; 1008.md E2):** `goes_abi::tests::loop_decode_cost_live` times download and decode apart for ten consecutive GOES-East scans per case, at the app's sizes, in release. The projection pass was 278 of about 350 ms of a CONUS decode, so native builds now project rows in parallel with rayon; binning stays sequential, so the output is unchanged. All 30 scans gave the same digest with `RAYON_NUM_THREADS=1` and with all threads. Decode p50, one thread → parallel:
+
+- Mesoscale band 13: 26 → 14 ms.
+- Mesoscale band 2 (visible): 423 → 214 ms.
+- CONUS band 13: 387 → 193 ms.
+
+Infrared mesoscale fits all three loop speeds. Visible and CONUS now fit 2 and 4 fps but not 8 fps, which would need decode-ahead. Evidence: [`docs/certification/m5.2/`](docs/certification/m5.2/README.md). Checks: clippy, wasm, workspace tests (2,587 passed, 0 failed, 203 ignored) in `target/parity-review/m5.2/goes-par-*.log`. Open: 8 fps for large bands, and Android and browser timings.
+
 #### M5.3 — Broaden field inspection within supported models
 
 **Priority:** P1. **Depends on:** M1.4, M5.1. **Original references:** ROADMAP_NEW §§A1, F1, F3, F4, F5, F6; ROADMAP_2 §§9, 10.

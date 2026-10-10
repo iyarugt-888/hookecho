@@ -243,30 +243,45 @@ pub fn decode_var(
         .unwrap_or_else(chrono::Utc::now);
 
     // Forward-project every source pixel once, then bin it into whichever output cell it lands
-    // in — the output grid's bounds are the scene's own projected extent, found in the same pass.
-    let mut lonlat = Vec::with_capacity(nx * ny);
+    // in — the output grid's bounds are the scene's own projected extent.
+    //
+    // The projection is most of the decode (278 of about 350 ms for a 2500x1500 CONUS band in
+    // release, 2026-10-10), and each pixel's is independent, so native builds project rows in
+    // parallel. Binning below stays sequential in source order, so the last pixel to land in a
+    // cell still wins and the output is identical to the one-thread pass the browser runs.
+    let mut lonlat: Vec<Option<(f64, f64, f64)>> = vec![None; nx * ny];
+    let project_row = |row: usize, out: &mut [Option<(f64, f64, f64)>]| {
+        let yv = y[row];
+        for (col, (&xv, slot)) in x.iter().zip(out.iter_mut()).enumerate() {
+            let v = cmi[row * nx + col];
+            if v.is_finite() {
+                *slot = proj.scan_to_lonlat(xv, yv).map(|(lon, lat)| (lon, lat, v));
+            }
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        lonlat
+            .par_chunks_mut(nx)
+            .enumerate()
+            .for_each(|(row, out)| project_row(row, out));
+    }
+    #[cfg(target_arch = "wasm32")]
+    for (row, out) in lonlat.chunks_mut(nx).enumerate() {
+        project_row(row, out);
+    }
     let (mut lon_min, mut lon_max, mut lat_min, mut lat_max) = (
         f64::INFINITY,
         f64::NEG_INFINITY,
         f64::INFINITY,
         f64::NEG_INFINITY,
     );
-    for (row, &yv) in y.iter().enumerate() {
-        for (col, &xv) in x.iter().enumerate() {
-            let v = cmi[row * nx + col];
-            let ll = if v.is_finite() {
-                proj.scan_to_lonlat(xv, yv)
-            } else {
-                None
-            };
-            if let Some((lon, lat)) = ll {
-                lon_min = lon_min.min(lon);
-                lon_max = lon_max.max(lon);
-                lat_min = lat_min.min(lat);
-                lat_max = lat_max.max(lat);
-            }
-            lonlat.push(ll.map(|(lon, lat)| (lon, lat, v)));
-        }
+    for &(lon, lat, _) in lonlat.iter().flatten() {
+        lon_min = lon_min.min(lon);
+        lon_max = lon_max.max(lon);
+        lat_min = lat_min.min(lat);
+        lat_max = lat_max.max(lat);
     }
     anyhow::ensure!(
         lon_max > lon_min && lat_max > lat_min,
@@ -1118,6 +1133,107 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("goes-blend-live.txt"), report).unwrap();
         assert!(both > 100_000 && worst < 1e-3);
+    }
+
+    /// Live (network): what one satellite-loop frame costs, download and decode timed apart, at
+    /// the sizes the app asks for (`goes_grid`: 480x480 mesoscale, 1200x700 CONUS), against the
+    /// loop's 2/4/8 fps (500/250/125 ms a frame). Ten consecutive scans per case, the newest
+    /// first. Run it with `--release`: a debug decode is not what the app does.
+    /// Writes `target/parity-review/m5.2/loop-decode-live.txt`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn loop_decode_cost_live() {
+        let client = reqwest::Client::new();
+        let to = chrono::Utc::now();
+        let pct = |v: &mut Vec<f64>, q: f64| {
+            v.sort_by(|a, b| a.total_cmp(b));
+            v[((v.len() - 1) as f64 * q).round() as usize]
+        };
+        let mut report = format!(
+            "GOES-East satellite-loop frame cost, {to}\nprofile: {}; RAYON_NUM_THREADS={}\n",
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            },
+            std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into())
+        );
+        for (sector, band, minutes, (nx, ny)) in [
+            (Sector::Meso1, 13u8, 15i64, (480usize, 480usize)),
+            (Sector::Meso1, 2, 15, (480, 480)),
+            (Sector::Conus, 13, 60, (1200, 700)),
+        ] {
+            let frames = scan_frames(
+                &client,
+                Satellite::East,
+                sector,
+                band,
+                to - chrono::Duration::minutes(minutes),
+                to,
+            )
+            .await
+            .unwrap();
+            let (mut fetch_ms, mut decode_ms, mut sizes) = (Vec::new(), Vec::new(), Vec::new());
+            let mut digests = Vec::new();
+            for frame in frames.iter().rev().take(10) {
+                let t = std::time::Instant::now();
+                let bytes = granule_bytes(&client, Satellite::East, &frame.key)
+                    .await
+                    .unwrap();
+                fetch_ms.push(t.elapsed().as_secs_f64() * 1e3);
+                sizes.push(bytes.len() as f64 / 1e6);
+                let t = std::time::Instant::now();
+                let field = decode(bytes, nx, ny).unwrap();
+                decode_ms.push(t.elapsed().as_secs_f64() * 1e3);
+                assert!(field.values.iter().any(|v| v.is_finite()));
+                // FNV-1a over the decoded bits and bounds: the same scan decodes to the same
+                // digest however many threads projected it.
+                let mut digest = 0xcbf2_9ce4_8422_2325u64;
+                let bounds = [
+                    field.lon_west,
+                    field.lon_east,
+                    field.lat_north,
+                    field.lat_south,
+                ];
+                let words = field
+                    .values
+                    .iter()
+                    .map(|v| u64::from(v.to_bits()))
+                    .chain(bounds.iter().map(|b| b.to_bits()));
+                for word in words {
+                    digest = (digest ^ word).wrapping_mul(0x0100_0000_01b3);
+                }
+                digests.push(format!(
+                    "digest {} band {band} {} {digest:016x}
+",
+                    sector.label(),
+                    frame.start.format("%H:%M:%S")
+                ));
+            }
+            let n = decode_ms.len();
+            assert!(n >= 5, "{sector:?} band {band}: only {n} scans listed");
+            let line = format!(
+                "{} band {band} -> {nx}x{ny}: {n} scans, granule {:.1}-{:.1} MB; download p50 {:.0} ms max {:.0} ms; decode p50 {:.0} ms max {:.0} ms\n",
+                sector.label(),
+                sizes.iter().cloned().fold(f64::MAX, f64::min),
+                sizes.iter().cloned().fold(0.0, f64::max),
+                pct(&mut fetch_ms.clone(), 0.5),
+                pct(&mut fetch_ms, 1.0),
+                pct(&mut decode_ms.clone(), 0.5),
+                pct(&mut decode_ms, 1.0),
+            );
+            print!("{line}");
+            report.push_str(&line);
+            for digest in digests {
+                print!("{digest}");
+                report.push_str(&digest);
+            }
+        }
+        report.push_str("loop budgets: 2 fps 500 ms, 4 fps 250 ms, 8 fps 125 ms a frame\n");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m5.2");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("loop-decode-live.txt"), report).unwrap();
     }
 
     #[tokio::test]

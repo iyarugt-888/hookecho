@@ -1,0 +1,36 @@
+GOES-East satellite-loop frame cost, 2026-10-10 17:06:25.127142500 UTC
+profile: release
+Mesoscale 1 (1 min) band 13 -> 480x480: 10 scans, granule 0.3-0.3 MB; download p50 63 ms max 88 ms; decode p50 26 ms max 29 ms
+digest Mesoscale 1 (1 min) band 13 17:05:25 3ae8a4043773c832
+digest Mesoscale 1 (1 min) band 13 17:04:25 c06d2d4d9b66ad5e
+digest Mesoscale 1 (1 min) band 13 17:03:25 48a872a5b99b2293
+digest Mesoscale 1 (1 min) band 13 17:02:25 3a564a6995b7a36d
+digest Mesoscale 1 (1 min) band 13 17:01:25 38d5a24ec77694b1
+digest Mesoscale 1 (1 min) band 13 17:00:28 29c950b3bcc029ff
+digest Mesoscale 1 (1 min) band 13 16:59:25 f7472c973ad15034
+digest Mesoscale 1 (1 min) band 13 16:58:25 3942b14de1f93157
+digest Mesoscale 1 (1 min) band 13 16:57:25 eb9ac7be420a0770
+digest Mesoscale 1 (1 min) band 13 16:56:25 3554e23eacab66f7
+Mesoscale 1 (1 min) band 2 -> 480x480: 10 scans, granule 4.4-4.8 MB; download p50 242 ms max 601 ms; decode p50 423 ms max 436 ms
+digest Mesoscale 1 (1 min) band 2 17:05:25 85b42044b9975126
+digest Mesoscale 1 (1 min) band 2 17:04:25 657a06ee976f2ba9
+digest Mesoscale 1 (1 min) band 2 17:03:25 bfe1177092f32691
+digest Mesoscale 1 (1 min) band 2 17:02:25 51da43bc5038a29f
+digest Mesoscale 1 (1 min) band 2 17:01:25 71b1393c60488e7f
+digest Mesoscale 1 (1 min) band 2 17:00:28 c74357b5b22d526f
+digest Mesoscale 1 (1 min) band 2 16:59:25 8525a116c71b179b
+digest Mesoscale 1 (1 min) band 2 16:58:25 adc574e754198041
+digest Mesoscale 1 (1 min) band 2 16:57:25 301b2577c51da6c6
+digest Mesoscale 1 (1 min) band 2 16:56:25 fe9820bf01a68bca
+CONUS (5 min) band 13 -> 1200x700: 10 scans, granule 3.9-4.0 MB; download p50 190 ms max 201 ms; decode p50 387 ms max 411 ms
+digest CONUS (5 min) band 13 17:01:18 77362d4e10ff8ce9
+digest CONUS (5 min) band 13 16:56:18 582ac454b8a24e95
+digest CONUS (5 min) band 13 16:51:18 6a6a163128e0f785
+digest CONUS (5 min) band 13 16:46:18 de42dcfdb35fedf4
+digest CONUS (5 min) band 13 16:41:18 06e3ec86f025e5f7
+digest CONUS (5 min) band 13 16:36:18 01b8ab6dc9ae6513
+digest CONUS (5 min) band 13 16:31:18 1d2ba3eddff23d80
+digest CONUS (5 min) band 13 16:26:18 156870c28722bb11
+digest CONUS (5 min) band 13 16:21:18 538ccd7c92613311
+digest CONUS (5 min) band 13 16:16:18 a9e2fc721c3afabf
+loop budgets: 2 fps 500 ms, 4 fps 250 ms, 8 fps 125 ms a frame

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: satellite frames decode about twice as fast
+
+GOES frames now decode in about half the time on desktop. A visible or CONUS frame takes about
+200 ms instead of 400, so the satellite loop's 4 fps speed keeps up with those bands. The
+picture is unchanged.
+
 ### Added: HREF ensemble guidance
 
 The model browser adds the HREF probability-matched mean: the High-Resolution Ensemble
