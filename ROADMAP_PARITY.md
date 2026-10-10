@@ -1862,6 +1862,14 @@ Evidence: [`docs/certification/m7.1/`](docs/certification/m7.1/) (`soak-ktlx-2h.
 - A severe-weather cadence.
 - Android.
 
+**Evidence ledger — 2026-10-10, a 12-hour attempt interrupted (1008.md H2):** `--soak KTLX 720 --render --inject` ran from 18:54 to 23:10 UTC on 2026-10-09, when the session that launched it ended and tore the process down. There was no soak verdict. Up to then:
+
+- 512 cycles and 38 new volumes, 0 failed cycles;
+- 38 renders across all four products, 0 failed;
+- GPU allocator flat at 9.55–9.78 MB.
+
+Kept as partial evidence ([`soak-ktlx-12h-interrupted.jsonl`](docs/certification/m7.1/soak-ktlx-12h-interrupted.jsonl), `888df3b5…`), not as a completed profile. A second run was started detached at 14:32 UTC on 2026-10-10. Open: a completed 12-hour profile and the 24-hour profile.
+
 #### M7.2 — Certify Android lifecycle, input, and memory
 
 **Priority:** P0 release gate. **Depends on:** M2.4, M3.6, M4.2, M5.4, M6.4, M7.1. **Original references:** ROADMAP_2 §§2.6, 13, 14; ROADMAP_NEW §§Q1, Q3, O1.

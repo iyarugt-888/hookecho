@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-09T20:43:37+00:00",
-  "generated_from_commit": "ee1c563899a055f0f0f4d5f35deef8740ff0ca93",
+  "generated_utc": "2026-10-10T14:32:33+00:00",
+  "generated_from_commit": "a410eaaa1dfc0a743b16f6a3706992b5ca579d22",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -249,8 +249,8 @@
     {
       "card": "M7.1",
       "title": "Extend soaks to the full application and resources",
-      "ledger_entries": 1,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 2,
+      "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m7.1"
     },
@@ -1164,8 +1164,8 @@
     },
     {
       "path": "docs/certification/m7.1/README.md",
-      "sha256": "dbc7fc590cf13dc7d565d8c39bfd8bcbed00f58e758783f111847341b1c71a6d",
-      "bytes": 3097
+      "sha256": "f2be8388a79fdfceec2bd9336fdc1ef6a0839353fc4c227104f8eb588b376ea0",
+      "bytes": 4195
     },
     {
       "path": "docs/certification/m7.1/render-profile.txt",
