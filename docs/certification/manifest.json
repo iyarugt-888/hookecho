@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T20:14:42+00:00",
-  "generated_from_commit": "ef297f433c77a4a924d7479ffc5c2d62c090ca4d",
+  "generated_utc": "2026-10-10T20:22:07+00:00",
+  "generated_from_commit": "b4632dab57f3a28e63d77ec48669c50c4135dbe2",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -49,8 +49,8 @@
     {
       "card": "M1.2",
       "title": "Trace receipt through completed rendering",
-      "ledger_entries": 2,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 3,
+      "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (GPU-completion stage, increment 1); verification: partial (software GPU only).",
       "evidence_dir": "docs/certification/m1.2"
     },
@@ -768,6 +768,16 @@
       "bytes": 67845
     },
     {
+      "path": "docs/certification/m1.2/browser-live-trace-5min.jpg",
+      "sha256": "bb6c897239cfbb2b8925e12b245d06ea12b65899840fa7faacebd6ed7c63f51a",
+      "bytes": 126886
+    },
+    {
+      "path": "docs/certification/m1.2/browser-live-trace-start.jpg",
+      "sha256": "faf642b9b51edd3bd4cfd338d89e9e1b47709073816f863a00e705284e9450e2",
+      "bytes": 99221
+    },
+    {
       "path": "docs/certification/m1.2/correlated-trace.csv",
       "sha256": "4fd9854cf97ba0871e0cceba0a412d925b207418e440cf329ad08241b8922777",
       "bytes": 2399
@@ -779,8 +789,8 @@
     },
     {
       "path": "docs/certification/m1.2/README.md",
-      "sha256": "85d8d3b610e93f95d0c17f6ad18a48c87b173ed447a68d2a87c375fe2c65c411",
-      "bytes": 2602
+      "sha256": "47c331c016904c836cdb34d5def7ea162bef58bd947770d4afe28d1ce79152b5",
+      "bytes": 4208
     },
     {
       "path": "docs/certification/m1.3/alert-latency/polls.csv",
