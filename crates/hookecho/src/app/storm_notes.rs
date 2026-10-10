@@ -98,6 +98,114 @@ pub(crate) fn notes_for_row<'a>(
         .collect()
 }
 
+/// One note as the map draws it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MapNote {
+    /// `[lon, lat]`.
+    pub at: [f64; 2],
+    pub text: String,
+    /// On its storm as the table has it now; otherwise drawn dimmed where it was written.
+    pub current: bool,
+}
+
+/// Longest note text the map draws; the full text is in the storm table.
+const MAP_NOTE_CHARS: usize = 40;
+
+/// Where each note goes on the map. A live note whose storm is in `site`'s current table
+/// (`cells`, reached through `resolve` as in [`notes_for_row`]) sits on the storm where it is now.
+/// Every other note, reopened from a case, on another radar, or whose storm has left the table,
+/// sits where it was written, with its time, so it never lands on an unrelated storm.
+pub(crate) fn map_notes(
+    notes: &[StormNote],
+    site: Option<&str>,
+    cells: &[wxdata::level3::Cell],
+    resolve: impl Fn(&str, Option<i64>) -> Option<String>,
+) -> Vec<MapNote> {
+    let short = |s: &str| {
+        let s = s.trim();
+        if s.chars().count() > MAP_NOTE_CHARS {
+            let cut: String = s.chars().take(MAP_NOTE_CHARS - 1).collect();
+            format!("{cut}\u{2026}")
+        } else {
+            s.to_string()
+        }
+    };
+    notes
+        .iter()
+        .map(|n| {
+            let live = (!n.historical && Some(n.site.as_str()) == site)
+                .then(|| resolve(&n.cell, n.scan.map(|t| t.timestamp())))
+                .flatten()
+                .and_then(|id| cells.iter().find(|c| c.id == id));
+            match live {
+                Some(c) => MapNote {
+                    at: [c.lon, c.lat],
+                    text: short(&n.text),
+                    current: true,
+                },
+                None => MapNote {
+                    at: n.at,
+                    text: format!(
+                        "{} {}",
+                        n.scan
+                            .map_or_else(|| "?".to_string(), |t| t.format("%H:%MZ").to_string()),
+                        short(&n.text)
+                    ),
+                    current: false,
+                },
+            }
+        })
+        .collect()
+}
+
+impl super::HookEchoApp {
+    /// Draw the storm notes on every pane (1008.md B3): a pin and the text, on the storm's
+    /// present position when it is in the active radar's table, else dimmed where written.
+    pub(crate) fn paint_storm_notes(&self, ui: &egui::Ui, rects: &[egui::Rect]) {
+        if self.storm_tracks.notes.is_empty() {
+            return;
+        }
+        let site = self.views[self.active].site.clone();
+        let cells = self.active_storm_cells();
+        let resolve = |cell: &str, scan: Option<i64>| self.dock.storm_ids.current_id(cell, scan);
+        let notes = map_notes(&self.storm_tracks.notes, site.as_deref(), cells, resolve);
+        for (idx, rect) in rects.iter().enumerate() {
+            let cam = self.views[idx].camera;
+            let vp = (rect.width(), rect.height());
+            let painter = ui.painter_at(*rect);
+            for n in &notes {
+                let w = crate::render::mercator::lonlat_to_world(n.at[0], n.at[1]);
+                let (x, y) = cam.world_to_screen(w, vp);
+                let p = egui::pos2(rect.left() + x, rect.top() + y);
+                if rect.expand(40.0).contains(p) {
+                    paint_map_note(&painter, p, n);
+                }
+            }
+        }
+    }
+}
+
+/// One note on the map at `p`: a pin and its text, amber on its storm, grey where it was written.
+pub(crate) fn paint_map_note(painter: &egui::Painter, p: egui::Pos2, n: &MapNote) {
+    let halo = egui::Color32::from_black_alpha(200);
+    let font = egui::FontId::proportional(12.0);
+    let col = if n.current {
+        egui::Color32::from_rgb(255, 214, 102)
+    } else {
+        egui::Color32::from_rgb(170, 170, 180)
+    };
+    painter.circle(p, 4.0, col, egui::Stroke::new(1.5, halo));
+    let at = p + egui::vec2(8.0, -16.0);
+    painter.text(
+        at + egui::vec2(1.0, 1.0),
+        egui::Align2::LEFT_TOP,
+        &n.text,
+        font.clone(),
+        halo,
+    );
+    painter.text(at, egui::Align2::LEFT_TOP, &n.text, font, col);
+}
+
 /// A draft's editor: the text, Save (only with text) and Cancel; Escape cancels. Returns `Some(true)`
 /// to save, `Some(false)` to cancel, `None` to keep editing.
 pub(crate) fn editor(ui: &mut egui::Ui, draft: &mut StormNote) -> Option<bool> {
@@ -180,6 +288,46 @@ mod tests {
         .unwrap();
     }
 
+    /// Notes as the map draws them (`paint_map_note`, the code the app paints with): one on
+    /// its storm, one reopened from a case where it was written.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes the map notes capture"]
+    fn gpu_map_notes_snapshot() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for the map notes");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m2.4");
+        std::fs::create_dir_all(&destination).unwrap();
+        let notes = [
+            MapNote {
+                at: [0.0, 0.0],
+                text: "Wall cloud on the rear flank, rotating".into(),
+                current: true,
+            },
+            MapNote {
+                at: [0.0, 0.0],
+                text: "20:12Z Debris signature with the couplet".into(),
+                current: false,
+            },
+        ];
+        gpu.save(&destination.join("map-notes.png"), 420, 160, |ui| {
+            let rect = ui.max_rect();
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(24, 28, 34));
+            paint_map_note(
+                &painter,
+                rect.left_top() + egui::vec2(40.0, 60.0),
+                &notes[0],
+            );
+            paint_map_note(
+                &painter,
+                rect.left_top() + egui::vec2(60.0, 125.0),
+                &notes[1],
+            );
+        })
+        .unwrap();
+    }
+
     #[test]
     fn a_note_round_trips_through_a_case_and_reopens_historical() {
         let mut n = StormNote::draft("KTLX", &cell("K3", 0), t(1));
@@ -227,5 +375,40 @@ mod tests {
         assert_eq!(on_q7[0].text, "hook");
         assert!(notes_for_row(&notes, Some("KTLX"), "K3", resolve).is_empty());
         assert!(notes_for_row(&notes, Some("KDMX"), "Q7", resolve).is_empty());
+    }
+
+    /// On the map, a live note rides on its storm where the current table has it; a note from a
+    /// case, from another radar or whose storm is gone stays dimmed where it was written, with
+    /// its time; long text is shortened.
+    #[test]
+    fn a_note_on_the_map_sits_on_its_storm_or_where_it_was_written() {
+        let mut n = StormNote::draft("KTLX", &cell("K3", 0), t(1));
+        n.text = "hook".into();
+        let mut historical = n.clone();
+        historical.historical = true;
+        let mut long = n.clone();
+        long.text = "x".repeat(60);
+        long.cell = "Z9".into();
+        let notes = vec![n, historical, long];
+        let mut moved = cell("Q7", 5);
+        moved.lon = -97.2;
+        moved.lat = 35.6;
+        let resolve = |cell: &str, scan: Option<i64>| {
+            (cell == "K3" && scan == Some(t(0).timestamp())).then(|| "Q7".to_string())
+        };
+        let drawn = map_notes(&notes, Some("KTLX"), std::slice::from_ref(&moved), resolve);
+        assert_eq!(drawn[0].at, [-97.2, 35.6], "on the storm where it is now");
+        assert!(drawn[0].current && drawn[0].text == "hook");
+        assert_eq!(
+            drawn[1].at,
+            [-97.5, 35.3],
+            "a case's note stays where it was written"
+        );
+        assert!(!drawn[1].current && drawn[1].text.ends_with(" hook"));
+        assert!(!drawn[2].current, "its storm is not in the table");
+        assert!(drawn[2].text.chars().count() <= 47 && drawn[2].text.ends_with('\u{2026}'));
+        // Another radar's table: nothing attaches.
+        let other = map_notes(&notes, Some("KINX"), std::slice::from_ref(&moved), resolve);
+        assert!(other.iter().all(|m| !m.current));
     }
 }

@@ -320,6 +320,14 @@ impl StormIdentity {
             .collect()
     }
 
+    /// The ID that storm has in the current table, when it is still there ([`Self::resolve`]).
+    pub(crate) fn current_id(&self, cell_id: &str, time: Option<i64>) -> Option<String> {
+        match self.resolve(cell_id, time) {
+            Resolved::Current(now) => Some(now),
+            _ => None,
+        }
+    }
+
     /// Where a storm picked from an earlier table (by its SCIT ID then, at that table's time) is
     /// now. SCIT recycles IDs and changes them, so the ID alone cannot say: the history can.
     pub(crate) fn resolve(&self, cell_id: &str, time: Option<i64>) -> Resolved {

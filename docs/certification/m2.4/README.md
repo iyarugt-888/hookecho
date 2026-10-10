@@ -42,3 +42,26 @@ not duplicate notes (merged by radar, cell, table time and text).
 - Notes are not drawn on the map.
 - The five-second creation acceptance.
 - Touch and pen editing and the cancellation paths on a physical Android device.
+
+## Notes on the map (1008.md B3, 2026-10-10)
+
+Storm notes are drawn on every pane's map, not only in the storm table (`paint_storm_notes`,
+`map_notes`, `paint_map_note`):
+
+- **A live note** whose storm is in the active radar's current table sits on that storm where
+  it is now, following it through SCIT renumbering (`StormIdentity::current_id`). It is drawn
+  in amber.
+- **Every other note** sits dimmed where it was written, prefixed with its table time. That
+  covers a note reopened from a case, a note on another radar, and a note whose storm has left
+  the table. It never lands on an unrelated storm.
+- Text over 40 characters is shortened; the full text is in the table.
+
+Capture, from the painter the app uses:
+[map-notes.png](map-notes.png) (SHA-256 `84e855a14a7563eb04948656a78e6cf6c23e05c95d1ced6b085f6c3ca7324c7b`).
+
+Test: `a_note_on_the_map_sits_on_its_storm_or_where_it_was_written`. It covers placement on the
+renumbered storm, a case's note staying put with its time, a storm that has left, another
+radar's table, and shortening.
+
+**Not established:** no capture of notes in the running app over live storms; no device
+walkthrough.

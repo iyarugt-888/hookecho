@@ -142,6 +142,7 @@ impl HookEchoApp {
             }
 
             self.paint_storm_tracks(ui, &rects);
+            self.paint_storm_notes(ui, &rects);
             self.paint_scale_bar(ui, &rects);
             self.paint_linked_time_badges(ui, &rects, solo);
             self.paint_linked_cursor(ui, &rects, solo);

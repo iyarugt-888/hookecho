@@ -889,6 +889,8 @@ Capture: [`docs/certification/m2.4/storm-note.png`](docs/certification/m2.4/stor
 - The five-second creation acceptance.
 - Physical-Android touch/pen and cancellation walkthroughs.
 
+**Evidence ledger — 2026-10-10, increment 3 (notes on the map; 1008.md B3):** storm notes are drawn on every pane (`paint_storm_notes`). A live note whose storm is in the active radar's table sits on the storm where it is now, through renumbering (`StormIdentity::current_id`), in amber. Notes from a case, from another radar, or whose storm has left sit dimmed where they were written, with their table time, and never attach to another storm. Text is shortened to 40 characters. Test: `a_note_on_the_map_sits_on_its_storm_or_where_it_was_written`. GPU capture of the app's own painter: [`docs/certification/m2.4/map-notes.png`](docs/certification/m2.4/README.md) (`84e855a1…`). Checks: clippy, wasm, workspace tests (2,590 passed, 0 failed, 204 ignored) in `target/parity-review/m2.4/b3m-*.log`. Open: notes over live storms in the running app, the five-second creation acceptance, and Android touch/pen.
+
 ### M3 — Radar-analysis depth
 
 #### M3.1 — Expose authoritative gate metadata

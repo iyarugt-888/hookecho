@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: storm notes on the map
+
+Notes written on storms now show on the map. A note sits on its storm and follows it as the
+storm moves and is renumbered. A note reopened from a case, or whose storm is gone, stays
+greyed where it was written, with its time.
+
 ### Added: draw the 3D region on the map
 
 Draw a box with Region statistics, then press "Use as 3D region". The 3D volume is then built
