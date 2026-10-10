@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T17:14:52+00:00",
-  "generated_from_commit": "e3578ec1572518af3a657fba9f596fc3840daa8f",
+  "generated_utc": "2026-10-10T17:28:44+00:00",
+  "generated_from_commit": "ab89717d97ec4eef1de36c93bfb251ecb42e6c38",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -225,8 +225,8 @@
     {
       "card": "M6.2",
       "title": "Persist complete, validated scenes",
-      "ledger_entries": 4,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 5,
+      "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (versioned product and time policy, increment 1); verification: partial (unit; no capture walkthrough).",
       "evidence_dir": "docs/certification/m6.2"
     },
@@ -1218,14 +1218,24 @@
       "bytes": 12868
     },
     {
+      "path": "docs/certification/m6.2/offscreen-legend-left.png",
+      "sha256": "7770034c28d2e91bb8e39117a54c3fc2e293fb96d0467367350e01d128ff610a",
+      "bytes": 617226
+    },
+    {
+      "path": "docs/certification/m6.2/offscreen-legend-right.png",
+      "sha256": "14b3a69f6d90b2754dda956ccfe782065823fade5f4e0264643ef414edcd9060",
+      "bytes": 614038
+    },
+    {
       "path": "docs/certification/m6.2/output-legend-left.png",
       "sha256": "adddb56bbf0766251661c919ed00ae79d375314d384aa6c62ec3411da161b8da",
       "bytes": 184056
     },
     {
       "path": "docs/certification/m6.2/README.md",
-      "sha256": "03f8e779f319f7a12dca39cf34321af28ff817b250f51b1f33a0c5343222d1b9",
-      "bytes": 3048
+      "sha256": "155ac19e7f7d0e54c8b6f0fddde714faadc399c0da0aadfceaa8e3b5c0313357",
+      "bytes": 4367
     },
     {
       "path": "docs/certification/m6.3/moore-a.gif",
