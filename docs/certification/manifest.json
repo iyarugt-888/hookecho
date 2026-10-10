@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T19:38:34+00:00",
-  "generated_from_commit": "c9c6282a5080d12f5b5cf97419bd956ee4f4519f",
+  "generated_utc": "2026-10-10T19:51:20+00:00",
+  "generated_from_commit": "e7f577bef1eb447ecc3a7547ec11254ec0658f05",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -97,8 +97,8 @@
     {
       "card": "M2.4",
       "title": "Certify editing and preserve historical manual work",
-      "ledger_entries": 2,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 3,
+      "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m2.4"
     },
@@ -913,9 +913,14 @@
       "bytes": 894
     },
     {
+      "path": "docs/certification/m2.4/map-notes.png",
+      "sha256": "84e855a14a7563eb04948656a78e6cf6c23e05c95d1ced6b085f6c3ca7324c7b",
+      "bytes": 12561
+    },
+    {
       "path": "docs/certification/m2.4/README.md",
-      "sha256": "368f86b7cc03d760ed1363c86618fd73d92a75f965c6ec84cbf180fdfc03c0ed",
-      "bytes": 2127
+      "sha256": "8441da8c742dd85fb95670e1d8eaa3b139d3a7d9836965fb7b0b10f8c9e3463f",
+      "bytes": 3279
     },
     {
       "path": "docs/certification/m2.4/storm-note.png",
