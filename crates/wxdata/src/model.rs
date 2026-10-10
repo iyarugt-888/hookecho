@@ -246,6 +246,24 @@ static DEFS: &[Entry] = &[
             ensemble: Ensemble::Deterministic,
         },
     },
+    // HREF's ensemble products post about three hours after the cycle, all leads within twenty
+    // minutes (NOMADS listing, 2026-10-10 12Z: f01 at 14:59, f48 at 15:16). No f00.
+    Entry {
+        model: Model::HrefPmm,
+        def: ModelDef {
+            id: "href-pmm",
+            label: "HREF PMM 5 km",
+            cycle_hours: 6,
+            max_lead_h: 48,
+            extended_lead_h: 48,
+            extended_cycles: &[],
+            // NCEP grid 227, read off the GRIB grid definition (template 3.30, 5.079 km).
+            grid_km: 5.079,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 180,
+            ensemble: Ensemble::PostProcessed,
+        },
+    },
 ];
 
 /// A field by meaning, independent of how any one model spells it in GRIB.
@@ -333,7 +351,10 @@ impl ModelField {
         match (self, model) {
             // "entire atmosphere" vs "entire atmosphere (considered as a single layer)" — same
             // field, two spellings, and the NAM family uses the long one.
-            (Self::CompositeReflectivity, NamNest | Nam | HireswArw | HireswFv3 | Rrfs) => key(
+            (
+                Self::CompositeReflectivity,
+                NamNest | Nam | HireswArw | HireswFv3 | Rrfs | HrefPmm,
+            ) => key(
                 "REFC",
                 "entire atmosphere (considered as a single layer)",
                 -30.0,
@@ -347,23 +368,26 @@ impl ModelField {
             // parcel calculation — genuinely published, so it is in the table, but `Ensemble::
             // PostProcessed` on its definition is what tells a caller not to difference it
             // against a raw run as though the two were the same kind of number.
+            // The HREF PMM file is reflectivity and updraft helicity only; its CAPE and
+            // helicity are in the separate ensemble-mean file, a different statistic.
+            (Self::SurfaceCape, HrefPmm) => None,
             (Self::SurfaceCape, _) => key("CAPE", "surface", 0.0),
 
-            (Self::MixedLayerCape, Nbm) => None,
+            (Self::MixedLayerCape, Nbm | HrefPmm) => None,
             (Self::MixedLayerCape, _) => key("CAPE", "90-0 mb above ground", 0.0),
 
             // Helicity is signed: a negative value is anticyclonic rotation, not missing data.
-            (Self::Srh1km, Nbm) => None,
+            (Self::Srh1km, Nbm | HrefPmm) => None,
             (Self::Srh1km, _) => key("HLCY", "1000-0 m above ground", f64::NEG_INFINITY),
             // HiresW carries 0-1 km helicity but not 0-3 km.
-            (Self::Srh3km, Nbm | HireswArw | HireswFv3) => None,
+            (Self::Srh3km, Nbm | HireswArw | HireswFv3 | HrefPmm) => None,
             (Self::Srh3km, _) => key("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
 
             // Hourly-max UH exists only in the convection-allowing runs. The NAM's own 12 km
             // parent grid does not carry it even though its 3 km nest does.
             (
                 Self::UpdraftHelicity,
-                Hrrr | HrrrPressure | NamNest | HireswArw | HireswFv3 | Rrfs,
+                Hrrr | HrrrPressure | NamNest | HireswArw | HireswFv3 | Rrfs | HrefPmm,
             ) => key("MXUPHL", "5000-2000 m above ground", 0.0),
             (Self::UpdraftHelicity, _) => None,
 
@@ -397,12 +421,12 @@ impl ModelField {
             (Self::MeanSeaLevelPressure, NamNest | Nam | HireswArw | HireswFv3 | Rrfs) => {
                 key("MSLET", "mean sea level", 0.0)
             }
-            (Self::MeanSeaLevelPressure, Nbm) => None,
+            (Self::MeanSeaLevelPressure, Nbm | HrefPmm) => None,
 
             // HiresW carries its 2 m fields only every third hour (f00, f03, f06...; read off
             // the f00-f07, f13, f25, f47 and f48 `.idx` of both windows, 2026-10-08 12Z), and a
             // field that is missing two hours in three is not offered as an hourly one.
-            (Self::Temperature2m | Self::Dewpoint2m, HireswArw | HireswFv3) => None,
+            (Self::Temperature2m | Self::Dewpoint2m, HireswArw | HireswFv3 | HrefPmm) => None,
             (Self::Temperature2m, _) => key("TMP", "2 m above ground", f64::NEG_INFINITY),
             (Self::Dewpoint2m, _) => key("DPT", "2 m above ground", f64::NEG_INFINITY),
         }
@@ -429,6 +453,7 @@ pub const ALL_MODELS: &[Model] = &[
     Model::HireswArw,
     Model::HireswFv3,
     Model::Rrfs,
+    Model::HrefPmm,
 ];
 
 /// Every field in the catalogue, in declaration order.
@@ -818,6 +843,7 @@ mod tests {
             (Model::HireswArw, 6),
             (Model::HireswFv3, 6),
             (Model::Rrfs, 6),
+            (Model::HrefPmm, 6),
         ] {
             let key = ModelField::CompositeReflectivity
                 .grib(model)

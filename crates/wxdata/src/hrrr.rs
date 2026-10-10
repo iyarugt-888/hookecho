@@ -23,6 +23,8 @@ const NOMADS_HIRESW: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hire
 /// RRFS v1.0 on NOMADS. Its AWS bucket (`noaa-rrfs-pds`) holds only retrospective and prototype
 /// output (checked 2026-10-09), and NOMADS keeps two days, so like HiresW it has no archive.
 const NOMADS_RRFS: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0";
+/// HREF's ensemble products on NOMADS (not on AWS: `noaa-href-pds` does not exist), two days.
+const NOMADS_HREF: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod";
 
 /// Which model to pull a field from.
 ///
@@ -60,6 +62,11 @@ pub enum Model {
     /// and NAM nest. Its 00/06/12/18Z cycles write hourly files to 84 h; the cycles between
     /// write only sub-hourly files to 18 h, so only the four long cycles are used here.
     Rrfs,
+    /// HREF's probability-matched mean, CONUS (1008.md E3): the High-Resolution Ensemble
+    /// Forecast's members combined so the mean keeps the members' own amplitudes instead of
+    /// smearing them flat. Ensemble guidance, not a run: reflectivity and updraft helicity only.
+    /// The products are on NCEP grid 227 (Lambert, 1473x1025 at 5.079 km), not the members' 3 km.
+    HrefPmm,
 }
 
 impl Model {
@@ -99,6 +106,9 @@ impl Model {
             Model::Rrfs => format!(
                 "{NOMADS_RRFS}/rrfs.{date}/{cycle_hour:02}/rrfs.t{cycle_hour:02}z.2dfld.3km.f{fh:03}.conus.grib2"
             ),
+            Model::HrefPmm => format!(
+                "{NOMADS_HREF}/href.{date}/ensprod/href.t{cycle_hour:02}z.conus.pmmn.f{fh:02}.grib2"
+            ),
         }
     }
 
@@ -106,7 +116,7 @@ impl Model {
     /// ever finds 404s.
     fn cycle_hours(self) -> u32 {
         match self {
-            Model::NamNest | Model::Nam | Model::Rrfs => 6,
+            Model::NamNest | Model::Nam | Model::Rrfs | Model::HrefPmm => 6,
             Model::HireswArw | Model::HireswFv3 => 12,
             _ => 1,
         }
@@ -128,6 +138,8 @@ impl Model {
             Model::HireswArw | Model::HireswFv3 => 0.035,
             // 3 km, like the HRRR and the nest.
             Model::Rrfs => 0.04,
+            // Grid 227 is 5.079 km: a 0.04 degree target left a grid of holes between its cells.
+            Model::HrefPmm => 0.06,
         }
     }
 
@@ -142,6 +154,7 @@ impl Model {
             Model::HireswArw => "HiresW ARW 2.5 km",
             Model::HireswFv3 => "HiresW FV3 2.5 km",
             Model::Rrfs => "RRFS 3 km",
+            Model::HrefPmm => "HREF PMM 5 km",
         }
     }
 }
@@ -1811,7 +1824,27 @@ mod tests {
         let runs = recent_cycles(Model::Rrfs, at("2026-10-10T16:10:00Z"));
         assert_eq!(runs[0].hour(), 12);
         assert!(runs.iter().all(|c| c.hour() % 6 == 0));
-        assert_eq!(recent_cycles(Model::Rrfs, at("2026-10-10T13:30:00Z"))[0].hour(), 6);
+        assert_eq!(
+            recent_cycles(Model::Rrfs, at("2026-10-10T13:30:00Z"))[0].hour(),
+            6
+        );
+    }
+
+    #[test]
+    fn href_pmm_points_at_nomads_ensemble_products() {
+        assert_eq!(
+            Model::HrefPmm.url("20261010", 12, 6),
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.20261010/ensprod/\
+             href.t12z.conus.pmmn.f06.grib2"
+        );
+        // Posted about three hours after the cycle: at 15:30 the 12z products are first.
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let runs = recent_cycles(Model::HrefPmm, at("2026-10-10T15:30:00Z"));
+        assert_eq!(runs[0].hour(), 12);
+        assert_eq!(
+            recent_cycles(Model::HrefPmm, at("2026-10-10T14:30:00Z"))[0].hour(),
+            6
+        );
     }
 
     #[test]

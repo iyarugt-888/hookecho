@@ -73,4 +73,29 @@ The log is `target/parity-review/m5.3/rrfs-live.log`.
 
 - RRFS in the Model fields browser. HiresW is not there either.
 - The browser build: NOMADS is not proxied (see [web-walk](../web-walk/README.md)).
-- HREF ensemble products.
+- HREF's other ensemble products: mean, spread, probabilities and the rest; the PMM is below.
+
+## HREF probability-matched mean (1008.md E3, added 2026-10-10)
+
+The HREF's probability-matched mean is a model in the catalogue (`wxdata::hrrr::Model::HrefPmm`,
+`Ensemble::PostProcessed`, like the NBM) and in the model browser (reflectivity, updraft
+helicity). It is read from NOMADS (`href/prod/href.YYYYMMDD/ensprod/href.tHHz.conus.pmmn.fNN.grib2`).
+
+- **Cycles:** 00/06/12/18Z, F+01 to F+48. There is no F+00.
+- **Posting:** about three hours after the cycle. The 2026-10-10 12Z products posted F+01 at
+  14:59 UTC and F+48 at 15:16.
+- **Retention:** two days, so 8 runs.
+- **Contents:** the `pmmn` file holds REFD, MAXREF, REFC, RETOP, MXUPHL, surface height and precipitation. The
+  HREF's CAPE and helicity are in the separate ensemble-mean file, a different statistic, so they
+  are not mapped to this model.
+- **Grid:** the products are on NCEP grid 227 (Lambert, 1473×1025, 5.079 km), read off the GRIB
+  grid definition, not on the members' 3 km. The first render at the 3 km regrid spacing showed
+  a hatch of empty cells, so the model regrids at 0.06° and is labelled 5 km.
+
+**Live checks, 2026-10-10:** the contract test agreed for all ten models. HREF PMM F+6
+reflectivity regridded to 1725×819, with 481,816 cells filled; the grid extends well past CONUS
+and is empty there. The log is `target/parity-review/m5.3/href-live.log`.
+
+**Render:** `hookecho --headless-hrrr refc 6 <out.png> href-pmm`, 12Z valid 18Z, peaking at
+56.6 dBZ. It shows the same systems as the RRFS render, smoother as a mean should be:
+[href-pmm-f06.png](href-pmm-f06.png) (SHA-256 `d35f0f55ca9d0d587c299991634fddce9b57168db616d5cb421b53c3b0d598ee`).

@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: HREF ensemble guidance
+
+The model browser adds the HREF probability-matched mean: the High-Resolution Ensemble
+Forecast's reflectivity and updraft helicity, combined so storms keep their strength instead of
+being averaged flat. It runs at 00, 06, 12 and 18Z, from 1 to 48 hours, at 5 km, and covers the
+last two days, from NOMADS.
+
 ### Added: RRFS forecasts
 
 The model browser adds the RRFS, NCEP's new 3 km rapid-refresh model: reflectivity, CAPE,
