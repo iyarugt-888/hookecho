@@ -142,3 +142,46 @@ and the nearest scan is used instead, as before.
 - No interactive run with satellite blending on.
 - Observations are not blended.
 - No GPU crossfade during playback.
+
+# Crossfade between field frames (1008.md E2, increment 3)
+
+A new setting, **Crossfade MRMS and model layers between frames** (off by default), fades a
+continuous layer's new frame in over the old one for 250 ms instead of switching at once
+(`crate::field_fade`).
+
+- **Visual only:** probes, exports and the stamp read the new frame from its first draw.
+- **Eligibility** comes from the layer's `ValueKind`: scalar or probability. Categories (such as
+  precipitation type), masks, accumulations, vectors and browsed fields of unknown kind always
+  switch at once.
+- **How it draws:** the previous texture stays in the MRMS or model cache. The renderer draws it
+  under the layer at the layer's opacity, then draws the new frame over it at that opacity times
+  its share. A previous texture that has been evicted is skipped, and the new frame draws in full.
+- **When it ends:** a fade stops when the layer stops drawing or the setting is turned off.
+
+## GPU control
+
+`headless::field_fade_gpu::gpu_a_new_field_frame_fades_in_over_the_old_one` was run explicitly
+(`--include-ignored`) on the NVIDIA GeForce RTX 2060 through the production `prepare_pane`/`draw_pane`
+path. Each capture is 160×160; the value is the centre pixel.
+
+| Capture | Centre RGBA | SHA-256 |
+| --- | --- | --- |
+| [old-frame](old-frame.png) | (255, 0, 0, 255) | `c5746ed6429e01547950d6ba70344eb39dccc160939a49c6c16781d7b39f6fef` |
+| [fade-000](fade-000.png) | (255, 0, 0, 255) | `c5746ed6429e01547950d6ba70344eb39dccc160939a49c6c16781d7b39f6fef` |
+| [fade-025](fade-025.png) | (224, 0, 137, 255) | `9eab6e851e8f878f775f587ed7756839b5e499706f6337906aa00743190386cc` |
+| [fade-050](fade-050.png) | (188, 0, 187, 255) | `7f46d0a09b635461791ce4df245e354e50e83db21a9e8089948af64f9511fd62` |
+| [fade-075](fade-075.png) | (137, 0, 224, 255) | `05cdecd0e7b915181f4d8e89822b0fe72cd5776b9acb5b5cf9d25f9fa752ab0f` |
+| [new-frame](new-frame.png) | (0, 0, 255, 255) | `ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0` |
+| [previous-evicted](previous-evicted.png) | (0, 0, 255, 255) | `ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0` |
+| [fade-back-050](fade-back-050.png) | (187, 0, 188, 255) | `c90ef3c0c559209ce239e221c270e4995d7f472036d4af5942ad3e7bafb772d7` |
+
+[evidence.json](evidence.json) SHA-256 `89c29ddb7cf3630e4d254d40770776c93c1b18f5e84cc8c01874fc6883deb182`.
+
+Red fades to blue in linear light, so the halfway mix is 188/187 in sRGB, not 128. Alpha stays
+255 throughout, so the map never shows through mid-fade.
+
+## Not established
+
+- No interactive session with the setting on, and no capture of a real MRMS or model sequence.
+- No GPU cost measurement: a fading layer is drawn twice for 250 ms.
+- Satellite (GOES) layers are drawn by another path and do not fade. Observations do not fade.

@@ -36,6 +36,7 @@ fn callback(pane: u32, key: ModelTextureKey, opacity: f32) -> MapCallback {
         drop_mrms_fields: Vec::new(),
         field_draws: vec![(FieldLayer::GlobalTemp2m, opacity)],
         field_swipe: None,
+        field_fades: Vec::new(),
         clear_tiles: false,
         drop_tiles: Vec::new(),
         drop_fields: Vec::new(),

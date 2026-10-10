@@ -1,0 +1,86 @@
+{
+  "adapter": "NVIDIA GeForce RTX 2060",
+  "captures": [
+    {
+      "center_rgba": [
+        255,
+        0,
+        0,
+        255
+      ],
+      "name": "old-frame",
+      "sha256": "9ef3ceeff067e7f472009e89beacda467106289b96c5217dc24ccb493b759f2c"
+    },
+    {
+      "center_rgba": [
+        255,
+        0,
+        0,
+        255
+      ],
+      "name": "fade-000",
+      "sha256": "9ef3ceeff067e7f472009e89beacda467106289b96c5217dc24ccb493b759f2c"
+    },
+    {
+      "center_rgba": [
+        224,
+        0,
+        137,
+        255
+      ],
+      "name": "fade-025",
+      "sha256": "28d6a96efda77a6233d1d23e763182536e0d82beb379678e085b1efb266e2de9"
+    },
+    {
+      "center_rgba": [
+        188,
+        0,
+        187,
+        255
+      ],
+      "name": "fade-050",
+      "sha256": "f4ac32184d90bcf7629207d286ba14c79244434547ad6db4157e193634ae806c"
+    },
+    {
+      "center_rgba": [
+        137,
+        0,
+        224,
+        255
+      ],
+      "name": "fade-075",
+      "sha256": "d83abd5aec575046b8127fb337159b6bee62bf2d70602714641a3606c2f31cea"
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "new-frame",
+      "sha256": "2e330971d580960b922431c46d1f8d835c5183bcaf615d6ea1ceedc0bc9cd4b2"
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "previous-evicted",
+      "sha256": "2e330971d580960b922431c46d1f8d835c5183bcaf615d6ea1ceedc0bc9cd4b2"
+    },
+    {
+      "center_rgba": [
+        187,
+        0,
+        188,
+        255
+      ],
+      "name": "fade-back-050",
+      "sha256": "d6f5f97bf837b213cffb036e3560af4d47f29fc41a887859d1a2fd8fbd980d3e"
+    }
+  ],
+  "size": 160
+}

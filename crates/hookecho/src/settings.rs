@@ -1048,6 +1048,11 @@ pub struct Settings {
     /// Never for categories or accumulations; probes and exports say a frame is interpolated.
     #[serde(default)]
     pub blend_frames: bool,
+    /// Fade a continuous field layer's new frame in over the old one for a quarter second
+    /// (`crate::field_fade`), instead of switching at once. Visual only: probes and exports read
+    /// the new frame. Categories never fade. Off by default.
+    #[serde(default)]
+    pub field_crossfade: bool,
     /// Percent of the wind particles drawn, set by the quality profile (`crate::quality`).
     #[serde(default = "default_particle_pct")]
     pub wind_particle_pct: u32,
@@ -2067,6 +2072,7 @@ impl Default for Settings {
             loop_mp4_fps: default_mp4_fps(),
             wind_particle_pct: default_particle_pct(),
             blend_frames: false,
+            field_crossfade: false,
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),
@@ -3511,6 +3517,7 @@ mod tests {
             loop_mp4_fps: default_mp4_fps(),
             wind_particle_pct: default_particle_pct(),
             blend_frames: false,
+            field_crossfade: false,
             output_window: OutputPrefs::default(),
             broadcast: Default::default(),
             scenes: Vec::new(),

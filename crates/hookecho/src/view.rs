@@ -973,6 +973,8 @@ pub struct MapView {
     /// Archive/live playback state; `timeline.following` is the live auto-update flag.
     pub timeline: crate::timeline::Timeline,
     pub(crate) model_playback: crate::timeline::ModelPlayback,
+    /// This pane's field crossfades in progress (`crate::field_fade`).
+    pub(crate) field_fade: crate::field_fade::FadeState,
     pub(crate) models: crate::model_pane::ModelControls,
     pub(crate) model_group: Option<u8>,
     /// The analysis-time group (1..=MAX_PANES) whose linked clock this pane follows while time
@@ -1176,6 +1178,7 @@ impl MapView {
             flight: None,
             timeline: crate::timeline::Timeline::default(),
             model_playback: crate::timeline::ModelPlayback::default(),
+            field_fade: Default::default(),
             models: crate::model_pane::ModelControls::default(),
             model_group: Some(1),
             time_group: 1,

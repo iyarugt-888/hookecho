@@ -266,7 +266,8 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
-        let model_fields = self.views[idx]
+        let model_fields: Vec<(crate::render::FieldLayer, crate::render::ModelTextureKey)> = self
+            .views[idx]
             .fields_on
             .iter()
             .filter_map(|layer| {
@@ -317,7 +318,8 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
-        let mrms_fields = self.views[idx]
+        let mrms_fields: Vec<(crate::render::FieldLayer, crate::render::MrmsTextureKey)> = self
+            .views[idx]
             .fields_on
             .iter()
             .filter_map(|layer| {
@@ -352,6 +354,28 @@ impl HookEchoApp {
                 )
             })
             .collect();
+
+        // Fade a continuous layer's new frame in over the one it showed before (M5.4).
+        let textures: Vec<(crate::render::FieldLayer, crate::render::FieldTexture)> = model_fields
+            .iter()
+            .map(|&(layer, key)| (layer, crate::render::FieldTexture::Model(key)))
+            .chain(
+                mrms_fields
+                    .iter()
+                    .map(|&(layer, key)| (layer, crate::render::FieldTexture::Mrms(key))),
+            )
+            .filter(|(layer, _)| field_draws.iter().any(|(drawn, _)| drawn == layer))
+            .collect();
+        let field_fades = crate::field_fade::advance(
+            &mut self.views[idx].field_fade,
+            &textures,
+            crate::field_fade::eligible,
+            self.settings.field_crossfade,
+            wxdata::clock::Instant::now(),
+        );
+        if self.views[idx].field_fade.active() {
+            ctx.request_repaint();
+        }
 
         let cam = self.views[idx].camera;
         // The pitched-map "Smooth" 3D volume takes over the pane entirely when it has something
@@ -401,6 +425,7 @@ impl HookEchoApp {
             mrms_fields,
             drop_mrms_fields,
             field_draws,
+            field_fades,
             field_swipe: self.views[idx]
                 .swipe_compare
                 .then_some(crate::render::FieldSwipe {

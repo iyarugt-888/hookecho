@@ -51,6 +51,8 @@ pub mod events;
 /// everywhere, wasm32 included.
 pub mod failover_arbiter;
 pub mod fielddiff;
+/// A short visual crossfade when a field layer's frame changes (M5.4, 1008.md E2).
+pub mod field_fade;
 pub mod fonts;
 pub mod fronts_draw;
 pub mod geo;

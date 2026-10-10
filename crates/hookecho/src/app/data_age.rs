@@ -53,6 +53,16 @@ impl HookEchoApp {
              is interpolated. Categories, accumulations, RGB composites and moving mesoscale \
              boxes are never blended.",
         );
+        ui.checkbox(
+            &mut self.settings.field_crossfade,
+            "Crossfade MRMS and model layers between frames",
+        )
+        .on_hover_text(
+            "When a continuous layer moves to its next frame, fade the new picture in over the \
+             old one for a quarter second instead of switching at once. Only the picture fades: \
+             probes and exports read the new frame. Categories such as precipitation type always \
+             switch at once.",
+        );
     }
 }
 

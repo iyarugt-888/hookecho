@@ -932,6 +932,14 @@ pub struct ModelTextureKey(pub(crate) u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MrmsTextureKey(pub(crate) u64);
 
+/// A resident field texture in either keyed cache: what a crossfade draws under a layer's new
+/// frame (`crate::field_fade`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldTexture {
+    Model(ModelTextureKey),
+    Mrms(MrmsTextureKey),
+}
+
 /// Per-frame draw instructions handed to the render callback.
 pub struct MapCallback {
     /// Which pane this callback draws (indexes into `RenderResources.panes`).
@@ -978,6 +986,11 @@ pub struct MapCallback {
     pub field_draws: Vec<(FieldLayer, f32)>,
     /// Optional left/right split for two of `field_draws`.
     pub field_swipe: Option<FieldSwipe>,
+    /// Layers fading in from the texture they showed before: `(layer, previous texture, the new
+    /// frame's share 0..1)`. The previous texture is drawn under the layer at its opacity, and
+    /// the layer over it at its opacity times the share. A previous texture no longer resident
+    /// is skipped and the layer draws as usual.
+    pub field_fades: Vec<(FieldLayer, FieldTexture, f32)>,
     /// Field layers the app has stopped drawing for long enough to free; same contract as
     /// `drop_tiles` — the app decides, we free, and it re-uploads on the next enable.
     pub drop_fields: Vec<FieldLayer>,
@@ -1206,6 +1219,50 @@ struct MrmsGpu {
     vbuf: wgpu::Buffer,
 }
 
+/// Write `f`'s opacity and smoothing for `pane`, creating the pane's uniform and bind group the
+/// first time. Per pane, not shared: all prepares run before any paint, so one shared field
+/// uniform would let the last prepared pane set every pane's opacity.
+fn write_pane_field(
+    f: &mut MrmsGpu,
+    pane: u32,
+    layer: FieldLayer,
+    opacity: f32,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    mrms_bgl: &wgpu::BindGroupLayout,
+) {
+    let mut uniform = f.uniform;
+    uniform[6] = opacity;
+    uniform[7] = if smooth_field(layer) { 1.0 } else { 0.0 };
+    let draw = f.pane_draws.entry(pane).or_insert_with(|| {
+        let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mrms_pane_uniform"),
+            contents: bytemuck::cast_slice(&uniform),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mrms_pane_bg"),
+            layout: mrms_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uni.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&f.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&f.lut_view),
+                },
+            ],
+        });
+        MrmsPaneGpu { uni, bind_group }
+    });
+    queue.write_buffer(&draw.uni, 24, bytemuck::cast_slice(&uniform[6..8]));
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct TileQuadsKey {
     generation: u64,
@@ -1244,6 +1301,8 @@ struct PaneGpu {
     field_draws: Vec<FieldLayer>,
     model_fields: HashMap<FieldLayer, ModelTextureKey>,
     mrms_fields: HashMap<FieldLayer, MrmsTextureKey>,
+    /// The previous texture drawn under each fading layer this frame.
+    field_fades: HashMap<FieldLayer, FieldTexture>,
     field_swipe: Option<FieldSwipe>,
 }
 
@@ -1737,6 +1796,7 @@ impl RenderResources {
                 field_draws: Vec::new(),
                 model_fields: HashMap::new(),
                 mrms_fields: HashMap::new(),
+                field_fades: HashMap::new(),
                 field_swipe: None,
             }
         })
@@ -2390,8 +2450,23 @@ impl RenderResources {
         // a field-per-pane uniform: all prepares run before any paint, so one shared field uniform
         // would let the last prepared pane silently set every pane's opacity.
         let mut field_draws = Vec::new();
+        let mut field_fades = HashMap::new();
         let mrms_bgl = &self.mrms_bgl;
         for (layer, opacity) in &cb.field_draws {
+            // A fading layer: its previous texture, if still resident, goes under it at the
+            // layer's opacity, and the new frame over it at its share of that opacity.
+            let fade = cb
+                .field_fades
+                .iter()
+                .find(|(field, ..)| field == layer)
+                .and_then(|&(_, from, share)| {
+                    let previous = match from {
+                        FieldTexture::Model(key) => self.model_fields.get_mut(&key),
+                        FieldTexture::Mrms(key) => self.mrms_fields.get_mut(&key),
+                    }?;
+                    write_pane_field(previous, cb.pane, *layer, *opacity, device, queue, mrms_bgl);
+                    Some((from, share.clamp(0.0, 1.0)))
+                });
             if let Some(f) = match cb.model_fields.iter().find(|(field, _)| field == layer) {
                 Some((_, key)) => self.model_fields.get_mut(key),
                 None => match cb.mrms_fields.iter().find(|(field, _)| field == layer) {
@@ -2399,37 +2474,12 @@ impl RenderResources {
                     None => self.fields.get_mut(layer),
                 },
             } {
-                let mut uniform = f.uniform;
-                uniform[6] = *opacity;
-                uniform[7] = if smooth_field(*layer) { 1.0 } else { 0.0 };
-                let draw = f.pane_draws.entry(cb.pane).or_insert_with(|| {
-                    let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("mrms_pane_uniform"),
-                        contents: bytemuck::cast_slice(&uniform),
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    });
-                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("mrms_pane_bg"),
-                        layout: mrms_bgl,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: uni.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&f.view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::TextureView(&f.lut_view),
-                            },
-                        ],
-                    });
-                    MrmsPaneGpu { uni, bind_group }
-                });
-                queue.write_buffer(&draw.uni, 24, bytemuck::cast_slice(&uniform[6..8]));
+                let opacity = fade.map_or(*opacity, |(_, share)| opacity * share);
+                write_pane_field(f, cb.pane, *layer, opacity, device, queue, mrms_bgl);
                 field_draws.push(*layer);
+                if let Some((from, _)) = fade {
+                    field_fades.insert(*layer, from);
+                }
             }
         }
 
@@ -2519,6 +2569,7 @@ impl RenderResources {
         pane.field_draws = field_draws;
         pane.model_fields = cb.model_fields.iter().copied().collect();
         pane.mrms_fields = cb.mrms_fields.iter().copied().collect();
+        pane.field_fades = field_fades;
         pane.field_swipe = cb.field_swipe;
     }
 
@@ -2664,13 +2715,7 @@ impl RenderResources {
         layer: FieldLayer,
     ) {
         let cam = &pane.camera_bg;
-        if let Some(f) = match pane.model_fields.get(&layer) {
-            Some(key) => self.model_fields.get(key),
-            None => match pane.mrms_fields.get(&layer) {
-                Some(key) => self.mrms_fields.get(key),
-                None => self.fields.get(&layer),
-            },
-        } {
+        let paint = |f: &MrmsGpu, pass: &mut wgpu::RenderPass<'_>| {
             let Some(draw) = f.pane_draws.get(&id) else {
                 return;
             };
@@ -2679,6 +2724,21 @@ impl RenderResources {
             pass.set_bind_group(1, &draw.bind_group, &[]);
             pass.set_vertex_buffer(0, f.vbuf.slice(..));
             pass.draw(0..(4 * QUAD_GRID * QUAD_GRID * 6) as u32, 0..1);
+        };
+        if let Some(previous) = pane.field_fades.get(&layer).and_then(|from| match from {
+            FieldTexture::Model(key) => self.model_fields.get(key),
+            FieldTexture::Mrms(key) => self.mrms_fields.get(key),
+        }) {
+            paint(previous, pass);
+        }
+        if let Some(f) = match pane.model_fields.get(&layer) {
+            Some(key) => self.model_fields.get(key),
+            None => match pane.mrms_fields.get(&layer) {
+                Some(key) => self.mrms_fields.get(key),
+                None => self.fields.get(&layer),
+            },
+        } {
+            paint(f, pass);
         }
     }
 

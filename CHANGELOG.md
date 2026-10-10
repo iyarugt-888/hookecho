@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: crossfade between MRMS and model frames
+
+A new setting, "Crossfade MRMS and model layers between frames", fades a continuous layer's
+next frame in over the last one for a quarter second instead of switching at once. Only the
+picture fades: probes and exports read the new frame. Categories such as precipitation type
+always switch at once.
+
 ### Fixed: ECMWF forecasts to day 15, without repeated frames
 
 The ECMWF's 00Z and 12Z runs can now be scrubbed to F+360; before, the browser stopped at

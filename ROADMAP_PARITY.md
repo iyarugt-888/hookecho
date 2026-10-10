@@ -1722,6 +1722,19 @@ Found on the way: a scan's decoded valid time follows its file-name start time b
 - A GPU crossfade during playback.
 - An interactive run.
 
+**Evidence ledger — 2026-10-10, increment 4 (a crossfade between field frames; 1008.md E2):** with **Crossfade MRMS and model layers between frames** on (`Settings::field_crossfade`, off by default), a continuous layer's new frame fades in over the old one for 250 ms. `crate::field_fade::advance` tracks, per pane, the texture each layer last drew. When it changes, the fade goes on `MapCallback::field_fades` as `(layer, previous texture, share)`. The renderer (`write_pane_field`, `draw_field`) draws the previous cached texture under the layer at its opacity, then the new frame at that opacity times the share. Rules:
+
+- Eligibility comes from `ValueKind`: scalar or probability. Categories, masks, accumulations, vectors and browsed fields of unknown kind switch at once.
+- An evicted previous texture is skipped.
+- A fade ends when the layer stops drawing or the setting is cleared.
+- Probes and exports read the new frame.
+
+Tests: `field_fade` (3). **GPU** (`gpu_a_new_field_frame_fades_in_over_the_old_one`, run explicitly on the NVIDIA GeForce RTX 2060, production prepare/paint): red→blue centre pixels at shares 0/0.25/0.5/0.75 are [255, 0, 0], [224, 0, 137], [188, 0, 187], [137, 0, 224], alpha 255 throughout. An evicted previous texture gives the new frame in full. Captures and hashes: [`docs/certification/m5.4/crossfade/`](docs/certification/m5.4/README.md). Checks: clippy, wasm, workspace tests (2,584 passed, 0 failed, 202 ignored) in `target/parity-review/m5.4/e2x-*.log`. Open:
+
+- An interactive session.
+- The GPU cost of the double draw.
+- GOES layers and observations.
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output
