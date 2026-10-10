@@ -3190,9 +3190,12 @@ pub fn run_env(slug: &str, out_path: &str, model_id: &str) -> anyhow::Result<()>
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+    // The earliest lead the model publishes: the NBM and the HREF products have no f00.
+    use wxdata::hrrr::Model as M;
+    let fh = u8::from(matches!(model, M::Nbm | M::HrefPmm | M::HrefMean));
     let fc = rt.block_on(async {
         let client = reqwest::Client::new();
-        wxdata::hrrr::fetch_field(&client, model, var, level, 0, min_valid).await
+        wxdata::hrrr::fetch_field(&client, model, var, level, fh, min_valid).await
     })?;
     let f = &fc.field;
     let filled = f.values.iter().filter(|v| !v.is_nan()).count();

@@ -73,7 +73,7 @@ The log is `target/parity-review/m5.3/rrfs-live.log`.
 
 - RRFS in the Model fields browser. HiresW is not there either.
 - The browser build: NOMADS is not proxied (see [web-walk](../web-walk/README.md)).
-- HREF's other ensemble products: mean, spread, probabilities and the rest; the PMM is below.
+- HREF's spread, neighbourhood probabilities and other products (the PMM and the mean are below).
 
 ## HREF probability-matched mean (1008.md E3, added 2026-10-10)
 
@@ -99,3 +99,20 @@ and is empty there. The log is `target/parity-review/m5.3/href-live.log`.
 **Render:** `hookecho --headless-hrrr refc 6 <out.png> href-pmm`, 12Z valid 18Z, peaking at
 56.6 dBZ. It shows the same systems as the RRFS render, smoother as a mean should be:
 [href-pmm-f06.png](href-pmm-f06.png) (SHA-256 `d35f0f55ca9d0d587c299991634fddce9b57168db616d5cb421b53c3b0d598ee`).
+
+## HREF ensemble mean (added 2026-10-10)
+
+The HREF's ensemble mean (`Model::HrefMean`, `Ensemble::PostProcessed`, the same grid 227 and
+schedule as the PMM) is in the catalogue and in the model browser, offering CAPE and SRH. The
+mean file holds the environment: surface and 90–0 mb CAPE, 0–3 km helicity, MSLET, and 2 m
+temperature and dewpoint, all at every hour checked (F+01, 05, 07, 13, 47, 48 of the 2026-10-10
+12Z run). It holds no reflectivity, updraft helicity, 0–1 km helicity, snow or smoke; for
+storms, the PMM is the ensemble's reflectivity. The contract test agreed for all eleven models
+(`target/parity-review/m5.3/href-mean-live.log`).
+
+`--headless-env` rendered at F+00, which the NBM and the HREF products do not publish. It now
+asks for their first lead, F+01.
+
+**Render:** `hookecho --headless-env sbcape <out.png> href-mean`, 12Z valid 13Z: surface CAPE
+from 0 to 4,110 J/kg on a 1725×819 grid with 481,813 cells. See
+[href-mean-sbcape.png](href-mean-sbcape.png) (SHA-256 `35e33edf10518f239c77aafc53692333b670c56d0b707225304cadf098b58c94`).

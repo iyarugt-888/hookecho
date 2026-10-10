@@ -264,6 +264,22 @@ static DEFS: &[Entry] = &[
             ensemble: Ensemble::PostProcessed,
         },
     },
+    // The ensemble mean posts with the PMM (same NOMADS listing), on the same grid.
+    Entry {
+        model: Model::HrefMean,
+        def: ModelDef {
+            id: "href-mean",
+            label: "HREF mean 5 km",
+            cycle_hours: 6,
+            max_lead_h: 48,
+            extended_lead_h: 48,
+            extended_cycles: &[],
+            grid_km: 5.079,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 180,
+            ensemble: Ensemble::PostProcessed,
+        },
+    },
 ];
 
 /// A field by meaning, independent of how any one model spells it in GRIB.
@@ -361,7 +377,8 @@ impl ModelField {
             ),
             // The NBM publishes MAXREF at 1000 m, which is a different quantity, not a
             // differently-named REFC; claiming it here would silently compare unlike fields.
-            (Self::CompositeReflectivity, Nbm) => None,
+            // The HREF mean file carries no reflectivity: the PMM is the ensemble's reflectivity.
+            (Self::CompositeReflectivity, Nbm | HrefMean) => None,
             (Self::CompositeReflectivity, _) => key("REFC", "entire atmosphere", -30.0),
 
             // The NBM's CAPE is blended, calibrated guidance rather than a raw model's own
@@ -377,7 +394,7 @@ impl ModelField {
             (Self::MixedLayerCape, _) => key("CAPE", "90-0 mb above ground", 0.0),
 
             // Helicity is signed: a negative value is anticyclonic rotation, not missing data.
-            (Self::Srh1km, Nbm | HrefPmm) => None,
+            (Self::Srh1km, Nbm | HrefPmm | HrefMean) => None,
             (Self::Srh1km, _) => key("HLCY", "1000-0 m above ground", f64::NEG_INFINITY),
             // HiresW carries 0-1 km helicity but not 0-3 km.
             (Self::Srh3km, Nbm | HireswArw | HireswFv3 | HrefPmm) => None,
@@ -418,9 +435,10 @@ impl ModelField {
             (Self::MeanSeaLevelPressure, Hrrr | HrrrPressure | Rap) => {
                 key("MSLMA", "mean sea level", 0.0)
             }
-            (Self::MeanSeaLevelPressure, NamNest | Nam | HireswArw | HireswFv3 | Rrfs) => {
-                key("MSLET", "mean sea level", 0.0)
-            }
+            (
+                Self::MeanSeaLevelPressure,
+                NamNest | Nam | HireswArw | HireswFv3 | Rrfs | HrefMean,
+            ) => key("MSLET", "mean sea level", 0.0),
             (Self::MeanSeaLevelPressure, Nbm | HrefPmm) => None,
 
             // HiresW carries its 2 m fields only every third hour (f00, f03, f06...; read off
@@ -454,6 +472,7 @@ pub const ALL_MODELS: &[Model] = &[
     Model::HireswFv3,
     Model::Rrfs,
     Model::HrefPmm,
+    Model::HrefMean,
 ];
 
 /// Every field in the catalogue, in declaration order.

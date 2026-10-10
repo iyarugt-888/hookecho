@@ -67,6 +67,9 @@ pub enum Model {
     /// smearing them flat. Ensemble guidance, not a run: reflectivity and updraft helicity only.
     /// The products are on NCEP grid 227 (Lambert, 1473x1025 at 5.079 km), not the members' 3 km.
     HrefPmm,
+    /// HREF's ensemble mean, same grid: the environment fields (CAPE, 0-3 km helicity, sea-level
+    /// pressure, 2 m temperature and dewpoint), where a plain mean is the right statistic.
+    HrefMean,
 }
 
 impl Model {
@@ -109,6 +112,9 @@ impl Model {
             Model::HrefPmm => format!(
                 "{NOMADS_HREF}/href.{date}/ensprod/href.t{cycle_hour:02}z.conus.pmmn.f{fh:02}.grib2"
             ),
+            Model::HrefMean => format!(
+                "{NOMADS_HREF}/href.{date}/ensprod/href.t{cycle_hour:02}z.conus.mean.f{fh:02}.grib2"
+            ),
         }
     }
 
@@ -116,7 +122,7 @@ impl Model {
     /// ever finds 404s.
     fn cycle_hours(self) -> u32 {
         match self {
-            Model::NamNest | Model::Nam | Model::Rrfs | Model::HrefPmm => 6,
+            Model::NamNest | Model::Nam | Model::Rrfs | Model::HrefPmm | Model::HrefMean => 6,
             Model::HireswArw | Model::HireswFv3 => 12,
             _ => 1,
         }
@@ -139,7 +145,7 @@ impl Model {
             // 3 km, like the HRRR and the nest.
             Model::Rrfs => 0.04,
             // Grid 227 is 5.079 km: a 0.04 degree target left a grid of holes between its cells.
-            Model::HrefPmm => 0.06,
+            Model::HrefPmm | Model::HrefMean => 0.06,
         }
     }
 
@@ -155,6 +161,7 @@ impl Model {
             Model::HireswFv3 => "HiresW FV3 2.5 km",
             Model::Rrfs => "RRFS 3 km",
             Model::HrefPmm => "HREF PMM 5 km",
+            Model::HrefMean => "HREF mean 5 km",
         }
     }
 }
@@ -1845,6 +1852,9 @@ mod tests {
             recent_cycles(Model::HrefPmm, at("2026-10-10T14:30:00Z"))[0].hour(),
             6
         );
+        assert!(Model::HrefMean
+            .url("20261010", 18, 48)
+            .ends_with("/ensprod/href.t18z.conus.mean.f48.grib2"));
     }
 
     #[test]

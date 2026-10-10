@@ -22,10 +22,11 @@ picture is unchanged.
 
 ### Added: HREF ensemble guidance
 
-The model browser adds the HREF probability-matched mean: the High-Resolution Ensemble
-Forecast's reflectivity and updraft helicity, combined so storms keep their strength instead of
-being averaged flat. It runs at 00, 06, 12 and 18Z, from 1 to 48 hours, at 5 km, and covers the
-last two days, from NOMADS.
+The model browser adds two HREF models. "HREF PMM" is the High-Resolution Ensemble Forecast's
+probability-matched mean reflectivity and updraft helicity, combined so storms keep their
+strength instead of being averaged flat. "HREF mean" is the ensemble's mean CAPE and helicity.
+Both run at 00, 06, 12 and 18Z, from 1 to 48 hours, at 5 km, and cover the last two days, from
+NOMADS.
 
 ### Added: RRFS forecasts
 
