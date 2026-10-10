@@ -220,10 +220,23 @@ impl HookEchoApp {
                     if self.measure.len() >= 2 {
                         self.measure.clear();
                     }
-                    self.measure.push([lon, lat]);
+                    // In the 3D Observed view the end goes on the tilt under the click, in the
+                    // air: a 3D ruler (ROADMAP_PARITY M3.6). Elsewhere it is on the ground.
+                    let point = match self.pick_3d(idx, &cam, px, vp) {
+                        Some((tilt, plon, plat)) => measure::MeasurePoint {
+                            ll: [plon, plat],
+                            tilt: Some(tilt),
+                        },
+                        None => measure::MeasurePoint {
+                            ll: [lon, lat],
+                            tilt: None,
+                        },
+                    };
+                    self.measure.push(point);
                     if self.measure.len() == 2 {
                         // The ground under the far end, for the beam's height above it.
-                        self.request_ground(lon, lat, ctx);
+                        let [far_lon, far_lat] = self.measure[1].ll;
+                        self.request_ground(far_lon, far_lat, ctx);
                     }
                 }
                 MapTool::Marker => {
@@ -291,26 +304,7 @@ impl HookEchoApp {
                     // tell those tilts apart. `SmoothVolume`/`SmoothDebris`/
                     // `SmoothSpectrumWidth` are a resampled Cartesian grid, not discrete
                     // tilts, so this only applies to `ObservedSweeps`.
-                    let picked_3d = (self.views[idx].map_3d.enabled
-                        && self.views[idx].map_3d.representation
-                            == crate::view::Map3dRepresentation::ObservedSweeps)
-                        .then(|| {
-                            let v = &self.views[idx];
-                            let site = v.site.as_deref().and_then(wxdata::sites::site_by_id)?;
-                            let elevations = &v.volume.as_ref()?.elevations;
-                            crate::render3d::pick_observed_tilt(
-                                &cam,
-                                px,
-                                vp,
-                                site.longitude as f64,
-                                site.latitude as f64,
-                                site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
-                                v.map_3d.vertical_exaggeration as f64,
-                                v.map_3d.beam_rise as f64,
-                                elevations,
-                            )
-                        })
-                        .flatten();
+                    let picked_3d = self.pick_3d(idx, &cam, px, vp);
                     let (gate_lon, gate_lat, tilt) = match picked_3d {
                         Some((tilt, plon, plat)) => (plon, plat, Some(tilt)),
                         None => (lon, lat, None),

@@ -1602,7 +1602,7 @@ pub struct HookEchoApp {
     /// Which control set the WSV3 ribbon is showing (desktop/web only).
     ribbon_mode: RibbonMode,
     /// Measure-tool clicked endpoints in `[lon, lat]` (max 2).
-    measure: Vec<[f64; 2]>,
+    measure: Vec<measure::MeasurePoint>,
     /// Manual storm-motion tracks (`app::storm_track`); session-only.
     storm_tracks: storm_track::StormTracks,
     output: output_window::OutputWindow,

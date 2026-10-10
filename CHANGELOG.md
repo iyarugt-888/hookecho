@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a ruler in 3D
+
+In the 3D Observed view, the Measure tool's two clicks land on the radar beams under the
+cursor. It reads the distance, each end's height above sea level, the rise between them and the
+straight-line distance through the air.
+
 ### Changed: satellite loops decode ahead
 
 On desktop the satellite loop decodes the frames ahead of the one showing and keeps up to

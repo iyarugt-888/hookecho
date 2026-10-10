@@ -68,8 +68,8 @@ Test: `a_drawn_box_becomes_the_square_over_it`:
 - the 5 and 80 km bounds;
 - no storm and no following.
 
-**Not established:** no 3D ruler; no desktop or device walkthrough. (The Observed representation
-now follows the region: see below.)
+**Not established:** no desktop or device walkthrough. (The Observed representation now follows
+the region, and there is a 3D ruler: see below.)
 
 ## The Observed representation follows the region (1008.md C5, 2026-10-10)
 
@@ -101,3 +101,34 @@ Tests:
 - `the_observed_view_keeps_only_the_regions_gates`: four radials, a 20 km square 50 km east.
   Only the east radial's gates 40–59 are kept, and an empty gate stays empty.
 - `a_region_is_part_of_the_observed_upload_identity`: no region, a region, a moved region.
+
+## A ruler in the air (1008.md C5, 2026-10-10)
+
+In the 3D Observed view, the Measure tool's clicks land on the tilt under the cursor
+(`HookEchoApp::pick_3d`, the same pick the gate inspector uses, now shared) instead of on the
+ground. Each end is drawn where the sweep draws it (`render3d::beam_local`, with exaggeration and
+beam rise). When both ends are in the air, the label reads (`measure::ruler_3d_label`):
+
+- the horizontal distance and bearing;
+- each end's tilt and height above sea level (true 4/3-earth beam geometry plus the antenna's
+  altitude, not the view's exaggeration);
+- the rise from the first end to the second;
+- the straight-line distance between the two points in the air.
+
+Anywhere else the map's ruler is unchanged.
+
+**Walkthrough** in the browser build (WebGPU, KTLX, VCP 35): two clicks over the pitched map, one
+near the radar and one to the south-east, give "52.9 mi @ 149° · 6.4° 14709 ft → 6.4° 39607 ft
+MSL · rise +24899 ft · straight line 53.1 mi" ([ruler-3d.jpg](ruler-3d.jpg),
+[ruler-3d-label.png](ruler-3d-label.png)). Both clicks landed on the 6.4° tilt, VCP 35's highest,
+because the ray from the camera meets the highest tilt first. That is the pick's rule (nearest
+surface along the ray), and the reason a 3D ruler on a steep view measures the upper tilts.
+
+| File | SHA-256 |
+| --- | --- |
+| ruler-3d.jpg | `de0da85d6641add8851c9abc73f6ff2b24bd743be68c3bae4d72ee9c5dc531ca` |
+| ruler-3d-label.png | `891a9fc5147c40a3b01799fbe9ad1b1fc8ee49af2a6ed013d45756453d8d971f` |
+
+Test: `the_3d_ruler_reads_rise_and_straight_line` (10 km over the ground and 10,000 ft of rise
+gives a 10.45 km straight line; downhill reads negative). Not added: a sampled value at each end
+(the gate inspector gives it) and the terrain height under an end in the air.
