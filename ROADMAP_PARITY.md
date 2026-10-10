@@ -1865,6 +1865,8 @@ Evidence: [`docs/certification/m6.3/`](docs/certification/m6.3/). Scope: the off
 
 **Evidence ledger — 2026-10-10, increment 4 (repeat-run determinism with a basemap; 1008.md F2):** the increment 3 loop rendered twice with `--basemap dark` gave byte-identical GIFs (`b822df49…`). The sidecars differ only in `rendered_utc`, across 7 frames. The basemap was OpenFreeMap planet build `20261004_113936_pt`, so this is determinism for one basemap build ([`docs/certification/m6.3/`](docs/certification/m6.3/README.md)). Open: the in-app loop export, other GPUs, a sustained 30-minute capture, a 60 fps ffmpeg encode, and FTP/SFTP delivery.
 
+**Evidence ledger — 2026-10-10, increment 5 (another adapter; 1008.md F2):** the basemap loop rendered on wgpu's fallback adapter (`HOOKECHO_GPU_FALLBACK=1`, Microsoft Basic Render Driver) has a sidecar identical to the RTX 2060's except `rendered_utc`: the same frames, scans and timing. The pixels differ, though, and only inside the radar echo; the basemap matches. Decoded with a stdlib GIF reader, the share is 5.6–6.3 % of pixels at the state-wide view and 46–49 % at zoom 10, with no ±2 px offset explaining it and the same structure side by side. The likely cause is single-precision trigonometry plus the smoothed radar path's interpolated colour lookup across hard band edges; this is not confirmed. Pixel-identical output across GPUs is therefore not claimed; one adapter repeats exactly ([`docs/certification/m6.3/`](docs/certification/m6.3/README.md)). Open: the cause, a nearest-gate comparison, and real second GPUs.
+
 #### M6.4 — Deliver usable desktop and Android presentation
 
 **Priority:** P1. **Depends on:** M6.2, M6.3. **Original references:** ROADMAP_2 §§6.5, 13; ROADMAP_NEW §§M1, Q1, Q3.

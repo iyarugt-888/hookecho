@@ -11,7 +11,9 @@ The rolling `latest` release tracks `main` and is not listed here.
 ### Docs: loop exports repeat exactly with a basemap
 
 `docs/certification/m6.3/` adds two runs of the same archived `--watch` loop over the dark
-basemap. They produced byte-identical GIFs.
+basemap. They produced byte-identical GIFs. A run on the software rasterizer has the same frames
+and timing, but its radar pixels differ in detail, so pixel-identical output across GPUs is not
+claimed.
 
 ### Added: storm notes on the map
 

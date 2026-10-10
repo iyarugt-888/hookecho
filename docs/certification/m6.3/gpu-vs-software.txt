@@ -1,0 +1,8 @@
+512x512, frames 7 and 7
+frame 0: 14654 of 262144 pixels differ (5.59%), 6105 by more than 16 levels, max 236
+frame 1: 15108 of 262144 pixels differ (5.76%), 6502 by more than 16 levels, max 235
+frame 2: 15563 of 262144 pixels differ (5.94%), 6617 by more than 16 levels, max 237
+frame 3: 15755 of 262144 pixels differ (6.01%), 6989 by more than 16 levels, max 236
+frame 4: 16094 of 262144 pixels differ (6.14%), 7207 by more than 16 levels, max 237
+frame 5: 16485 of 262144 pixels differ (6.29%), 7382 by more than 16 levels, max 237
+frame 6: 16460 of 262144 pixels differ (6.28%), 7444 by more than 16 levels, max 235

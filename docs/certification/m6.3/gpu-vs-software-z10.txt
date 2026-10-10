@@ -1,0 +1,4 @@
+512x512, frames 2 and 2
+frame 0: 127993 of 262144 pixels differ (48.83%), 95283 by more than 16 levels, max 220
+frame 1: 121698 of 262144 pixels differ (46.42%), 91267 by more than 16 levels, max 219
+wrote target/parity-review/m6.3/gpu-vs-software-z10-frame0.png
