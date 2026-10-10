@@ -1863,6 +1863,8 @@ Evidence: [`docs/certification/m6.3/`](docs/certification/m6.3/). Scope: the off
 - A 60 fps ffmpeg encode.
 - FTP/SFTP delivery.
 
+**Evidence ledger — 2026-10-10, increment 4 (repeat-run determinism with a basemap; 1008.md F2):** the increment 3 loop rendered twice with `--basemap dark` gave byte-identical GIFs (`b822df49…`). The sidecars differ only in `rendered_utc`, across 7 frames. The basemap was OpenFreeMap planet build `20261004_113936_pt`, so this is determinism for one basemap build ([`docs/certification/m6.3/`](docs/certification/m6.3/README.md)). Open: the in-app loop export, other GPUs, a sustained 30-minute capture, a 60 fps ffmpeg encode, and FTP/SFTP delivery.
+
 #### M6.4 — Deliver usable desktop and Android presentation
 
 **Priority:** P1. **Depends on:** M6.2, M6.3. **Original references:** ROADMAP_2 §§6.5, 13; ROADMAP_NEW §§M1, Q1, Q3.

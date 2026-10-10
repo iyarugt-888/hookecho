@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Docs: loop exports repeat exactly with a basemap
+
+`docs/certification/m6.3/` adds two runs of the same archived `--watch` loop over the dark
+basemap. They produced byte-identical GIFs.
+
 ### Added: storm notes on the map
 
 Notes written on storms now show on the map. A note sits on its storm and follows it as the
