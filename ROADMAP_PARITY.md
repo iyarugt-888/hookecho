@@ -713,6 +713,15 @@ detection with Claude.
 - *Increment 2, push path:* `wxdata::nwws` parses NWWS-OI warning products (TOR/SVR/FFW/SMW/SQW/EWW/DSW and their statements) into the feed's features from each segment's P-VTEC, polygon, motion and threat tags, and `merge` adds only VTEC events the feed has not published, never an ended or expired one (tests on three pinned real products in `crates/wxdata/tests/data/nwws/`, SHA-256 `dfb1162a…d3d6ef`, `63ac0c1e…ac838fa`, `f8e9278f…b619e1`). The app subscribes to an optional MQTT "Warning text topic" (empty by default: behaviour unchanged) fed by `scripts/nwws-relay` (slixmpp + paho-mqtt, credentials from the environment); wire warnings are labelled "via NWWS-OI" and replaced by the feed's copy; the Analyst log adds "Wire arrival". Tests: `nwws` (5), `warning_text_comes_only_off_its_own_topic`, `wire_warnings_expire_and_are_bounded`, `only_messages_the_map_does_not_hold_are_new`, `the_report_states_its_limits`, relay unit tests.
 - *Open:* the relay has not been run against NWWS-OI (no account), so no live session with both paths; the app's received → drawn stage and the 30 s poll have not been measured in an interactive session; Android and browser not run.
 
+**Evidence ledger — 2026-10-10, cross-provider continuation over the wire (1008.md A2):** on a provider switch, `radar_feed` starts the new stream with the displayed scan as its base, and every provider merges into it through `live::merge_scan`. At each azimuth the newest radial wins, radials more than 15 minutes older than the newest are pruned, and a VCP change replaces the scan. `CutSplice` (A5) is not used by the app. The control `a_backup_continues_the_primarys_volume_without_duplicating_radials` runs separate in-process relays over real loopback WebSockets:
+
+- The primary delivers azimuths 1–2 of tilt 1, then stops.
+- A backup started on that scan serves the whole volume. The result is azimuths 1–4 each once, plus tilt 2: nothing duplicated, nothing lost.
+- A backup lagging 20 minutes behind sends no update, so the display is not rewound.
+- A 20-minute-older radial in the shown scan is pruned, not mixed into the new volume.
+
+Note: [`docs/certification/m1.3/continuation.md`](docs/certification/m1.3/continuation.md). Checks: clippy, wasm, workspace tests (2,580 passed, 0 failed, 201 ignored) in `target/parity-review/m1.3/a2-*.log`. This is loopback evidence with synthetic radials. Open: an operational dual-feed failover, an interactive switch while drawing, and real failure-domain identity under sustained load.
+
 #### M1.4 — Complete retained provenance and scientific lineage
 
 **Priority:** P0. **Depends on:** M0.2, M1.1. **Status:** implementation: in progress (source clocks; Tornado ID lineage); verification: partial. **Original references:** ROADMAP_2 §§9, 10; ROADMAP_NEW §§A1, A2, N1, N2.

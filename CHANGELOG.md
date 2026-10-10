@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Tested: switching radar feeds mid-volume
+
+A new test switches between two relays partway through a radar volume. The scan continues where
+the first feed stopped, with no radial drawn twice and none lost. A backup that is behind cannot
+roll the display back to an older volume.
+
 ### Added: satellite images at the radar's own time
 
 "Blend archived MRMS and satellite layers to the radar's time" now also shows a GOES band

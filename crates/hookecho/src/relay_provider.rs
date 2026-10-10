@@ -1153,4 +1153,181 @@ mod integration_tests {
             .expect("relay subscription task panicked")
             .expect("intentional cancellation reported a transport error");
     }
+
+    /// One relay server in-process, its address, and its pipeline to ingest into. Every radial
+    /// is its own block, so a volume cut off mid-tilt still reaches the client.
+    async fn relay_server() -> (std::net::SocketAddr, Arc<Mutex<Pipeline>>) {
+        let pipeline = Arc::new(Mutex::new(Pipeline::new(
+            RechunkConfig {
+                max_radials_per_block: 1,
+                ..RechunkConfig::default()
+            },
+            BlockStoreLimits::default(),
+            "relay",
+        )));
+        let app = radar_ingest::server::router(pipeline.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (addr, pipeline)
+    }
+
+    /// Subscribe to `addr` with `base`, ingest `bytes`, and return the scan once updates stop, or
+    /// `None` if no update arrives within five seconds.
+    async fn scan_after(
+        addr: std::net::SocketAddr,
+        pipeline: Arc<Mutex<Pipeline>>,
+        base: Arc<wxdata::level2::Scan>,
+        bytes: Vec<u8>,
+    ) -> Option<Arc<wxdata::level2::Scan>> {
+        let provider = HookEchoRelayLevel2Provider::new(format!("http://{addr}"));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let flag = active.clone();
+        let handle = tokio::spawn(async move {
+            provider
+                .subscribe(
+                    "KTLX".to_string(),
+                    base,
+                    Box::new(move || flag.load(std::sync::atomic::Ordering::Relaxed)),
+                    Box::new(move |update| {
+                        let _ = tx.send(update);
+                    }),
+                    Box::new(|_| {}),
+                )
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        pipeline.lock().unwrap().ingest(&RawProduct {
+            site: "KTLX".into(),
+            bytes,
+            received_at: chrono::Utc::now(),
+        });
+        let mut update = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .ok()
+            .flatten();
+        while let Ok(Some(next)) =
+            tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await
+        {
+            update = Some(next);
+        }
+        active.store(false, std::sync::atomic::Ordering::Relaxed);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+        update.map(|update| update.scan)
+    }
+
+    fn azimuths(scan: &wxdata::level2::Scan, elevation: u8) -> Vec<u16> {
+        let mut v: Vec<u16> = scan
+            .sweeps()
+            .iter()
+            .filter(|s| s.elevation_number() == elevation)
+            .flat_map(|s| s.radials().iter().map(|r| r.azimuth_number()))
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
+    /// A provider switch mid-volume over the real wire (1008.md A2/A5). The primary delivered the
+    /// first two radials of a volume; the app starts the backup with that scan as its base (as
+    /// `spawn_stream` does), and the backup relay serves the whole volume. The backup's first
+    /// update holds every azimuth once: the primary's radials continue, the overlap is not drawn
+    /// twice, and nothing the primary delivered is lost. A backup serving a volume more than the
+    /// retention window older sends nothing, and an older shown radial is dropped, not mixed in.
+    #[tokio::test]
+    async fn a_backup_continues_the_primarys_volume_without_duplicating_radials() {
+        let t = chrono::Utc::now() - chrono::Duration::minutes(2);
+        let (primary_addr, primary) = relay_server().await;
+        let empty = Arc::new(wxdata::level2::Scan::new(
+            nexrad_model::data::VolumeCoveragePattern::new(
+                212,
+                0,
+                0.5,
+                nexrad_model::data::PulseWidth::Short,
+                false,
+                0,
+                false,
+                0,
+                false,
+                false,
+                0,
+                false,
+                false,
+                Vec::new(),
+            ),
+            Vec::new(),
+        ));
+        // The primary: the volume's first two radials at the lowest tilt, then the feed is lost.
+        let primary_part = [
+            synthetic_vcp(t),
+            synthetic_radial("KTLX", 1, 1, VOLUME_START, t),
+            synthetic_radial("KTLX", 1, 2, 1, t),
+        ]
+        .concat();
+        let shown = scan_after(primary_addr, primary, empty.clone(), primary_part)
+            .await
+            .expect("the primary's update");
+        assert_eq!(azimuths(&shown, 1), [1, 2], "what the primary delivered");
+
+        // The backup relay has the whole volume, the primary's two radials included.
+        let (backup_addr, backup) = relay_server().await;
+        let whole = [
+            synthetic_vcp(t),
+            synthetic_radial("KTLX", 1, 1, VOLUME_START, t),
+            synthetic_radial("KTLX", 1, 2, 1, t),
+            synthetic_radial("KTLX", 1, 3, 1, t),
+            synthetic_radial("KTLX", 1, 4, ELEVATION_END, t),
+            synthetic_radial("KTLX", 2, 1, VOLUME_END, t),
+        ]
+        .concat();
+        let continued = scan_after(backup_addr, backup, shown, whole)
+            .await
+            .expect("the backup's update");
+        assert_eq!(
+            azimuths(&continued, 1),
+            [1, 2, 3, 4],
+            "each azimuth once: the overlap is not drawn twice and nothing is lost"
+        );
+        assert_eq!(azimuths(&continued, 2), [1]);
+
+        // A backup lagging a volume 20 minutes behind the shown scan: every radial it has is
+        // pruned against the newer base, so it sends nothing and cannot rewind the display.
+        let old_t = t - chrono::Duration::minutes(20);
+        let old_part = [
+            synthetic_vcp(old_t),
+            synthetic_radial("KTLX", 1, 9, VOLUME_START, old_t),
+        ]
+        .concat();
+        let (lag_addr, lagging) = relay_server().await;
+        assert!(
+            scan_after(lag_addr, lagging, continued, old_part.clone())
+                .await
+                .is_none(),
+            "a lagging backup sends no update over a newer scan"
+        );
+
+        // A shown scan from a volume older than the retention window: its radial is pruned
+        // from the tilt the backup refreshes, never mixed into the new volume there.
+        let (old_addr, old_relay) = relay_server().await;
+        let old_shown = scan_after(old_addr, old_relay, empty, old_part)
+            .await
+            .expect("the old volume's update");
+        assert!(azimuths(&old_shown, 1).contains(&9));
+        let (fresh_addr, fresh) = relay_server().await;
+        let fresh_part = [
+            synthetic_vcp(t),
+            synthetic_radial("KTLX", 1, 1, VOLUME_START, t),
+        ]
+        .concat();
+        let rolled = scan_after(fresh_addr, fresh, old_shown, fresh_part)
+            .await
+            .expect("the current volume's update");
+        assert!(
+            !azimuths(&rolled, 1).contains(&9),
+            "a radial 20 minutes older than the newest is not kept: {:?}",
+            azimuths(&rolled, 1)
+        );
+    }
 }
