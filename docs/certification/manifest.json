@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T17:28:44+00:00",
-  "generated_from_commit": "ab89717d97ec4eef1de36c93bfb251ecb42e6c38",
+  "generated_utc": "2026-10-10T17:49:45+00:00",
+  "generated_from_commit": "0ea1cee85cffd733394d897d87166b233b7f6e33",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -201,7 +201,7 @@
     {
       "card": "M5.3",
       "title": "Broaden field inspection within supported models",
-      "ledger_entries": 15,
+      "ledger_entries": 16,
       "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (regional inventory discovery and a discovered-field layer, increment 1; GFS, increment 2; browsed winds as barbs, increment 5; ECMWF, increment 6); verification: partial (unit on real `.idx` lines; live HRRR inventory and field; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.3"
@@ -1118,14 +1118,19 @@
       "bytes": 110713
     },
     {
+      "path": "docs/certification/m5.3/href-mean-sbcape.png",
+      "sha256": "35e33edf10518f239c77aafc53692333b670c56d0b707225304cadf098b58c94",
+      "bytes": 112341
+    },
+    {
       "path": "docs/certification/m5.3/href-pmm-f06.png",
       "sha256": "d35f0f55ca9d0d587c299991634fddce9b57168db616d5cb421b53c3b0d598ee",
       "bytes": 127056
     },
     {
       "path": "docs/certification/m5.3/README.md",
-      "sha256": "7931bf97fcb8b6a9bc24baca7e517a6464813d40c044e85ac88d98f7be745174",
-      "bytes": 5990
+      "sha256": "90671fff679073e8f7ff01d8eaba2b573d8994b62d263f4e54d1124109810cae",
+      "bytes": 7064
     },
     {
       "path": "docs/certification/m5.3/rrfs-f06.png",
