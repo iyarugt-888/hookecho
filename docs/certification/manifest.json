@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T15:14:28+00:00",
-  "generated_from_commit": "2a371d4b48e21f21a1ade1210403fa3a23ed6d07",
+  "generated_utc": "2026-10-10T15:25:34+00:00",
+  "generated_from_commit": "b66c0e884f4dd4dcef1d62437648a6c3f19a5827",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -209,7 +209,7 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 4,
+      "ledger_entries": 5,
       "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
@@ -1109,8 +1109,8 @@
     },
     {
       "path": "docs/certification/m5.4/crossfade/evidence.json",
-      "sha256": "89c29ddb7cf3630e4d254d40770776c93c1b18f5e84cc8c01874fc6883deb182",
-      "bytes": 1708
+      "sha256": "5d9ce4eacddb1353ef2801e38cd187da2f72a259d1f2ba20b453e495aac262c7",
+      "bytes": 2333
     },
     {
       "path": "docs/certification/m5.4/crossfade/fade-000.png",
@@ -1136,6 +1136,21 @@
       "path": "docs/certification/m5.4/crossfade/fade-back-050.png",
       "sha256": "c90ef3c0c559209ce239e221c270e4995d7f472036d4af5942ad3e7bafb772d7",
       "bytes": 1020
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade/goes-fade-050.png",
+      "sha256": "7f46d0a09b635461791ce4df245e354e50e83db21a9e8089948af64f9511fd62",
+      "bytes": 1020
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade/goes-first-upload.png",
+      "sha256": "c5746ed6429e01547950d6ba70344eb39dccc160939a49c6c16781d7b39f6fef",
+      "bytes": 1018
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade/goes-new-frame.png",
+      "sha256": "ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0",
+      "bytes": 1018
     },
     {
       "path": "docs/certification/m5.4/crossfade/new-frame.png",
@@ -1174,8 +1189,8 @@
     },
     {
       "path": "docs/certification/m5.4/README.md",
-      "sha256": "a934703721edb95b12e105a3b42adac577f45097b53844a7e4959791f6ade4fd",
-      "bytes": 10815
+      "sha256": "c17d96b37646c3d8f95d805bc48bcbd326aeb2fee9c7ac0d2082b3a6e7453fc1",
+      "bytes": 12043
     },
     {
       "path": "docs/certification/m6.2/output-legend-left.png",
