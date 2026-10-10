@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: ECMWF forecasts to day 15, without repeated frames
+
+The ECMWF's 00Z and 12Z runs can now be scrubbed to F+360; before, the browser stopped at
+F+240. With an ECMWF field from the Model fields browser on a GFS pane, the forecast-hour scrub
+steps every 6 hours past F+144, as the ECMWF publishes. Before, F+147 showed the F+144 map again.
+The same applies to a GFS − ECMWF difference.
+
 ### Tested: switching radar feeds mid-volume
 
 A new test switches between two relays partway through a radar volume. The scan continues where

@@ -31,3 +31,11 @@ but not 0–3 km.
 - RRFS: `noaa-rrfs-pds` on AWS holds retrospective and prototype output only (`rrfs_a/` empty);
   NOMADS serves `rrfs/v1.0/rrfs.YYYYMMDD/HH/` hourly, with 3 km CONUS 2D fields
   (`rrfs.tHHz.2dfld.3km.fNNN.conus.grib2`, plus sub-hourly) — the next model to add.
+
+## ECMWF leads past F+144 (1008.md E3, 2026-10-10)
+
+[ecmwf-leads.txt](ecmwf-leads.txt) records a probe of data.ecmwf.int's index files for the
+2026-10-09 runs. The 00Z and 12Z runs publish six-hourly files to F+360 (F+366 absent), and the
+06Z run stops at F+144. The 00Z F+360 index lists 184 messages. The model browser's lead table
+now reaches F+360 for 00/12Z. A browsed ECMWF field under a GFS pane scrubs on the ECMWF's own
+leads (`app::models::scrub_range`).

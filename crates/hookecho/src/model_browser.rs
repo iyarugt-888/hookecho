@@ -152,6 +152,22 @@ impl LeadRange {
         }
     }
 
+    /// The leads both ranges publish: the later start, the earlier end, the larger step, and the
+    /// earlier change to the coarser of the two later steps. Both models' steps here are
+    /// multiples of each other, so every position of the result is a file of both.
+    pub fn narrowed(self, other: Self) -> Self {
+        let coarse = match (self.coarse, other.coarse) {
+            (Some((a, s)), Some((b, t))) => Some((a.min(b), s.max(t))),
+            (one, None) | (None, one) => one,
+        };
+        Self {
+            min: self.min.max(other.min),
+            max: self.max.min(other.max),
+            step: self.step.max(other.step),
+            coarse,
+        }
+    }
+
     /// The step in force just after `lead`, when moving later.
     fn step_up(self, lead: u16) -> u16 {
         match self.coarse {
@@ -356,12 +372,13 @@ impl BModel {
                 coarse: Some((h(240), h(6))),
                 ..LeadRange::fixed(0, h(384), h(3))
             },
-            // Three-hourly to 144 h, then six-hourly; the 00/12Z runs reach 240 h, the 06/18Z runs
-            // stop at 144 h.
+            // Three-hourly to 144 h, then six-hourly; the 00/12Z runs reach 360 h, the 06/18Z runs
+            // stop at 144 h (checked on data.ecmwf.int, 2026-10-10: 00/12Z F+360 present, F+366
+            // absent; 06Z F+144 present, F+150 absent).
             BModel::Ecmwf => {
                 let max = match run_hour {
                     Some(hour) if hour % 12 != 0 => 144,
-                    _ => 240,
+                    _ => 360,
                 };
                 LeadRange {
                     coarse: Some((h(144), h(6))),
@@ -1084,8 +1101,8 @@ mod tests {
         assert_eq!(max(BModel::Hrrr, 13), 18, "an ordinary HRRR run");
         assert_eq!(max(BModel::Rap, 15), 51);
         assert_eq!(max(BModel::Rap, 16), 21);
-        assert_eq!(max(BModel::Ecmwf, 0), 240);
-        assert_eq!(max(BModel::Ecmwf, 12), 240);
+        assert_eq!(max(BModel::Ecmwf, 0), 360);
+        assert_eq!(max(BModel::Ecmwf, 12), 360);
         assert_eq!(max(BModel::Ecmwf, 6), 144, "the 06/18Z runs stop earlier");
         // The widest answer, for a run not yet known, is the extended one.
         assert_eq!(BModel::Hrrr.leads().max / 60, 48);

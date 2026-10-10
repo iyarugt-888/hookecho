@@ -112,11 +112,7 @@ impl HookEchoApp {
             PaletteAction::StepModelLead(steps) => {
                 // Step along the model's own published leads, which are not evenly spaced for
                 // every model (the NAM 12 km and the global models thin out with lead).
-                let range = self.views[self.active]
-                    .models
-                    .model_sel
-                    .model
-                    .leads_for(self.views[self.active].models.model_run, Utc::now());
+                let range = super::models::scrub_range(&self.views[self.active], Utc::now());
                 let mut lead = range.clamp(self.model_lead_min());
                 for _ in 0..steps.unsigned_abs() {
                     lead = range.neighbour(lead, steps > 0);

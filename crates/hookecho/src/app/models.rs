@@ -52,7 +52,7 @@ impl HookEchoApp {
                 continue;
             }
             let run = self.views[idx].models.model_run;
-            let range = selection.model.leads_for(run, Utc::now());
+            let range = scrub_range(&self.views[idx], Utc::now());
             let lead = range.clamp(self.views[idx].models.lead_min());
             if lead != self.views[idx].models.lead_min() {
                 self.views[idx].models.set_lead(lead, Utc::now());
@@ -112,7 +112,7 @@ impl HookEchoApp {
                 now,
                 model.run_list_len(),
             ),
-            range: model.leads_for(self.views[self.active].models.model_run, now),
+            range: scrub_range(&self.views[self.active], now),
         }
     }
 
@@ -138,12 +138,7 @@ impl HookEchoApp {
 
     fn write_model_lead_min(&mut self, minutes: u16) {
         use crate::model_browser::Engine;
-        let m = self.views[self.active]
-            .models
-            .model_sel
-            .model
-            .leads_for(self.views[self.active].models.model_run, Utc::now())
-            .clamp(minutes);
+        let m = scrub_range(&self.views[self.active], Utc::now()).clamp(minutes);
         match self.views[self.active].models.model_sel.model.engine() {
             Engine::Sub15 => {
                 self.views[self.active].models.hrrr_fcst_min = m;
@@ -371,6 +366,36 @@ impl HookEchoApp {
     }
 }
 
+/// The leads a pane's model scrub steps through: the selected model's, narrowed to the browsed
+/// field's own global models (the field's, and the one it is differenced against) when it is
+/// shown under a global model. A browsed ECMWF field under the GFS clock then steps six-hourly
+/// past F+144, as its files do, instead of repeating F+144 at F+147.
+pub(crate) fn scrub_range(view: &MapView, now: DateTime<Utc>) -> crate::model_browser::LeadRange {
+    use super::model_field::InventorySource;
+    use crate::model_browser::{BModel, Engine};
+    let models = &view.models;
+    let mut range = models.model_sel.model.leads_for(models.model_run, now);
+    let Some(field) = models.field.as_ref() else {
+        return range;
+    };
+    if !matches!(models.model_sel.model.engine(), Engine::Global(_))
+        || !view
+            .fields_on
+            .contains(&crate::render::FieldLayer::ModelField)
+    {
+        return range;
+    }
+    for source in std::iter::once(field.model).chain(field.minus) {
+        let global = match source {
+            InventorySource::Ecmwf => BModel::Ecmwf,
+            InventorySource::Gfs => BModel::Gfs,
+            InventorySource::Regional(_) => continue,
+        };
+        range = range.narrowed(global.leads_for(models.model_run, now));
+    }
+    range
+}
+
 pub(super) fn model_timeline_active(view: &MapView, sel: crate::model_browser::Selection) -> bool {
     view.model_playback.active && view.fields_on.contains(&sel.layer())
 }
@@ -474,6 +499,71 @@ mod tests {
             !model_timeline_active(&other, global),
             "mode belongs to its pane"
         );
+    }
+
+    /// A browsed ECMWF field under the GFS clock: the scrub steps three-hourly to F+144 and then
+    /// six-hourly, as the ECMWF publishes, so F+147 is never a repeat of F+144. Hidden, or under a
+    /// regional model, the selected model's own steps stand.
+    #[test]
+    fn a_browsed_ecmwf_field_scrubs_on_its_own_published_leads() {
+        use super::super::model_field::{InventorySource, SavedFieldPick};
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 10, 10, 18, 0, 0).unwrap();
+        let mut view = MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 8.0),
+        );
+        view.models.model_sel = Selection {
+            model: BModel::Gfs,
+            product: Product::Temp2m,
+        };
+        view.models.model_run = Some(Utc.with_ymd_and_hms(2026, 10, 10, 0, 0, 0).unwrap());
+        let ecmwf = SavedFieldPick {
+            model: InventorySource::Ecmwf,
+            var: "TMP".into(),
+            level: "500 mb".into(),
+            kind: wxdata::model_inventory::TimingKind::Instant,
+            vector: false,
+            minus: None,
+        };
+        view.models.field = Some(ecmwf.clone());
+        let gfs_own = view
+            .models
+            .model_sel
+            .model
+            .leads_for(view.models.model_run, now);
+        assert_eq!(
+            scrub_range(&view, now),
+            gfs_own,
+            "a hidden field changes nothing"
+        );
+
+        view.fields_on.insert(crate::render::FieldLayer::ModelField);
+        let range = scrub_range(&view, now);
+        let hours: Vec<u16> = range.positions().iter().map(|m| m / 60).collect();
+        assert!(hours.windows(2).all(|w| w[0] < w[1]));
+        assert!(hours.contains(&141) && hours.contains(&144) && hours.contains(&150));
+        assert!(!hours.contains(&147), "F+147 would repeat F+144's file");
+        assert_eq!(hours.last(), Some(&360), "the 00Z ECMWF run ends at F+360");
+        // Every scrub position is a file the field's model publishes.
+        let wx = wxdata::global::GlobalModel::Ecmwf;
+        assert!(hours.iter().all(|&h| wx.inventory_lead(h) == h));
+        assert_eq!(range.clamp(147 * 60), 144 * 60);
+
+        // The GFS minus the ECMWF steps the same way: the ECMWF side has no F+147 to difference.
+        view.models.field = Some(SavedFieldPick {
+            model: InventorySource::Gfs,
+            minus: Some(InventorySource::Ecmwf),
+            ..ecmwf.clone()
+        });
+        assert_eq!(scrub_range(&view, now), range);
+
+        // A GFS field under the GFS clock keeps the GFS's own steps.
+        view.models.field = Some(SavedFieldPick {
+            model: InventorySource::Gfs,
+            ..ecmwf
+        });
+        assert_eq!(scrub_range(&view, now), gfs_own);
     }
 
     #[test]

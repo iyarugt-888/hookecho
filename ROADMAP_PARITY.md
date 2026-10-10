@@ -1657,6 +1657,16 @@ Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,578 passed (`ta
 - Regional-against-global differences are refused unless the global model has the regional run's hour, which is by design.
 - No interactive capture.
 
+**Evidence ledger — 2026-10-10, increment 11 (ECMWF past F+144 on the scrub; 1008.md E3):** under a global model, a shown browsed field now narrows the pane's scrub to the leads its own global models publish (`app::models::scrub_range`, `LeadRange::narrowed`). That covers the field's model and, for "show A − B", the model it is differenced against. Before this, a browsed ECMWF field under the GFS clock repeated its F+144 file at F+147. Now:
+
+- The scrub steps three-hourly to F+144, then six-hourly, and ends where the ECMWF run does.
+- The playback driver, the panel's slider and ticks, writing a lead, and the palette's step command all use the narrowed range.
+- A hidden field, a regional field, or a GFS field under the GFS clock leaves the selected model's steps unchanged.
+
+Found and fixed on the way: the browser's lead table ended ECMWF 00/12Z runs at F+240, while `GlobalModel::inventory_lead` allowed F+360. A probe of data.ecmwf.int on 2026-10-10 found the 2026-10-09 00Z and 12Z runs publish F+360, with F+366 absent; the 06Z run stops at F+144. The 00Z F+360 index lists 184 messages ([`docs/certification/m5.3/ecmwf-leads.txt`](docs/certification/m5.3/ecmwf-leads.txt), `c4ad794b…`). The table now reaches F+360 for 00/12Z.
+
+Test: `a_browsed_ecmwf_field_scrubs_on_its_own_published_leads`. Every scrub position is checked to be a lead `inventory_lead` maps to itself; F+147 snaps to F+144; the scrub ends at F+360 for a 00Z run; GFS − ECMWF steps the same way. `the_lead_range_follows_the_run` is updated to F+360. Checks: clippy, wasm, workspace tests (2,581 passed, 0 failed, 201 ignored) in `target/parity-review/m5.3/e3s-*.log`. Not exercised interactively.
+
 #### M5.4 — Unify rendering quality, labels, and transitions
 
 **Priority:** P1. **Depends on:** M1.2, M3.5, M4.3, M5.2. **Original references:** ROADMAP_2 §4; ROADMAP_NEW §§O1–O4, Q2, Q3.
