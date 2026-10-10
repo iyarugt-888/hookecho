@@ -54,3 +54,31 @@ cargo test -p hookecho --release --lib gpu_correlated_latency_trace -- --ignored
 - An Android device trace.
 - Presentation latency: it needs an external frame observation.
 - A live chunk-stream trace with frame identity through to GPU completion in the running app.
+
+## A live chunk-stream trace in the running app (browser, 2026-10-10)
+
+The browser build (`feat/wsv3-redesign` at `9af1aee`, WebGPU, built-in Chromium, the RTX 2060
+machine) streamed KTLX live, about 20:15–20:21 UTC: Unidata Level II chunks from AWS S3,
+progressive radials, VCP 35, cuts 1 to 8 of 12. Analyst mode was on, and the timeline sat at the
+live head. The Analyst log's own counters (`LiveQueueTimings`, the same code as the correlated
+trace above) read:
+
+| Stage | First chunk | After ~5 min (42 samples) |
+| --- | --- | --- |
+| Ingest lag | 3 s | 1 s |
+| Decode | 42 ms | 37 ms |
+| Client receipt → GPU queue writes | p50 68 / p95 68 ms (1) | p50 48 / p95 65 ms |
+| Client receipt → GPU finished the frame | p50 81 / p95 81 ms (1) | p50 58 / p95 72 ms |
+| Frame build | p50 4.1 / p95 10.9 ms | p50 3.4 / p95 3.7 ms |
+
+During the session one NWS warning message arrived. It took 39 s from its NWS `sent` time to
+the app accepting the poll that carried it, and 0.01 s from there to the first frame built
+after it. That is a single sample of A1's received → drawn stage in a running session.
+
+Captures: [browser-live-trace-start.jpg](browser-live-trace-start.jpg) (SHA-256
+`faf642b9b51edd3bd4cfd338d89e9e1b47709073816f863a00e705284e9450e2`) and [browser-live-trace-5min.jpg](browser-live-trace-5min.jpg)
+(SHA-256 `bb6c897239cfbb2b8925e12b245d06ea12b65899840fa7faacebd6ed7c63f51a`).
+
+**Limits:** these are the app's rolling counters as displayed, not an exported per-chunk trace.
+They cover one browser on one desktop, not Android. Screen scan-out is not measured, as the log
+itself says.

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Docs: live latency measured in the browser
+
+`docs/certification/m1.2/` records five minutes of live KTLX in the browser version. From a
+radar chunk's arrival to the GPU finishing the frame took 58 ms typically and 72 ms at the
+95th percentile.
+
 ### Docs: loop exports repeat exactly with a basemap
 
 `docs/certification/m6.3/` adds two runs of the same archived `--watch` loop over the dark

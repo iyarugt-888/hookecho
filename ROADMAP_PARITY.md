@@ -608,6 +608,14 @@ The dominant cost is decoding the whole volume. The 2D path after binning adds a
 
 Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,560 passed. The one failure was `wasm_clock` catching this test's `std::time::Instant`; it now uses `wxdata::clock::Instant`, and the guard and the trace pass on rerun (`target/parity-review/m1.2/a3-*.log`).
 
+**Evidence ledger — 2026-10-10, increment 3 (a live chunk-stream trace in the running app; 1008.md A3):** the browser build on WebGPU streamed KTLX live (Unidata chunks, progressive radials, cuts 1–8 of VCP 35) with Analyst mode on. Over about 5 minutes the Analyst log's `LiveQueueTimings` read, over 42 live chunks:
+
+- receipt → GPU queue: p50 48 / p95 65 ms;
+- receipt → GPU done: p50 58 / p95 72 ms;
+- decode 37 ms; ingest lag 1 s; frame build p50 3.4 / p95 3.7 ms.
+
+One NWS warning gave A1's received → drawn stage in a running session: 39 s sent → seen, 0.01 s to drawn, one sample. These are rolling counters as displayed, not an exported trace ([`docs/certification/m1.2/`](docs/certification/m1.2/README.md), `bb6c8972…`). Open: an Android trace, screen scan-out, and a desktop-app live trace.
+
 #### M1.3 — Prove source failover under severe-weather load
 
 **Priority:** P0. **Depends on:** M0.3, M1.1, M1.2. **Original references:** ROADMAP_2 §§1.3, 3; ROADMAP_NEW §B6.
