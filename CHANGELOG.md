@@ -8,12 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
-### Added: crossfade between MRMS and model frames
+### Added: crossfade between MRMS, model and satellite frames
 
-A new setting, "Crossfade MRMS and model layers between frames", fades a continuous layer's
-next frame in over the last one for a quarter second instead of switching at once. Only the
-picture fades: probes and exports read the new frame. Categories such as precipitation type
-always switch at once.
+A new setting, "Crossfade MRMS, model and satellite layers between frames", fades a continuous
+layer's next frame in over the last one for a quarter second instead of switching at once,
+including each scan of a satellite loop. Only the picture fades: probes and exports read the
+new frame. Categories such as precipitation type, and satellite RGB composites, always switch
+at once.
 
 ### Fixed: ECMWF forecasts to day 15, without repeated frames
 

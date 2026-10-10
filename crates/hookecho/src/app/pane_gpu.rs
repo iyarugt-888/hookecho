@@ -233,6 +233,9 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        for (layer, _) in &field_uploads {
+            *self.field_upload_count.entry(*layer).or_default() += 1;
+        }
         if first && self.model_palette_gen != self.palettes.gen {
             let uploads: Vec<_> = self
                 .model_fields
@@ -364,12 +367,24 @@ impl HookEchoApp {
                     .iter()
                     .map(|&(layer, key)| (layer, crate::render::FieldTexture::Mrms(key))),
             )
+            .chain(
+                field_draws
+                    .iter()
+                    .filter(|(layer, _)| super::sat_loop::goes_layer_band(*layer).is_some())
+                    .filter_map(|(layer, _)| {
+                        let count = *self.field_upload_count.get(layer)?;
+                        Some((*layer, crate::render::FieldTexture::Layer(*layer, count)))
+                    }),
+            )
             .filter(|(layer, _)| field_draws.iter().any(|(drawn, _)| drawn == layer))
             .collect();
         let field_fades = crate::field_fade::advance(
             &mut self.views[idx].field_fade,
             &textures,
-            crate::field_fade::eligible,
+            |layer| {
+                crate::field_fade::eligible(layer)
+                    || super::sat_loop::goes_layer_band(layer).is_some()
+            },
             self.settings.field_crossfade,
             wxdata::clock::Instant::now(),
         );

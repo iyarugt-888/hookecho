@@ -142,4 +142,19 @@ mod tests {
         let mrms = FieldTexture::Mrms(MrmsTextureKey(1));
         assert_ne!(mrms, model(1), "the two caches are separate namespaces");
     }
+
+    /// A per-layer (GOES) texture is told apart by its upload count: the next upload fades in.
+    #[test]
+    fn a_per_layer_texture_fades_when_its_upload_count_moves() {
+        let ir = FieldLayer::GoesIr;
+        let mut s = FadeState::default();
+        let t0 = Instant::now();
+        let all = |_| true;
+        advance(&mut s, &[(ir, FieldTexture::Layer(ir, 1))], all, true, t0);
+        assert!(advance(&mut s, &[(ir, FieldTexture::Layer(ir, 1))], all, true, t0).is_empty());
+        assert_eq!(
+            advance(&mut s, &[(ir, FieldTexture::Layer(ir, 2))], all, true, t0),
+            [(ir, FieldTexture::Layer(ir, 1), 0.0)]
+        );
+    }
 }

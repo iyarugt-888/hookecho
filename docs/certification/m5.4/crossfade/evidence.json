@@ -80,6 +80,36 @@
       ],
       "name": "fade-back-050",
       "sha256": "d6f5f97bf837b213cffb036e3560af4d47f29fc41a887859d1a2fd8fbd980d3e"
+    },
+    {
+      "center_rgba": [
+        255,
+        0,
+        0,
+        255
+      ],
+      "name": "goes-first-upload",
+      "sha256": "9ef3ceeff067e7f472009e89beacda467106289b96c5217dc24ccb493b759f2c"
+    },
+    {
+      "center_rgba": [
+        188,
+        0,
+        187,
+        255
+      ],
+      "name": "goes-fade-050",
+      "sha256": "f4ac32184d90bcf7629207d286ba14c79244434547ad6db4157e193634ae806c"
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "goes-new-frame",
+      "sha256": "2e330971d580960b922431c46d1f8d835c5183bcaf615d6ea1ceedc0bc9cd4b2"
     }
   ],
   "size": 160

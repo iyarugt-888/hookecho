@@ -559,6 +559,7 @@ impl HookEchoApp {
             model_fields: model_cache::ModelFieldCache::default(),
             model_palette_gen: 0,
             model_drop_textures: Vec::new(),
+            field_upload_count: std::collections::HashMap::new(),
             mrms_fields: mrms_cache::MrmsFieldCache::default(),
             mrms_palette_gen: 0,
             mrms_drop_textures: Vec::new(),

@@ -1765,6 +1765,8 @@ pub struct HookEchoApp {
     model_fields: model_cache::ModelFieldCache,
     model_palette_gen: u64,
     model_drop_textures: Vec<crate::render::ModelTextureKey>,
+    /// How many times each per-layer (GOES) texture has been uploaded; a crossfade's frame id.
+    field_upload_count: std::collections::HashMap<crate::render::FieldLayer, u64>,
     mrms_fields: mrms_cache::MrmsFieldCache,
     mrms_palette_gen: u64,
     mrms_drop_textures: Vec<crate::render::MrmsTextureKey>,

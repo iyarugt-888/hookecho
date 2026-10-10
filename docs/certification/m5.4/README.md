@@ -145,7 +145,7 @@ and the nearest scan is used instead, as before.
 
 # Crossfade between field frames (1008.md E2, increment 3)
 
-A new setting, **Crossfade MRMS and model layers between frames** (off by default), fades a
+A new setting, **Crossfade MRMS, model and satellite layers between frames** (off by default), fades a
 continuous layer's new frame in over the old one for 250 ms instead of switching at once
 (`crate::field_fade`).
 
@@ -175,7 +175,7 @@ path. Each capture is 160×160; the value is the centre pixel.
 | [previous-evicted](previous-evicted.png) | (0, 0, 255, 255) | `ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0` |
 | [fade-back-050](fade-back-050.png) | (187, 0, 188, 255) | `c90ef3c0c559209ce239e221c270e4995d7f472036d4af5942ad3e7bafb772d7` |
 
-[evidence.json](evidence.json) SHA-256 `89c29ddb7cf3630e4d254d40770776c93c1b18f5e84cc8c01874fc6883deb182`.
+[evidence.json](evidence.json) SHA-256 `5d9ce4eacddb1353ef2801e38cd187da2f72a259d1f2ba20b453e495aac262c7` (rewritten by the satellite run below; the eight captures above are byte-identical).
 
 Red fades to blue in linear light, so the halfway mix is 188/187 in sRGB, not 128. Alpha stays
 255 throughout, so the map never shows through mid-fade.
@@ -184,4 +184,26 @@ Red fades to blue in linear light, so the halfway mix is 188/187 in sRGB, not 12
 
 - No interactive session with the setting on, and no capture of a real MRMS or model sequence.
 - No GPU cost measurement: a fading layer is drawn twice for 250 ms.
-- Satellite (GOES) layers are drawn by another path and do not fade. Observations do not fade.
+- Observations do not fade.
+
+## Satellite layers (increment 4)
+
+The GOES layers are drawn from one texture per layer, which each new scan replaces, so before
+this they could not fade. The renderer now keeps the texture a layer's latest upload replaced
+(`fields_replaced`). The app counts each layer's uploads, so its fade tracker sees the frame
+change (`FieldTexture::Layer(layer, count)`).
+
+- **Eligible:** one ABI band's values (`goes_layer_band`), including the band-13 cold-top
+  layer.
+- **Never faded:** RGB composites, the dust split-window difference and the cooling rate.
+- Applies to a satellite loop's frames as well as ordinary scan changes.
+
+The same GPU control adds three captures:
+
+| Capture | Centre RGBA | SHA-256 |
+| --- | --- | --- |
+| [goes-first-upload](goes-first-upload.png) | (255, 0, 0, 255) | `c5746ed6429e01547950d6ba70344eb39dccc160939a49c6c16781d7b39f6fef` |
+| [goes-fade-050](goes-fade-050.png) | (188, 0, 187, 255) | `7f46d0a09b635461791ce4df245e354e50e83db21a9e8089948af64f9511fd62` |
+| [goes-new-frame](goes-new-frame.png) | (0, 0, 255, 255) | `ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0` |
+
+A first upload has replaced nothing, so even a fade asked for draws it in full.

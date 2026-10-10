@@ -932,12 +932,16 @@ pub struct ModelTextureKey(pub(crate) u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MrmsTextureKey(pub(crate) u64);
 
-/// A resident field texture in either keyed cache: what a crossfade draws under a layer's new
-/// frame (`crate::field_fade`).
+/// A field texture a crossfade can draw under a layer's new frame (`crate::field_fade`): one in
+/// either keyed cache, or a per-layer upload (the GOES layers) by the app's count of that layer's
+/// uploads. The renderer keeps one replaced per-layer texture, the one from before the layer's
+/// latest upload, and draws that for `Layer` whatever the count; the count only lets the app see
+/// that the frame changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldTexture {
     Model(ModelTextureKey),
     Mrms(MrmsTextureKey),
+    Layer(FieldLayer, u64),
 }
 
 /// Per-frame draw instructions handed to the render callback.
@@ -1334,6 +1338,8 @@ pub struct RenderResources {
     vector_tiles: HashMap<TileId, OverlayGpu>,
     overlay: Option<OverlayGpu>,
     fields: HashMap<FieldLayer, MrmsGpu>,
+    /// The per-layer texture each layer's latest upload replaced, kept for a crossfade.
+    fields_replaced: HashMap<FieldLayer, MrmsGpu>,
     model_fields: HashMap<ModelTextureKey, MrmsGpu>,
     mrms_fields: HashMap<MrmsTextureKey, MrmsGpu>,
     // One entry per live pane.
@@ -1740,6 +1746,7 @@ impl RenderResources {
             vector_tiles: HashMap::new(),
             overlay: None,
             fields: HashMap::new(),
+            fields_replaced: HashMap::new(),
             model_fields: HashMap::new(),
             mrms_fields: HashMap::new(),
             panes: HashMap::new(),
@@ -2427,6 +2434,7 @@ impl RenderResources {
         // here, before any drawing.
         for layer in &cb.drop_fields {
             self.fields.remove(layer);
+            self.fields_replaced.remove(layer);
         }
         for key in &cb.drop_model_fields {
             self.model_fields.remove(key);
@@ -2444,7 +2452,9 @@ impl RenderResources {
         }
         for (layer, up) in &cb.field_uploads {
             let gpu = self.build_field_layer(device, queue, up);
-            self.fields.insert(*layer, gpu);
+            if let Some(replaced) = self.fields.insert(*layer, gpu) {
+                self.fields_replaced.insert(*layer, replaced);
+            }
         }
         // Draw only requested layers that actually have GPU data. The 4-byte opacity write targets
         // a field-per-pane uniform: all prepares run before any paint, so one shared field uniform
@@ -2463,6 +2473,7 @@ impl RenderResources {
                     let previous = match from {
                         FieldTexture::Model(key) => self.model_fields.get_mut(&key),
                         FieldTexture::Mrms(key) => self.mrms_fields.get_mut(&key),
+                        FieldTexture::Layer(layer, _) => self.fields_replaced.get_mut(&layer),
                     }?;
                     write_pane_field(previous, cb.pane, *layer, *opacity, device, queue, mrms_bgl);
                     Some((from, share.clamp(0.0, 1.0)))
@@ -2728,6 +2739,7 @@ impl RenderResources {
         if let Some(previous) = pane.field_fades.get(&layer).and_then(|from| match from {
             FieldTexture::Model(key) => self.model_fields.get(key),
             FieldTexture::Mrms(key) => self.mrms_fields.get(key),
+            FieldTexture::Layer(layer, _) => self.fields_replaced.get(layer),
         }) {
             paint(previous, pass);
         }

@@ -1050,7 +1050,7 @@ pub struct Settings {
     pub blend_frames: bool,
     /// Fade a continuous field layer's new frame in over the old one for a quarter second
     /// (`crate::field_fade`), instead of switching at once. Visual only: probes and exports read
-    /// the new frame. Categories never fade. Off by default.
+    /// the new frame. Categories and satellite RGB composites never fade. Off by default.
     #[serde(default)]
     pub field_crossfade: bool,
     /// Percent of the wind particles drawn, set by the quality profile (`crate::quality`).

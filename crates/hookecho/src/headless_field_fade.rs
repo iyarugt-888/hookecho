@@ -155,6 +155,39 @@ fn gpu_a_new_field_frame_fades_in_over_the_old_one() {
     let back = capture("fade-back-050", &resources);
     assert!(back[0].abs_diff(back[2]) <= 2, "{back:?}");
 
+    // A per-layer texture (a GOES band): its next upload replaces it, and the replaced texture
+    // is what stays under the new one while it fades in.
+    let goes = |upload: Option<crate::render::MrmsUpload>, fade: Option<(u64, f32)>| {
+        let mut cb = mrms_panes_callback(old);
+        cb.mrms_fields.clear();
+        cb.field_uploads = upload
+            .map(|u| (FieldLayer::GoesIr, u))
+            .into_iter()
+            .collect();
+        cb.field_draws = vec![(FieldLayer::GoesIr, 1.0)];
+        cb.field_fades = fade
+            .map(|(count, share)| {
+                (
+                    FieldLayer::GoesIr,
+                    FieldTexture::Layer(FieldLayer::GoesIr, count),
+                    share,
+                )
+            })
+            .into_iter()
+            .collect();
+        cb
+    };
+    // The first upload has replaced nothing, so even a fade asked for draws it in full.
+    let first_goes = goes(Some(upload([255, 0, 0, 255])), Some((0, 0.5)));
+    resources.prepare_pane(&device, &queue, &first_goes);
+    assert_eq!(capture("goes-first-upload", &resources), [255, 0, 0, 255]);
+    let next_goes = goes(Some(upload([0, 0, 255, 255])), Some((1, 0.5)));
+    resources.prepare_pane(&device, &queue, &next_goes);
+    let mid = capture("goes-fade-050", &resources);
+    assert!(mid[0].abs_diff(mid[2]) <= 2 && mid[0] > 150, "{mid:?}");
+    resources.prepare_pane(&device, &queue, &goes(None, None));
+    assert_eq!(capture("goes-new-frame", &resources), [0, 0, 255, 255]);
+
     std::fs::write(
         destination.join("evidence.json"),
         serde_json::to_string_pretty(&serde_json::json!({

@@ -1735,6 +1735,13 @@ Tests: `field_fade` (3). **GPU** (`gpu_a_new_field_frame_fades_in_over_the_old_o
 - The GPU cost of the double draw.
 - GOES layers and observations.
 
+**Evidence ledger — 2026-10-10, increment 5 (satellite frames crossfade; 1008.md E2):** GOES layers are drawn from one texture per layer, which each scan replaces. The renderer now keeps the replaced texture (`fields_replaced`, freed with the layer), and `FieldTexture::Layer(layer, count)` names it by the app's count of that layer's uploads (`field_upload_count`), so the fade tracker sees each new scan, including a satellite loop's frames. Eligibility:
+
+- Faded: one ABI band's values (`goes_layer_band`).
+- Never faded: RGB composites, the dust difference and the cooling rate.
+
+The setting is now **Crossfade MRMS, model and satellite layers between frames**. Tests: `a_per_layer_texture_fades_when_its_upload_count_moves`. In the GPU control (same run, NVIDIA GeForce RTX 2060), a GOES band replaced red→blue at share 0.5 gives [188, 0, 187], and a first upload with nothing replaced draws in full ([`docs/certification/m5.4/crossfade/`](docs/certification/m5.4/README.md)). Checks: clippy, wasm, workspace tests (2,585 passed, 0 failed, 202 ignored) in `target/parity-review/m5.4/e2g-*.log`. Open: an interactive satellite loop with the setting on, and observations.
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output
