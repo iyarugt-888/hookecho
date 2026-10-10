@@ -10,8 +10,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-10T20:39:59+00:00 from commit
-`b897eb6f1aea` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-10T20:54:14+00:00 from commit
+`fc0dbc58a004` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -45,7 +45,7 @@ ledger records a physical-device run.
 | M3.3 | Render and export column-based products | C4 | 4 | 2026-10-06 | [m3.3/](m3.3/) |
 | M3.4 | Preserve physical extrema while aging trails | C1 | 6 | 2026-10-09 | [m3.4/](m3.4/) |
 | M3.5 | Add translucent volume rendering and richer surfaces | C2 | 4 | 2026-10-09 | [m3.5/](m3.5/) |
-| M3.6 | Link storm-centered 3D, slices, and measurement | C5 | 10 | 2026-10-10 | [m3.6/](m3.6/) |
+| M3.6 | Link storm-centered 3D, slices, and measurement | C5 | 11 | 2026-10-10 | [m3.6/](m3.6/) |
 | M4.1 | Introduce independent GIS layers and groups | D3 | 1 | 2026-10-06 | — |
 | M4.2 | Complete native imports with shapefile bundles | D1 | 6 | 2026-10-09 | [m4.2/](m4.2/) |
 | M4.3 | Finish styling, feature inspection, and filtering | D2 | 8 | 2026-10-09 | [m4.3/](m4.3/) |
