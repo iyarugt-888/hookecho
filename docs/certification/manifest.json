@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T15:25:34+00:00",
-  "generated_from_commit": "b66c0e884f4dd4dcef1d62437648a6c3f19a5827",
+  "generated_utc": "2026-10-10T15:35:42+00:00",
+  "generated_from_commit": "765b6b4244d5464ff8aee93bcba2cb87d8dbe3f7",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -201,7 +201,7 @@
     {
       "card": "M5.3",
       "title": "Broaden field inspection within supported models",
-      "ledger_entries": 12,
+      "ledger_entries": 13,
       "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (regional inventory discovery and a discovered-field layer, increment 1; GFS, increment 2; browsed winds as barbs, increment 5; ECMWF, increment 6); verification: partial (unit on real `.idx` lines; live HRRR inventory and field; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.3"
@@ -209,7 +209,7 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 5,
+      "ledger_entries": 6,
       "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
@@ -1356,6 +1356,41 @@
       "path": "docs/certification/spatial-groups.md",
       "sha256": "b4d05df6fdd7a8194333101edab3345255e251789837c1454766e99fec7b913c",
       "bytes": 5430
+    },
+    {
+      "path": "docs/certification/web-walk/boot-ktlx.jpg",
+      "sha256": "b7364b211b6d6ad524d5a598187b47b4dbafd6abb95dfdf212993e2456c9dbc6",
+      "bytes": 114694
+    },
+    {
+      "path": "docs/certification/web-walk/build.log",
+      "sha256": "025ee3d9ee13a1e22a2ab0778f5d8c705f6aa234d3487c482711ea19b13a6a58",
+      "bytes": 3616
+    },
+    {
+      "path": "docs/certification/web-walk/crossfade-setting.jpg",
+      "sha256": "f8df3aaa091619e583bee9a5c11b376a13f897c62d0655f943bada3d7e4a1de2",
+      "bytes": 88160
+    },
+    {
+      "path": "docs/certification/web-walk/ecmwf-f354.png",
+      "sha256": "f74bf303cf11b3f63279765c549162aacf58bcbc194f678d87b0705228a073ad",
+      "bytes": 14175
+    },
+    {
+      "path": "docs/certification/web-walk/ecmwf-f360.jpg",
+      "sha256": "63ccf0c3df6e08564c14040384ed69969dfe629c152118ad2da2f09f0967a34d",
+      "bytes": 108470
+    },
+    {
+      "path": "docs/certification/web-walk/ecmwf-runs.jpg",
+      "sha256": "8fe528f385976d0d185ed255d8f6c43284fe85dc4c7d02d0ed42c4af3192b93f",
+      "bytes": 111591
+    },
+    {
+      "path": "docs/certification/web-walk/README.md",
+      "sha256": "d335c0b1003d7a5cbb12d6dbdd659e334eeace243d5404439962e49d59db14ca",
+      "bytes": 3792
     }
   ]
 }
