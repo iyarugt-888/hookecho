@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T20:01:25+00:00",
-  "generated_from_commit": "090aaf2bce8cacb0ae41f53db727e4c0a88eda8e",
+  "generated_utc": "2026-10-10T20:07:09+00:00",
+  "generated_from_commit": "fd96487651e0b796ee6d577d228efe1cded7b15c",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -233,8 +233,8 @@
     {
       "card": "M6.3",
       "title": "Harden deterministic capture and archive output",
-      "ledger_entries": 3,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 4,
+      "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (capture manifest, increment 1); verification: partial (unit; no repeat-run or sustained capture).",
       "evidence_dir": "docs/certification/m6.3"
     },
@@ -1288,9 +1288,24 @@
       "bytes": 1464
     },
     {
+      "path": "docs/certification/m6.3/moore-dark-a.gif",
+      "sha256": "b822df49a800d3fd72a418d75711897b8d6bd389712ba75e26e3e203bef80828",
+      "bytes": 335455
+    },
+    {
+      "path": "docs/certification/m6.3/moore-dark-a.json",
+      "sha256": "b4ec340d4ebebec08b6794256f0ed238cbf4b145074d1b70068fb1f7d6a806eb",
+      "bytes": 1464
+    },
+    {
+      "path": "docs/certification/m6.3/moore-dark-b.json",
+      "sha256": "8998320023b64f2663f4584caa7e88d40df32c1cf4418284d3c12da5b9f47af2",
+      "bytes": 1464
+    },
+    {
       "path": "docs/certification/m6.3/README.md",
-      "sha256": "42ab53e325278c7a23cdf4c5ff62e1418324e7577772bbe3afad69a84359be36",
-      "bytes": 1505
+      "sha256": "34a5510549172aa6af6fa2cf9676404f7168489bd66e269e2294ec6ef5cf337f",
+      "bytes": 2518
     },
     {
       "path": "docs/certification/m6.4/output-restored.png",
