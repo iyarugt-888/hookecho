@@ -184,7 +184,7 @@ Red fades to blue in linear light, so the halfway mix is 188/187 in sRGB, not 12
 
 - No interactive session with the setting on, and no capture of a real MRMS or model sequence.
 - No GPU cost measurement: a fading layer is drawn twice for 250 ms.
-- Observations do not fade.
+- Station observations (point reports) do not fade; the RTMA analyses do (increment 6).
 
 ## Satellite layers (increment 4)
 
@@ -207,3 +207,18 @@ The same GPU control adds three captures:
 | [goes-new-frame](goes-new-frame.png) | (0, 0, 255, 255) | `ede251ea87dc3b46626ea7b7a097a3939df0675a7ebd799e954a52fb95a968e0` |
 
 A first upload has replaced nothing, so even a fade asked for draws it in full.
+
+## Observation analyses (increment 6)
+
+The RTMA layers are gridded analyses of observations. They are drawn through the model texture
+cache, so they could already fade, but they carry no field descriptor, so they were treated as
+of unknown kind and switched at once. They are now stated as scalars
+(`field_fade::rtma_scalar`): 2 m temperature and dewpoint, 10 m wind and gust, visibility and
+sea-level pressure. Two layers are excluded:
+
+- **Hourly precipitation:** an accumulation.
+- **Ceiling:** "no ceiling" is stored as a very large height. That is a class rather than a
+  value, and a fade into it would draw heights nobody reported.
+
+Station plots (METAR and mesonet reports) are discrete reports at points. They are not
+interpolated or faded between times.

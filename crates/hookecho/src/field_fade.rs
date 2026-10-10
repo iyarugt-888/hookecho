@@ -35,6 +35,23 @@ pub fn eligible(layer: FieldLayer) -> bool {
     layer
         .descriptor()
         .is_some_and(|d| matches!(d.value_kind, ValueKind::Scalar | ValueKind::Probability))
+        || rtma_scalar(layer)
+}
+
+/// The RTMA observation analyses that are scalars. They carry no field descriptor, so their kind
+/// is stated here. Not the hourly precipitation (an accumulation), and not the ceiling: "no
+/// ceiling" is stored as a very large height, a class rather than a value, and a fade into it
+/// would draw heights nobody reported.
+fn rtma_scalar(layer: FieldLayer) -> bool {
+    matches!(
+        layer,
+        FieldLayer::RtmaTemp2m
+            | FieldLayer::RtmaDewpoint2m
+            | FieldLayer::RtmaWind10m
+            | FieldLayer::RtmaGust10m
+            | FieldLayer::RtmaVisibility
+            | FieldLayer::RtmaMslp
+    )
 }
 
 /// Record the textures `current` this frame draws and return the fades to draw:
@@ -139,6 +156,12 @@ mod tests {
             !eligible(FieldLayer::ModelField),
             "a browsed field's kind is not known"
         );
+        // The RTMA observation analyses: scalars fade; the accumulation and the ceiling, whose
+        // "no ceiling" is a class, do not.
+        assert!(eligible(FieldLayer::RtmaTemp2m));
+        assert!(eligible(FieldLayer::RtmaVisibility));
+        assert!(!eligible(FieldLayer::RtmaPrecip1h));
+        assert!(!eligible(FieldLayer::RtmaCeiling));
         let mrms = FieldTexture::Mrms(MrmsTextureKey(1));
         assert_ne!(mrms, model(1), "the two caches are separate namespaces");
     }

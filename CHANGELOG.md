@@ -19,8 +19,8 @@ not proxied. The wasm bundle is over its size budget.
 A new setting, "Crossfade MRMS, model and satellite layers between frames", fades a continuous
 layer's next frame in over the last one for a quarter second instead of switching at once,
 including each scan of a satellite loop. Only the picture fades: probes and exports read the
-new frame. Categories such as precipitation type, and satellite RGB composites, always switch
-at once.
+new frame. RTMA observation analyses fade too, except hourly precipitation and ceiling.
+Categories such as precipitation type, and satellite RGB composites, always switch at once.
 
 ### Fixed: ECMWF forecasts to day 15, without repeated frames
 

@@ -1746,6 +1746,8 @@ The setting is now **Crossfade MRMS, model and satellite layers between frames**
 
 **Evidence ledger — 2026-10-10, browser walkthrough (1008.md E2):** in the browser build (WebGPU, `f1ac066`), Preferences → Data age shows the crossfade setting, and turning it on is saved (`"field_crossfade": true`). With it on, the MRMS mosaic and the radar loop ran for over a minute with no panic or GPU error. A fade was not caught on screen; the GPU control is the evidence for the blend. **Found:** the wasm bundle, built without `wasm-opt`, is 26.1 MB raw and 6.9 MB gzipped, over its 18 MB and 4.5 MB budgets and 105 KB under Cloudflare's 25 MiB asset limit; the CI (wasm-opt) size was not measured. Evidence: [`docs/certification/web-walk/`](docs/certification/web-walk/README.md).
 
+**Evidence ledger — 2026-10-10, increment 6 (observation analyses crossfade; 1008.md E2):** the RTMA analyses are drawn through the model texture cache but have no field descriptor, so the crossfade treated them as of unknown kind. `field_fade::rtma_scalar` now states which are scalars: temperature, dewpoint, wind, gust, visibility and MSLP. Hourly precipitation (an accumulation) and ceiling (whose "no ceiling" is a class) are excluded. Station plots are discrete point reports and are not interpolated or faded; that closes E2's "observations" as decided, not built. Test: `only_continuous_known_fields_are_eligible` (RTMA cases added). Checks: clippy, wasm, workspace tests (2,585 passed, 0 failed, 202 ignored) in `target/parity-review/m5.4/e2r-*.log`.
+
 ### M6 — Broadcast and external output
 
 #### M6.1 — Separate preview from program output
