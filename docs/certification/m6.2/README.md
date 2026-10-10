@@ -48,4 +48,26 @@ the strap, caption and crawl are unchanged.
 
 - No capture of Take switching tables and annotations in the running app (unit-tested only).
 - The stale-scan badge's move was not captured (the scan was fresh at capture time).
-- Thumbnails; an Android scene surface; legend placement in off-screen renders.
+- An Android scene surface. (Thumbnails: increment 4. Off-screen legend placement: below.)
+
+## The scale's side in off-screen renders (1008.md F1, 2026-10-10)
+
+Off-screen renders always drew their colour scale in the bottom-right corner. `chrome::Stamp`
+now carries `bar_left`. When a render's dressing puts the scale on the left, the bar is drawn at
+the left inset, stacked above the caption (`bar_origin`), and city labels keep clear of it on
+that side. `--watch`, the off-screen path that takes a broadcast dressing, sets it with
+`--legend-left`. The app's own scale-side setting does not reach `--watch`, which builds its
+style from its flags.
+
+Renders: `hookecho --watch --site KTLX --time 2013-05-20T20:08 --once --broadcast [--legend-left]`
+on the RTX 2060, volume `KTLX20130520_200811_V06`.
+
+| Capture | SHA-256 |
+| --- | --- |
+| [offscreen-legend-right.png](offscreen-legend-right.png) | `14b3a69f6d90b2754dda956ccfe782065823fade5f4e0264643ef414edcd9060` |
+| [offscreen-legend-left.png](offscreen-legend-left.png) | `7770034c28d2e91bb8e39117a54c3fc2e293fb96d0467367350e01d128ff610a` |
+
+Test: `chrome::tests::the_bar_sits_on_the_scale_side`. In it, the ramp's coloured pixels fall
+only in the half the side names, the caption is drawn either way, and the space reserved against
+city labels moves with the bar. Also `watch::tests::broadcast_dressing_flags`, which now checks
+`--legend-left`.

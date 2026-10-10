@@ -29,8 +29,10 @@
 //! - **dressed for broadcast** (ROADMAP_NEW M1): `--broadcast` puts a 5 % title-safe margin, a
 //!   clock and a warning crawl on the frame (the crawl only on a frame recent enough for the live
 //!   alert feed to describe it); `--safe-margin PCT`, `--clock`, `--crawl`, `--logo PATH`,
-//!   `--no-legend` and `--no-caption` set them one by one, and `--transparent` renders the radar
-//!   alone over a transparent background (PNG or WebP) for laying over other video.
+//!   `--no-legend`, `--legend-left` (the scale above the caption at the left, as streaming mode
+//!   draws it with the scale on the left) and `--no-caption` set them one by one, and
+//!   `--transparent` renders the radar alone over a transparent background (PNG or WebP) for
+//!   laying over other video.
 //!
 //! Options: `--tilt N`, `--zoom Z`, `--center LON,LAT`, `--basemap SLUG` (`none` for a bare
 //! sweep). NEXRAD only: the other networks publish no volume list to poll or scrub.
@@ -139,7 +141,7 @@ pub fn parse_args(
         match a.as_str() {
             "--once" => once = true,
             "--broadcast" | "--clock" | "--crawl" | "--no-legend" | "--no-caption"
-            | "--transparent" => {
+            | "--legend-left" | "--transparent" => {
                 switches.insert(a.trim_start_matches("--").to_string());
             }
             f if f.starts_with("--") => {
@@ -266,6 +268,9 @@ pub fn parse_args(
         style.clock |= on("clock");
         style.crawl |= on("crawl");
         style.legend &= !on("no-legend");
+        if on("legend-left") {
+            style.legend_side = crate::broadcast::LegendSide::Left;
+        }
         style.caption &= !on("no-caption");
         if let Some(path) = get("logo") {
             anyhow::ensure!(Path::new(path).is_file(), "--logo {path}: no such file");
@@ -726,6 +731,14 @@ mod tests {
         let d = j.dress.unwrap();
         assert!(d.style.clock && d.style.crawl && !d.style.legend && d.style.caption);
         assert_eq!(d.style.safe_margin_pct, 5.0);
+        assert_eq!(d.style.legend_side, crate::broadcast::LegendSide::Right);
+        let j = parse_args(&args("--site KTLX --out r.png --legend-left"), &[]).unwrap();
+        let d = j.dress.unwrap();
+        assert_eq!(d.style.legend_side, crate::broadcast::LegendSide::Left);
+        assert!(
+            d.style.legend,
+            "the scale is still drawn, on the other side"
+        );
         let j = parse_args(
             &args("--site KTLX --out r.webp --safe-margin 8 --clock --transparent"),
             &[],

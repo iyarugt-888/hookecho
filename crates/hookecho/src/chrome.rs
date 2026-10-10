@@ -49,6 +49,10 @@ pub struct Stamp {
     pub crawl: Option<String>,
     /// A logo for the top-left corner, drawn at up to 9 % of the frame's height.
     pub logo: Option<image::RgbaImage>,
+    /// Draw the bar at the left, stacked above the caption, instead of above the bottom-right
+    /// corner: the broadcast scale's side (`Broadcast::legend_side`), so an off-screen render
+    /// puts its key where the streamed and output-window pictures do.
+    pub bar_left: bool,
 }
 
 /// The buffer being painted into: an RGBA8 image and its dimensions, kept together so the
@@ -114,8 +118,10 @@ pub fn draw(rgba: &mut [u8], w: u32, h: u32, stamp: &Stamp) {
         }
         None => h as f32 - inset,
     };
+    let mut caption_h = 0.0;
     if !stamp.caption.is_empty() {
         let size = text_size(&mut fonts, &stamp.caption, caption_px);
+        caption_h = size.1;
         text(
             canvas,
             &mut fonts,
@@ -128,7 +134,8 @@ pub fn draw(rgba: &mut [u8], w: u32, h: u32, stamp: &Stamp) {
     }
 
     if let Some(bar) = &stamp.bar {
-        draw_bar(canvas, &mut fonts, bar, scale, inset, bottom);
+        let (x0, y1) = bar_origin(w as f32, scale, inset, bottom, caption_h, stamp.bar_left);
+        draw_bar(canvas, &mut fonts, bar, scale, x0, y1);
     }
     if let Some((time, sub)) = &stamp.clock {
         draw_clock(canvas, &mut fonts, time, sub, inset, scale);
@@ -149,19 +156,16 @@ fn reserved(fonts: &mut Fonts, w: f32, h: f32, stamp: &Stamp, scale: f32) -> Vec
         boxes.push([inset, bottom - band_h, w - inset, bottom]);
         bottom -= band_h + 6.0 * scale;
     }
+    let mut caption_h = 0.0;
     if !stamp.caption.is_empty() {
         let (cw, ch) = text_size(fonts, &stamp.caption, CAPTION_PX * scale);
+        caption_h = ch;
         boxes.push([inset, bottom - ch, inset + cw, bottom]);
     }
     if stamp.bar.is_some() {
-        let bar_w = (w * 0.32).min(360.0 * scale);
+        let (x0, y1) = bar_origin(w, scale, inset, bottom, caption_h, stamp.bar_left);
         let tick_h = text_size(fonts, "0", 11.0 * scale).1;
-        boxes.push([
-            w - inset - bar_w,
-            bottom - 12.0 * scale - tick_h,
-            w - inset,
-            bottom,
-        ]);
+        boxes.push([x0, y1 - 12.0 * scale - tick_h, x0 + bar_width(w, scale), y1]);
     }
     if let Some((time, sub)) = &stamp.clock {
         let t = text_size(fonts, time, 30.0 * scale);
@@ -297,23 +301,46 @@ fn draw_logo(c: &mut Canvas<'_>, logo: &image::RgbaImage, inset: f32) {
     }
 }
 
-/// The moment's color scale as a horizontal ramp above the bottom-right corner, with its ends
-/// labelled. Sampled from the same [`ColorTable`] the shader's LUT is baked from, so the picture
-/// and its key cannot drift apart.
-fn draw_bar(c: &mut Canvas<'_>, fonts: &mut Fonts, bar: &Bar, scale: f32, inset: f32, bottom: f32) {
-    let (w, h) = (c.w, c.h);
+fn bar_width(w: f32, scale: f32) -> f32 {
+    (w * 0.32).min(360.0 * scale)
+}
+
+/// Where the bar's left edge and baseline go: above the bottom-right corner, or at the left
+/// inset stacked above the caption (`Stamp::bar_left`).
+fn bar_origin(
+    w: f32,
+    scale: f32,
+    inset: f32,
+    bottom: f32,
+    caption_h: f32,
+    left: bool,
+) -> (f32, f32) {
+    if left {
+        let above_caption = if caption_h > 0.0 {
+            caption_h + 6.0 * scale
+        } else {
+            0.0
+        };
+        (inset, bottom - above_caption)
+    } else {
+        (w - inset - bar_width(w, scale), bottom)
+    }
+}
+
+/// The moment's color scale as a horizontal ramp with its ends labelled, its left edge at `x0`
+/// and its baseline at `y1` ([`bar_origin`]). Sampled from the same [`ColorTable`] the shader's
+/// LUT is baked from, so the picture and its key cannot drift apart.
+fn draw_bar(c: &mut Canvas<'_>, fonts: &mut Fonts, bar: &Bar, scale: f32, x0: f32, y1: f32) {
+    let w = c.w;
     let (Some(first), Some(last)) = (bar.table.stops.first(), bar.table.stops.last()) else {
         return;
     };
     let (vmin, vmax) = (first.value, last.value);
     let span = (vmax - vmin).max(f32::EPSILON);
 
-    let _ = h;
     let bar_h = 10.0 * scale;
-    let bar_w = (w as f32 * 0.32).min(360.0 * scale);
-    let x1 = w as f32 - inset;
-    let x0 = x1 - bar_w;
-    let y1 = bottom;
+    let bar_w = bar_width(w as f32, scale);
+    let x1 = x0 + bar_w;
     let y0 = y1 - bar_h;
 
     for px in 0..bar_w as u32 {
@@ -516,6 +543,62 @@ mod tests {
             .filter(|&(x, y)| px(x, y)[3] > 0)
             .count();
         assert!(lit > 50, "no clock");
+    }
+
+    /// The bar follows the broadcast scale's side: above the bottom-right corner by default, at
+    /// the left above the caption when `bar_left`, and the caption stays where it was.
+    #[test]
+    fn the_bar_sits_on_the_scale_side() {
+        let (w, h) = (640u32, 360u32);
+        let table = crate::colormap::default_table(wxdata::level2::Moment::Reflectivity);
+        let render = |bar_left: bool| {
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            let stamp = Stamp {
+                caption: "KTLX · REF 0.5°".into(),
+                bar: Some(Bar {
+                    table: table.clone(),
+                    unit: "dBZ",
+                }),
+                bar_left,
+                ..Default::default()
+            };
+            draw(&mut rgba, w, h, &stamp);
+            let mut fonts = Fonts::new(TextOptions::default(), crate::fonts::base());
+            let taken = reserved(&mut fonts, w as f32, h as f32, &stamp, 0.7);
+            (rgba, taken)
+        };
+        // Coloured (not grey text) pixels in a box: the ramp itself.
+        let ramp = |rgba: &[u8], x0: u32, x1: u32, y0: u32, y1: u32| {
+            (x0..x1)
+                .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+                .filter(|&(x, y)| {
+                    let i = ((y * w + x) * 4) as usize;
+                    let (r, g, b) = (rgba[i] as i32, rgba[i + 1] as i32, rgba[i + 2] as i32);
+                    rgba[i + 3] > 0 && (r - g).abs().max((g - b).abs()) > 40
+                })
+                .count()
+        };
+        let (right, right_taken) = render(false);
+        let (left, left_taken) = render(true);
+        let half = w / 2;
+        assert!(ramp(&right, half, w, h - 60, h) > 200 && ramp(&right, 0, half, 0, h) == 0);
+        assert!(ramp(&left, 0, half, h - 80, h) > 200 && ramp(&left, half, w, 0, h) == 0);
+        // The caption is drawn in both, bottom left, and the left bar stands above it.
+        let caption_row = |rgba: &[u8]| {
+            (h - 30..h)
+                .filter(|&y| ramp(rgba, 0, 1, y, y + 1) == 0)
+                .any(|y| (10..200).any(|x| rgba[((y * w + x) * 4 + 3) as usize] > 0))
+        };
+        assert!(caption_row(&right) && caption_row(&left));
+        // City labels keep clear of the bar on whichever side it is.
+        let hits = |taken: &[[f32; 4]], x: f32, y: f32| {
+            taken
+                .iter()
+                .any(|b| overlaps(b, &[x - 2.0, y - 2.0, x + 2.0, y + 2.0]))
+        };
+        assert!(hits(&right_taken, w as f32 - 60.0, h as f32 - 20.0));
+        assert!(!hits(&left_taken, w as f32 - 60.0, h as f32 - 20.0));
+        assert!(hits(&left_taken, 60.0, h as f32 - 45.0));
     }
 
     /// A city whose name would land on the clock, the caption or the crawl is not drawn; one in

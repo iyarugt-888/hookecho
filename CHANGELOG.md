@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: `--watch --legend-left`
+
+Pictures rendered with `--watch` can put their colour scale at the left, above the caption, as
+streaming mode does with the scale on the left. Without the flag the scale stays in the
+bottom-right corner.
+
 ### Changed: satellite frames decode about twice as fast
 
 GOES frames now decode in about half the time on desktop. A visible or CONUS frame takes about

@@ -581,6 +581,7 @@ pub fn run(
             logo: dress.logo,
             // Set once the frame's final size is known (`render_to_png_stamped`).
             margin: 0.0,
+            bar_left: false,
         }
     });
 
@@ -4569,6 +4570,7 @@ fn render_to_png_stamped(
     let stamp = stamp.map(|mut s| {
         if let Some(d) = &dress {
             s.margin = d.style.margin_px(w as f32, h as f32);
+            s.bar_left = d.style.legend_side == crate::broadcast::LegendSide::Left;
         }
         s
     });

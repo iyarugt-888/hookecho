@@ -1820,6 +1820,8 @@ Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,576 passed (`ta
 - An Android scene surface.
 - Legend placement in off-screen renders.
 
+**Evidence ledger — 2026-10-10, increment 5 (the scale's side in off-screen renders; 1008.md F1):** `chrome::Stamp::bar_left` puts an off-screen render's colour scale at the left inset, stacked above the caption, when its dressing's `Broadcast::legend_side` is Left (`bar_origin`; the label reservations follow it). `--watch --legend-left` sets it. Before this, off-screen renders always drew the bar bottom right. Renders of KTLX 2013-05-20 20:08Z with `--broadcast`, with and without `--legend-left` ([`docs/certification/m6.2/`](docs/certification/m6.2/README.md), `7770034c…`, `14b3a69f…`). Tests: `the_bar_sits_on_the_scale_side`, `broadcast_dressing_flags`. Checks: clippy, wasm, workspace tests (2,588 passed, 0 failed, 203 ignored) in `target/parity-review/m6.2/f1l-*.log`. Open: an Android scene surface, and the thumbnail flow captured in the running app.
+
 #### M6.3 — Harden deterministic capture and archive output
 
 **Priority:** P1. **Depends on:** M0.3, M1.2, M6.2. **Original references:** ROADMAP_2 §§6.2, 6.6, 8.4; ROADMAP_NEW §§M2, M3, M5.
