@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T19:51:20+00:00",
-  "generated_from_commit": "e7f577bef1eb447ecc3a7547ec11254ec0658f05",
+  "generated_utc": "2026-10-10T20:01:25+00:00",
+  "generated_from_commit": "090aaf2bce8cacb0ae41f53db727e4c0a88eda8e",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -145,7 +145,7 @@
     {
       "card": "M3.6",
       "title": "Link storm-centered 3D, slices, and measurement",
-      "ledger_entries": 9,
+      "ledger_entries": 10,
       "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (direct cross-section editing and 3D cut link, increment 1); verification: partial (geometry unit tests; no device interaction).",
       "evidence_dir": "docs/certification/m3.6"
@@ -1048,9 +1048,24 @@
       "bytes": 120586
     },
     {
+      "path": "docs/certification/m3.6/observed-before-region.jpg",
+      "sha256": "c427e400d52fad575eb0eaa151f2b797468ebec89d1ab7990785fbc42c8734e2",
+      "bytes": 123623
+    },
+    {
+      "path": "docs/certification/m3.6/observed-in-region.jpg",
+      "sha256": "edf9d0745514714858fb8037e4710d0637d16b6bd2afb005323b05adeaf17644",
+      "bytes": 120373
+    },
+    {
       "path": "docs/certification/m3.6/README.md",
-      "sha256": "763d0cf2a23c1e02dbdbb28658ad99decbea5a4f5bc7f41a5a5870985f30e3f8",
-      "bytes": 3515
+      "sha256": "56d7bf40ea86993879bc532d445a72c04c8372a4aad535265dfb6577d700264e",
+      "bytes": 5362
+    },
+    {
+      "path": "docs/certification/m3.6/region-notice.jpg",
+      "sha256": "ec8fc3b7b90f783c922fd625a96f212a65579826794fd0c4ce269c55261bc74c",
+      "bytes": 63195
     },
     {
       "path": "docs/certification/m3.6/roi-iso-moore.txt",
