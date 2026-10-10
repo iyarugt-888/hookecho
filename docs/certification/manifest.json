@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T20:07:09+00:00",
-  "generated_from_commit": "fd96487651e0b796ee6d577d228efe1cded7b15c",
+  "generated_utc": "2026-10-10T20:14:42+00:00",
+  "generated_from_commit": "ef297f433c77a4a924d7479ffc5c2d62c090ca4d",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -233,7 +233,7 @@
     {
       "card": "M6.3",
       "title": "Harden deterministic capture and archive output",
-      "ledger_entries": 4,
+      "ledger_entries": 5,
       "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (capture manifest, increment 1); verification: partial (unit; no repeat-run or sustained capture).",
       "evidence_dir": "docs/certification/m6.3"
@@ -1273,6 +1273,31 @@
       "bytes": 4367
     },
     {
+      "path": "docs/certification/m6.3/gpu-left-software-right-crop.png",
+      "sha256": "26af34ca5341ed5df1337a60449021da147782cd740d8591e8f7504b2b9aec62",
+      "bytes": 45074
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-left-software-right-z10.png",
+      "sha256": "1368acb93214901161b7d15a0f8eb509034bbb75ffd2226537c4af53042e21f4",
+      "bytes": 334015
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-vs-software-frame0.png",
+      "sha256": "b6d39fb486e2322ecc41fc9777fabcbae9721f3b3ba8003ac33830fa8120b91c",
+      "bytes": 55142
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-vs-software-z10.txt",
+      "sha256": "d380a7d6c866ab14a2139edce0b49715366b0ad2c7ea707a06c933269ba53dd3",
+      "bytes": 267
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-vs-software.txt",
+      "sha256": "9d101b65f70b14b3db2b62bf36acfad261a096d3b29896aae6274e883832fdc4",
+      "bytes": 627
+    },
+    {
       "path": "docs/certification/m6.3/moore-a.gif",
       "sha256": "333532acf125ff3c901f85942950498f210b332b0b4a404277a5b15081a2cf04",
       "bytes": 112304
@@ -1303,9 +1328,14 @@
       "bytes": 1464
     },
     {
+      "path": "docs/certification/m6.3/moore-dark-sw.json",
+      "sha256": "6bd07e7b509b1edc881bdc737d8c3a65f1b731751d9889a268b9ad69dc508c67",
+      "bytes": 1464
+    },
+    {
       "path": "docs/certification/m6.3/README.md",
-      "sha256": "34a5510549172aa6af6fa2cf9676404f7168489bd66e269e2294ec6ef5cf337f",
-      "bytes": 2518
+      "sha256": "61886df2c94075da0d756f6cb8ae727a47183c251398cd81c4a1fca424193977",
+      "bytes": 5421
     },
     {
       "path": "docs/certification/m6.4/output-restored.png",
