@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Docs: a browser walkthrough
+
+`docs/certification/web-walk/` records the browser build in a WebGPU browser: the crossfade
+setting, ECMWF to F+360, and two findings. HiresW cannot load in the browser, because NOMADS is
+not proxied. The wasm bundle is over its size budget.
+
 ### Added: crossfade between MRMS, model and satellite frames
 
 A new setting, "Crossfade MRMS, model and satellite layers between frames", fades a continuous

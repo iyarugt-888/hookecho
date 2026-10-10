@@ -1667,6 +1667,8 @@ Found and fixed on the way: the browser's lead table ended ECMWF 00/12Z runs at 
 
 Test: `a_browsed_ecmwf_field_scrubs_on_its_own_published_leads`. Every scrub position is checked to be a lead `inventory_lead` maps to itself; F+147 snaps to F+144; the scrub ends at F+360 for a 00Z run; GFS − ECMWF steps the same way. `the_lead_range_follows_the_run` is updated to F+360. Checks: clippy, wasm, workspace tests (2,581 passed, 0 failed, 201 ignored) in `target/parity-review/m5.3/e3s-*.log`. Not exercised interactively.
 
+**Evidence ledger — 2026-10-10, browser walkthrough (1008.md E3):** in the browser build (WebGPU, built-in Chromium, `f1ac066`), the ECMWF run picker lists 00/12Z runs to F+360 and 06/18Z runs to F+144. On the 00Z run the lead reaches F+360, and 2 m temperature loads valid Oct 24, 19:00 CDT, with requested and loaded agreeing; one step back is F+354. **Found:** HiresW cannot load in the browser. NOMADS sends no CORS header and is not in the proxy allowlist; the proxy answers 403 and a direct fetch is blocked. Adding NOMADS changes the proxy's trust boundary, and NOMADS throttles busy addresses, so this is left to the maintainer. Evidence: [`docs/certification/web-walk/`](docs/certification/web-walk/README.md).
+
 #### M5.4 — Unify rendering quality, labels, and transitions
 
 **Priority:** P1. **Depends on:** M1.2, M3.5, M4.3, M5.2. **Original references:** ROADMAP_2 §4; ROADMAP_NEW §§O1–O4, Q2, Q3.
@@ -1741,6 +1743,8 @@ Tests: `field_fade` (3). **GPU** (`gpu_a_new_field_frame_fades_in_over_the_old_o
 - Never faded: RGB composites, the dust difference and the cooling rate.
 
 The setting is now **Crossfade MRMS, model and satellite layers between frames**. Tests: `a_per_layer_texture_fades_when_its_upload_count_moves`. In the GPU control (same run, NVIDIA GeForce RTX 2060), a GOES band replaced red→blue at share 0.5 gives [188, 0, 187], and a first upload with nothing replaced draws in full ([`docs/certification/m5.4/crossfade/`](docs/certification/m5.4/README.md)). Checks: clippy, wasm, workspace tests (2,585 passed, 0 failed, 202 ignored) in `target/parity-review/m5.4/e2g-*.log`. Open: an interactive satellite loop with the setting on, and observations.
+
+**Evidence ledger — 2026-10-10, browser walkthrough (1008.md E2):** in the browser build (WebGPU, `f1ac066`), Preferences → Data age shows the crossfade setting, and turning it on is saved (`"field_crossfade": true`). With it on, the MRMS mosaic and the radar loop ran for over a minute with no panic or GPU error. A fade was not caught on screen; the GPU control is the evidence for the blend. **Found:** the wasm bundle, built without `wasm-opt`, is 26.1 MB raw and 6.9 MB gzipped, over its 18 MB and 4.5 MB budgets and 105 KB under Cloudflare's 25 MiB asset limit; the CI (wasm-opt) size was not measured. Evidence: [`docs/certification/web-walk/`](docs/certification/web-walk/README.md).
 
 ### M6 — Broadcast and external output
 

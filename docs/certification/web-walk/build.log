@@ -1,0 +1,101 @@
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+   Compiling wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+warning: function `total_pages` is never used
+   --> crates\wxdata\src\meteoalarm.rs:606:4
+    |
+606 | fn total_pages(body: &str) -> usize {
+    |    ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wxdata` (lib) generated 1 warning
+warning: unused import: `AtomicBool`
+  --> crates\hookecho\src\tiles.rs:10:25
+   |
+10 | use std::sync::atomic::{AtomicBool, Ordering};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Mutex`
+  --> crates\hookecho\src\tiles.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+
+warning: unused variable: `root`
+ --> crates\hookecho\src\app\frame_end.rs:8:61
+  |
+8 |     pub(crate) fn frame_end(&mut self, ctx: &egui::Context, root: &mut egui::Ui) {
+  |                                                             ^^^^ help: if this is intentional, prefix it with an underscore: `_root`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Clipboard` is never constructed
+   --> crates\hookecho\src\app.rs:803:5
+    |
+801 | pub(crate) enum ShotDest {
+    |                 -------- variant in this enum
+802 |     File(std::path::PathBuf),
+803 |     Clipboard,
+    |     ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `STRIKE_CAP` is never used
+    --> crates\hookecho\src\app.rs:1118:7
+     |
+1118 | const STRIKE_CAP: usize = 20_000;
+     |       ^^^^^^^^^^
+
+warning: field `nwr_pick` is never read
+    --> crates\hookecho\src\app.rs:2015:5
+     |
+1187 | pub struct HookEchoApp {
+     |            ----------- field in this struct
+...
+2015 |     nwr_pick: String,
+     |     ^^^^^^^^
+
+warning: method `nwr_rows` is never used
+    --> crates\hookecho\src\app.rs:4420:8
+     |
+2295 | impl HookEchoApp {
+     | ---------------- method in this implementation
+...
+4420 |     fn nwr_rows(&mut self, ui: &mut egui::Ui) {
+     |        ^^^^^^^^
+
+warning: variant `PlacefileError` is never constructed
+   --> crates\hookecho\src\app\overlay_fetch.rs:142:5
+    |
+  7 | pub(crate) enum OverlayMsg {
+    |                 ---------- variant in this enum
+...
+142 |     PlacefileError(String, String),
+    |     ^^^^^^^^^^^^^^
+
+warning: method `start_loop_export` is never used
+  --> crates\hookecho\src\app\loop_capture.rs:48:19
+   |
+46 | impl HookEchoApp {
+   | ---------------- method in this implementation
+47 |     /// Start a loop export (GIF or MP4): rewind the active timeline and capture every frame.
+48 |     pub(crate) fn start_loop_export(&mut self, format: crate::loopexport::LoopFormat) {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: method `label` is never used
+  --> crates\hookecho\src\dialog.rs:94:8
+   |
+93 | impl ImportKind {
+   | --------------- method in this implementation
+94 |     fn label(self) -> &'static str {
+   |        ^^^^^
+
+warning: `hookecho` (lib) generated 10 warnings (run `cargo fix --lib -p hookecho` to apply 3 suggestions)
+    Finished `web` profile [optimized] target(s) in 4m 46s
+warning: wasm-opt not found (install binaryen) — bundle is ~15% larger than a CI build
+wasm: 26108976 raw, 6882053 gzipped (budget 4500000)
+build.sh: wasm is over the size budget — every byte here is on the critical path for a
+  first-time visitor. Trim it, or raise HOOKECHO_WASM_BUDGET deliberately.
+build exit 1
