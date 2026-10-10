@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: RRFS forecasts
+
+The model browser adds the RRFS, NCEP's new 3 km rapid-refresh model: reflectivity, CAPE,
+helicity and updraft helicity from the 00, 06, 12 and 18Z runs out to 84 hours. It covers the
+last two days, from NOAA's NOMADS server, so it has no archive. Not yet available in the
+browser version.
+
 ### Docs: a browser walkthrough
 
 `docs/certification/web-walk/` records the browser build in a WebGPU browser: the crossfade

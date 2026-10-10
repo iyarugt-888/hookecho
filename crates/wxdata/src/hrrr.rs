@@ -20,6 +20,9 @@ const NBM_BUCKET: &str = "https://noaa-nbm-grib2-pds.s3.amazonaws.com";
 /// `noaa-hiresw-pds` and `noaa-href-pds` do not exist), and NOMADS keeps about two days, so
 /// HiresW is a live source only, with no archive behind it.
 const NOMADS_HIRESW: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hiresw/prod";
+/// RRFS v1.0 on NOMADS. Its AWS bucket (`noaa-rrfs-pds`) holds only retrospective and prototype
+/// output (checked 2026-10-09), and NOMADS keeps two days, so like HiresW it has no archive.
+const NOMADS_RRFS: &str = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0";
 
 /// Which model to pull a field from.
 ///
@@ -53,6 +56,10 @@ pub enum Model {
     /// HiresW FV3, CONUS 2.5 km: the same window on the FV3 core, so beside the ARW, the HRRR
     /// and the NAM nest it is another independent convection-allowing opinion.
     HireswFv3,
+    /// RRFS v1.0, CONUS 3 km (1008.md E3): NCEP's FV3-based rapid-refresh successor to the HRRR
+    /// and NAM nest. Its 00/06/12/18Z cycles write hourly files to 84 h; the cycles between
+    /// write only sub-hourly files to 18 h, so only the four long cycles are used here.
+    Rrfs,
 }
 
 impl Model {
@@ -88,6 +95,10 @@ impl Model {
             Model::HireswFv3 => format!(
                 "{NOMADS_HIRESW}/hiresw.{date}/hiresw.t{cycle_hour:02}z.fv3_2p5km.f{fh:02}.conus.grib2"
             ),
+            // Three-digit forecast hour, cycles in their own directories.
+            Model::Rrfs => format!(
+                "{NOMADS_RRFS}/rrfs.{date}/{cycle_hour:02}/rrfs.t{cycle_hour:02}z.2dfld.3km.f{fh:03}.conus.grib2"
+            ),
         }
     }
 
@@ -95,7 +106,7 @@ impl Model {
     /// ever finds 404s.
     fn cycle_hours(self) -> u32 {
         match self {
-            Model::NamNest | Model::Nam => 6,
+            Model::NamNest | Model::Nam | Model::Rrfs => 6,
             Model::HireswArw | Model::HireswFv3 => 12,
             _ => 1,
         }
@@ -115,6 +126,8 @@ impl Model {
             Model::Nbm => 0.035,
             // Both HiresW windows are 2.5 km, like the NBM.
             Model::HireswArw | Model::HireswFv3 => 0.035,
+            // 3 km, like the HRRR and the nest.
+            Model::Rrfs => 0.04,
         }
     }
 
@@ -128,6 +141,7 @@ impl Model {
             Model::Nbm => "NBM",
             Model::HireswArw => "HiresW ARW 2.5 km",
             Model::HireswFv3 => "HiresW FV3 2.5 km",
+            Model::Rrfs => "RRFS 3 km",
         }
     }
 }
@@ -1779,6 +1793,25 @@ mod tests {
         let early = recent_cycles(Model::HireswArw, at("2026-10-09T01:00:00Z"));
         assert_eq!((early[0].day(), early[0].hour()), (8, 12));
         assert!(arw.iter().all(|c| c.hour() % 12 == 0));
+    }
+
+    #[test]
+    fn rrfs_points_at_nomads_long_cycles() {
+        assert_eq!(
+            Model::Rrfs.url("20261010", 12, 6),
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0/rrfs.20261010/12/\
+             rrfs.t12z.2dfld.3km.f006.conus.grib2"
+        );
+        assert!(Model::Rrfs
+            .url("20261010", 0, 84)
+            .ends_with("/00/rrfs.t00z.2dfld.3km.f084.conus.grib2"));
+        // Only the 00/06/12/18Z cycles have hourly files, about 110 min after the cycle: at
+        // 16:10 the 12z run is first, and at 13:30 it is not yet, so 06z is.
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let runs = recent_cycles(Model::Rrfs, at("2026-10-10T16:10:00Z"));
+        assert_eq!(runs[0].hour(), 12);
+        assert!(runs.iter().all(|c| c.hour() % 6 == 0));
+        assert_eq!(recent_cycles(Model::Rrfs, at("2026-10-10T13:30:00Z"))[0].hour(), 6);
     }
 
     #[test]

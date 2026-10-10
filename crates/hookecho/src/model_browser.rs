@@ -30,6 +30,8 @@ pub enum BModel {
     /// HiresW's 2.5 km CONUS windows (1008.md E3): the WRF-ARW and FV3 cores, 00/12Z to 48 h.
     HireswArw,
     HireswFv3,
+    /// RRFS v1.0, 3 km CONUS, 00/06/12/18Z to 84 h (1008.md E3).
+    Rrfs,
 }
 
 /// What a model can show.
@@ -206,7 +208,7 @@ impl LeadRange {
 }
 
 impl BModel {
-    pub const ALL: [BModel; 13] = [
+    pub const ALL: [BModel; 14] = [
         BModel::Hrrr,
         BModel::Hrrr15,
         BModel::Rap,
@@ -214,6 +216,7 @@ impl BModel {
         BModel::Nam,
         BModel::HireswArw,
         BModel::HireswFv3,
+        BModel::Rrfs,
         BModel::Nbm,
         BModel::Rtma,
         BModel::Gfs,
@@ -232,6 +235,7 @@ impl BModel {
             BModel::Nbm => Engine::Regional(Regional::Nbm),
             BModel::HireswArw => Engine::Regional(Regional::HireswArw),
             BModel::HireswFv3 => Engine::Regional(Regional::HireswFv3),
+            BModel::Rrfs => Engine::Regional(Regional::Rrfs),
             BModel::Rtma => Engine::Analysis,
             BModel::Gfs => Engine::Global(GlobalModel::Gfs),
             BModel::Ecmwf => Engine::Global(GlobalModel::Ecmwf),
@@ -250,6 +254,7 @@ impl BModel {
             BModel::Nbm => "NBM",
             BModel::HireswArw => "HiresW ARW",
             BModel::HireswFv3 => "HiresW FV3",
+            BModel::Rrfs => "RRFS",
             BModel::Rtma => "RTMA",
             BModel::Gfs => "GFS",
             BModel::Ecmwf => "ECMWF",
@@ -277,6 +282,10 @@ impl BModel {
                 "2.5 km, 00/12Z to 48 h, FV3 core: the same window on another core. The last two \
                  days only (NOMADS keeps no archive)."
             }
+            BModel::Rrfs => {
+                "3 km, 00/06/12/18Z to 84 h: NCEP's rapid-refresh successor to the HRRR and NAM \
+                 nest. The last two days only (NOMADS keeps no archive)."
+            }
             BModel::Rtma => {
                 "The real-time surface analysis: what temperature, dewpoint and wind are doing now, 2.5 km, hourly. An analysis, not a forecast."
             }
@@ -298,6 +307,7 @@ impl BModel {
             BModel::Nbm => &[ThunderChance],
             // HiresW carries 0-1 km helicity but not the 0-3 km "SRH" product reads.
             BModel::HireswArw | BModel::HireswFv3 => &[Reflectivity, Cape, UpdraftHelicity],
+            BModel::Rrfs => &[Reflectivity, Cape, Srh, UpdraftHelicity],
             BModel::Rtma => &[
                 AnalysisTemp2m,
                 AnalysisDewpoint2m,
@@ -364,6 +374,7 @@ impl BModel {
             BModel::Nbm => LeadRange::fixed(h(1), h(36), h(1)),
             BModel::HireswArw => LeadRange::fixed(0, regional(Regional::HireswArw, 48), h(1)),
             BModel::HireswFv3 => LeadRange::fixed(0, regional(Regional::HireswFv3, 48), h(1)),
+            BModel::Rrfs => LeadRange::fixed(0, regional(Regional::Rrfs, 84), h(1)),
             // An analysis is valid at its own hour: one "lead", zero.
             BModel::Rtma => LeadRange::fixed(0, 0, h(1)),
             BModel::Gfs => LeadRange::fixed(0, h(384), h(3)),
@@ -437,6 +448,8 @@ impl BModel {
             BModel::Gdps => 2,
             // NOMADS keeps about two days of HiresW: four runs.
             BModel::HireswArw | BModel::HireswFv3 => 4,
+            // Two days of four long cycles.
+            BModel::Rrfs => 8,
             _ => 24,
         }
     }
@@ -470,6 +483,7 @@ impl BModel {
             Regional::Nam => BModel::Nam,
             Regional::HireswArw => BModel::HireswArw,
             Regional::HireswFv3 => BModel::HireswFv3,
+            Regional::Rrfs => BModel::Rrfs,
             _ => BModel::Hrrr,
         }
     }
@@ -796,6 +810,7 @@ fn model_slug(m: BModel) -> &'static str {
         BModel::Gdps => "gdps",
         BModel::HireswArw => "hiresw-arw",
         BModel::HireswFv3 => "hiresw-fv3",
+        BModel::Rrfs => "rrfs",
     }
 }
 
@@ -953,7 +968,8 @@ mod tests {
                 BModel::NamNest,
                 BModel::Nam,
                 BModel::HireswArw,
-                BModel::HireswFv3
+                BModel::HireswFv3,
+                BModel::Rrfs
             ]
         );
     }

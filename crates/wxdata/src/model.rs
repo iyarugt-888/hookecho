@@ -229,6 +229,23 @@ static DEFS: &[Entry] = &[
             ensemble: Ensemble::Deterministic,
         },
     },
+    // RRFS v1.0 posts f000 about 108 minutes after a long cycle and f084 about three and a half
+    // hours after (NOMADS listing, 2026-10-10 12Z: 13:48 and 15:23).
+    Entry {
+        model: Model::Rrfs,
+        def: ModelDef {
+            id: "rrfs",
+            label: "RRFS 3 km",
+            cycle_hours: 6,
+            max_lead_h: 84,
+            extended_lead_h: 84,
+            extended_cycles: &[],
+            grid_km: 3.0,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 110,
+            ensemble: Ensemble::Deterministic,
+        },
+    },
 ];
 
 /// A field by meaning, independent of how any one model spells it in GRIB.
@@ -316,7 +333,7 @@ impl ModelField {
         match (self, model) {
             // "entire atmosphere" vs "entire atmosphere (considered as a single layer)" — same
             // field, two spellings, and the NAM family uses the long one.
-            (Self::CompositeReflectivity, NamNest | Nam | HireswArw | HireswFv3) => key(
+            (Self::CompositeReflectivity, NamNest | Nam | HireswArw | HireswFv3 | Rrfs) => key(
                 "REFC",
                 "entire atmosphere (considered as a single layer)",
                 -30.0,
@@ -344,16 +361,19 @@ impl ModelField {
 
             // Hourly-max UH exists only in the convection-allowing runs. The NAM's own 12 km
             // parent grid does not carry it even though its 3 km nest does.
-            (Self::UpdraftHelicity, Hrrr | HrrrPressure | NamNest | HireswArw | HireswFv3) => {
-                key("MXUPHL", "5000-2000 m above ground", 0.0)
-            }
+            (
+                Self::UpdraftHelicity,
+                Hrrr | HrrrPressure | NamNest | HireswArw | HireswFv3 | Rrfs,
+            ) => key("MXUPHL", "5000-2000 m above ground", 0.0),
             (Self::UpdraftHelicity, _) => None,
 
             // Caveat worth stating: at leads past the first hour these files carry *two* ASNOW
             // messages — the run-total accumulation and the trailing one-hour window — and the
             // matcher takes whichever the `.idx` lists first. The window is not pinned here, so
             // do not read this key as a promise of which one you get.
-            (Self::Snowfall, Hrrr | HrrrPressure | Rap | Nbm) => key("ASNOW", "surface", 0.0),
+            (Self::Snowfall, Hrrr | HrrrPressure | Rap | Nbm | Rrfs) => {
+                key("ASNOW", "surface", 0.0)
+            }
             (Self::Snowfall, _) => None,
 
             // The NBM's calibrated thunder probability is the thing nobody else publishes.
@@ -362,7 +382,11 @@ impl ModelField {
 
             // Near-surface aerosol mass density. The RAP carries it as well as the HRRR — found
             // by the contract test's negative check, not by reading documentation.
-            (Self::Smoke, Hrrr | HrrrPressure | Rap) => key("MASSDEN", "8 m above ground", 0.0),
+            // The RRFS lists several 8 m aerosols; its first is particulate organic matter, the
+            // smoke the HRRR's MASSDEN is, and the matcher takes the first.
+            (Self::Smoke, Hrrr | HrrrPressure | Rap | Rrfs) => {
+                key("MASSDEN", "8 m above ground", 0.0)
+            }
             (Self::Smoke, _) => None,
 
             // MSLMA (MAPS/analysis reduction) in the HRRR/RAP family, MSLET (Eta reduction) in
@@ -370,7 +394,7 @@ impl ModelField {
             (Self::MeanSeaLevelPressure, Hrrr | HrrrPressure | Rap) => {
                 key("MSLMA", "mean sea level", 0.0)
             }
-            (Self::MeanSeaLevelPressure, NamNest | Nam | HireswArw | HireswFv3) => {
+            (Self::MeanSeaLevelPressure, NamNest | Nam | HireswArw | HireswFv3 | Rrfs) => {
                 key("MSLET", "mean sea level", 0.0)
             }
             (Self::MeanSeaLevelPressure, Nbm) => None,
@@ -404,6 +428,7 @@ pub const ALL_MODELS: &[Model] = &[
     Model::Nbm,
     Model::HireswArw,
     Model::HireswFv3,
+    Model::Rrfs,
 ];
 
 /// Every field in the catalogue, in declaration order.
@@ -792,6 +817,7 @@ mod tests {
             (Model::Nam, 6),
             (Model::HireswArw, 6),
             (Model::HireswFv3, 6),
+            (Model::Rrfs, 6),
         ] {
             let key = ModelField::CompositeReflectivity
                 .grib(model)

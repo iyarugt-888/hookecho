@@ -39,3 +39,38 @@ but not 0–3 km.
 06Z run stops at F+144. The 00Z F+360 index lists 184 messages. The model browser's lead table
 now reaches F+360 for 00/12Z. A browsed ECMWF field under a GFS pane scrubs on the ECMWF's own
 leads (`app::models::scrub_range`).
+
+## RRFS v1.0 (1008.md E3, added 2026-10-10)
+
+RRFS v1.0 (CONUS 3 km) is a model in the catalogue (`wxdata::hrrr::Model::Rrfs`) and in the
+model browser (reflectivity, CAPE, SRH, updraft helicity), read from NOMADS
+(`rrfs/v1.0/rrfs.YYYYMMDD/HH/rrfs.tHHz.2dfld.3km.fNNN.conus.grib2`).
+
+- **Cycles:** only the 00/06/12/18Z cycles write hourly CONUS files, to F+84. The cycles between
+  write sub-hourly files only, to F+18. So the model cycles every 6 hours here.
+- **Retention:** NOMADS keeps two days, so the run list holds 8 runs and there is no archive.
+- **Posting:** the 2026-10-10 12Z run posted F+000 at 13:48 UTC and F+084 at 15:23; the
+  catalogue uses 110 min as the typical latency.
+- **Fields:** the `.idx` spells reflectivity, MSLP (MSLET) and the 5000–2000 m updraft helicity
+  as the NAM family does. All 8 core messages are present at every hour checked (F+005, 007,
+  013, 047, 084). It also carries ASNOW and 8 m MASSDEN, whose first message is particulate
+  organic matter, the HRRR's smoke. Both are mapped, because the contract test's negative check
+  requires it. The browser offers neither for RRFS, as for every model but the HRRR.
+
+**Live checks, 2026-10-10:**
+
+- `the_catalogue_matches_what_the_feeds_publish`: RRFS 12Z F+1 agreed with the table in both
+  directions, as did the other eight models.
+- `reflectivity_decodes_for_every_model_that_publishes_it`: RRFS F+6 regridded to 1830×787,
+  1,088,905 cells.
+
+The log is `target/parity-review/m5.3/rrfs-live.log`.
+
+**Render:** `hookecho --headless-hrrr refc 6 <out.png> rrfs` on the RTX 2060. The 12Z run, valid
+18Z, peaks at 68.6 dBZ: [rrfs-f06.png](rrfs-f06.png) (SHA-256 `50274d9b74699f469777d782282bc70f84d7bab81311726790de733f3e519d92`).
+
+**Not established:**
+
+- RRFS in the Model fields browser. HiresW is not there either.
+- The browser build: NOMADS is not proxied (see [web-walk](../web-walk/README.md)).
+- HREF ensemble products.
