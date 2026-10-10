@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T14:32:33+00:00",
-  "generated_from_commit": "a410eaaa1dfc0a743b16f6a3706992b5ca579d22",
+  "generated_utc": "2026-10-10T14:32:51+00:00",
+  "generated_from_commit": "60ee6802e7dd78393237600906d359257ee976cb",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1171,6 +1171,16 @@
       "path": "docs/certification/m7.1/render-profile.txt",
       "sha256": "449fdc7caee61d11a29a72f0d57ac6c81dbf07827062504829a0025c0cb93ec1",
       "bytes": 3272
+    },
+    {
+      "path": "docs/certification/m7.1/soak-ktlx-12h-interrupted.jsonl",
+      "sha256": "888df3b5acf69cf5568d142711feb9ab0c790792f6f3bb5a6f47eee5bf72ed4a",
+      "bytes": 107917
+    },
+    {
+      "path": "docs/certification/m7.1/soak-ktlx-12h-interrupted.log",
+      "sha256": "9f80001d635d690d4a4c8b380012f1f069c48dd505d7a06a2dd098a6fa54a1a1",
+      "bytes": 20039
     },
     {
       "path": "docs/certification/m7.1/soak-ktlx-2h.jsonl",
