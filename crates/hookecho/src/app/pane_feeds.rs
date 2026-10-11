@@ -54,6 +54,76 @@ impl HookEchoApp {
         }
     }
 
+    /// Each shown warning, watch and special weather statement's kind in words on its polygon
+    /// (`alerts::map_tag`), so it reads without telling colours apart (1010.md V11). Most severe
+    /// first; none over another; only on a polygon big enough on screen to hold its tag, at a
+    /// point inside it (`tag_anchor`).
+    pub(crate) fn paint_alert_tags(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+    ) {
+        use wxdata::overlay::FeatureKind;
+        let rank = |f: &wxdata::overlay::GeoFeature, a: &wxdata::overlay::AlertInfo| {
+            let kind = match (f.kind, a.event.to_ascii_lowercase().as_str()) {
+                (FeatureKind::Warning, "tornado warning") => 30,
+                (FeatureKind::Warning, _) => 20,
+                (FeatureKind::Watch, _) => 10,
+                _ => 0,
+            };
+            kind + u32::from(wxdata::alerts::escalation(a))
+        };
+        let mut tags: Vec<(u32, &wxdata::overlay::GeoFeature, String)> = self
+            .overlays
+            .iter()
+            .filter_map(|f| {
+                let a = f.alert.as_ref()?;
+                Some((rank(f, a), f, wxdata::alerts::map_tag(a)?))
+            })
+            .collect();
+        tags.sort_by_key(|t| std::cmp::Reverse(t.0));
+        let font = egui::FontId::proportional(11.0);
+        let mut placed: Vec<egui::Rect> = Vec::new();
+        for (_, f, tag) in tags {
+            let Some(ring) = f.rings.first() else {
+                continue;
+            };
+            let pts: Vec<egui::Pos2> = ring
+                .iter()
+                .map(|p| {
+                    let (sx, sy) = cam
+                        .world_to_screen(crate::render::mercator::lonlat_to_world(p[0], p[1]), vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                })
+                .collect();
+            let galley = painter.layout_no_wrap(tag, font.clone(), egui::Color32::WHITE);
+            let size = galley.size() + egui::vec2(8.0, 4.0);
+            let Some(at) = tag_anchor(&pts, prect, size) else {
+                continue;
+            };
+            let rect = egui::Rect::from_center_size(at, size);
+            if placed.iter().any(|r| r.intersects(rect)) {
+                continue;
+            }
+            placed.push(rect);
+            let edge = egui::Color32::from_rgb(f.stroke[0], f.stroke[1], f.stroke[2]);
+            painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(210));
+            painter.rect_stroke(
+                rect,
+                3.0,
+                egui::Stroke::new(1.5, edge),
+                egui::StrokeKind::Inside,
+            );
+            painter.galley(
+                rect.min + egui::vec2(4.0, 2.0),
+                galley,
+                egui::Color32::WHITE,
+            );
+        }
+    }
+
     /// ProbSevere objects, ringed by probability.
     pub(crate) fn paint_probsevere(
         &self,
@@ -215,5 +285,100 @@ impl HookEchoApp {
                 );
             }
         }
+    }
+}
+
+/// Where a polygon's tag goes, in screen pixels: its area centroid when that is inside it and on
+/// the pane, else the middle of its on-screen part when that is; `None` when the polygon is too
+/// small on screen to hold `size`, or neither point is inside it (a thin or hooked shape).
+pub(crate) fn tag_anchor(
+    pts: &[egui::Pos2],
+    view: egui::Rect,
+    size: egui::Vec2,
+) -> Option<egui::Pos2> {
+    if pts.len() < 3 {
+        return None;
+    }
+    let bbox = egui::Rect::from_points(pts);
+    if bbox.width() < size.x * 1.5 || bbox.height() < size.y * 1.8 {
+        return None;
+    }
+    let inside = |p: egui::Pos2| {
+        let mut c = false;
+        let mut j = pts.len() - 1;
+        for i in 0..pts.len() {
+            let (a, b) = (pts[i], pts[j]);
+            if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+                c = !c;
+            }
+            j = i;
+        }
+        c
+    };
+    let (mut area, mut cx, mut cy) = (0.0f32, 0.0f32, 0.0f32);
+    for w in pts.windows(2) {
+        let cross = w[0].x * w[1].y - w[1].x * w[0].y;
+        area += cross;
+        cx += (w[0].x + w[1].x) * cross;
+        cy += (w[0].y + w[1].y) * cross;
+    }
+    let centroid = (area.abs() > 1e-3).then(|| egui::pos2(cx / (3.0 * area), cy / (3.0 * area)));
+    let room = view.shrink2(size * 0.5);
+    let visible = bbox.intersect(view);
+    [centroid, visible.is_positive().then(|| visible.center())]
+        .into_iter()
+        .flatten()
+        .find(|&p| room.contains(p) && inside(p))
+}
+
+#[cfg(test)]
+mod tag_anchor_tests {
+    use super::tag_anchor;
+    use egui::{pos2, vec2, Rect};
+
+    fn view() -> Rect {
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0))
+    }
+
+    /// A box gets its tag in the middle; a box too small for the tag gets none; an L-shape whose
+    /// centroid falls outside it still gets one inside; a polygon half off the pane puts it in
+    /// the visible half.
+    #[test]
+    fn a_tag_goes_inside_its_polygon_on_the_pane() {
+        let tag = vec2(40.0, 16.0);
+        let square = [
+            pos2(100.0, 100.0),
+            pos2(300.0, 100.0),
+            pos2(300.0, 300.0),
+            pos2(100.0, 300.0),
+            pos2(100.0, 100.0),
+        ];
+        let at = tag_anchor(&square, view(), tag).unwrap();
+        assert!(
+            (at.x - 200.0).abs() < 0.5 && (at.y - 200.0).abs() < 0.5,
+            "{at:?}"
+        );
+        let tiny = square.map(|p| pos2(100.0 + (p.x - 100.0) * 0.1, 100.0 + (p.y - 100.0) * 0.1));
+        assert_eq!(tag_anchor(&tiny, view(), tag), None);
+        // A thin L: the centroid sits in the notch, outside; the visible middle is inside.
+        let ell = [
+            pos2(100.0, 100.0),
+            pos2(400.0, 100.0),
+            pos2(400.0, 140.0),
+            pos2(140.0, 140.0),
+            pos2(140.0, 400.0),
+            pos2(100.0, 400.0),
+            pos2(100.0, 100.0),
+        ];
+        if let Some(at) = tag_anchor(&ell, view(), tag) {
+            assert!(
+                (100.0..=400.0).contains(&at.x) && (at.y <= 140.0 || at.x <= 140.0),
+                "{at:?}"
+            );
+        }
+        // Half off the pane to the left: the tag stays on the pane.
+        let off = square.map(|p| pos2(p.x - 250.0, p.y));
+        let at = tag_anchor(&off, view(), tag).unwrap();
+        assert!(at.x >= 20.0 && at.x <= 50.0, "{at:?}");
     }
 }

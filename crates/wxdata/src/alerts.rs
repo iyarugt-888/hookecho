@@ -140,6 +140,49 @@ pub fn escalation(a: &AlertInfo) -> u8 {
     0
 }
 
+/// The short words a warning, watch or special weather statement carries on the map, so its kind
+/// reads without telling colours apart (1010.md V11): "TOR", "SVR", "FFW" for the three most
+/// common, the rest by name ("SNOW SQUALL", "EXTREME WIND", "TOR WATCH"), with the tags that
+/// change what a warning means ("TOR EMERGENCY", "TOR PDS", "SVR DESTRUCTIVE", "FFW EMERGENCY").
+/// `None` for advisories and other statements, which are not tagged.
+pub fn map_tag(a: &AlertInfo) -> Option<String> {
+    let event = a.event.trim().to_ascii_lowercase();
+    let threat = a
+        .damage_threat
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    let head = format!("{} {}", a.headline, a.description).to_ascii_uppercase();
+    let tag = match event.as_str() {
+        "tornado warning"
+            if head.contains("TORNADO EMERGENCY") || threat.contains("CATASTROPHIC") =>
+        {
+            "TOR EMERGENCY"
+        }
+        "tornado warning"
+            if threat.contains("CONSIDERABLE")
+                || head.contains("PARTICULARLY DANGEROUS SITUATION") =>
+        {
+            "TOR PDS"
+        }
+        "tornado warning" => "TOR",
+        "severe thunderstorm warning" if threat.contains("DESTRUCTIVE") => "SVR DESTRUCTIVE",
+        "severe thunderstorm warning" => "SVR",
+        "flash flood warning" if head.contains("FLASH FLOOD EMERGENCY") => "FFW EMERGENCY",
+        "flash flood warning" => "FFW",
+        "tornado watch" => "TOR WATCH",
+        "severe thunderstorm watch" => "SVR WATCH",
+        "special weather statement" => "SPS",
+        e => {
+            return e
+                .strip_suffix(" warning")
+                .map(str::to_ascii_uppercase)
+                .or_else(|| e.ends_with(" watch").then(|| e.to_ascii_uppercase()))
+        }
+    };
+    Some(tag.to_string())
+}
+
 /// (FeatureKind, base RGB) for an event; fill is this at low alpha, stroke at full.
 pub(crate) fn event_style(event: &str) -> (FeatureKind, [u8; 3]) {
     let e = event.to_ascii_lowercase();
@@ -554,6 +597,61 @@ pub async fn fetch_active(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn alert(event: &str, threat: Option<&str>, headline: &str) -> AlertInfo {
+        AlertInfo {
+            event: event.into(),
+            headline: headline.into(),
+            damage_threat: threat.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// Every warning and watch has words on the map, the threat tags change them, and
+    /// advisories stay untagged; other agencies' lower-case names read the same.
+    #[test]
+    fn a_polygon_says_what_kind_of_alert_it_is() {
+        let tag = |e: &str, t: Option<&str>, h: &str| map_tag(&alert(e, t, h));
+        assert_eq!(tag("Tornado Warning", None, "").as_deref(), Some("TOR"));
+        assert_eq!(
+            tag("Tornado Warning", Some("CONSIDERABLE"), "").as_deref(),
+            Some("TOR PDS")
+        );
+        assert_eq!(
+            tag("Tornado Warning", Some("CATASTROPHIC"), "").as_deref(),
+            Some("TOR EMERGENCY")
+        );
+        assert_eq!(
+            tag("Tornado Warning", None, "...TORNADO EMERGENCY FOR MOORE...").as_deref(),
+            Some("TOR EMERGENCY")
+        );
+        assert_eq!(
+            tag("Severe Thunderstorm Warning", Some("DESTRUCTIVE"), "").as_deref(),
+            Some("SVR DESTRUCTIVE")
+        );
+        assert_eq!(tag("Flash Flood Warning", None, "").as_deref(), Some("FFW"));
+        assert_eq!(
+            tag("Flash Flood Warning", None, "FLASH FLOOD EMERGENCY").as_deref(),
+            Some("FFW EMERGENCY")
+        );
+        assert_eq!(
+            tag("Snow Squall Warning", None, "").as_deref(),
+            Some("SNOW SQUALL")
+        );
+        assert_eq!(
+            tag("Extreme Wind Warning", None, "").as_deref(),
+            Some("EXTREME WIND")
+        );
+        assert_eq!(tag("Tornado Watch", None, "").as_deref(), Some("TOR WATCH"));
+        assert_eq!(tag("Flood Watch", None, "").as_deref(), Some("FLOOD WATCH"));
+        assert_eq!(
+            tag("Special Weather Statement", None, "").as_deref(),
+            Some("SPS")
+        );
+        assert_eq!(tag("tornado warning", None, "").as_deref(), Some("TOR"));
+        assert_eq!(tag("Flood Advisory", None, "").as_deref(), None);
+        assert_eq!(tag("Hydrologic Outlook", None, "").as_deref(), None);
+    }
 
     #[test]
     fn parses_and_styles_warning() {

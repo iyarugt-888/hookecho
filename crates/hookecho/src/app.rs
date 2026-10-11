@@ -6070,6 +6070,8 @@ impl HookEchoApp {
         // Warning intelligence: warned-storm motion vector + projected path + ETA to markers, and
         // a pulsing outline on escalated (Tornado Emergency / PDS / destructive) warnings.
         self.paint_alert_polygons(ctx, &painter, prect, cam, vp, idx);
+        // Each alert's kind in words on its polygon, not only its colour (1010.md V11).
+        self.paint_alert_tags(&painter, prect, cam, vp);
 
         // Surface obs (METAR station plots): fltCat-colored circle, wind barb, T/Td in °F.
         // The label placer is lent apart from `self`, whose pane view is borrowed meanwhile.

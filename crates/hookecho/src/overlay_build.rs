@@ -49,6 +49,38 @@ fn feature_stroke_px(kind: FeatureKind, imported_stroke_px: f32) -> f32 {
     }
 }
 
+/// An official alert's outline by kind, so its kind is not told by colour alone (1010.md V11): a
+/// tornado warning heaviest, the other short-fuse warnings next, watches dashed. Only features
+/// carrying alert metadata (every alert feed's do); `None` keeps the plain 1.6 px edge.
+fn alert_stroke(f: &GeoFeature) -> Option<ImportedStroke> {
+    let event = f.alert.as_ref()?.event.to_ascii_lowercase();
+    Some(match f.kind {
+        FeatureKind::Warning if event == "tornado warning" => ImportedStroke {
+            width_px: 3.4,
+            dash_px: None,
+        },
+        FeatureKind::Warning
+            if matches!(
+                event.as_str(),
+                "severe thunderstorm warning"
+                    | "flash flood warning"
+                    | "snow squall warning"
+                    | "extreme wind warning"
+            ) =>
+        {
+            ImportedStroke {
+                width_px: 2.4,
+                dash_px: None,
+            }
+        }
+        FeatureKind::Watch => ImportedStroke {
+            width_px: 2.0,
+            dash_px: Some((9.0, 6.0)),
+        },
+        _ => return None,
+    })
+}
+
 /// Build tessellated fills + outlines for `features` at `zoom` (normal theme).
 pub fn build(features: &[GeoFeature], zoom: f64) -> OverlayGeom {
     build_with_theme(features, zoom, crate::settings::Theme::DearImGui)
@@ -128,7 +160,11 @@ pub fn build_layered(
         if f.kind == wxdata::overlay::FeatureKind::Imported && layer.is_none() {
             continue;
         }
-        let width_px = feature_stroke_px(f.kind, layer.map_or(1.6, |l| l.width_px));
+        let official = alert_stroke(f);
+        let width_px = official.map_or_else(
+            || feature_stroke_px(f.kind, layer.map_or(1.6, |l| l.width_px)),
+            |s| s.width_px,
+        );
         let stroke_w = px(width_px);
         let mut stroke_opts = StrokeOptions::default()
             .with_line_width(stroke_w)
@@ -137,6 +173,7 @@ pub fn build_layered(
         let dashed = layer
             .and_then(|l| l.dash_px)
             .filter(|_| f.kind == FeatureKind::Imported)
+            .or_else(|| official.and_then(|s| s.dash_px))
             .and_then(|(on, off)| {
                 // A dot is a sliver of dash, its round caps making the disc.
                 dash_path(f, px(on), px(off), &mut dash_budget).map(|p| (p, on <= 0.5))
@@ -465,6 +502,80 @@ fn high_contrast_feature_colors(
         (boosted_fill, boosted_stroke)
     } else {
         (fill, stroke)
+    }
+}
+
+#[cfg(test)]
+mod alert_stroke_tests {
+    use super::*;
+
+    fn feature(kind: FeatureKind, event: &str, with_alert: bool) -> GeoFeature {
+        GeoFeature {
+            rings: vec![vec![
+                [-97.0, 35.0],
+                [-96.0, 35.0],
+                [-96.0, 36.0],
+                [-97.0, 36.0],
+                [-97.0, 35.0],
+            ]],
+            fill: [255, 0, 0, 45],
+            stroke: [255, 0, 0, 235],
+            kind,
+            title: event.into(),
+            detail: String::new(),
+            alert: with_alert.then(|| wxdata::overlay::AlertInfo {
+                event: event.into(),
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// Kinds differ in outline, not only colour: tornado heaviest, the short-fuse warnings next,
+    /// watches dashed, the rest (and anything without alert metadata) the plain edge.
+    #[test]
+    fn an_alerts_outline_says_its_kind() {
+        let w = |k, e| alert_stroke(&feature(k, e, true));
+        assert_eq!(
+            w(FeatureKind::Warning, "Tornado Warning").unwrap().width_px,
+            3.4
+        );
+        for e in [
+            "Severe Thunderstorm Warning",
+            "Flash Flood Warning",
+            "Snow Squall Warning",
+        ] {
+            assert_eq!(w(FeatureKind::Warning, e).unwrap().width_px, 2.4, "{e}");
+        }
+        let watch = w(FeatureKind::Watch, "Tornado Watch").unwrap();
+        assert!(watch.dash_px.is_some());
+        assert_eq!(w(FeatureKind::Warning, "Flood Warning"), None);
+        assert_eq!(w(FeatureKind::Advisory, "Flood Advisory"), None);
+        assert_eq!(
+            alert_stroke(&feature(FeatureKind::Warning, "Tornado Warning", false)),
+            None
+        );
+    }
+
+    /// The heavier and dashed outlines reach the tessellated geometry: a tornado warning's
+    /// outline covers more than a plain warning's, and a watch's dashes less than a solid edge.
+    #[test]
+    fn the_outlines_reach_the_geometry() {
+        let tris = |f: GeoFeature| build(&[f], 7.0).indices.len();
+        let plain = tris(feature(FeatureKind::Warning, "Flood Warning", true));
+        let tor = build(
+            &[feature(FeatureKind::Warning, "Tornado Warning", true)],
+            7.0,
+        );
+        let flood = build(&[feature(FeatureKind::Warning, "Flood Warning", true)], 7.0);
+        let extent = |g: &OverlayGeom| {
+            g.vertices
+                .iter()
+                .map(|v| v.world[0])
+                .fold(f32::MIN, f32::max)
+        };
+        assert!(extent(&tor) > extent(&flood));
+        let watch = tris(feature(FeatureKind::Watch, "Tornado Watch", true));
+        assert!(watch > plain, "dashes are many pieces: {watch} vs {plain}");
     }
 }
 

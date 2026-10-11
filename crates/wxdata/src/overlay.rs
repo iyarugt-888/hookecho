@@ -73,7 +73,7 @@ pub struct StormMotion {
 
 /// Structured NWS alert metadata for the warning window (parsed from the alert `parameters`).
 /// `None` on non-alert features (SPC outlooks, mesoscale discussions).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AlertInfo {
     /// Stable alert id — used to dedupe the one-GeoFeature-per-MultiPolygon-part case.
     pub id: String,
