@@ -115,10 +115,49 @@ Notes on reading it:
 | [soak-ktlx-12h.log](soak-ktlx-12h.log) | `bae7feb5725bcd46cb25c9af9300ce30ef03f54bdf03c561fb3552fd1c7ee61b` |
 | [summary-12h.json](summary-12h.json) | `c891d60d4f020e29c677cd748a57268e6813d8dc6cf3ca7ef21ca165114c938a` |
 
+## The 24-hour profile, live KFWS, RTX 2060 (Vulkan), 2026-10-10 16:02–2026-10-11 16:01 UTC
+
+```bash
+hookecho --soak KFWS 1440 --render --inject --jsonl soak-kfws-24h.jsonl
+```
+
+Release build of `75ae70b` (`0.12.0-beta.2`), run as a detached process. **Passed** (the
+runner's own summary lists no problems; an empty list is
+its exit-0 condition). 24.0 hours of cycles.
+
+| | |
+| --- | --- |
+| Cycles (every 30 s) | 2880 |
+| New volumes, decoded and binned | 204 |
+| Failed cycles | 1 (worst streak 1) |
+| Cut-off volumes injected / refused | 51 / 51 |
+| Renders / failed | 204 / 0 (REF 51, VEL 51, CC 51, ZDR 51) |
+| Draw, p50 / max | 4.1 / 131.2 ms |
+| 3D build, p50 / max | 12.9 / 492.0 ms |
+| 3D upload, p50 / max | 8.7 / 238.2 ms |
+| Decode, p50 / max | 85.1 / 2654.1 ms |
+| GPU allocated: baseline / max / end | 9.55 / 9.83 / 9.55 MB |
+| Resident memory: baseline / max / end | 123 / 134 / 113 MB |
+
+Notes on reading it:
+
+- **The failed cycle:** 2026-10-10 23:21 UTC: list: list_files(KFWS, 2026-10-10): error listing AWS S3 objects. The next cycle listed the day normally; a single failed
+  poll is within the soak's rules, a streak would not be.
+- **Not isolated:** the machine compiled and tested this branch for much of the run, so the
+  maxima are contention spikes beside medians that held.
+- **GPU memory:** flat to within 0.28 MB over 204 renders,
+  and back to its baseline at the end.
+
+| File | SHA-256 |
+| --- | --- |
+| [soak-kfws-24h.jsonl](soak-kfws-24h.jsonl) | `eedc2b05d482c7e0b1ddecc1a60e093e7fd5281084cadaef48d4a0052321a5ce` |
+| [soak-kfws-24h.log](soak-kfws-24h.log) | `fed0ae01e33149d569cbdfa00c95fd5d8e682a172a5b5fa9a9933eae638c2fd2` |
+| [summary-24h.json](summary-24h.json) | `31e088748e6d930d758bfed91d648903fee22b1594e48074492d2df0281a8e94` |
+
 ## Not established
 
-- **Long profiles:** the 12-hour profile has completed (above); the 24-hour profile (KFWS) is
-  still running.
+- **Long profiles:** the 12- and 24-hour profiles have completed (above). A third, on a
+  severe-weather day, has not run.
 - **Scope of the soak:** it drives the renderer, not the app's UI. Window frame pacing,
   presentation, panes, playback, GIS and output are not exercised.
 - **Untested faults:** device or surface loss, offline/reconnect, and model or ABI failures are

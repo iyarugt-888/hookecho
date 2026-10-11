@@ -1,0 +1,2906 @@
+soak KFWS: 1440 min, a cycle every 30 s, injecting cut-off volumes
+   0.0 min  new KFWS20261010_155142_V06  decode 116 ms  bin 18 sweeps 16 ms · 134 MB · drew REF tilt 1 5 ms, 3D 19+83 ms, GPU 10 MB
+   0.5 min  no change · 128 MB
+   1.0 min  no change · 127 MB
+   1.5 min  no change · 127 MB
+   2.0 min  no change · 127 MB
+   2.5 min  no change · 125 MB
+   3.0 min  no change · 118 MB
+   3.5 min  new KFWS20261010_155847_V06  decode 213 ms  bin 18 sweeps 19 ms · 122 MB · drew VEL tilt 1 5 ms, 3D 27+9 ms, GPU 10 MB
+   4.0 min  no change · 121 MB
+   4.5 min  no change · 121 MB
+   5.0 min  no change · 121 MB
+   5.5 min  no change · 121 MB
+   6.0 min  no change · 121 MB
+   6.5 min  no change · 121 MB
+   7.0 min  no change · 121 MB
+   7.5 min  no change · 121 MB
+   8.0 min  no change · 121 MB
+   8.5 min  no change · 121 MB
+   9.0 min  no change · 121 MB
+   9.5 min  no change · 121 MB
+  10.0 min  no change · 121 MB
+  10.5 min  no change · 121 MB
+  11.0 min  new KFWS20261010_160551_V06  decode 121 ms  bin 18 sweeps 12 ms · 123 MB · drew CC tilt 1 5 ms, 3D 18+7 ms, GPU 10 MB
+  11.5 min  no change · 123 MB
+  12.0 min  no change · 123 MB
+  12.5 min  no change · 123 MB
+  13.0 min  no change · 123 MB
+  13.5 min  no change · 123 MB
+  14.0 min  no change · 123 MB
+  14.5 min  no change · 123 MB
+  15.0 min  no change · 123 MB
+  15.5 min  no change · 123 MB
+  16.0 min  no change · 123 MB
+  16.5 min  no change · 123 MB
+  17.0 min  no change · 123 MB
+  17.5 min  no change · 123 MB
+  18.0 min  new KFWS20261010_161256_V06  decode 546 ms  bin 18 sweeps 198 ms · 35 MB · drew ZDR tilt 1 4 ms, 3D 101+238 ms, GPU 10 MB
+  18.5 min  no change · 34 MB
+  19.0 min  no change · 34 MB
+  19.5 min  no change · 34 MB
+  20.0 min  no change · 34 MB
+  20.5 min  no change · 34 MB
+  21.0 min  no change · 34 MB
+  21.5 min  no change · 32 MB
+  22.0 min  no change · 32 MB
+  22.5 min  no change · 32 MB
+  23.0 min  no change · 32 MB
+  23.5 min  no change · 32 MB
+  24.0 min  no change · 32 MB
+  24.5 min  no change · 32 MB
+  25.0 min  new KFWS20261010_162001_V06  decode 115 ms  bin 18 sweeps 14 ms · 35 MB · drew REF tilt 2 2 ms, 3D 17+8 ms, GPU 10 MB
+  25.5 min  no change · 35 MB
+  26.0 min  no change · 35 MB
+  26.5 min  no change · 35 MB
+  27.0 min  no change · 35 MB
+  27.5 min  no change · 35 MB
+  28.0 min  no change · 35 MB
+  28.5 min  no change · 35 MB
+  29.0 min  no change · 35 MB
+  29.5 min  no change · 35 MB
+  30.0 min  no change · 35 MB
+  30.5 min  no change · 35 MB
+  31.0 min  no change · 35 MB
+  31.5 min  no change · 35 MB
+  32.0 min  new KFWS20261010_162706_V06  decode 138 ms  bin 18 sweeps 15 ms · 37 MB · drew VEL tilt 2 5 ms, 3D 19+8 ms, GPU 10 MB
+  32.5 min  no change · 37 MB
+  33.0 min  no change · 35 MB
+  33.5 min  no change · 35 MB
+  34.0 min  no change · 35 MB
+  34.5 min  no change · 35 MB
+  35.0 min  no change · 35 MB
+  35.5 min  no change · 35 MB
+  36.0 min  no change · 35 MB
+  36.5 min  no change · 8 MB
+  37.0 min  no change · 9 MB
+  37.5 min  no change · 9 MB
+  38.0 min  no change · 9 MB
+  38.5 min  no change · 9 MB
+  39.0 min  new KFWS20261010_163410_V06  decode 202 ms  bin 18 sweeps 27 ms · 28 MB · drew CC tilt 2 60 ms, 3D 27+10 ms, GPU 10 MB
+  39.5 min  no change · 28 MB
+  40.0 min  no change · 28 MB
+  40.5 min  no change · 28 MB
+  41.0 min  no change · 28 MB
+  41.5 min  no change · 28 MB
+  42.0 min  no change · 28 MB
+  42.5 min  no change · 28 MB
+  43.0 min  no change · 28 MB
+  43.5 min  no change · 28 MB
+  44.0 min  no change · 26 MB
+  44.5 min  no change · 26 MB
+  45.0 min  no change · 26 MB
+  45.5 min  no change · 26 MB
+  46.0 min  new KFWS20261010_164115_V06  decode 119 ms  bin 18 sweeps 17 ms · 30 MB · drew ZDR tilt 2 6 ms, 3D 17+7 ms, GPU 10 MB
+  46.5 min  no change · 30 MB
+  47.0 min  no change · 30 MB
+  47.5 min  no change · 30 MB
+  48.0 min  no change · 30 MB
+  48.5 min  no change · 29 MB
+  49.0 min  no change · 29 MB
+  49.5 min  no change · 29 MB
+  50.0 min  no change · 29 MB
+  50.5 min  no change · 29 MB
+  51.0 min  no change · 29 MB
+  51.5 min  no change · 29 MB
+  52.0 min  no change · 29 MB
+  52.5 min  no change · 29 MB
+  53.0 min  new KFWS20261010_164820_V06  decode 122 ms  bin 18 sweeps 16 ms · 33 MB · drew REF tilt 3 6 ms, 3D 17+8 ms, GPU 10 MB
+  53.5 min  no change · 31 MB
+  54.0 min  no change · 31 MB
+  54.5 min  no change · 31 MB
+  55.0 min  no change · 31 MB
+  55.5 min  no change · 31 MB
+  56.0 min  no change · 31 MB
+  56.5 min  no change · 31 MB
+  57.0 min  no change · 31 MB
+  57.5 min  no change · 31 MB
+  58.0 min  no change · 46 MB
+  58.5 min  no change · 46 MB
+  59.0 min  no change · 46 MB
+  59.5 min  no change · 46 MB
+  60.0 min  no change · 46 MB
+  60.5 min  new KFWS20261010_165525_V06  decode 117 ms  bin 18 sweeps 14 ms · 45 MB · drew VEL tilt 3 5 ms, 3D 18+7 ms, GPU 10 MB
+  61.0 min  no change · 46 MB
+  61.5 min  no change · 46 MB
+  62.0 min  no change · 46 MB
+  62.5 min  no change · 46 MB
+  63.0 min  no change · 46 MB
+  63.5 min  no change · 45 MB
+  64.0 min  no change · 45 MB
+  64.5 min  no change · 45 MB
+  65.0 min  no change · 45 MB
+  65.5 min  no change · 45 MB
+  66.0 min  no change · 45 MB
+  66.5 min  no change · 45 MB
+  67.0 min  no change · 8 MB
+  67.5 min  new KFWS20261010_170229_V06  decode 236 ms  bin 18 sweeps 25 ms · 25 MB · drew CC tilt 3 50 ms, 3D 28+8 ms, GPU 10 MB
+  68.0 min  no change · 26 MB
+  68.5 min  no change · 26 MB
+  69.0 min  no change · 26 MB
+  69.5 min  no change · 26 MB
+  70.0 min  no change · 26 MB
+  70.5 min  no change · 26 MB
+  71.0 min  no change · 26 MB
+  71.5 min  no change · 26 MB
+  72.0 min  no change · 26 MB
+  72.5 min  no change · 26 MB
+  73.0 min  no change · 26 MB
+  73.5 min  no change · 26 MB
+  74.0 min  no change · 26 MB
+  74.5 min  new KFWS20261010_170934_V06  decode 128 ms  bin 18 sweeps 16 ms · 31 MB · drew ZDR tilt 3 3 ms, 3D 18+6 ms, GPU 10 MB
+  75.0 min  no change · 29 MB
+  75.5 min  no change · 29 MB
+  76.0 min  no change · 29 MB
+  76.5 min  no change · 29 MB
+  77.0 min  no change · 29 MB
+  77.5 min  no change · 29 MB
+  78.0 min  no change · 29 MB
+  78.5 min  no change · 29 MB
+  79.0 min  no change · 29 MB
+  79.5 min  no change · 29 MB
+  80.0 min  no change · 29 MB
+  80.5 min  no change · 29 MB
+  81.0 min  no change · 29 MB
+  81.5 min  new KFWS20261010_171639_V06  decode 134 ms  bin 18 sweeps 15 ms · 33 MB · drew REF tilt 4 17 ms, 3D 20+8 ms, GPU 10 MB
+  82.0 min  no change · 30 MB
+  82.5 min  no change · 30 MB
+  83.0 min  no change · 30 MB
+  83.5 min  no change · 30 MB
+  84.0 min  no change · 30 MB
+  84.5 min  no change · 30 MB
+  85.0 min  no change · 30 MB
+  85.5 min  no change · 30 MB
+  86.0 min  no change · 30 MB
+  86.5 min  no change · 31 MB
+  87.0 min  no change · 31 MB
+  87.5 min  no change · 31 MB
+  88.0 min  no change · 31 MB
+  88.5 min  new KFWS20261010_172344_V06  decode 143 ms  bin 18 sweeps 15 ms · 32 MB · drew VEL tilt 4 4 ms, 3D 21+7 ms, GPU 10 MB
+  89.0 min  no change · 32 MB
+  89.5 min  no change · 32 MB
+  90.0 min  no change · 32 MB
+  90.5 min  no change · 32 MB
+  91.0 min  no change · 32 MB
+  91.5 min  no change · 32 MB
+  92.0 min  no change · 32 MB
+  92.5 min  no change · 32 MB
+  93.0 min  no change · 32 MB
+  93.5 min  no change · 32 MB
+  94.0 min  no change · 31 MB
+  94.5 min  no change · 31 MB
+  95.0 min  no change · 31 MB
+  95.5 min  new KFWS20261010_173048_V06  decode 593 ms  bin 18 sweeps 395 ms · 27 MB · drew CC tilt 4 131 ms, 3D 450+13 ms, GPU 10 MB
+  96.0 min  no change · 28 MB
+  96.5 min  no change · 28 MB
+  97.0 min  no change · 28 MB
+  97.5 min  no change · 28 MB
+  98.0 min  no change · 28 MB
+  98.5 min  no change · 28 MB
+  99.0 min  no change · 28 MB
+  99.5 min  no change · 28 MB
+ 100.0 min  no change · 28 MB
+ 100.5 min  no change · 28 MB
+ 101.0 min  no change · 28 MB
+ 101.5 min  no change · 28 MB
+ 102.0 min  no change · 28 MB
+ 102.5 min  no change · 28 MB
+ 103.0 min  new KFWS20261010_173752_V06  decode 122 ms  bin 18 sweeps 14 ms · 29 MB · drew ZDR tilt 4 4 ms, 3D 18+7 ms, GPU 10 MB
+ 103.5 min  no change · 29 MB
+ 104.0 min  no change · 29 MB
+ 104.5 min  no change · 28 MB
+ 105.0 min  no change · 28 MB
+ 105.5 min  no change · 28 MB
+ 106.0 min  no change · 28 MB
+ 106.5 min  no change · 28 MB
+ 107.0 min  no change · 28 MB
+ 107.5 min  no change · 28 MB
+ 108.0 min  no change · 28 MB
+ 108.5 min  no change · 28 MB
+ 109.0 min  no change · 27 MB
+ 109.5 min  no change · 28 MB
+ 110.0 min  new KFWS20261010_174457_V06  decode 123 ms  bin 18 sweeps 15 ms · 82 MB · drew REF tilt 1 3 ms, 3D 18+8 ms, GPU 10 MB
+ 110.5 min  no change · 82 MB
+ 111.0 min  no change · 82 MB
+ 111.5 min  no change · 82 MB
+ 112.0 min  no change · 82 MB
+ 112.5 min  no change · 82 MB
+ 113.0 min  no change · 82 MB
+ 113.5 min  no change · 82 MB
+ 114.0 min  no change · 82 MB
+ 114.5 min  no change · 82 MB
+ 115.0 min  no change · 82 MB
+ 115.5 min  no change · 82 MB
+ 116.0 min  no change · 82 MB
+ 116.5 min  no change · 82 MB
+ 117.0 min  new KFWS20261010_175201_V06  decode 123 ms  bin 18 sweeps 14 ms · 85 MB · drew VEL tilt 1 6 ms, 3D 16+8 ms, GPU 10 MB
+ 117.5 min  no change · 85 MB
+ 118.0 min  no change · 85 MB
+ 118.5 min  no change · 85 MB
+ 119.0 min  no change · 85 MB
+ 119.5 min  no change · 85 MB
+ 120.0 min  no change · 85 MB
+ 120.5 min  no change · 85 MB
+ 121.0 min  no change · 85 MB
+ 121.5 min  no change · 85 MB
+ 122.0 min  no change · 85 MB
+ 122.5 min  no change · 85 MB
+ 123.0 min  no change · 85 MB
+ 123.5 min  no change · 85 MB
+ 124.0 min  new KFWS20261010_175906_V06  decode 102 ms  bin 18 sweeps 10 ms · 86 MB · drew CC tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 124.5 min  no change · 86 MB
+ 125.0 min  no change · 86 MB
+ 125.5 min  no change · 86 MB
+ 126.0 min  no change · 86 MB
+ 126.5 min  no change · 86 MB
+ 127.0 min  no change · 86 MB
+ 127.5 min  no change · 86 MB
+ 128.0 min  no change · 86 MB
+ 128.5 min  no change · 86 MB
+ 129.0 min  no change · 86 MB
+ 129.5 min  no change · 86 MB
+ 130.0 min  no change · 86 MB
+ 130.5 min  no change · 86 MB
+ 131.0 min  new KFWS20261010_180611_V06  decode 123 ms  bin 18 sweeps 12 ms · 83 MB · drew ZDR tilt 1 5 ms, 3D 14+9 ms, GPU 10 MB
+ 131.5 min  no change · 83 MB
+ 132.0 min  no change · 83 MB
+ 132.5 min  no change · 83 MB
+ 133.0 min  no change · 83 MB
+ 133.5 min  no change · 83 MB
+ 134.0 min  no change · 83 MB
+ 134.5 min  no change · 83 MB
+ 135.0 min  no change · 83 MB
+ 135.5 min  no change · 83 MB
+ 136.0 min  no change · 83 MB
+ 136.5 min  no change · 83 MB
+ 137.0 min  no change · 83 MB
+ 137.5 min  no change · 83 MB
+ 138.0 min  no change · 83 MB
+ 138.5 min  new KFWS20261010_181316_V06  decode 104 ms  bin 18 sweeps 11 ms · 85 MB · drew REF tilt 2 4 ms, 3D 14+9 ms, GPU 10 MB
+ 139.0 min  no change · 84 MB
+ 139.5 min  no change · 84 MB
+ 140.0 min  no change · 84 MB
+ 140.5 min  no change · 84 MB
+ 141.0 min  no change · 84 MB
+ 141.5 min  no change · 84 MB
+ 142.0 min  no change · 84 MB
+ 142.5 min  no change · 84 MB
+ 143.0 min  no change · 84 MB
+ 143.5 min  no change · 84 MB
+ 144.0 min  no change · 84 MB
+ 144.5 min  no change · 84 MB
+ 145.0 min  new KFWS20261010_182020_V06  decode 109 ms  bin 18 sweeps 10 ms · 89 MB · drew VEL tilt 2 4 ms, 3D 14+9 ms, GPU 10 MB
+ 145.5 min  no change · 89 MB
+ 146.0 min  no change · 89 MB
+ 146.5 min  no change · 89 MB
+ 147.0 min  no change · 89 MB
+ 147.5 min  no change · 89 MB
+ 148.0 min  no change · 89 MB
+ 148.5 min  no change · 89 MB
+ 149.0 min  no change · 89 MB
+ 149.5 min  no change · 89 MB
+ 150.0 min  no change · 89 MB
+ 150.5 min  no change · 89 MB
+ 151.0 min  no change · 89 MB
+ 151.5 min  no change · 89 MB
+ 152.0 min  no change · 89 MB
+ 152.7 min  new KFWS20261010_182725_V06  decode 106 ms  bin 18 sweeps 12 ms · 87 MB · drew CC tilt 2 7 ms, 3D 13+9 ms, GPU 10 MB
+ 153.0 min  no change · 87 MB
+ 153.5 min  no change · 87 MB
+ 154.0 min  no change · 86 MB
+ 154.5 min  no change · 86 MB
+ 155.0 min  no change · 86 MB
+ 155.5 min  no change · 86 MB
+ 156.0 min  no change · 86 MB
+ 156.5 min  no change · 86 MB
+ 157.0 min  no change · 86 MB
+ 157.5 min  no change · 86 MB
+ 158.0 min  no change · 86 MB
+ 158.5 min  no change · 86 MB
+ 159.0 min  no change · 86 MB
+ 159.5 min  new KFWS20261010_183430_V06  decode 101 ms  bin 18 sweeps 11 ms · 87 MB · drew ZDR tilt 2 4 ms, 3D 13+17 ms, GPU 10 MB
+ 160.0 min  no change · 87 MB
+ 160.5 min  no change · 87 MB
+ 161.0 min  no change · 87 MB
+ 161.5 min  no change · 87 MB
+ 162.0 min  no change · 87 MB
+ 162.5 min  no change · 87 MB
+ 163.0 min  no change · 87 MB
+ 163.5 min  no change · 87 MB
+ 164.0 min  no change · 87 MB
+ 164.5 min  no change · 87 MB
+ 165.0 min  no change · 87 MB
+ 165.5 min  no change · 87 MB
+ 166.0 min  no change · 87 MB
+ 166.5 min  new KFWS20261010_184135_V06  decode 102 ms  bin 18 sweeps 11 ms · 88 MB · drew REF tilt 3 13 ms, 3D 14+9 ms, GPU 10 MB
+ 167.0 min  no change · 88 MB
+ 167.5 min  no change · 88 MB
+ 168.0 min  no change · 88 MB
+ 168.5 min  no change · 88 MB
+ 169.0 min  no change · 87 MB
+ 169.5 min  no change · 87 MB
+ 170.0 min  no change · 87 MB
+ 170.5 min  no change · 87 MB
+ 171.0 min  no change · 87 MB
+ 171.5 min  no change · 87 MB
+ 172.0 min  no change · 87 MB
+ 172.5 min  no change · 87 MB
+ 173.0 min  no change · 87 MB
+ 173.6 min  new KFWS20261010_184839_V06  decode 111 ms  bin 18 sweeps 11 ms · 86 MB · drew VEL tilt 3 5 ms, 3D 13+9 ms, GPU 10 MB
+ 174.0 min  no change · 86 MB
+ 174.5 min  no change · 86 MB
+ 175.0 min  no change · 86 MB
+ 175.5 min  no change · 86 MB
+ 176.0 min  no change · 86 MB
+ 176.5 min  no change · 86 MB
+ 177.0 min  no change · 86 MB
+ 177.5 min  no change · 86 MB
+ 178.0 min  no change · 86 MB
+ 178.5 min  no change · 86 MB
+ 179.0 min  no change · 86 MB
+ 179.5 min  no change · 86 MB
+ 180.0 min  no change · 86 MB
+ 180.5 min  new KFWS20261010_185544_V06  decode 109 ms  bin 18 sweeps 10 ms · 89 MB · drew CC tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+ 181.0 min  no change · 89 MB
+ 181.5 min  no change · 89 MB
+ 182.0 min  no change · 89 MB
+ 182.5 min  no change · 89 MB
+ 183.0 min  no change · 89 MB
+ 183.5 min  no change · 89 MB
+ 184.0 min  no change · 88 MB
+ 184.5 min  no change · 88 MB
+ 185.0 min  no change · 88 MB
+ 185.5 min  no change · 88 MB
+ 186.0 min  no change · 88 MB
+ 186.5 min  no change · 88 MB
+ 187.0 min  no change · 88 MB
+ 187.5 min  new KFWS20261010_190249_V06  decode 113 ms  bin 18 sweeps 11 ms · 90 MB · drew ZDR tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 188.0 min  no change · 90 MB
+ 188.5 min  no change · 90 MB
+ 189.0 min  no change · 90 MB
+ 189.5 min  no change · 90 MB
+ 190.0 min  no change · 90 MB
+ 190.5 min  no change · 90 MB
+ 191.0 min  no change · 90 MB
+ 191.5 min  no change · 90 MB
+ 192.0 min  no change · 90 MB
+ 192.5 min  no change · 90 MB
+ 193.0 min  no change · 90 MB
+ 193.5 min  no change · 90 MB
+ 194.0 min  no change · 90 MB
+ 194.5 min  no change · 90 MB
+ 195.0 min  new KFWS20261010_190954_V06  decode 113 ms  bin 18 sweeps 13 ms · 88 MB · drew REF tilt 4 10 ms, 3D 12+9 ms, GPU 10 MB
+ 195.5 min  no change · 88 MB
+ 196.0 min  no change · 88 MB
+ 196.5 min  no change · 88 MB
+ 197.0 min  no change · 88 MB
+ 197.5 min  no change · 88 MB
+ 198.0 min  no change · 88 MB
+ 198.5 min  no change · 88 MB
+ 199.0 min  no change · 87 MB
+ 199.5 min  no change · 87 MB
+ 200.0 min  no change · 87 MB
+ 200.5 min  no change · 87 MB
+ 201.0 min  no change · 87 MB
+ 201.5 min  no change · 87 MB
+ 202.0 min  new KFWS20261010_191658_V06  decode 109 ms  bin 18 sweeps 11 ms · 89 MB · drew VEL tilt 4 4 ms, 3D 12+13 ms, GPU 10 MB
+ 202.5 min  no change · 89 MB
+ 203.0 min  no change · 89 MB
+ 203.5 min  no change · 89 MB
+ 204.0 min  no change · 89 MB
+ 204.5 min  no change · 89 MB
+ 205.2 min  no change · 89 MB
+ 205.5 min  no change · 89 MB
+ 206.0 min  no change · 89 MB
+ 206.5 min  no change · 89 MB
+ 207.0 min  no change · 89 MB
+ 207.5 min  no change · 89 MB
+ 208.0 min  no change · 89 MB
+ 208.5 min  no change · 89 MB
+ 209.0 min  new KFWS20261010_192403_V06  decode 112 ms  bin 18 sweeps 10 ms · 90 MB · drew CC tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+ 209.5 min  no change · 90 MB
+ 210.0 min  no change · 90 MB
+ 210.5 min  no change · 90 MB
+ 211.0 min  no change · 90 MB
+ 211.5 min  no change · 90 MB
+ 212.0 min  no change · 90 MB
+ 212.5 min  no change · 90 MB
+ 213.0 min  no change · 90 MB
+ 213.5 min  no change · 90 MB
+ 214.0 min  no change · 90 MB
+ 214.5 min  no change · 90 MB
+ 215.0 min  no change · 89 MB
+ 215.5 min  no change · 89 MB
+ 216.0 min  new KFWS20261010_193108_V06  decode 117 ms  bin 18 sweeps 14 ms · 88 MB · drew ZDR tilt 4 3 ms, 3D 16+6 ms, GPU 10 MB
+ 216.5 min  no change · 88 MB
+ 217.0 min  no change · 88 MB
+ 217.5 min  no change · 88 MB
+ 218.0 min  no change · 88 MB
+ 218.5 min  no change · 88 MB
+ 219.0 min  no change · 88 MB
+ 219.5 min  no change · 88 MB
+ 220.0 min  no change · 88 MB
+ 220.5 min  no change · 88 MB
+ 221.0 min  no change · 88 MB
+ 221.5 min  no change · 88 MB
+ 222.0 min  no change · 88 MB
+ 222.5 min  no change · 88 MB
+ 223.0 min  new KFWS20261010_193812_V06  decode 131 ms  bin 18 sweeps 17 ms · 89 MB · drew REF tilt 1 5 ms, 3D 18+8 ms, GPU 10 MB
+ 223.5 min  no change · 89 MB
+ 224.0 min  no change · 89 MB
+ 224.5 min  no change · 89 MB
+ 225.0 min  no change · 89 MB
+ 225.5 min  no change · 89 MB
+ 226.0 min  no change · 89 MB
+ 226.5 min  no change · 89 MB
+ 227.0 min  no change · 89 MB
+ 227.5 min  no change · 89 MB
+ 228.0 min  no change · 89 MB
+ 228.5 min  no change · 89 MB
+ 229.0 min  no change · 89 MB
+ 229.5 min  no change · 89 MB
+ 230.0 min  new KFWS20261010_194517_V06  decode 119 ms  bin 18 sweeps 13 ms · 90 MB · drew VEL tilt 1 2 ms, 3D 16+6 ms, GPU 10 MB
+ 230.5 min  no change · 90 MB
+ 231.0 min  no change · 90 MB
+ 231.5 min  no change · 90 MB
+ 232.0 min  no change · 89 MB
+ 232.5 min  no change · 89 MB
+ 233.0 min  no change · 89 MB
+ 233.5 min  no change · 89 MB
+ 234.0 min  no change · 89 MB
+ 234.5 min  no change · 89 MB
+ 235.0 min  no change · 49 MB
+ 235.5 min  no change · 49 MB
+ 236.0 min  no change · 49 MB
+ 236.5 min  no change · 49 MB
+ 237.0 min  new KFWS20261010_195221_V06  decode 330 ms  bin 18 sweeps 436 ms · 86 MB · drew CC tilt 1 90 ms, 3D 319+9 ms, GPU 10 MB
+ 237.5 min  no change · 86 MB
+ 238.0 min  no change · 86 MB
+ 238.5 min  no change · 86 MB
+ 239.0 min  no change · 86 MB
+ 239.5 min  no change · 86 MB
+ 240.0 min  no change · 86 MB
+ 240.5 min  no change · 86 MB
+ 241.0 min  no change · 86 MB
+ 241.5 min  no change · 86 MB
+ 242.0 min  no change · 86 MB
+ 242.5 min  no change · 86 MB
+ 243.0 min  no change · 86 MB
+ 243.5 min  no change · 86 MB
+ 244.0 min  no change · 86 MB
+ 244.5 min  new KFWS20261010_195925_V06  decode 115 ms  bin 18 sweeps 14 ms · 88 MB · drew ZDR tilt 1 4 ms, 3D 16+7 ms, GPU 10 MB
+ 245.0 min  no change · 87 MB
+ 245.5 min  no change · 87 MB
+ 246.0 min  no change · 87 MB
+ 246.5 min  no change · 87 MB
+ 247.0 min  no change · 87 MB
+ 247.5 min  no change · 87 MB
+ 248.0 min  no change · 87 MB
+ 248.5 min  no change · 87 MB
+ 249.0 min  no change · 87 MB
+ 249.5 min  no change · 87 MB
+ 250.0 min  no change · 87 MB
+ 250.5 min  no change · 87 MB
+ 251.0 min  no change · 87 MB
+ 251.5 min  new KFWS20261010_200630_V06  decode 113 ms  bin 18 sweeps 12 ms · 88 MB · drew REF tilt 2 3 ms, 3D 16+7 ms, GPU 10 MB
+ 252.0 min  no change · 88 MB
+ 252.5 min  no change · 88 MB
+ 253.0 min  no change · 88 MB
+ 253.5 min  no change · 88 MB
+ 254.0 min  no change · 88 MB
+ 254.5 min  no change · 88 MB
+ 255.0 min  no change · 88 MB
+ 255.5 min  no change · 88 MB
+ 256.0 min  no change · 88 MB
+ 256.5 min  no change · 88 MB
+ 257.0 min  no change · 88 MB
+ 257.5 min  no change · 88 MB
+ 258.0 min  no change · 88 MB
+ 258.5 min  new KFWS20261010_201334_V06  decode 109 ms  bin 18 sweeps 13 ms · 89 MB · drew VEL tilt 2 7 ms, 3D 16+7 ms, GPU 10 MB
+ 259.0 min  no change · 89 MB
+ 259.5 min  no change · 89 MB
+ 260.0 min  no change · 89 MB
+ 260.5 min  no change · 89 MB
+ 261.0 min  no change · 89 MB
+ 261.5 min  no change · 89 MB
+ 262.0 min  no change · 89 MB
+ 262.5 min  no change · 89 MB
+ 263.0 min  no change · 89 MB
+ 263.5 min  no change · 89 MB
+ 264.0 min  no change · 89 MB
+ 264.5 min  no change · 89 MB
+ 265.0 min  no change · 89 MB
+ 265.5 min  new KFWS20261010_202039_V06  decode 114 ms  bin 18 sweeps 13 ms · 90 MB · drew CC tilt 2 3 ms, 3D 16+7 ms, GPU 10 MB
+ 266.0 min  no change · 90 MB
+ 266.5 min  no change · 90 MB
+ 267.0 min  no change · 90 MB
+ 267.5 min  no change · 90 MB
+ 268.0 min  no change · 90 MB
+ 268.5 min  no change · 90 MB
+ 269.0 min  no change · 90 MB
+ 269.5 min  no change · 90 MB
+ 270.0 min  no change · 90 MB
+ 270.5 min  no change · 90 MB
+ 271.0 min  no change · 90 MB
+ 271.5 min  no change · 9 MB
+ 272.1 min  no change · 10 MB
+ 272.6 min  new KFWS20261010_202744_V06  decode 2654 ms  bin 18 sweeps 22 ms · 84 MB · drew ZDR tilt 2 60 ms, 3D 22+9 ms, GPU 10 MB
+ 273.0 min  no change · 84 MB
+ 273.5 min  no change · 84 MB
+ 274.0 min  no change · 84 MB
+ 274.5 min  no change · 84 MB
+ 275.0 min  no change · 84 MB
+ 275.5 min  no change · 84 MB
+ 276.0 min  no change · 84 MB
+ 276.5 min  no change · 84 MB
+ 277.0 min  no change · 84 MB
+ 277.5 min  no change · 84 MB
+ 278.0 min  no change · 84 MB
+ 278.5 min  no change · 84 MB
+ 279.0 min  no change · 84 MB
+ 279.5 min  new KFWS20261010_203449_V06  decode 105 ms  bin 18 sweeps 14 ms · 87 MB · drew REF tilt 3 3 ms, 3D 15+6 ms, GPU 10 MB
+ 280.0 min  no change · 87 MB
+ 280.5 min  no change · 87 MB
+ 281.0 min  no change · 87 MB
+ 281.5 min  no change · 87 MB
+ 282.0 min  no change · 87 MB
+ 282.5 min  no change · 87 MB
+ 283.0 min  no change · 87 MB
+ 283.5 min  no change · 87 MB
+ 284.0 min  no change · 87 MB
+ 284.5 min  no change · 87 MB
+ 285.0 min  no change · 87 MB
+ 285.5 min  no change · 87 MB
+ 286.0 min  no change · 87 MB
+ 286.5 min  no change · 87 MB
+ 287.0 min  new KFWS20261010_204153_V06  decode 131 ms  bin 18 sweeps 15 ms · 87 MB · drew VEL tilt 3 7 ms, 3D 19+7 ms, GPU 10 MB
+ 287.5 min  no change · 87 MB
+ 288.0 min  no change · 87 MB
+ 288.5 min  no change · 87 MB
+ 289.0 min  no change · 87 MB
+ 289.5 min  no change · 87 MB
+ 290.0 min  no change · 87 MB
+ 290.5 min  no change · 87 MB
+ 291.0 min  no change · 87 MB
+ 291.5 min  no change · 87 MB
+ 292.0 min  no change · 87 MB
+ 292.5 min  no change · 87 MB
+ 293.0 min  no change · 87 MB
+ 293.5 min  no change · 87 MB
+ 294.0 min  new KFWS20261010_204858_V06  decode 87 ms  bin 18 sweeps 11 ms · 89 MB · drew CC tilt 3 2 ms, 3D 14+7 ms, GPU 10 MB
+ 294.6 min  no change · 89 MB
+ 295.0 min  no change · 89 MB
+ 295.5 min  no change · 89 MB
+ 296.0 min  no change · 89 MB
+ 296.5 min  no change · 89 MB
+ 297.0 min  no change · 89 MB
+ 297.5 min  no change · 89 MB
+ 298.0 min  no change · 89 MB
+ 298.5 min  no change · 89 MB
+ 299.0 min  no change · 89 MB
+ 299.5 min  no change · 89 MB
+ 300.0 min  no change · 89 MB
+ 300.5 min  no change · 89 MB
+ 301.0 min  new KFWS20261010_205603_V06  decode 96 ms  bin 18 sweeps 11 ms · 89 MB · drew ZDR tilt 3 2 ms, 3D 13+6 ms, GPU 10 MB
+ 301.5 min  no change · 89 MB
+ 302.0 min  no change · 89 MB
+ 302.5 min  no change · 89 MB
+ 303.0 min  no change · 89 MB
+ 303.5 min  no change · 89 MB
+ 304.0 min  no change · 89 MB
+ 304.5 min  no change · 89 MB
+ 305.0 min  no change · 88 MB
+ 305.5 min  no change · 88 MB
+ 306.0 min  no change · 88 MB
+ 306.5 min  no change · 88 MB
+ 307.0 min  no change · 88 MB
+ 307.5 min  no change · 88 MB
+ 308.0 min  new KFWS20261010_210307_V06  decode 93 ms  bin 18 sweeps 11 ms · 89 MB · drew REF tilt 4 15 ms, 3D 13+6 ms, GPU 10 MB
+ 308.5 min  no change · 89 MB
+ 309.0 min  no change · 89 MB
+ 309.5 min  no change · 89 MB
+ 310.0 min  no change · 89 MB
+ 310.5 min  no change · 89 MB
+ 311.0 min  no change · 89 MB
+ 311.5 min  no change · 89 MB
+ 312.0 min  no change · 89 MB
+ 312.5 min  no change · 89 MB
+ 313.0 min  no change · 89 MB
+ 313.5 min  no change · 89 MB
+ 314.0 min  no change · 89 MB
+ 314.5 min  no change · 89 MB
+ 315.0 min  new KFWS20261010_211012_V06  decode 103 ms  bin 18 sweeps 12 ms · 89 MB · drew VEL tilt 4 2 ms, 3D 16+7 ms, GPU 10 MB
+ 315.5 min  no change · 89 MB
+ 316.0 min  no change · 89 MB
+ 316.5 min  no change · 89 MB
+ 317.0 min  no change · 89 MB
+ 317.6 min  no change · 89 MB
+ 318.0 min  no change · 89 MB
+ 318.5 min  no change · 89 MB
+ 319.0 min  no change · 89 MB
+ 319.5 min  no change · 89 MB
+ 320.0 min  no change · 88 MB
+ 320.6 min  no change · 88 MB
+ 321.0 min  no change · 88 MB
+ 321.5 min  no change · 88 MB
+ 322.0 min  new KFWS20261010_211717_V06  decode 84 ms  bin 18 sweeps 11 ms · 90 MB · drew CC tilt 4 2 ms, 3D 13+6 ms, GPU 10 MB
+ 322.5 min  no change · 90 MB
+ 323.0 min  no change · 90 MB
+ 323.5 min  no change · 90 MB
+ 324.0 min  no change · 90 MB
+ 324.5 min  no change · 90 MB
+ 325.0 min  no change · 90 MB
+ 325.5 min  no change · 90 MB
+ 326.0 min  no change · 90 MB
+ 326.5 min  no change · 90 MB
+ 327.0 min  no change · 90 MB
+ 327.5 min  no change · 90 MB
+ 328.0 min  no change · 90 MB
+ 328.5 min  no change · 90 MB
+ 329.0 min  new KFWS20261010_212421_V06  decode 95 ms  bin 18 sweeps 12 ms · 89 MB · drew ZDR tilt 4 3 ms, 3D 14+8 ms, GPU 10 MB
+ 329.5 min  no change · 89 MB
+ 330.0 min  no change · 89 MB
+ 330.5 min  no change · 89 MB
+ 331.0 min  no change · 89 MB
+ 331.5 min  no change · 89 MB
+ 332.0 min  no change · 89 MB
+ 332.5 min  no change · 89 MB
+ 333.0 min  no change · 89 MB
+ 333.5 min  no change · 89 MB
+ 334.0 min  no change · 89 MB
+ 334.5 min  no change · 89 MB
+ 335.0 min  no change · 88 MB
+ 335.5 min  no change · 88 MB
+ 336.0 min  no change · 88 MB
+ 336.5 min  new KFWS20261010_213126_V06  decode 94 ms  bin 18 sweeps 13 ms · 90 MB · drew REF tilt 1 2 ms, 3D 16+7 ms, GPU 10 MB
+ 337.0 min  no change · 90 MB
+ 337.5 min  no change · 90 MB
+ 338.0 min  no change · 90 MB
+ 338.5 min  no change · 90 MB
+ 339.0 min  no change · 90 MB
+ 339.5 min  no change · 90 MB
+ 340.0 min  no change · 90 MB
+ 340.5 min  no change · 90 MB
+ 341.0 min  no change · 90 MB
+ 341.5 min  no change · 90 MB
+ 342.0 min  no change · 90 MB
+ 342.5 min  no change · 90 MB
+ 343.0 min  no change · 90 MB
+ 343.5 min  new KFWS20261010_213831_V06  decode 112 ms  bin 18 sweeps 13 ms · 91 MB · drew VEL tilt 1 2 ms, 3D 15+7 ms, GPU 10 MB
+ 344.0 min  no change · 91 MB
+ 344.5 min  no change · 91 MB
+ 345.0 min  no change · 91 MB
+ 345.5 min  no change · 91 MB
+ 346.0 min  no change · 91 MB
+ 346.5 min  no change · 91 MB
+ 347.0 min  no change · 91 MB
+ 347.5 min  no change · 91 MB
+ 348.0 min  no change · 91 MB
+ 348.5 min  no change · 91 MB
+ 349.0 min  no change · 91 MB
+ 349.5 min  no change · 91 MB
+ 350.0 min  no change · 90 MB
+ 350.5 min  new KFWS20261010_214536_V06  decode 84 ms  bin 18 sweeps 12 ms · 92 MB · drew CC tilt 1 2 ms, 3D 13+7 ms, GPU 10 MB
+ 351.0 min  no change · 92 MB
+ 351.5 min  no change · 92 MB
+ 352.0 min  no change · 92 MB
+ 352.5 min  no change · 92 MB
+ 353.0 min  no change · 92 MB
+ 353.5 min  no change · 92 MB
+ 354.0 min  no change · 92 MB
+ 354.5 min  no change · 92 MB
+ 355.0 min  no change · 92 MB
+ 355.5 min  no change · 92 MB
+ 356.0 min  no change · 92 MB
+ 356.5 min  no change · 92 MB
+ 357.0 min  no change · 92 MB
+ 357.5 min  no change · 92 MB
+ 358.0 min  no change · 92 MB
+ 358.5 min  new KFWS20261010_215348_V06  decode 83 ms  bin 18 sweeps 12 ms · 92 MB · drew ZDR tilt 1 2 ms, 3D 16+6 ms, GPU 10 MB
+ 359.0 min  no change · 92 MB
+ 359.5 min  no change · 92 MB
+ 360.0 min  no change · 92 MB
+ 360.5 min  no change · 92 MB
+ 361.0 min  no change · 92 MB
+ 361.5 min  no change · 92 MB
+ 362.0 min  no change · 92 MB
+ 362.5 min  no change · 92 MB
+ 363.0 min  no change · 92 MB
+ 363.5 min  no change · 92 MB
+ 364.0 min  no change · 92 MB
+ 364.5 min  no change · 92 MB
+ 365.0 min  no change · 92 MB
+ 365.5 min  no change · 91 MB
+ 366.0 min  new KFWS20261010_220052_V06  decode 97 ms  bin 18 sweeps 14 ms · 93 MB · drew REF tilt 2 2 ms, 3D 14+6 ms, GPU 10 MB
+ 366.5 min  no change · 93 MB
+ 367.0 min  no change · 93 MB
+ 367.5 min  no change · 93 MB
+ 368.0 min  no change · 93 MB
+ 368.5 min  no change · 93 MB
+ 369.0 min  no change · 93 MB
+ 369.5 min  no change · 93 MB
+ 370.0 min  no change · 93 MB
+ 370.5 min  no change · 93 MB
+ 371.0 min  no change · 93 MB
+ 371.5 min  no change · 93 MB
+ 372.0 min  no change · 93 MB
+ 372.5 min  no change · 93 MB
+ 373.0 min  new KFWS20261010_220756_V06  decode 83 ms  bin 18 sweeps 12 ms · 93 MB · drew VEL tilt 2 3 ms, 3D 15+7 ms, GPU 10 MB
+ 373.5 min  no change · 93 MB
+ 374.0 min  no change · 93 MB
+ 374.5 min  no change · 93 MB
+ 375.0 min  no change · 93 MB
+ 375.5 min  no change · 93 MB
+ 376.0 min  no change · 93 MB
+ 376.5 min  no change · 93 MB
+ 377.0 min  no change · 93 MB
+ 377.5 min  no change · 93 MB
+ 378.0 min  no change · 93 MB
+ 378.5 min  no change · 93 MB
+ 379.0 min  no change · 93 MB
+ 379.5 min  no change · 93 MB
+ 380.0 min  new KFWS20261010_221501_V06  decode 84 ms  bin 18 sweeps 12 ms · 94 MB · drew CC tilt 2 3 ms, 3D 14+6 ms, GPU 10 MB
+ 380.5 min  no change · 93 MB
+ 381.0 min  no change · 93 MB
+ 381.5 min  no change · 93 MB
+ 382.0 min  no change · 93 MB
+ 382.5 min  no change · 93 MB
+ 383.0 min  no change · 93 MB
+ 383.5 min  no change · 93 MB
+ 384.0 min  no change · 93 MB
+ 384.5 min  no change · 93 MB
+ 385.0 min  no change · 93 MB
+ 385.5 min  no change · 93 MB
+ 386.0 min  no change · 93 MB
+ 386.5 min  no change · 93 MB
+ 387.0 min  new KFWS20261010_222206_V06  decode 86 ms  bin 18 sweeps 12 ms · 94 MB · drew ZDR tilt 2 2 ms, 3D 15+8 ms, GPU 10 MB
+ 387.5 min  no change · 94 MB
+ 388.0 min  no change · 94 MB
+ 388.5 min  no change · 94 MB
+ 389.0 min  no change · 94 MB
+ 389.5 min  no change · 94 MB
+ 390.0 min  no change · 94 MB
+ 390.5 min  no change · 94 MB
+ 391.0 min  no change · 94 MB
+ 391.5 min  no change · 94 MB
+ 392.0 min  no change · 94 MB
+ 392.5 min  no change · 94 MB
+ 393.0 min  no change · 94 MB
+ 393.5 min  no change · 94 MB
+ 394.0 min  new KFWS20261010_222909_V06  decode 75 ms  bin 18 sweeps 11 ms · 93 MB · drew REF tilt 3 3 ms, 3D 13+7 ms, GPU 10 MB
+ 394.5 min  no change · 93 MB
+ 395.0 min  no change · 93 MB
+ 395.5 min  no change · 92 MB
+ 396.0 min  no change · 92 MB
+ 396.5 min  no change · 92 MB
+ 397.0 min  no change · 92 MB
+ 397.5 min  no change · 92 MB
+ 398.0 min  no change · 92 MB
+ 398.5 min  no change · 92 MB
+ 399.0 min  no change · 92 MB
+ 399.5 min  no change · 92 MB
+ 400.0 min  no change · 92 MB
+ 400.5 min  no change · 92 MB
+ 401.0 min  new KFWS20261010_223614_V06  decode 82 ms  bin 18 sweeps 12 ms · 93 MB · drew VEL tilt 3 2 ms, 3D 15+7 ms, GPU 10 MB
+ 401.5 min  no change · 93 MB
+ 402.0 min  no change · 93 MB
+ 402.5 min  no change · 93 MB
+ 403.0 min  no change · 93 MB
+ 403.5 min  no change · 93 MB
+ 404.0 min  no change · 93 MB
+ 404.5 min  no change · 93 MB
+ 405.0 min  no change · 93 MB
+ 405.5 min  no change · 93 MB
+ 406.0 min  no change · 109 MB
+ 406.5 min  no change · 109 MB
+ 407.0 min  no change · 109 MB
+ 407.5 min  no change · 109 MB
+ 408.0 min  new KFWS20261010_224319_V06  decode 78 ms  bin 18 sweeps 11 ms · 110 MB · drew CC tilt 3 2 ms, 3D 14+7 ms, GPU 10 MB
+ 408.5 min  no change · 110 MB
+ 409.0 min  no change · 109 MB
+ 409.5 min  no change · 109 MB
+ 410.0 min  no change · 109 MB
+ 410.5 min  no change · 108 MB
+ 411.1 min  no change · 108 MB
+ 411.5 min  no change · 108 MB
+ 412.0 min  no change · 108 MB
+ 412.5 min  no change · 108 MB
+ 413.0 min  no change · 108 MB
+ 413.5 min  no change · 108 MB
+ 414.0 min  no change · 108 MB
+ 414.5 min  no change · 108 MB
+ 415.0 min  no change · 108 MB
+ 415.5 min  new KFWS20261010_225023_V06  decode 85 ms  bin 18 sweeps 12 ms · 109 MB · drew ZDR tilt 3 4 ms, 3D 15+6 ms, GPU 10 MB
+ 416.0 min  no change · 109 MB
+ 416.5 min  no change · 109 MB
+ 417.0 min  no change · 109 MB
+ 417.5 min  no change · 109 MB
+ 418.0 min  no change · 109 MB
+ 418.5 min  no change · 109 MB
+ 419.0 min  no change · 109 MB
+ 419.5 min  no change · 109 MB
+ 420.0 min  no change · 109 MB
+ 420.5 min  no change · 109 MB
+ 421.0 min  no change · 109 MB
+ 421.5 min  no change · 109 MB
+ 422.0 min  no change · 109 MB
+ 422.5 min  new KFWS20261010_225729_V06  decode 74 ms  bin 18 sweeps 11 ms · 108 MB · drew REF tilt 4 3 ms, 3D 15+6 ms, GPU 10 MB
+ 423.0 min  no change · 108 MB
+ 423.5 min  no change · 108 MB
+ 424.0 min  no change · 108 MB
+ 424.5 min  no change · 108 MB
+ 425.0 min  no change · 108 MB
+ 425.5 min  no change · 107 MB
+ 426.0 min  no change · 107 MB
+ 426.5 min  no change · 107 MB
+ 427.0 min  no change · 107 MB
+ 427.5 min  no change · 107 MB
+ 428.0 min  no change · 107 MB
+ 428.5 min  no change · 107 MB
+ 429.0 min  no change · 107 MB
+ 429.5 min  new KFWS20261010_230434_V06  decode 81 ms  bin 18 sweeps 11 ms · 108 MB · drew VEL tilt 4 2 ms, 3D 15+7 ms, GPU 10 MB
+ 430.0 min  no change · 108 MB
+ 430.5 min  no change · 108 MB
+ 431.0 min  no change · 108 MB
+ 431.5 min  no change · 108 MB
+ 432.0 min  no change · 108 MB
+ 432.5 min  no change · 108 MB
+ 433.0 min  no change · 108 MB
+ 433.5 min  no change · 108 MB
+ 434.0 min  no change · 108 MB
+ 434.5 min  no change · 108 MB
+ 435.0 min  no change · 108 MB
+ 435.5 min  no change · 108 MB
+ 436.0 min  no change · 108 MB
+ 436.5 min  new KFWS20261010_231138_V06  decode 76 ms  bin 18 sweeps 13 ms · 108 MB · drew CC tilt 4 2 ms, 3D 14+7 ms, GPU 10 MB
+ 437.0 min  no change · 108 MB
+ 437.5 min  no change · 108 MB
+ 438.0 min  no change · 108 MB
+ 438.5 min  no change · 108 MB
+ 439.5 min  FAILED (1 in a row): list: list_files(KFWS, 2026-10-10): error listing AWS S3 objects · 108 MB
+ 439.5 min  no change · 108 MB
+ 440.0 min  no change · 108 MB
+ 440.5 min  no change · 107 MB
+ 441.0 min  no change · 107 MB
+ 441.5 min  no change · 107 MB
+ 442.0 min  no change · 107 MB
+ 442.5 min  no change · 107 MB
+ 443.0 min  no change · 107 MB
+ 443.5 min  new KFWS20261010_231842_V06  decode 74 ms  bin 18 sweeps 12 ms · 109 MB · drew ZDR tilt 4 5 ms, 3D 16+6 ms, GPU 10 MB
+ 444.0 min  no change · 109 MB
+ 444.5 min  no change · 109 MB
+ 445.0 min  no change · 109 MB
+ 445.5 min  no change · 109 MB
+ 446.0 min  no change · 109 MB
+ 446.5 min  no change · 109 MB
+ 447.0 min  no change · 109 MB
+ 447.5 min  no change · 109 MB
+ 448.0 min  no change · 109 MB
+ 448.5 min  no change · 109 MB
+ 449.0 min  no change · 109 MB
+ 449.5 min  no change · 109 MB
+ 450.0 min  no change · 109 MB
+ 450.5 min  new KFWS20261010_232546_V06  decode 71 ms  bin 18 sweeps 12 ms · 110 MB · drew REF tilt 1 2 ms, 3D 15+7 ms, GPU 10 MB
+ 451.0 min  no change · 110 MB
+ 451.5 min  no change · 110 MB
+ 452.0 min  no change · 110 MB
+ 452.5 min  no change · 110 MB
+ 453.0 min  no change · 110 MB
+ 453.5 min  no change · 110 MB
+ 454.0 min  no change · 110 MB
+ 454.5 min  no change · 110 MB
+ 455.0 min  no change · 110 MB
+ 455.5 min  no change · 109 MB
+ 456.0 min  no change · 109 MB
+ 456.5 min  no change · 109 MB
+ 457.0 min  no change · 109 MB
+ 457.5 min  new KFWS20261010_233250_V06  decode 62 ms  bin 18 sweeps 12 ms · 110 MB · drew VEL tilt 1 2 ms, 3D 13+6 ms, GPU 10 MB
+ 458.0 min  no change · 110 MB
+ 458.5 min  no change · 110 MB
+ 459.0 min  no change · 110 MB
+ 459.5 min  no change · 110 MB
+ 460.0 min  no change · 110 MB
+ 460.5 min  no change · 110 MB
+ 461.0 min  no change · 110 MB
+ 461.5 min  no change · 110 MB
+ 462.0 min  no change · 110 MB
+ 462.5 min  no change · 110 MB
+ 463.0 min  no change · 110 MB
+ 463.5 min  no change · 110 MB
+ 464.0 min  no change · 110 MB
+ 464.5 min  no change · 110 MB
+ 465.0 min  new KFWS20261010_233953_V06  decode 62 ms  bin 18 sweeps 12 ms · 110 MB · drew CC tilt 1 2 ms, 3D 14+6 ms, GPU 10 MB
+ 465.5 min  no change · 110 MB
+ 466.0 min  no change · 110 MB
+ 466.5 min  no change · 110 MB
+ 467.0 min  no change · 110 MB
+ 467.5 min  no change · 110 MB
+ 468.0 min  no change · 110 MB
+ 468.5 min  no change · 110 MB
+ 469.0 min  no change · 110 MB
+ 469.5 min  no change · 110 MB
+ 470.0 min  no change · 110 MB
+ 470.5 min  no change · 109 MB
+ 471.0 min  no change · 109 MB
+ 471.5 min  no change · 109 MB
+ 472.0 min  new KFWS20261010_234657_V06  decode 56 ms  bin 18 sweeps 10 ms · 110 MB · drew ZDR tilt 1 2 ms, 3D 13+8 ms, GPU 10 MB
+ 472.5 min  no change · 110 MB
+ 473.0 min  no change · 110 MB
+ 473.5 min  no change · 110 MB
+ 474.0 min  no change · 110 MB
+ 474.6 min  no change · 110 MB
+ 475.1 min  no change · 110 MB
+ 475.6 min  no change · 110 MB
+ 476.0 min  no change · 110 MB
+ 476.5 min  no change · 110 MB
+ 477.0 min  no change · 110 MB
+ 477.5 min  no change · 110 MB
+ 478.0 min  no change · 110 MB
+ 478.5 min  no change · 110 MB
+ 479.0 min  new KFWS20261010_235402_V06  decode 76 ms  bin 18 sweeps 13 ms · 111 MB · drew REF tilt 2 2 ms, 3D 18+7 ms, GPU 10 MB
+ 479.5 min  no change · 111 MB
+ 480.0 min  no change · 111 MB
+ 480.5 min  no change · 111 MB
+ 481.0 min  no change · 111 MB
+ 481.5 min  no change · 111 MB
+ 482.0 min  no change · 111 MB
+ 482.5 min  no change · 111 MB
+ 483.0 min  no change · 111 MB
+ 483.5 min  no change · 111 MB
+ 484.0 min  no change · 111 MB
+ 484.5 min  no change · 111 MB
+ 485.0 min  no change · 111 MB
+ 485.5 min  no change · 110 MB
+ 486.0 min  new KFWS20261011_000107_V06  decode 55 ms  bin 18 sweeps 11 ms · 56 MB · drew VEL tilt 2 2 ms, 3D 12+6 ms, GPU 10 MB
+ 486.5 min  no change · 56 MB
+ 487.0 min  no change · 56 MB
+ 487.5 min  no change · 56 MB
+ 488.0 min  no change · 56 MB
+ 488.5 min  no change · 56 MB
+ 489.0 min  no change · 56 MB
+ 489.5 min  no change · 56 MB
+ 490.0 min  no change · 56 MB
+ 490.5 min  no change · 56 MB
+ 491.0 min  no change · 56 MB
+ 491.5 min  no change · 56 MB
+ 492.0 min  no change · 56 MB
+ 492.5 min  no change · 56 MB
+ 493.0 min  new KFWS20261011_000811_V06  decode 61 ms  bin 18 sweeps 12 ms · 107 MB · drew CC tilt 2 2 ms, 3D 15+7 ms, GPU 10 MB
+ 493.5 min  no change · 105 MB
+ 494.0 min  no change · 105 MB
+ 494.5 min  no change · 105 MB
+ 495.0 min  no change · 105 MB
+ 495.5 min  no change · 105 MB
+ 496.0 min  no change · 105 MB
+ 496.5 min  no change · 105 MB
+ 497.0 min  no change · 105 MB
+ 497.5 min  no change · 105 MB
+ 498.0 min  no change · 105 MB
+ 498.5 min  no change · 105 MB
+ 499.0 min  no change · 105 MB
+ 499.5 min  no change · 105 MB
+ 500.0 min  new KFWS20261011_001515_V06  decode 64 ms  bin 18 sweeps 11 ms · 108 MB · drew ZDR tilt 2 2 ms, 3D 16+8 ms, GPU 10 MB
+ 500.5 min  no change · 108 MB
+ 501.0 min  no change · 107 MB
+ 501.5 min  no change · 107 MB
+ 502.0 min  no change · 107 MB
+ 502.5 min  no change · 107 MB
+ 503.0 min  no change · 107 MB
+ 503.5 min  no change · 107 MB
+ 504.0 min  no change · 107 MB
+ 504.5 min  no change · 107 MB
+ 505.0 min  no change · 107 MB
+ 505.5 min  no change · 107 MB
+ 506.0 min  no change · 107 MB
+ 506.5 min  no change · 107 MB
+ 507.0 min  new KFWS20261011_002220_V06  decode 68 ms  bin 18 sweeps 12 ms · 108 MB · drew REF tilt 3 2 ms, 3D 16+7 ms, GPU 10 MB
+ 507.5 min  no change · 108 MB
+ 508.0 min  no change · 108 MB
+ 508.5 min  no change · 108 MB
+ 509.0 min  no change · 108 MB
+ 509.5 min  no change · 108 MB
+ 510.0 min  no change · 108 MB
+ 510.5 min  no change · 108 MB
+ 511.0 min  no change · 108 MB
+ 511.5 min  no change · 108 MB
+ 512.0 min  no change · 108 MB
+ 512.5 min  no change · 108 MB
+ 513.0 min  no change · 108 MB
+ 513.5 min  no change · 108 MB
+ 514.0 min  no change · 108 MB
+ 514.5 min  new KFWS20261011_002925_V06  decode 67 ms  bin 18 sweeps 11 ms · 108 MB · drew VEL tilt 3 2 ms, 3D 16+6 ms, GPU 10 MB
+ 515.0 min  no change · 108 MB
+ 515.5 min  no change · 108 MB
+ 516.0 min  no change · 107 MB
+ 516.5 min  no change · 107 MB
+ 517.0 min  no change · 107 MB
+ 517.5 min  no change · 107 MB
+ 518.0 min  no change · 107 MB
+ 518.5 min  no change · 107 MB
+ 519.0 min  no change · 107 MB
+ 519.5 min  no change · 107 MB
+ 520.0 min  no change · 107 MB
+ 520.5 min  no change · 53 MB
+ 521.0 min  no change · 53 MB
+ 521.5 min  new KFWS20261011_003628_V06  decode 72 ms  bin 18 sweeps 13 ms · 106 MB · drew CC tilt 3 2 ms, 3D 17+7 ms, GPU 10 MB
+ 522.0 min  no change · 106 MB
+ 522.5 min  no change · 106 MB
+ 523.0 min  no change · 106 MB
+ 523.5 min  no change · 106 MB
+ 524.0 min  no change · 106 MB
+ 524.5 min  no change · 106 MB
+ 525.0 min  no change · 106 MB
+ 525.5 min  no change · 106 MB
+ 526.0 min  no change · 106 MB
+ 526.5 min  no change · 106 MB
+ 527.0 min  no change · 106 MB
+ 527.5 min  no change · 106 MB
+ 528.0 min  no change · 106 MB
+ 528.5 min  new KFWS20261011_004333_V06  decode 75 ms  bin 18 sweeps 13 ms · 109 MB · drew ZDR tilt 3 2 ms, 3D 24+10 ms, GPU 10 MB
+ 529.0 min  no change · 109 MB
+ 529.5 min  no change · 109 MB
+ 530.0 min  no change · 109 MB
+ 530.5 min  no change · 109 MB
+ 531.0 min  no change · 108 MB
+ 531.5 min  no change · 108 MB
+ 532.0 min  no change · 108 MB
+ 532.5 min  no change · 108 MB
+ 533.0 min  no change · 108 MB
+ 533.5 min  no change · 108 MB
+ 534.0 min  no change · 108 MB
+ 534.5 min  no change · 108 MB
+ 535.0 min  no change · 108 MB
+ 535.5 min  new KFWS20261011_005038_V06  decode 93 ms  bin 18 sweeps 19 ms · 110 MB · drew REF tilt 4 4 ms, 3D 24+8 ms, GPU 10 MB
+ 536.0 min  no change · 110 MB
+ 536.5 min  no change · 110 MB
+ 537.0 min  no change · 110 MB
+ 537.5 min  no change · 110 MB
+ 538.0 min  no change · 110 MB
+ 538.5 min  no change · 110 MB
+ 539.0 min  no change · 110 MB
+ 539.5 min  no change · 110 MB
+ 540.0 min  no change · 110 MB
+ 540.5 min  no change · 110 MB
+ 541.0 min  no change · 110 MB
+ 541.5 min  no change · 110 MB
+ 542.0 min  no change · 110 MB
+ 542.5 min  new KFWS20261011_005743_V06  decode 106 ms  bin 18 sweeps 14 ms · 110 MB · drew VEL tilt 4 3 ms, 3D 18+6 ms, GPU 10 MB
+ 543.0 min  no change · 109 MB
+ 543.5 min  no change · 109 MB
+ 544.0 min  no change · 109 MB
+ 544.5 min  no change · 109 MB
+ 545.0 min  no change · 62 MB
+ 545.5 min  no change · 63 MB
+ 546.0 min  no change · 62 MB
+ 546.5 min  no change · 63 MB
+ 547.0 min  no change · 63 MB
+ 547.5 min  no change · 63 MB
+ 548.0 min  no change · 63 MB
+ 548.5 min  no change · 63 MB
+ 549.0 min  no change · 63 MB
+ 549.5 min  new KFWS20261011_010447_V06  decode 107 ms  bin 18 sweeps 15 ms · 105 MB · drew CC tilt 4 4 ms, 3D 16+7 ms, GPU 10 MB
+ 550.0 min  no change · 105 MB
+ 550.5 min  no change · 105 MB
+ 551.0 min  no change · 105 MB
+ 551.5 min  no change · 105 MB
+ 552.0 min  no change · 105 MB
+ 552.5 min  no change · 105 MB
+ 553.0 min  no change · 105 MB
+ 553.5 min  no change · 105 MB
+ 554.0 min  no change · 105 MB
+ 554.5 min  no change · 105 MB
+ 555.0 min  no change · 105 MB
+ 555.5 min  no change · 105 MB
+ 556.0 min  no change · 105 MB
+ 556.5 min  new KFWS20261011_011152_V06  decode 101 ms  bin 18 sweeps 14 ms · 107 MB · drew ZDR tilt 4 2 ms, 3D 18+8 ms, GPU 10 MB
+ 557.0 min  no change · 107 MB
+ 557.5 min  no change · 107 MB
+ 558.0 min  no change · 107 MB
+ 558.5 min  no change · 107 MB
+ 559.0 min  no change · 107 MB
+ 559.5 min  no change · 107 MB
+ 560.0 min  no change · 107 MB
+ 560.5 min  no change · 107 MB
+ 561.0 min  no change · 106 MB
+ 561.5 min  no change · 106 MB
+ 562.0 min  no change · 106 MB
+ 562.5 min  no change · 106 MB
+ 563.0 min  no change · 106 MB
+ 563.5 min  no change · 106 MB
+ 564.0 min  new KFWS20261011_011856_V06  decode 119 ms  bin 18 sweeps 14 ms · 107 MB · drew REF tilt 1 3 ms, 3D 17+9 ms, GPU 10 MB
+ 564.5 min  no change · 107 MB
+ 565.0 min  no change · 107 MB
+ 565.5 min  no change · 107 MB
+ 566.0 min  no change · 107 MB
+ 566.5 min  no change · 107 MB
+ 567.0 min  no change · 107 MB
+ 567.5 min  no change · 107 MB
+ 568.0 min  no change · 107 MB
+ 568.5 min  no change · 93 MB
+ 569.0 min  no change · 53 MB
+ 569.5 min  no change · 53 MB
+ 570.0 min  no change · 53 MB
+ 570.5 min  no change · 53 MB
+ 571.0 min  new KFWS20261011_012601_V06  decode 301 ms  bin 18 sweeps 440 ms · 87 MB · drew VEL tilt 1 101 ms, 3D 369+8 ms, GPU 10 MB
+ 571.5 min  no change · 87 MB
+ 572.0 min  no change · 88 MB
+ 572.5 min  no change · 88 MB
+ 573.0 min  no change · 88 MB
+ 573.5 min  no change · 88 MB
+ 574.0 min  no change · 88 MB
+ 574.5 min  no change · 88 MB
+ 575.0 min  no change · 88 MB
+ 575.5 min  no change · 88 MB
+ 576.0 min  no change · 87 MB
+ 576.5 min  no change · 87 MB
+ 577.0 min  no change · 87 MB
+ 577.5 min  no change · 87 MB
+ 578.0 min  new KFWS20261011_013304_V06  decode 163 ms  bin 18 sweeps 14 ms · 90 MB · drew CC tilt 1 2 ms, 3D 18+8 ms, GPU 10 MB
+ 578.5 min  no change · 90 MB
+ 579.0 min  no change · 90 MB
+ 579.5 min  no change · 90 MB
+ 580.0 min  no change · 90 MB
+ 580.5 min  no change · 90 MB
+ 581.0 min  no change · 90 MB
+ 581.5 min  no change · 90 MB
+ 582.0 min  no change · 90 MB
+ 582.5 min  no change · 90 MB
+ 583.0 min  no change · 90 MB
+ 583.5 min  no change · 90 MB
+ 584.0 min  no change · 90 MB
+ 584.5 min  no change · 90 MB
+ 585.0 min  new KFWS20261011_014008_V06  decode 104 ms  bin 18 sweeps 11 ms · 88 MB · drew ZDR tilt 1 4 ms, 3D 13+18 ms, GPU 10 MB
+ 585.5 min  no change · 88 MB
+ 586.0 min  no change · 81 MB
+ 586.5 min  no change · 82 MB
+ 587.0 min  no change · 82 MB
+ 587.5 min  no change · 82 MB
+ 588.0 min  no change · 82 MB
+ 588.5 min  no change · 82 MB
+ 589.0 min  no change · 82 MB
+ 589.5 min  no change · 82 MB
+ 590.0 min  no change · 82 MB
+ 590.5 min  no change · 82 MB
+ 591.0 min  no change · 82 MB
+ 591.5 min  no change · 82 MB
+ 592.0 min  new KFWS20261011_014712_V06  decode 170 ms  bin 18 sweeps 16 ms · 87 MB · drew REF tilt 2 4 ms, 3D 19+10 ms, GPU 10 MB
+ 592.5 min  no change · 87 MB
+ 593.0 min  no change · 87 MB
+ 593.5 min  no change · 87 MB
+ 594.0 min  no change · 87 MB
+ 594.5 min  no change · 87 MB
+ 595.0 min  no change · 87 MB
+ 595.5 min  no change · 8 MB
+ 596.0 min  no change · 9 MB
+ 596.5 min  no change · 9 MB
+ 597.0 min  no change · 9 MB
+ 597.5 min  no change · 9 MB
+ 598.0 min  no change · 9 MB
+ 598.5 min  no change · 9 MB
+ 599.1 min  new KFWS20261011_015416_V06  decode 323 ms  bin 18 sweeps 445 ms · 83 MB · drew VEL tilt 2 87 ms, 3D 426+11 ms, GPU 10 MB
+ 599.5 min  no change · 83 MB
+ 600.0 min  no change · 83 MB
+ 600.5 min  no change · 83 MB
+ 601.0 min  no change · 83 MB
+ 601.5 min  no change · 83 MB
+ 602.0 min  no change · 83 MB
+ 602.5 min  no change · 83 MB
+ 603.0 min  no change · 83 MB
+ 603.5 min  no change · 83 MB
+ 604.0 min  no change · 83 MB
+ 604.5 min  no change · 83 MB
+ 605.0 min  no change · 83 MB
+ 605.5 min  no change · 83 MB
+ 606.1 min  new KFWS20261011_020119_V06  decode 131 ms  bin 18 sweeps 12 ms · 87 MB · drew CC tilt 2 4 ms, 3D 15+9 ms, GPU 10 MB
+ 606.5 min  no change · 87 MB
+ 607.0 min  no change · 87 MB
+ 607.5 min  no change · 87 MB
+ 608.0 min  no change · 87 MB
+ 608.5 min  no change · 87 MB
+ 609.0 min  no change · 87 MB
+ 609.5 min  no change · 87 MB
+ 610.0 min  no change · 87 MB
+ 610.5 min  no change · 87 MB
+ 611.0 min  no change · 87 MB
+ 611.5 min  no change · 87 MB
+ 612.0 min  no change · 87 MB
+ 612.5 min  no change · 87 MB
+ 613.0 min  no change · 8 MB
+ 613.5 min  new KFWS20261011_020823_V06  decode 243 ms  bin 18 sweeps 27 ms · 84 MB · drew ZDR tilt 2 58 ms, 3D 31+9 ms, GPU 10 MB
+ 614.0 min  no change · 84 MB
+ 614.5 min  no change · 84 MB
+ 615.0 min  no change · 84 MB
+ 615.5 min  no change · 84 MB
+ 616.0 min  no change · 84 MB
+ 616.5 min  no change · 84 MB
+ 617.0 min  no change · 84 MB
+ 617.5 min  no change · 84 MB
+ 618.0 min  no change · 84 MB
+ 618.5 min  no change · 84 MB
+ 619.0 min  no change · 84 MB
+ 619.5 min  no change · 84 MB
+ 620.0 min  no change · 84 MB
+ 620.5 min  new KFWS20261011_021528_V06  decode 125 ms  bin 18 sweeps 13 ms · 89 MB · drew REF tilt 3 3 ms, 3D 15+11 ms, GPU 10 MB
+ 621.0 min  no change · 88 MB
+ 621.5 min  no change · 88 MB
+ 622.0 min  no change · 88 MB
+ 622.5 min  no change · 88 MB
+ 623.0 min  no change · 88 MB
+ 623.5 min  no change · 88 MB
+ 624.0 min  no change · 89 MB
+ 624.5 min  no change · 89 MB
+ 625.0 min  no change · 89 MB
+ 625.5 min  no change · 89 MB
+ 626.0 min  no change · 89 MB
+ 626.5 min  no change · 89 MB
+ 627.0 min  no change · 89 MB
+ 627.5 min  new KFWS20261011_022232_V06  decode 126 ms  bin 18 sweeps 12 ms · 90 MB · drew VEL tilt 3 12 ms, 3D 15+11 ms, GPU 10 MB
+ 628.0 min  no change · 90 MB
+ 628.5 min  no change · 90 MB
+ 629.0 min  no change · 90 MB
+ 629.5 min  no change · 90 MB
+ 630.0 min  no change · 90 MB
+ 630.5 min  no change · 90 MB
+ 631.0 min  no change · 90 MB
+ 631.5 min  no change · 90 MB
+ 632.0 min  no change · 90 MB
+ 632.5 min  no change · 90 MB
+ 633.0 min  no change · 90 MB
+ 633.5 min  no change · 90 MB
+ 634.0 min  no change · 90 MB
+ 634.5 min  new KFWS20261011_022936_V06  decode 121 ms  bin 18 sweeps 12 ms · 91 MB · drew CC tilt 3 5 ms, 3D 15+9 ms, GPU 10 MB
+ 635.0 min  no change · 91 MB
+ 635.5 min  no change · 91 MB
+ 636.0 min  no change · 91 MB
+ 636.5 min  no change · 91 MB
+ 637.0 min  no change · 91 MB
+ 637.5 min  no change · 91 MB
+ 638.0 min  no change · 91 MB
+ 638.5 min  no change · 91 MB
+ 639.0 min  no change · 91 MB
+ 639.5 min  no change · 91 MB
+ 640.0 min  no change · 91 MB
+ 640.5 min  no change · 91 MB
+ 641.0 min  no change · 91 MB
+ 641.5 min  new KFWS20261011_023641_V06  decode 132 ms  bin 18 sweeps 10 ms · 39 MB · drew ZDR tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 642.0 min  no change · 36 MB
+ 642.5 min  no change · 36 MB
+ 643.0 min  no change · 36 MB
+ 643.5 min  no change · 36 MB
+ 644.0 min  no change · 36 MB
+ 644.5 min  no change · 36 MB
+ 645.0 min  no change · 36 MB
+ 645.5 min  no change · 36 MB
+ 646.0 min  no change · 36 MB
+ 646.5 min  no change · 36 MB
+ 647.0 min  no change · 36 MB
+ 647.5 min  no change · 36 MB
+ 648.0 min  no change · 36 MB
+ 648.5 min  new KFWS20261011_024345_V06  decode 124 ms  bin 18 sweeps 11 ms · 87 MB · drew REF tilt 4 10 ms, 3D 13+9 ms, GPU 10 MB
+ 649.0 min  no change · 87 MB
+ 649.5 min  no change · 87 MB
+ 650.0 min  no change · 87 MB
+ 650.5 min  no change · 87 MB
+ 651.0 min  no change · 87 MB
+ 651.5 min  no change · 87 MB
+ 652.0 min  no change · 87 MB
+ 652.5 min  no change · 87 MB
+ 653.0 min  no change · 87 MB
+ 653.5 min  no change · 87 MB
+ 654.0 min  no change · 87 MB
+ 654.5 min  no change · 87 MB
+ 655.0 min  no change · 87 MB
+ 655.6 min  new KFWS20261011_025050_V06  decode 122 ms  bin 18 sweeps 11 ms · 92 MB · drew VEL tilt 4 5 ms, 3D 15+12 ms, GPU 10 MB
+ 656.0 min  no change · 92 MB
+ 656.5 min  no change · 92 MB
+ 657.0 min  no change · 92 MB
+ 657.5 min  no change · 92 MB
+ 658.0 min  no change · 93 MB
+ 658.5 min  no change · 93 MB
+ 659.0 min  no change · 93 MB
+ 659.5 min  no change · 93 MB
+ 660.0 min  no change · 9 MB
+ 660.5 min  no change · 10 MB
+ 661.0 min  no change · 10 MB
+ 661.5 min  no change · 10 MB
+ 662.0 min  no change · 10 MB
+ 662.9 min  new KFWS20261011_025753_V06  decode 233 ms  bin 18 sweeps 26 ms · 85 MB · drew CC tilt 4 38 ms, 3D 25+13 ms, GPU 10 MB
+ 663.0 min  no change · 85 MB
+ 663.5 min  no change · 85 MB
+ 664.0 min  no change · 85 MB
+ 664.5 min  no change · 85 MB
+ 665.0 min  no change · 85 MB
+ 665.5 min  no change · 85 MB
+ 666.0 min  no change · 85 MB
+ 666.5 min  no change · 85 MB
+ 667.0 min  no change · 85 MB
+ 667.5 min  no change · 85 MB
+ 668.0 min  no change · 85 MB
+ 668.5 min  no change · 85 MB
+ 669.0 min  no change · 85 MB
+ 669.5 min  no change · 101 MB
+ 670.0 min  new KFWS20261011_030457_V06  decode 105 ms  bin 18 sweeps 11 ms · 104 MB · drew ZDR tilt 4 4 ms, 3D 13+9 ms, GPU 10 MB
+ 670.5 min  no change · 104 MB
+ 671.0 min  no change · 104 MB
+ 671.5 min  no change · 104 MB
+ 672.0 min  no change · 104 MB
+ 672.5 min  no change · 104 MB
+ 673.0 min  no change · 104 MB
+ 673.5 min  no change · 104 MB
+ 674.0 min  no change · 104 MB
+ 674.5 min  no change · 104 MB
+ 675.0 min  no change · 104 MB
+ 675.5 min  no change · 104 MB
+ 676.0 min  no change · 104 MB
+ 676.5 min  no change · 104 MB
+ 677.0 min  new KFWS20261011_031201_V06  decode 104 ms  bin 18 sweeps 11 ms · 106 MB · drew REF tilt 1 5 ms, 3D 13+9 ms, GPU 10 MB
+ 677.5 min  no change · 106 MB
+ 678.0 min  no change · 106 MB
+ 678.5 min  no change · 106 MB
+ 679.0 min  no change · 106 MB
+ 679.5 min  no change · 106 MB
+ 680.0 min  no change · 106 MB
+ 680.5 min  no change · 106 MB
+ 681.0 min  no change · 106 MB
+ 681.5 min  no change · 106 MB
+ 682.0 min  no change · 106 MB
+ 682.5 min  no change · 106 MB
+ 683.0 min  no change · 106 MB
+ 683.5 min  no change · 106 MB
+ 684.0 min  new KFWS20261011_031905_V06  decode 116 ms  bin 18 sweeps 10 ms · 106 MB · drew VEL tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 684.5 min  no change · 106 MB
+ 685.0 min  no change · 106 MB
+ 685.5 min  no change · 106 MB
+ 686.0 min  no change · 106 MB
+ 686.5 min  no change · 106 MB
+ 687.0 min  no change · 106 MB
+ 687.5 min  no change · 106 MB
+ 688.0 min  no change · 106 MB
+ 688.5 min  no change · 106 MB
+ 689.0 min  no change · 106 MB
+ 689.5 min  no change · 106 MB
+ 690.0 min  no change · 106 MB
+ 690.5 min  no change · 106 MB
+ 691.0 min  new KFWS20261011_032610_V06  decode 105 ms  bin 18 sweeps 11 ms · 107 MB · drew CC tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 691.5 min  no change · 107 MB
+ 692.0 min  no change · 107 MB
+ 692.5 min  no change · 107 MB
+ 693.0 min  no change · 107 MB
+ 693.5 min  no change · 107 MB
+ 694.0 min  no change · 107 MB
+ 694.5 min  no change · 107 MB
+ 695.0 min  no change · 107 MB
+ 695.5 min  no change · 107 MB
+ 696.0 min  no change · 107 MB
+ 696.5 min  no change · 107 MB
+ 697.0 min  no change · 107 MB
+ 697.5 min  no change · 107 MB
+ 698.0 min  new KFWS20261011_033314_V06  decode 113 ms  bin 18 sweeps 11 ms · 108 MB · drew ZDR tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 698.5 min  no change · 108 MB
+ 699.0 min  no change · 108 MB
+ 699.5 min  no change · 108 MB
+ 700.0 min  no change · 108 MB
+ 700.5 min  no change · 107 MB
+ 701.0 min  no change · 107 MB
+ 701.5 min  no change · 107 MB
+ 702.0 min  no change · 107 MB
+ 702.5 min  no change · 107 MB
+ 703.0 min  no change · 107 MB
+ 703.5 min  no change · 107 MB
+ 704.0 min  no change · 107 MB
+ 704.5 min  no change · 107 MB
+ 705.0 min  new KFWS20261011_034019_V06  decode 111 ms  bin 18 sweeps 11 ms · 108 MB · drew REF tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+ 705.5 min  no change · 108 MB
+ 706.0 min  no change · 108 MB
+ 706.5 min  no change · 108 MB
+ 707.0 min  no change · 108 MB
+ 707.5 min  no change · 108 MB
+ 708.0 min  no change · 108 MB
+ 708.5 min  no change · 108 MB
+ 709.0 min  no change · 108 MB
+ 709.5 min  no change · 108 MB
+ 710.0 min  no change · 108 MB
+ 710.5 min  no change · 108 MB
+ 711.0 min  no change · 108 MB
+ 711.5 min  no change · 108 MB
+ 712.0 min  no change · 108 MB
+ 712.5 min  new KFWS20261011_034723_V06  decode 117 ms  bin 18 sweeps 11 ms · 108 MB · drew VEL tilt 2 7 ms, 3D 13+9 ms, GPU 10 MB
+ 713.0 min  no change · 108 MB
+ 713.5 min  no change · 108 MB
+ 714.0 min  no change · 108 MB
+ 714.5 min  no change · 108 MB
+ 715.0 min  no change · 108 MB
+ 715.5 min  no change · 108 MB
+ 716.0 min  no change · 108 MB
+ 716.5 min  no change · 108 MB
+ 717.0 min  no change · 108 MB
+ 717.5 min  no change · 108 MB
+ 718.0 min  no change · 108 MB
+ 718.5 min  no change · 108 MB
+ 719.0 min  no change · 108 MB
+ 719.5 min  new KFWS20261011_035428_V06  decode 104 ms  bin 18 sweeps 11 ms · 108 MB · drew CC tilt 2 4 ms, 3D 13+9 ms, GPU 10 MB
+ 720.0 min  no change · 108 MB
+ 720.5 min  no change · 108 MB
+ 721.0 min  no change · 108 MB
+ 721.5 min  no change · 108 MB
+ 722.0 min  no change · 108 MB
+ 722.5 min  no change · 108 MB
+ 723.0 min  no change · 108 MB
+ 723.5 min  no change · 108 MB
+ 724.0 min  no change · 108 MB
+ 724.5 min  no change · 108 MB
+ 725.0 min  no change · 108 MB
+ 725.5 min  no change · 108 MB
+ 726.0 min  no change · 108 MB
+ 726.5 min  new KFWS20261011_040132_V06  decode 108 ms  bin 18 sweeps 10 ms · 108 MB · drew ZDR tilt 2 4 ms, 3D 13+9 ms, GPU 10 MB
+ 727.0 min  no change · 108 MB
+ 727.5 min  no change · 108 MB
+ 728.0 min  no change · 108 MB
+ 728.5 min  no change · 108 MB
+ 729.0 min  no change · 108 MB
+ 729.5 min  no change · 108 MB
+ 730.0 min  no change · 108 MB
+ 730.5 min  no change · 107 MB
+ 731.0 min  no change · 108 MB
+ 731.5 min  no change · 108 MB
+ 732.0 min  no change · 108 MB
+ 732.5 min  no change · 108 MB
+ 733.0 min  no change · 108 MB
+ 733.5 min  new KFWS20261011_040837_V06  decode 94 ms  bin 18 sweeps 10 ms · 108 MB · drew REF tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 734.0 min  no change · 108 MB
+ 734.5 min  no change · 108 MB
+ 735.0 min  no change · 108 MB
+ 735.5 min  no change · 108 MB
+ 736.0 min  no change · 108 MB
+ 736.5 min  no change · 108 MB
+ 737.0 min  no change · 108 MB
+ 737.5 min  no change · 108 MB
+ 738.0 min  no change · 108 MB
+ 738.5 min  no change · 108 MB
+ 739.0 min  no change · 108 MB
+ 739.5 min  no change · 108 MB
+ 740.0 min  no change · 108 MB
+ 740.5 min  new KFWS20261011_041541_V06  decode 102 ms  bin 18 sweeps 11 ms · 109 MB · drew VEL tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 741.0 min  no change · 109 MB
+ 741.5 min  no change · 109 MB
+ 742.0 min  no change · 109 MB
+ 742.5 min  no change · 109 MB
+ 743.0 min  no change · 109 MB
+ 743.5 min  no change · 109 MB
+ 744.0 min  no change · 109 MB
+ 744.5 min  no change · 109 MB
+ 745.0 min  no change · 109 MB
+ 745.5 min  no change · 108 MB
+ 746.0 min  no change · 108 MB
+ 746.5 min  no change · 108 MB
+ 747.0 min  no change · 108 MB
+ 747.5 min  new KFWS20261011_042244_V06  decode 104 ms  bin 18 sweeps 11 ms · 109 MB · drew CC tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+ 748.0 min  no change · 109 MB
+ 748.5 min  no change · 109 MB
+ 749.0 min  no change · 109 MB
+ 749.5 min  no change · 109 MB
+ 750.0 min  no change · 109 MB
+ 750.5 min  no change · 109 MB
+ 751.0 min  no change · 109 MB
+ 751.5 min  no change · 109 MB
+ 752.0 min  no change · 109 MB
+ 752.5 min  no change · 109 MB
+ 753.0 min  no change · 109 MB
+ 753.5 min  no change · 109 MB
+ 754.0 min  no change · 109 MB
+ 754.5 min  new KFWS20261011_042948_V06  decode 105 ms  bin 18 sweeps 11 ms · 109 MB · drew ZDR tilt 3 4 ms, 3D 15+9 ms, GPU 10 MB
+ 755.0 min  no change · 109 MB
+ 755.5 min  no change · 109 MB
+ 756.0 min  no change · 109 MB
+ 756.5 min  no change · 109 MB
+ 757.0 min  no change · 109 MB
+ 757.5 min  no change · 109 MB
+ 758.1 min  no change · 109 MB
+ 758.5 min  no change · 109 MB
+ 759.0 min  no change · 109 MB
+ 759.5 min  no change · 109 MB
+ 760.0 min  no change · 109 MB
+ 760.5 min  no change · 108 MB
+ 761.0 min  no change · 108 MB
+ 761.5 min  new KFWS20261011_043652_V06  decode 96 ms  bin 18 sweeps 10 ms · 111 MB · drew REF tilt 4 10 ms, 3D 12+9 ms, GPU 10 MB
+ 762.0 min  no change · 111 MB
+ 762.5 min  no change · 111 MB
+ 763.0 min  no change · 111 MB
+ 763.5 min  no change · 111 MB
+ 764.0 min  no change · 111 MB
+ 764.5 min  no change · 111 MB
+ 765.0 min  no change · 111 MB
+ 765.5 min  no change · 111 MB
+ 766.0 min  no change · 111 MB
+ 766.5 min  no change · 111 MB
+ 767.0 min  no change · 111 MB
+ 767.5 min  no change · 111 MB
+ 768.0 min  no change · 111 MB
+ 768.5 min  no change · 111 MB
+ 769.0 min  new KFWS20261011_044355_V06  decode 92 ms  bin 18 sweeps 10 ms · 110 MB · drew VEL tilt 4 5 ms, 3D 13+9 ms, GPU 10 MB
+ 769.5 min  no change · 110 MB
+ 770.0 min  no change · 110 MB
+ 770.5 min  no change · 110 MB
+ 771.0 min  no change · 110 MB
+ 771.5 min  no change · 110 MB
+ 772.0 min  no change · 110 MB
+ 772.5 min  no change · 110 MB
+ 773.0 min  no change · 110 MB
+ 773.5 min  no change · 110 MB
+ 774.0 min  no change · 110 MB
+ 774.5 min  no change · 110 MB
+ 775.0 min  no change · 110 MB
+ 775.5 min  no change · 109 MB
+ 776.0 min  new KFWS20261011_045059_V06  decode 85 ms  bin 18 sweeps 10 ms · 110 MB · drew CC tilt 4 4 ms, 3D 13+9 ms, GPU 10 MB
+ 776.5 min  no change · 110 MB
+ 777.0 min  no change · 110 MB
+ 777.5 min  no change · 110 MB
+ 778.0 min  no change · 110 MB
+ 778.5 min  no change · 110 MB
+ 779.0 min  no change · 110 MB
+ 779.5 min  no change · 110 MB
+ 780.0 min  no change · 110 MB
+ 780.5 min  no change · 110 MB
+ 781.0 min  no change · 110 MB
+ 781.5 min  no change · 110 MB
+ 782.0 min  no change · 110 MB
+ 782.5 min  no change · 110 MB
+ 783.0 min  new KFWS20261011_045803_V06  decode 95 ms  bin 18 sweeps 11 ms · 110 MB · drew ZDR tilt 4 4 ms, 3D 13+9 ms, GPU 10 MB
+ 783.5 min  no change · 110 MB
+ 784.0 min  no change · 110 MB
+ 784.5 min  no change · 110 MB
+ 785.0 min  no change · 110 MB
+ 785.5 min  no change · 110 MB
+ 786.0 min  no change · 110 MB
+ 786.5 min  no change · 110 MB
+ 787.0 min  no change · 110 MB
+ 787.5 min  no change · 110 MB
+ 788.0 min  no change · 110 MB
+ 788.5 min  no change · 110 MB
+ 789.0 min  no change · 110 MB
+ 789.5 min  no change · 110 MB
+ 790.0 min  new KFWS20261011_050507_V06  decode 95 ms  bin 18 sweeps 10 ms · 110 MB · drew REF tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 790.5 min  no change · 109 MB
+ 791.0 min  no change · 109 MB
+ 791.5 min  no change · 109 MB
+ 792.0 min  no change · 109 MB
+ 792.5 min  no change · 109 MB
+ 793.0 min  no change · 109 MB
+ 793.5 min  no change · 109 MB
+ 794.0 min  no change · 109 MB
+ 794.5 min  no change · 109 MB
+ 795.0 min  no change · 109 MB
+ 795.5 min  no change · 109 MB
+ 796.0 min  no change · 109 MB
+ 796.5 min  no change · 109 MB
+ 797.0 min  new KFWS20261011_051210_V06  decode 94 ms  bin 18 sweeps 10 ms · 56 MB · drew VEL tilt 1 4 ms, 3D 13+8 ms, GPU 10 MB
+ 797.5 min  no change · 55 MB
+ 798.0 min  no change · 55 MB
+ 798.5 min  no change · 55 MB
+ 799.0 min  no change · 55 MB
+ 799.5 min  no change · 55 MB
+ 800.0 min  no change · 55 MB
+ 800.5 min  no change · 55 MB
+ 801.0 min  no change · 55 MB
+ 801.5 min  no change · 55 MB
+ 802.0 min  no change · 55 MB
+ 802.5 min  no change · 55 MB
+ 803.0 min  no change · 55 MB
+ 803.5 min  no change · 55 MB
+ 804.0 min  new KFWS20261011_051914_V06  decode 91 ms  bin 18 sweeps 11 ms · 52 MB · drew CC tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+ 804.5 min  no change · 52 MB
+ 805.0 min  no change · 52 MB
+ 805.5 min  no change · 52 MB
+ 806.0 min  no change · 52 MB
+ 806.5 min  no change · 52 MB
+ 807.0 min  no change · 52 MB
+ 807.5 min  no change · 52 MB
+ 808.0 min  no change · 52 MB
+ 808.5 min  no change · 52 MB
+ 809.0 min  no change · 52 MB
+ 809.5 min  no change · 52 MB
+ 810.0 min  no change · 52 MB
+ 810.5 min  no change · 52 MB
+ 811.0 min  new KFWS20261011_052618_V06  decode 94 ms  bin 18 sweeps 11 ms · 106 MB · drew ZDR tilt 1 4 ms, 3D 14+9 ms, GPU 10 MB
+ 811.5 min  no change · 106 MB
+ 812.0 min  no change · 106 MB
+ 812.5 min  no change · 106 MB
+ 813.0 min  no change · 106 MB
+ 813.5 min  no change · 106 MB
+ 814.0 min  no change · 106 MB
+ 814.5 min  no change · 106 MB
+ 815.0 min  no change · 106 MB
+ 815.5 min  no change · 106 MB
+ 816.0 min  no change · 106 MB
+ 816.5 min  no change · 106 MB
+ 817.0 min  no change · 106 MB
+ 817.5 min  no change · 106 MB
+ 818.0 min  new KFWS20261011_053322_V06  decode 92 ms  bin 18 sweeps 10 ms · 107 MB · drew REF tilt 2 4 ms, 3D 13+9 ms, GPU 10 MB
+ 818.5 min  no change · 107 MB
+ 819.0 min  no change · 107 MB
+ 819.5 min  no change · 107 MB
+ 820.0 min  no change · 107 MB
+ 820.5 min  no change · 107 MB
+ 821.0 min  no change · 107 MB
+ 821.5 min  no change · 107 MB
+ 822.0 min  no change · 107 MB
+ 822.5 min  no change · 107 MB
+ 823.0 min  no change · 107 MB
+ 823.5 min  no change · 107 MB
+ 824.0 min  no change · 107 MB
+ 824.5 min  no change · 107 MB
+ 825.0 min  no change · 107 MB
+ 825.5 min  new KFWS20261011_054026_V06  decode 120 ms  bin 18 sweeps 12 ms · 109 MB · drew VEL tilt 2 5 ms, 3D 15+10 ms, GPU 10 MB
+ 826.0 min  no change · 108 MB
+ 826.5 min  no change · 108 MB
+ 827.0 min  no change · 108 MB
+ 827.5 min  no change · 109 MB
+ 828.0 min  no change · 109 MB
+ 828.5 min  no change · 109 MB
+ 829.0 min  no change · 109 MB
+ 829.5 min  no change · 109 MB
+ 830.0 min  no change · 109 MB
+ 830.5 min  no change · 109 MB
+ 831.0 min  no change · 109 MB
+ 831.5 min  no change · 109 MB
+ 832.0 min  no change · 109 MB
+ 832.5 min  new KFWS20261011_054731_V06  decode 105 ms  bin 18 sweeps 12 ms · 108 MB · drew CC tilt 2 6 ms, 3D 14+9 ms, GPU 10 MB
+ 833.0 min  no change · 108 MB
+ 833.5 min  no change · 108 MB
+ 834.0 min  no change · 107 MB
+ 834.5 min  no change · 107 MB
+ 835.0 min  no change · 107 MB
+ 835.5 min  no change · 107 MB
+ 836.0 min  no change · 107 MB
+ 836.5 min  no change · 8 MB
+ 837.0 min  no change · 9 MB
+ 837.5 min  no change · 9 MB
+ 838.0 min  no change · 9 MB
+ 838.5 min  no change · 10 MB
+ 839.0 min  no change · 10 MB
+ 839.5 min  no change · 10 MB
+ 840.0 min  no change · 10 MB
+ 840.5 min  new KFWS20261011_055544_V06  decode 125 ms  bin 18 sweeps 19 ms · 85 MB · drew ZDR tilt 2 53 ms, 3D 18+10 ms, GPU 10 MB
+ 841.0 min  no change · 85 MB
+ 841.5 min  no change · 85 MB
+ 842.0 min  no change · 85 MB
+ 842.5 min  no change · 85 MB
+ 843.0 min  no change · 85 MB
+ 843.5 min  no change · 85 MB
+ 844.0 min  no change · 85 MB
+ 844.5 min  no change · 85 MB
+ 845.0 min  no change · 85 MB
+ 845.5 min  no change · 85 MB
+ 846.0 min  no change · 85 MB
+ 846.5 min  no change · 85 MB
+ 847.0 min  no change · 85 MB
+ 847.5 min  new KFWS20261011_060248_V06  decode 85 ms  bin 18 sweeps 12 ms · 87 MB · drew REF tilt 3 6 ms, 3D 13+8 ms, GPU 10 MB
+ 848.0 min  no change · 87 MB
+ 848.5 min  no change · 87 MB
+ 849.0 min  no change · 87 MB
+ 849.5 min  no change · 87 MB
+ 850.0 min  no change · 87 MB
+ 850.5 min  no change · 87 MB
+ 851.0 min  no change · 87 MB
+ 851.5 min  no change · 87 MB
+ 852.0 min  no change · 87 MB
+ 852.5 min  no change · 87 MB
+ 853.0 min  no change · 87 MB
+ 853.5 min  no change · 87 MB
+ 854.0 min  no change · 87 MB
+ 854.5 min  new KFWS20261011_060952_V06  decode 89 ms  bin 18 sweeps 12 ms · 90 MB · drew VEL tilt 3 4 ms, 3D 14+8 ms, GPU 10 MB
+ 855.0 min  no change · 90 MB
+ 855.5 min  no change · 90 MB
+ 856.0 min  no change · 90 MB
+ 856.5 min  no change · 90 MB
+ 857.0 min  no change · 90 MB
+ 857.5 min  no change · 90 MB
+ 858.0 min  no change · 90 MB
+ 858.5 min  no change · 90 MB
+ 859.0 min  no change · 90 MB
+ 859.5 min  no change · 90 MB
+ 860.0 min  no change · 90 MB
+ 860.5 min  no change · 90 MB
+ 861.0 min  no change · 90 MB
+ 861.5 min  no change · 90 MB
+ 862.0 min  new KFWS20261011_061656_V06  decode 89 ms  bin 18 sweeps 11 ms · 91 MB · drew CC tilt 3 4 ms, 3D 13+8 ms, GPU 10 MB
+ 862.5 min  no change · 91 MB
+ 863.0 min  no change · 91 MB
+ 863.5 min  no change · 91 MB
+ 864.0 min  no change · 90 MB
+ 864.5 min  no change · 90 MB
+ 865.0 min  no change · 90 MB
+ 865.5 min  no change · 90 MB
+ 866.0 min  no change · 90 MB
+ 866.5 min  no change · 90 MB
+ 867.0 min  no change · 90 MB
+ 867.5 min  no change · 90 MB
+ 868.0 min  no change · 90 MB
+ 868.5 min  no change · 90 MB
+ 869.0 min  new KFWS20261011_062400_V06  decode 99 ms  bin 18 sweeps 12 ms · 92 MB · drew ZDR tilt 3 3 ms, 3D 15+12 ms, GPU 10 MB
+ 869.5 min  no change · 92 MB
+ 870.0 min  no change · 92 MB
+ 870.5 min  no change · 92 MB
+ 871.0 min  no change · 92 MB
+ 871.5 min  no change · 92 MB
+ 872.0 min  no change · 92 MB
+ 872.5 min  no change · 92 MB
+ 873.0 min  no change · 92 MB
+ 873.5 min  no change · 92 MB
+ 874.0 min  no change · 92 MB
+ 874.5 min  no change · 92 MB
+ 875.0 min  no change · 92 MB
+ 875.5 min  no change · 92 MB
+ 876.0 min  new KFWS20261011_063104_V06  decode 87 ms  bin 18 sweeps 12 ms · 94 MB · drew REF tilt 4 16 ms, 3D 14+8 ms, GPU 10 MB
+ 876.5 min  no change · 94 MB
+ 877.0 min  no change · 94 MB
+ 877.5 min  no change · 94 MB
+ 878.0 min  no change · 94 MB
+ 878.5 min  no change · 94 MB
+ 879.0 min  no change · 93 MB
+ 879.5 min  no change · 93 MB
+ 880.0 min  no change · 93 MB
+ 880.5 min  no change · 93 MB
+ 881.0 min  no change · 93 MB
+ 881.5 min  no change · 93 MB
+ 882.0 min  no change · 93 MB
+ 882.5 min  no change · 93 MB
+ 883.1 min  new KFWS20261011_063808_V06  decode 261 ms  bin 18 sweeps 448 ms · 93 MB · drew VEL tilt 4 5 ms, 3D 492+13 ms, GPU 10 MB
+ 883.5 min  no change · 93 MB
+ 884.0 min  no change · 93 MB
+ 884.5 min  no change · 93 MB
+ 885.0 min  no change · 93 MB
+ 885.5 min  no change · 93 MB
+ 886.0 min  no change · 93 MB
+ 886.5 min  no change · 93 MB
+ 887.0 min  no change · 93 MB
+ 887.5 min  no change · 93 MB
+ 888.0 min  no change · 93 MB
+ 888.5 min  no change · 93 MB
+ 889.0 min  no change · 93 MB
+ 889.5 min  no change · 93 MB
+ 890.0 min  new KFWS20261011_064513_V06  decode 72 ms  bin 18 sweeps 10 ms · 93 MB · drew CC tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+ 890.5 min  no change · 93 MB
+ 891.0 min  no change · 93 MB
+ 891.5 min  no change · 93 MB
+ 892.0 min  no change · 93 MB
+ 892.5 min  no change · 93 MB
+ 893.0 min  no change · 93 MB
+ 893.5 min  no change · 93 MB
+ 894.0 min  no change · 92 MB
+ 894.5 min  no change · 92 MB
+ 895.0 min  no change · 92 MB
+ 895.5 min  no change · 92 MB
+ 896.0 min  no change · 92 MB
+ 896.5 min  no change · 92 MB
+ 897.0 min  new KFWS20261011_065218_V06  decode 74 ms  bin 18 sweeps 10 ms · 93 MB · drew ZDR tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+ 897.5 min  no change · 93 MB
+ 898.0 min  no change · 92 MB
+ 898.5 min  no change · 92 MB
+ 899.0 min  no change · 92 MB
+ 899.5 min  no change · 92 MB
+ 900.0 min  no change · 92 MB
+ 900.5 min  no change · 92 MB
+ 901.0 min  no change · 92 MB
+ 901.5 min  no change · 92 MB
+ 902.0 min  no change · 92 MB
+ 902.5 min  no change · 92 MB
+ 903.0 min  no change · 92 MB
+ 903.5 min  no change · 92 MB
+ 904.0 min  new KFWS20261011_065922_V06  decode 75 ms  bin 18 sweeps 10 ms · 93 MB · drew REF tilt 1 5 ms, 3D 13+9 ms, GPU 10 MB
+ 904.5 min  no change · 93 MB
+ 905.0 min  no change · 93 MB
+ 905.5 min  no change · 93 MB
+ 906.0 min  no change · 93 MB
+ 906.5 min  no change · 93 MB
+ 907.0 min  no change · 93 MB
+ 907.5 min  no change · 93 MB
+ 908.0 min  no change · 93 MB
+ 908.5 min  no change · 93 MB
+ 909.0 min  no change · 92 MB
+ 909.5 min  no change · 92 MB
+ 910.0 min  no change · 92 MB
+ 910.5 min  no change · 92 MB
+ 911.0 min  no change · 92 MB
+ 911.5 min  new KFWS20261011_070627_V06  decode 74 ms  bin 18 sweeps 10 ms · 93 MB · drew VEL tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+ 912.0 min  no change · 93 MB
+ 912.5 min  no change · 93 MB
+ 913.0 min  no change · 93 MB
+ 913.5 min  no change · 93 MB
+ 914.0 min  no change · 93 MB
+ 914.5 min  no change · 93 MB
+ 915.0 min  no change · 93 MB
+ 915.5 min  no change · 93 MB
+ 916.0 min  no change · 93 MB
+ 916.5 min  no change · 93 MB
+ 917.0 min  no change · 93 MB
+ 917.5 min  no change · 93 MB
+ 918.0 min  no change · 93 MB
+ 918.5 min  new KFWS20261011_071331_V06  decode 71 ms  bin 18 sweeps 10 ms · 93 MB · drew CC tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+ 919.0 min  no change · 93 MB
+ 919.5 min  no change · 93 MB
+ 920.0 min  no change · 93 MB
+ 920.5 min  no change · 93 MB
+ 921.0 min  no change · 93 MB
+ 921.5 min  no change · 93 MB
+ 922.0 min  no change · 93 MB
+ 922.5 min  no change · 93 MB
+ 923.0 min  no change · 93 MB
+ 923.5 min  no change · 93 MB
+ 924.0 min  no change · 92 MB
+ 924.5 min  no change · 92 MB
+ 925.0 min  no change · 92 MB
+ 925.5 min  new KFWS20261011_072036_V06  decode 71 ms  bin 18 sweeps 10 ms · 94 MB · drew ZDR tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+ 926.0 min  no change · 94 MB
+ 926.5 min  no change · 94 MB
+ 927.0 min  no change · 94 MB
+ 927.5 min  no change · 94 MB
+ 928.0 min  no change · 94 MB
+ 928.5 min  no change · 94 MB
+ 929.0 min  no change · 94 MB
+ 929.5 min  no change · 94 MB
+ 930.0 min  no change · 94 MB
+ 930.5 min  no change · 94 MB
+ 931.0 min  no change · 94 MB
+ 931.5 min  no change · 94 MB
+ 932.0 min  no change · 94 MB
+ 932.5 min  new KFWS20261011_072740_V06  decode 67 ms  bin 18 sweeps 11 ms · 95 MB · drew REF tilt 2 4 ms, 3D 13+9 ms, GPU 10 MB
+ 933.0 min  no change · 95 MB
+ 933.5 min  no change · 95 MB
+ 934.0 min  no change · 95 MB
+ 934.5 min  no change · 95 MB
+ 935.0 min  no change · 95 MB
+ 935.5 min  no change · 95 MB
+ 936.0 min  no change · 95 MB
+ 936.5 min  no change · 95 MB
+ 937.0 min  no change · 95 MB
+ 937.5 min  no change · 95 MB
+ 938.0 min  no change · 95 MB
+ 938.5 min  no change · 95 MB
+ 939.0 min  no change · 94 MB
+ 939.5 min  new KFWS20261011_073445_V06  decode 65 ms  bin 18 sweeps 10 ms · 94 MB · drew VEL tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+ 940.0 min  no change · 94 MB
+ 940.5 min  no change · 94 MB
+ 941.0 min  no change · 94 MB
+ 941.5 min  no change · 94 MB
+ 942.0 min  no change · 94 MB
+ 942.5 min  no change · 94 MB
+ 943.0 min  no change · 94 MB
+ 943.5 min  no change · 94 MB
+ 944.0 min  no change · 94 MB
+ 944.5 min  no change · 94 MB
+ 945.0 min  no change · 94 MB
+ 945.5 min  no change · 94 MB
+ 946.0 min  no change · 94 MB
+ 946.5 min  new KFWS20261011_074149_V06  decode 70 ms  bin 18 sweeps 10 ms · 94 MB · drew CC tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+ 947.0 min  no change · 94 MB
+ 947.5 min  no change · 94 MB
+ 948.0 min  no change · 94 MB
+ 948.5 min  no change · 94 MB
+ 949.0 min  no change · 94 MB
+ 949.5 min  no change · 94 MB
+ 950.0 min  no change · 94 MB
+ 950.5 min  no change · 94 MB
+ 951.0 min  no change · 94 MB
+ 951.5 min  no change · 94 MB
+ 952.0 min  no change · 94 MB
+ 952.5 min  no change · 94 MB
+ 953.0 min  no change · 94 MB
+ 953.5 min  new KFWS20261011_074852_V06  decode 65 ms  bin 18 sweeps 10 ms · 94 MB · drew ZDR tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+ 954.0 min  no change · 93 MB
+ 954.5 min  no change · 93 MB
+ 955.0 min  no change · 93 MB
+ 955.5 min  no change · 93 MB
+ 956.0 min  no change · 94 MB
+ 956.5 min  no change · 93 MB
+ 957.0 min  no change · 94 MB
+ 957.5 min  no change · 94 MB
+ 958.0 min  no change · 94 MB
+ 958.5 min  no change · 93 MB
+ 959.0 min  no change · 94 MB
+ 959.5 min  no change · 94 MB
+ 960.0 min  no change · 94 MB
+ 960.5 min  no change · 94 MB
+ 961.0 min  new KFWS20261011_075556_V06  decode 61 ms  bin 18 sweeps 10 ms · 93 MB · drew REF tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 961.5 min  no change · 93 MB
+ 962.0 min  no change · 93 MB
+ 962.5 min  no change · 93 MB
+ 963.0 min  no change · 93 MB
+ 963.5 min  no change · 93 MB
+ 964.0 min  no change · 93 MB
+ 964.5 min  no change · 93 MB
+ 965.0 min  no change · 93 MB
+ 965.5 min  no change · 93 MB
+ 966.0 min  no change · 93 MB
+ 966.5 min  no change · 93 MB
+ 967.0 min  no change · 93 MB
+ 967.5 min  no change · 93 MB
+ 968.2 min  new KFWS20261011_080301_V06  decode 66 ms  bin 18 sweeps 10 ms · 94 MB · drew VEL tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 968.5 min  no change · 94 MB
+ 969.0 min  no change · 93 MB
+ 969.5 min  no change · 93 MB
+ 970.0 min  no change · 93 MB
+ 970.5 min  no change · 93 MB
+ 971.0 min  no change · 93 MB
+ 971.5 min  no change · 93 MB
+ 972.0 min  no change · 93 MB
+ 972.5 min  no change · 93 MB
+ 973.0 min  no change · 93 MB
+ 973.5 min  no change · 93 MB
+ 974.0 min  no change · 93 MB
+ 974.5 min  no change · 93 MB
+ 975.0 min  new KFWS20261011_081005_V06  decode 66 ms  bin 18 sweeps 10 ms · 42 MB · drew CC tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+ 975.5 min  no change · 42 MB
+ 976.0 min  no change · 42 MB
+ 976.5 min  no change · 42 MB
+ 977.0 min  no change · 42 MB
+ 977.5 min  no change · 42 MB
+ 978.0 min  no change · 42 MB
+ 978.5 min  no change · 42 MB
+ 979.0 min  no change · 42 MB
+ 979.5 min  no change · 42 MB
+ 980.0 min  no change · 42 MB
+ 980.5 min  no change · 42 MB
+ 981.0 min  no change · 42 MB
+ 981.5 min  no change · 42 MB
+ 982.0 min  new KFWS20261011_081709_V06  decode 71 ms  bin 18 sweeps 11 ms · 92 MB · drew ZDR tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+ 982.5 min  no change · 92 MB
+ 983.0 min  no change · 92 MB
+ 983.5 min  no change · 92 MB
+ 984.0 min  no change · 91 MB
+ 984.5 min  no change · 91 MB
+ 985.0 min  no change · 91 MB
+ 985.5 min  no change · 91 MB
+ 986.0 min  no change · 91 MB
+ 986.5 min  no change · 91 MB
+ 987.0 min  no change · 91 MB
+ 987.5 min  no change · 91 MB
+ 988.0 min  no change · 91 MB
+ 988.5 min  no change · 91 MB
+ 989.0 min  new KFWS20261011_082413_V06  decode 61 ms  bin 18 sweeps 11 ms · 40 MB · drew REF tilt 4 4 ms, 3D 13+8 ms, GPU 10 MB
+ 989.5 min  no change · 40 MB
+ 990.0 min  no change · 40 MB
+ 990.5 min  no change · 40 MB
+ 991.0 min  no change · 40 MB
+ 991.5 min  no change · 40 MB
+ 992.0 min  no change · 40 MB
+ 992.5 min  no change · 40 MB
+ 993.0 min  no change · 40 MB
+ 993.5 min  no change · 40 MB
+ 994.0 min  no change · 40 MB
+ 994.5 min  no change · 40 MB
+ 995.0 min  no change · 40 MB
+ 995.5 min  no change · 40 MB
+ 996.0 min  new KFWS20261011_083117_V06  decode 67 ms  bin 18 sweeps 10 ms · 93 MB · drew VEL tilt 4 5 ms, 3D 13+9 ms, GPU 10 MB
+ 996.5 min  no change · 93 MB
+ 997.0 min  no change · 93 MB
+ 997.5 min  no change · 93 MB
+ 998.0 min  no change · 93 MB
+ 998.5 min  no change · 93 MB
+ 999.0 min  no change · 93 MB
+ 999.5 min  no change · 92 MB
+1000.0 min  no change · 92 MB
+1000.5 min  no change · 92 MB
+1001.0 min  no change · 92 MB
+1001.5 min  no change · 92 MB
+1002.0 min  no change · 92 MB
+1002.5 min  no change · 92 MB
+1003.0 min  new KFWS20261011_083822_V06  decode 64 ms  bin 18 sweeps 11 ms · 95 MB · drew CC tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1003.5 min  no change · 95 MB
+1004.0 min  no change · 95 MB
+1004.5 min  no change · 95 MB
+1005.0 min  no change · 95 MB
+1005.5 min  no change · 95 MB
+1006.0 min  no change · 95 MB
+1006.5 min  no change · 95 MB
+1007.0 min  no change · 95 MB
+1007.5 min  no change · 95 MB
+1008.0 min  no change · 95 MB
+1008.5 min  no change · 95 MB
+1009.0 min  no change · 95 MB
+1009.5 min  no change · 95 MB
+1010.0 min  no change · 95 MB
+1010.5 min  new KFWS20261011_084527_V06  decode 66 ms  bin 18 sweeps 10 ms · 95 MB · drew ZDR tilt 4 4 ms, 3D 12+8 ms, GPU 10 MB
+1011.0 min  no change · 95 MB
+1011.5 min  no change · 95 MB
+1012.0 min  no change · 95 MB
+1012.5 min  no change · 95 MB
+1013.0 min  no change · 95 MB
+1013.5 min  no change · 95 MB
+1014.0 min  no change · 95 MB
+1014.5 min  no change · 95 MB
+1015.0 min  no change · 95 MB
+1015.5 min  no change · 95 MB
+1016.0 min  no change · 95 MB
+1016.5 min  no change · 95 MB
+1017.0 min  no change · 95 MB
+1017.5 min  new KFWS20261011_085231_V06  decode 58 ms  bin 18 sweeps 10 ms · 96 MB · drew REF tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1018.0 min  no change · 96 MB
+1018.5 min  no change · 96 MB
+1019.0 min  no change · 96 MB
+1019.5 min  no change · 96 MB
+1020.0 min  no change · 96 MB
+1020.5 min  no change · 96 MB
+1021.0 min  no change · 96 MB
+1021.5 min  no change · 96 MB
+1022.0 min  no change · 96 MB
+1022.5 min  no change · 96 MB
+1023.0 min  no change · 96 MB
+1023.5 min  no change · 96 MB
+1024.0 min  no change · 96 MB
+1024.5 min  new KFWS20261011_085935_V06  decode 63 ms  bin 18 sweeps 10 ms · 96 MB · drew VEL tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1025.0 min  no change · 96 MB
+1025.5 min  no change · 96 MB
+1026.0 min  no change · 96 MB
+1026.5 min  no change · 96 MB
+1027.0 min  no change · 96 MB
+1027.5 min  no change · 96 MB
+1028.0 min  no change · 96 MB
+1028.5 min  no change · 96 MB
+1029.0 min  no change · 96 MB
+1029.5 min  no change · 95 MB
+1030.0 min  no change · 95 MB
+1030.5 min  no change · 95 MB
+1031.0 min  no change · 95 MB
+1031.5 min  new KFWS20261011_090639_V06  decode 61 ms  bin 18 sweeps 10 ms · 96 MB · drew CC tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1032.0 min  no change · 96 MB
+1032.5 min  no change · 96 MB
+1033.0 min  no change · 96 MB
+1033.5 min  no change · 96 MB
+1034.0 min  no change · 96 MB
+1034.5 min  no change · 96 MB
+1035.0 min  no change · 96 MB
+1035.5 min  no change · 96 MB
+1036.0 min  no change · 96 MB
+1036.5 min  no change · 96 MB
+1037.0 min  no change · 96 MB
+1037.5 min  no change · 96 MB
+1038.0 min  no change · 96 MB
+1038.5 min  new KFWS20261011_091344_V06  decode 60 ms  bin 18 sweeps 9 ms · 96 MB · drew ZDR tilt 1 4 ms, 3D 12+8 ms, GPU 10 MB
+1039.0 min  no change · 96 MB
+1039.5 min  no change · 96 MB
+1040.0 min  no change · 96 MB
+1040.5 min  no change · 96 MB
+1041.0 min  no change · 96 MB
+1041.5 min  no change · 96 MB
+1042.0 min  no change · 96 MB
+1042.5 min  no change · 96 MB
+1043.0 min  no change · 96 MB
+1043.5 min  no change · 96 MB
+1044.0 min  no change · 96 MB
+1044.5 min  no change · 95 MB
+1045.0 min  no change · 95 MB
+1045.5 min  new KFWS20261011_092048_V06  decode 64 ms  bin 18 sweeps 10 ms · 96 MB · drew REF tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1046.0 min  no change · 96 MB
+1046.5 min  no change · 96 MB
+1047.0 min  no change · 96 MB
+1047.5 min  no change · 96 MB
+1048.0 min  no change · 96 MB
+1048.5 min  no change · 96 MB
+1049.0 min  no change · 96 MB
+1049.5 min  no change · 96 MB
+1050.0 min  no change · 96 MB
+1050.5 min  no change · 96 MB
+1051.0 min  no change · 96 MB
+1051.5 min  no change · 96 MB
+1052.0 min  no change · 96 MB
+1052.5 min  new KFWS20261011_092752_V06  decode 62 ms  bin 18 sweeps 10 ms · 95 MB · drew VEL tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1053.0 min  no change · 95 MB
+1053.5 min  no change · 95 MB
+1054.0 min  no change · 95 MB
+1054.5 min  no change · 95 MB
+1055.0 min  no change · 95 MB
+1055.5 min  no change · 95 MB
+1056.0 min  no change · 95 MB
+1056.5 min  no change · 95 MB
+1057.0 min  no change · 95 MB
+1057.5 min  no change · 95 MB
+1058.0 min  no change · 95 MB
+1058.5 min  no change · 95 MB
+1059.0 min  no change · 95 MB
+1059.5 min  no change · 94 MB
+1060.0 min  new KFWS20261011_093457_V06  decode 61 ms  bin 18 sweeps 10 ms · 95 MB · drew CC tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1060.5 min  no change · 95 MB
+1061.0 min  no change · 95 MB
+1061.5 min  no change · 95 MB
+1062.0 min  no change · 95 MB
+1062.5 min  no change · 95 MB
+1063.0 min  no change · 95 MB
+1063.5 min  no change · 95 MB
+1064.0 min  no change · 95 MB
+1064.5 min  no change · 95 MB
+1065.0 min  no change · 95 MB
+1065.5 min  no change · 95 MB
+1066.0 min  no change · 95 MB
+1066.5 min  no change · 95 MB
+1067.0 min  new KFWS20261011_094200_V06  decode 62 ms  bin 18 sweeps 10 ms · 94 MB · drew ZDR tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1067.5 min  no change · 94 MB
+1068.0 min  no change · 94 MB
+1068.5 min  no change · 94 MB
+1069.0 min  no change · 94 MB
+1069.5 min  no change · 94 MB
+1070.0 min  no change · 94 MB
+1070.5 min  no change · 94 MB
+1071.0 min  no change · 94 MB
+1071.5 min  no change · 94 MB
+1072.0 min  no change · 94 MB
+1072.5 min  no change · 94 MB
+1073.0 min  no change · 94 MB
+1073.5 min  no change · 94 MB
+1074.0 min  new KFWS20261011_094905_V06  decode 59 ms  bin 18 sweeps 10 ms · 95 MB · drew REF tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+1074.5 min  no change · 95 MB
+1075.0 min  no change · 95 MB
+1075.5 min  no change · 95 MB
+1076.0 min  no change · 95 MB
+1076.5 min  no change · 95 MB
+1077.0 min  no change · 95 MB
+1077.5 min  no change · 95 MB
+1078.0 min  no change · 95 MB
+1078.5 min  no change · 95 MB
+1079.0 min  no change · 95 MB
+1079.5 min  no change · 95 MB
+1080.0 min  no change · 95 MB
+1080.5 min  no change · 95 MB
+1081.0 min  new KFWS20261011_095609_V06  decode 70 ms  bin 18 sweeps 10 ms · 96 MB · drew VEL tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1081.5 min  no change · 96 MB
+1082.0 min  no change · 36 MB
+1082.5 min  no change · 36 MB
+1083.0 min  no change · 36 MB
+1083.5 min  no change · 36 MB
+1084.0 min  no change · 36 MB
+1084.5 min  no change · 36 MB
+1085.0 min  no change · 36 MB
+1085.5 min  no change · 36 MB
+1086.0 min  no change · 36 MB
+1086.5 min  no change · 36 MB
+1087.0 min  no change · 36 MB
+1087.5 min  no change · 36 MB
+1088.0 min  new KFWS20261011_100312_V06  decode 63 ms  bin 18 sweeps 11 ms · 92 MB · drew CC tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+1088.5 min  no change · 92 MB
+1089.0 min  no change · 92 MB
+1089.5 min  no change · 92 MB
+1090.0 min  no change · 92 MB
+1090.5 min  no change · 92 MB
+1091.0 min  no change · 92 MB
+1091.5 min  no change · 92 MB
+1092.0 min  no change · 92 MB
+1092.5 min  no change · 92 MB
+1093.0 min  no change · 92 MB
+1093.5 min  no change · 92 MB
+1094.0 min  no change · 92 MB
+1094.5 min  no change · 92 MB
+1095.0 min  new KFWS20261011_101017_V06  decode 59 ms  bin 18 sweeps 10 ms · 95 MB · drew ZDR tilt 3 4 ms, 3D 11+9 ms, GPU 10 MB
+1095.5 min  no change · 95 MB
+1096.0 min  no change · 95 MB
+1096.5 min  no change · 95 MB
+1097.0 min  no change · 95 MB
+1097.5 min  no change · 95 MB
+1098.0 min  no change · 95 MB
+1098.5 min  no change · 95 MB
+1099.0 min  no change · 95 MB
+1099.5 min  no change · 95 MB
+1100.0 min  no change · 95 MB
+1100.5 min  no change · 95 MB
+1101.0 min  no change · 95 MB
+1101.5 min  no change · 95 MB
+1102.0 min  new KFWS20261011_101722_V06  decode 60 ms  bin 18 sweeps 10 ms · 96 MB · drew REF tilt 4 5 ms, 3D 12+9 ms, GPU 10 MB
+1102.5 min  no change · 96 MB
+1103.0 min  no change · 96 MB
+1103.5 min  no change · 96 MB
+1104.0 min  no change · 96 MB
+1104.5 min  no change · 96 MB
+1105.0 min  no change · 96 MB
+1105.5 min  no change · 96 MB
+1106.0 min  no change · 96 MB
+1106.5 min  no change · 96 MB
+1107.0 min  no change · 96 MB
+1107.5 min  no change · 96 MB
+1108.0 min  no change · 96 MB
+1108.5 min  no change · 96 MB
+1109.0 min  no change · 96 MB
+1109.5 min  new KFWS20261011_102427_V06  decode 67 ms  bin 18 sweeps 10 ms · 95 MB · drew VEL tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1110.0 min  no change · 95 MB
+1110.5 min  no change · 95 MB
+1111.0 min  no change · 95 MB
+1111.5 min  no change · 95 MB
+1112.0 min  no change · 95 MB
+1112.5 min  no change · 95 MB
+1113.0 min  no change · 95 MB
+1113.5 min  no change · 95 MB
+1114.0 min  no change · 95 MB
+1114.5 min  no change · 95 MB
+1115.0 min  no change · 95 MB
+1115.5 min  no change · 95 MB
+1116.0 min  no change · 95 MB
+1116.5 min  new KFWS20261011_103132_V06  decode 64 ms  bin 18 sweeps 9 ms · 97 MB · drew CC tilt 4 4 ms, 3D 12+8 ms, GPU 10 MB
+1117.0 min  no change · 97 MB
+1117.5 min  no change · 97 MB
+1118.0 min  no change · 97 MB
+1118.5 min  no change · 97 MB
+1119.0 min  no change · 97 MB
+1119.5 min  no change · 96 MB
+1120.0 min  no change · 96 MB
+1120.5 min  no change · 96 MB
+1121.0 min  no change · 96 MB
+1121.5 min  no change · 96 MB
+1122.0 min  no change · 96 MB
+1122.5 min  no change · 96 MB
+1123.0 min  no change · 96 MB
+1123.5 min  new KFWS20261011_103836_V06  decode 61 ms  bin 18 sweeps 10 ms · 97 MB · drew ZDR tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1124.0 min  no change · 97 MB
+1124.5 min  no change · 97 MB
+1125.0 min  no change · 97 MB
+1125.5 min  no change · 97 MB
+1126.0 min  no change · 97 MB
+1126.5 min  no change · 97 MB
+1127.0 min  no change · 97 MB
+1127.5 min  no change · 97 MB
+1128.0 min  no change · 97 MB
+1128.5 min  no change · 97 MB
+1129.0 min  no change · 97 MB
+1129.5 min  no change · 97 MB
+1130.0 min  no change · 97 MB
+1130.5 min  new KFWS20261011_104540_V06  decode 57 ms  bin 18 sweeps 10 ms · 96 MB · drew REF tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1131.0 min  no change · 96 MB
+1131.5 min  no change · 96 MB
+1132.0 min  no change · 96 MB
+1132.5 min  no change · 96 MB
+1133.0 min  no change · 96 MB
+1133.5 min  no change · 96 MB
+1134.0 min  no change · 96 MB
+1134.5 min  no change · 96 MB
+1135.0 min  no change · 96 MB
+1135.5 min  no change · 96 MB
+1136.0 min  no change · 96 MB
+1136.5 min  no change · 96 MB
+1137.0 min  no change · 96 MB
+1137.5 min  new KFWS20261011_105244_V06  decode 62 ms  bin 18 sweeps 10 ms · 96 MB · drew VEL tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+1138.0 min  no change · 96 MB
+1138.5 min  no change · 96 MB
+1139.0 min  no change · 97 MB
+1139.5 min  no change · 97 MB
+1140.0 min  no change · 97 MB
+1140.5 min  no change · 97 MB
+1141.0 min  no change · 97 MB
+1141.5 min  no change · 97 MB
+1142.0 min  no change · 97 MB
+1142.5 min  no change · 97 MB
+1143.0 min  no change · 97 MB
+1143.5 min  no change · 97 MB
+1144.0 min  no change · 97 MB
+1144.5 min  new KFWS20261011_105948_V06  decode 60 ms  bin 18 sweeps 9 ms · 43 MB · drew CC tilt 1 5 ms, 3D 11+9 ms, GPU 10 MB
+1145.0 min  no change · 43 MB
+1145.5 min  no change · 43 MB
+1146.0 min  no change · 40 MB
+1146.5 min  no change · 40 MB
+1147.0 min  no change · 40 MB
+1147.5 min  no change · 40 MB
+1148.0 min  no change · 40 MB
+1148.5 min  no change · 40 MB
+1149.0 min  no change · 40 MB
+1149.5 min  no change · 40 MB
+1150.0 min  no change · 40 MB
+1150.5 min  no change · 55 MB
+1151.0 min  no change · 55 MB
+1151.5 min  new KFWS20261011_110652_V06  decode 58 ms  bin 18 sweeps 10 ms · 109 MB · drew ZDR tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1152.0 min  no change · 109 MB
+1152.5 min  no change · 109 MB
+1153.0 min  no change · 109 MB
+1153.5 min  no change · 109 MB
+1154.0 min  no change · 109 MB
+1154.5 min  no change · 109 MB
+1155.0 min  no change · 109 MB
+1155.5 min  no change · 109 MB
+1156.0 min  no change · 109 MB
+1156.5 min  no change · 109 MB
+1157.0 min  no change · 109 MB
+1157.5 min  no change · 109 MB
+1158.0 min  no change · 109 MB
+1158.5 min  no change · 109 MB
+1159.0 min  new KFWS20261011_111356_V06  decode 58 ms  bin 18 sweeps 10 ms · 112 MB · drew REF tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1159.5 min  no change · 112 MB
+1160.0 min  no change · 112 MB
+1160.5 min  no change · 112 MB
+1161.0 min  no change · 112 MB
+1161.5 min  no change · 112 MB
+1162.0 min  no change · 112 MB
+1162.5 min  no change · 112 MB
+1163.0 min  no change · 112 MB
+1163.5 min  no change · 112 MB
+1164.0 min  no change · 112 MB
+1164.5 min  no change · 111 MB
+1165.0 min  no change · 111 MB
+1165.5 min  no change · 111 MB
+1166.0 min  new KFWS20261011_112100_V06  decode 55 ms  bin 18 sweeps 10 ms · 112 MB · drew VEL tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1166.5 min  no change · 112 MB
+1167.0 min  no change · 112 MB
+1167.5 min  no change · 112 MB
+1168.0 min  no change · 112 MB
+1168.5 min  no change · 112 MB
+1169.0 min  no change · 112 MB
+1169.5 min  no change · 112 MB
+1170.0 min  no change · 112 MB
+1170.5 min  no change · 112 MB
+1171.0 min  no change · 112 MB
+1171.5 min  no change · 112 MB
+1172.0 min  no change · 112 MB
+1172.5 min  no change · 112 MB
+1173.2 min  new KFWS20261011_112804_V06  decode 61 ms  bin 18 sweeps 10 ms · 112 MB · drew CC tilt 2 4 ms, 3D 13+13 ms, GPU 10 MB
+1173.5 min  no change · 112 MB
+1174.0 min  no change · 111 MB
+1174.5 min  no change · 111 MB
+1175.0 min  no change · 111 MB
+1175.5 min  no change · 111 MB
+1176.0 min  no change · 111 MB
+1176.5 min  no change · 111 MB
+1177.0 min  no change · 111 MB
+1177.5 min  no change · 111 MB
+1178.0 min  no change · 111 MB
+1178.5 min  no change · 111 MB
+1179.0 min  no change · 111 MB
+1179.5 min  no change · 111 MB
+1180.0 min  new KFWS20261011_113508_V06  decode 53 ms  bin 18 sweeps 10 ms · 111 MB · drew ZDR tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1180.5 min  no change · 111 MB
+1181.0 min  no change · 111 MB
+1181.5 min  no change · 111 MB
+1182.0 min  no change · 111 MB
+1182.5 min  no change · 111 MB
+1183.0 min  no change · 111 MB
+1183.5 min  no change · 111 MB
+1184.0 min  no change · 111 MB
+1184.5 min  no change · 111 MB
+1185.0 min  no change · 111 MB
+1185.5 min  no change · 111 MB
+1186.0 min  no change · 111 MB
+1186.5 min  no change · 111 MB
+1187.0 min  new KFWS20261011_114213_V06  decode 54 ms  bin 18 sweeps 10 ms · 111 MB · drew REF tilt 3 4 ms, 3D 12+8 ms, GPU 10 MB
+1187.5 min  no change · 53 MB
+1188.0 min  no change · 53 MB
+1188.5 min  no change · 53 MB
+1189.0 min  no change · 53 MB
+1189.5 min  no change · 53 MB
+1190.0 min  no change · 53 MB
+1190.5 min  no change · 53 MB
+1191.0 min  no change · 53 MB
+1191.5 min  no change · 53 MB
+1192.0 min  no change · 53 MB
+1192.5 min  no change · 53 MB
+1193.0 min  no change · 53 MB
+1193.5 min  no change · 53 MB
+1194.0 min  new KFWS20261011_114917_V06  decode 53 ms  bin 18 sweeps 11 ms · 109 MB · drew VEL tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+1194.5 min  no change · 108 MB
+1195.0 min  no change · 108 MB
+1195.5 min  no change · 108 MB
+1196.0 min  no change · 108 MB
+1196.5 min  no change · 108 MB
+1197.0 min  no change · 108 MB
+1197.5 min  no change · 108 MB
+1198.0 min  no change · 108 MB
+1198.5 min  no change · 108 MB
+1199.0 min  no change · 108 MB
+1199.5 min  no change · 108 MB
+1200.0 min  no change · 108 MB
+1200.5 min  no change · 108 MB
+1201.0 min  new KFWS20261011_115621_V06  decode 49 ms  bin 18 sweeps 10 ms · 111 MB · drew CC tilt 3 4 ms, 3D 12+8 ms, GPU 10 MB
+1201.5 min  no change · 111 MB
+1202.0 min  no change · 111 MB
+1202.5 min  no change · 111 MB
+1203.0 min  no change · 111 MB
+1203.5 min  no change · 111 MB
+1204.0 min  no change · 111 MB
+1204.5 min  no change · 111 MB
+1205.0 min  no change · 111 MB
+1205.5 min  no change · 111 MB
+1206.0 min  no change · 111 MB
+1206.5 min  no change · 111 MB
+1207.0 min  no change · 111 MB
+1207.5 min  no change · 111 MB
+1208.0 min  no change · 111 MB
+1208.5 min  new KFWS20261011_120326_V06  decode 52 ms  bin 18 sweeps 9 ms · 111 MB · drew ZDR tilt 3 4 ms, 3D 11+9 ms, GPU 10 MB
+1209.0 min  no change · 111 MB
+1209.5 min  no change · 111 MB
+1210.0 min  no change · 111 MB
+1210.5 min  no change · 111 MB
+1211.0 min  no change · 111 MB
+1211.5 min  no change · 111 MB
+1212.0 min  no change · 111 MB
+1212.5 min  no change · 111 MB
+1213.0 min  no change · 111 MB
+1213.5 min  no change · 111 MB
+1214.0 min  no change · 111 MB
+1214.5 min  no change · 111 MB
+1215.0 min  no change · 111 MB
+1215.5 min  new KFWS20261011_121030_V06  decode 62 ms  bin 18 sweeps 10 ms · 113 MB · drew REF tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1216.0 min  no change · 112 MB
+1216.5 min  no change · 112 MB
+1217.0 min  no change · 113 MB
+1217.5 min  no change · 113 MB
+1218.0 min  no change · 113 MB
+1218.5 min  no change · 113 MB
+1219.0 min  no change · 113 MB
+1219.5 min  no change · 112 MB
+1220.0 min  no change · 113 MB
+1220.5 min  no change · 113 MB
+1221.0 min  no change · 113 MB
+1221.5 min  no change · 113 MB
+1222.0 min  no change · 113 MB
+1222.5 min  new KFWS20261011_121735_V06  decode 67 ms  bin 18 sweeps 10 ms · 112 MB · drew VEL tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1223.0 min  no change · 112 MB
+1223.5 min  no change · 112 MB
+1224.0 min  no change · 112 MB
+1224.5 min  no change · 111 MB
+1225.0 min  no change · 111 MB
+1225.5 min  no change · 111 MB
+1226.0 min  no change · 111 MB
+1226.5 min  no change · 111 MB
+1227.0 min  no change · 111 MB
+1227.5 min  no change · 111 MB
+1228.0 min  no change · 111 MB
+1228.5 min  no change · 111 MB
+1229.0 min  no change · 111 MB
+1229.5 min  new KFWS20261011_122439_V06  decode 77 ms  bin 18 sweeps 10 ms · 112 MB · drew CC tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1230.0 min  no change · 112 MB
+1230.5 min  no change · 112 MB
+1231.0 min  no change · 112 MB
+1231.5 min  no change · 112 MB
+1232.0 min  no change · 112 MB
+1232.5 min  no change · 112 MB
+1233.0 min  no change · 112 MB
+1233.5 min  no change · 112 MB
+1234.0 min  no change · 112 MB
+1234.5 min  no change · 112 MB
+1235.0 min  no change · 112 MB
+1235.5 min  no change · 112 MB
+1236.0 min  no change · 112 MB
+1236.5 min  new KFWS20261011_123144_V06  decode 84 ms  bin 18 sweeps 11 ms · 112 MB · drew ZDR tilt 4 4 ms, 3D 12+10 ms, GPU 10 MB
+1237.0 min  no change · 112 MB
+1237.5 min  no change · 112 MB
+1238.0 min  no change · 112 MB
+1238.5 min  no change · 112 MB
+1239.0 min  no change · 112 MB
+1239.5 min  no change · 112 MB
+1240.0 min  no change · 111 MB
+1240.5 min  no change · 111 MB
+1241.0 min  no change · 111 MB
+1241.5 min  no change · 111 MB
+1242.0 min  no change · 112 MB
+1242.5 min  no change · 112 MB
+1243.0 min  no change · 112 MB
+1243.5 min  new KFWS20261011_123848_V06  decode 78 ms  bin 18 sweeps 10 ms · 112 MB · drew REF tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+1244.0 min  no change · 112 MB
+1244.5 min  no change · 112 MB
+1245.0 min  no change · 112 MB
+1245.5 min  no change · 112 MB
+1246.0 min  no change · 112 MB
+1246.5 min  no change · 112 MB
+1247.0 min  no change · 112 MB
+1247.5 min  no change · 112 MB
+1248.0 min  no change · 112 MB
+1248.5 min  no change · 112 MB
+1249.0 min  no change · 112 MB
+1249.5 min  no change · 112 MB
+1250.0 min  no change · 112 MB
+1250.5 min  new KFWS20261011_124551_V06  decode 76 ms  bin 18 sweeps 10 ms · 112 MB · drew VEL tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1251.0 min  no change · 112 MB
+1251.5 min  no change · 112 MB
+1252.0 min  no change · 112 MB
+1252.5 min  no change · 112 MB
+1253.0 min  no change · 112 MB
+1253.5 min  no change · 112 MB
+1254.0 min  no change · 112 MB
+1254.5 min  no change · 112 MB
+1255.0 min  no change · 112 MB
+1255.5 min  no change · 112 MB
+1256.0 min  no change · 112 MB
+1256.5 min  no change · 112 MB
+1257.0 min  no change · 112 MB
+1257.5 min  no change · 112 MB
+1258.0 min  new KFWS20261011_125256_V06  decode 71 ms  bin 18 sweeps 10 ms · 112 MB · drew CC tilt 1 5 ms, 3D 12+8 ms, GPU 10 MB
+1258.5 min  no change · 112 MB
+1259.0 min  no change · 112 MB
+1259.5 min  no change · 112 MB
+1260.0 min  no change · 112 MB
+1260.5 min  no change · 112 MB
+1261.0 min  no change · 112 MB
+1261.5 min  no change · 112 MB
+1262.0 min  no change · 112 MB
+1262.5 min  no change · 112 MB
+1263.0 min  no change · 112 MB
+1263.5 min  no change · 112 MB
+1264.0 min  no change · 112 MB
+1264.5 min  no change · 112 MB
+1265.0 min  new KFWS20261011_130001_V06  decode 74 ms  bin 18 sweeps 10 ms · 112 MB · drew ZDR tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1265.5 min  no change · 112 MB
+1266.0 min  no change · 112 MB
+1266.5 min  no change · 112 MB
+1267.0 min  no change · 112 MB
+1267.5 min  no change · 112 MB
+1268.0 min  no change · 112 MB
+1268.5 min  no change · 112 MB
+1269.0 min  no change · 112 MB
+1269.5 min  no change · 112 MB
+1270.0 min  no change · 112 MB
+1270.6 min  no change · 112 MB
+1271.0 min  no change · 112 MB
+1271.5 min  no change · 112 MB
+1272.0 min  new KFWS20261011_130706_V06  decode 73 ms  bin 18 sweeps 10 ms · 112 MB · drew REF tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1272.5 min  no change · 112 MB
+1273.0 min  no change · 112 MB
+1273.5 min  no change · 112 MB
+1274.0 min  no change · 112 MB
+1274.5 min  no change · 112 MB
+1275.0 min  no change · 112 MB
+1275.5 min  no change · 112 MB
+1276.0 min  no change · 112 MB
+1276.5 min  no change · 112 MB
+1277.0 min  no change · 112 MB
+1277.5 min  no change · 112 MB
+1278.0 min  no change · 112 MB
+1278.5 min  no change · 112 MB
+1279.0 min  new KFWS20261011_131410_V06  decode 66 ms  bin 18 sweeps 9 ms · 112 MB · drew VEL tilt 2 5 ms, 3D 12+9 ms, GPU 10 MB
+1279.5 min  no change · 112 MB
+1280.0 min  no change · 112 MB
+1280.5 min  no change · 112 MB
+1281.0 min  no change · 112 MB
+1281.5 min  no change · 112 MB
+1282.0 min  no change · 112 MB
+1282.5 min  no change · 112 MB
+1283.0 min  no change · 112 MB
+1283.5 min  no change · 112 MB
+1284.0 min  no change · 112 MB
+1284.5 min  no change · 112 MB
+1285.0 min  no change · 112 MB
+1285.5 min  no change · 112 MB
+1286.0 min  new KFWS20261011_132114_V06  decode 73 ms  bin 18 sweeps 9 ms · 112 MB · drew CC tilt 2 4 ms, 3D 11+9 ms, GPU 10 MB
+1286.5 min  no change · 112 MB
+1287.0 min  no change · 112 MB
+1287.5 min  no change · 112 MB
+1288.0 min  no change · 112 MB
+1288.5 min  no change · 112 MB
+1289.0 min  no change · 112 MB
+1289.5 min  no change · 112 MB
+1290.0 min  no change · 112 MB
+1290.5 min  no change · 112 MB
+1291.0 min  no change · 112 MB
+1291.5 min  no change · 112 MB
+1292.0 min  no change · 112 MB
+1292.5 min  no change · 112 MB
+1293.0 min  new KFWS20261011_132818_V06  decode 67 ms  bin 18 sweeps 10 ms · 112 MB · drew ZDR tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1293.5 min  no change · 112 MB
+1294.0 min  no change · 112 MB
+1294.5 min  no change · 112 MB
+1295.0 min  no change · 112 MB
+1295.5 min  no change · 112 MB
+1296.0 min  no change · 112 MB
+1296.5 min  no change · 112 MB
+1297.0 min  no change · 112 MB
+1297.5 min  no change · 112 MB
+1298.0 min  no change · 112 MB
+1298.5 min  no change · 112 MB
+1299.0 min  no change · 112 MB
+1299.5 min  no change · 112 MB
+1300.0 min  new KFWS20261011_133522_V06  decode 69 ms  bin 18 sweeps 10 ms · 112 MB · drew REF tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1300.5 min  no change · 112 MB
+1301.0 min  no change · 112 MB
+1301.5 min  no change · 112 MB
+1302.0 min  no change · 112 MB
+1302.5 min  no change · 112 MB
+1303.0 min  no change · 112 MB
+1303.5 min  no change · 112 MB
+1304.0 min  no change · 112 MB
+1304.5 min  no change · 112 MB
+1305.0 min  no change · 112 MB
+1305.5 min  no change · 112 MB
+1306.0 min  no change · 112 MB
+1306.5 min  no change · 112 MB
+1307.0 min  no change · 112 MB
+1307.5 min  new KFWS20261011_134225_V06  decode 67 ms  bin 18 sweeps 10 ms · 56 MB · drew VEL tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1308.0 min  no change · 56 MB
+1308.5 min  no change · 56 MB
+1309.0 min  no change · 56 MB
+1309.5 min  no change · 56 MB
+1310.0 min  no change · 56 MB
+1310.5 min  no change · 56 MB
+1311.0 min  no change · 56 MB
+1311.5 min  no change · 56 MB
+1312.0 min  no change · 56 MB
+1312.5 min  no change · 56 MB
+1313.0 min  no change · 56 MB
+1313.5 min  no change · 56 MB
+1314.0 min  no change · 56 MB
+1314.5 min  new KFWS20261011_134930_V06  decode 72 ms  bin 18 sweeps 12 ms · 110 MB · drew CC tilt 3 4 ms, 3D 13+9 ms, GPU 10 MB
+1315.0 min  no change · 109 MB
+1315.5 min  no change · 109 MB
+1316.0 min  no change · 109 MB
+1316.5 min  no change · 109 MB
+1317.0 min  no change · 109 MB
+1317.5 min  no change · 109 MB
+1318.0 min  no change · 109 MB
+1318.5 min  no change · 109 MB
+1319.0 min  no change · 109 MB
+1319.5 min  no change · 109 MB
+1320.0 min  no change · 109 MB
+1320.5 min  no change · 109 MB
+1321.0 min  no change · 109 MB
+1321.5 min  no change · 109 MB
+1322.0 min  no change · 109 MB
+1322.5 min  new KFWS20261011_135747_V06  decode 65 ms  bin 18 sweeps 10 ms · 112 MB · drew ZDR tilt 3 4 ms, 3D 12+8 ms, GPU 10 MB
+1323.0 min  no change · 112 MB
+1323.5 min  no change · 112 MB
+1324.0 min  no change · 112 MB
+1324.5 min  no change · 112 MB
+1325.0 min  no change · 112 MB
+1325.5 min  no change · 112 MB
+1326.0 min  no change · 112 MB
+1326.5 min  no change · 112 MB
+1327.0 min  no change · 112 MB
+1327.5 min  no change · 112 MB
+1328.0 min  no change · 112 MB
+1328.5 min  no change · 112 MB
+1329.0 min  no change · 112 MB
+1329.5 min  new KFWS20261011_140452_V06  decode 71 ms  bin 18 sweeps 10 ms · 113 MB · drew REF tilt 4 5 ms, 3D 12+9 ms, GPU 10 MB
+1330.0 min  no change · 112 MB
+1330.5 min  no change · 112 MB
+1331.0 min  no change · 112 MB
+1331.5 min  no change · 112 MB
+1332.0 min  no change · 112 MB
+1332.5 min  no change · 112 MB
+1333.0 min  no change · 112 MB
+1333.5 min  no change · 113 MB
+1334.0 min  no change · 113 MB
+1334.5 min  no change · 113 MB
+1335.0 min  no change · 113 MB
+1335.5 min  no change · 113 MB
+1336.0 min  no change · 113 MB
+1336.5 min  no change · 113 MB
+1337.0 min  new KFWS20261011_141155_V06  decode 66 ms  bin 18 sweeps 10 ms · 113 MB · drew VEL tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1337.5 min  no change · 113 MB
+1338.0 min  no change · 113 MB
+1338.5 min  no change · 113 MB
+1339.0 min  no change · 113 MB
+1339.5 min  no change · 113 MB
+1340.0 min  no change · 113 MB
+1340.5 min  no change · 113 MB
+1341.0 min  no change · 113 MB
+1341.5 min  no change · 113 MB
+1342.0 min  no change · 113 MB
+1342.5 min  no change · 113 MB
+1343.1 min  no change · 113 MB
+1343.5 min  no change · 113 MB
+1344.0 min  new KFWS20261011_141900_V06  decode 66 ms  bin 18 sweeps 10 ms · 113 MB · drew CC tilt 4 4 ms, 3D 13+9 ms, GPU 10 MB
+1344.5 min  no change · 113 MB
+1345.0 min  no change · 112 MB
+1345.5 min  no change · 112 MB
+1346.0 min  no change · 112 MB
+1346.5 min  no change · 112 MB
+1347.0 min  no change · 112 MB
+1347.5 min  no change · 112 MB
+1348.0 min  no change · 112 MB
+1348.5 min  no change · 112 MB
+1349.0 min  no change · 112 MB
+1349.5 min  no change · 112 MB
+1350.0 min  no change · 112 MB
+1350.5 min  no change · 112 MB
+1351.0 min  new KFWS20261011_142605_V06  decode 64 ms  bin 18 sweeps 10 ms · 113 MB · drew ZDR tilt 4 4 ms, 3D 12+9 ms, GPU 10 MB
+1351.5 min  no change · 113 MB
+1352.0 min  no change · 113 MB
+1352.5 min  no change · 113 MB
+1353.0 min  no change · 113 MB
+1353.5 min  no change · 113 MB
+1354.0 min  no change · 113 MB
+1354.5 min  no change · 113 MB
+1355.0 min  no change · 113 MB
+1355.5 min  no change · 113 MB
+1356.0 min  no change · 113 MB
+1356.5 min  no change · 113 MB
+1357.0 min  no change · 113 MB
+1357.5 min  no change · 113 MB
+1358.0 min  new KFWS20261011_143303_V06  decode 70 ms  bin 18 sweeps 11 ms · 113 MB · drew REF tilt 1 4 ms, 3D 13+9 ms, GPU 10 MB
+1358.5 min  no change · 113 MB
+1359.0 min  no change · 113 MB
+1359.5 min  no change · 113 MB
+1360.0 min  no change · 112 MB
+1360.5 min  no change · 112 MB
+1361.0 min  no change · 112 MB
+1361.5 min  no change · 112 MB
+1362.0 min  no change · 112 MB
+1362.5 min  no change · 112 MB
+1363.0 min  no change · 112 MB
+1363.5 min  no change · 112 MB
+1364.0 min  no change · 112 MB
+1364.5 min  no change · 112 MB
+1365.0 min  new KFWS20261011_144008_V06  decode 62 ms  bin 18 sweeps 10 ms · 113 MB · drew VEL tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1365.5 min  no change · 113 MB
+1366.0 min  no change · 113 MB
+1366.5 min  no change · 113 MB
+1367.0 min  no change · 113 MB
+1367.5 min  no change · 113 MB
+1368.0 min  no change · 113 MB
+1368.5 min  no change · 113 MB
+1369.0 min  no change · 113 MB
+1369.5 min  no change · 113 MB
+1370.0 min  no change · 113 MB
+1370.5 min  no change · 113 MB
+1371.0 min  no change · 113 MB
+1371.5 min  no change · 113 MB
+1372.0 min  new KFWS20261011_144713_V06  decode 64 ms  bin 18 sweeps 10 ms · 113 MB · drew CC tilt 1 4 ms, 3D 12+9 ms, GPU 10 MB
+1372.5 min  no change · 113 MB
+1373.0 min  no change · 113 MB
+1373.5 min  no change · 113 MB
+1374.0 min  no change · 113 MB
+1374.5 min  no change · 113 MB
+1375.0 min  no change · 112 MB
+1375.5 min  no change · 112 MB
+1376.0 min  no change · 112 MB
+1376.5 min  no change · 112 MB
+1377.0 min  no change · 112 MB
+1377.5 min  no change · 112 MB
+1378.0 min  no change · 112 MB
+1378.5 min  no change · 112 MB
+1379.0 min  new KFWS20261011_145418_V06  decode 65 ms  bin 18 sweeps 9 ms · 113 MB · drew ZDR tilt 1 5 ms, 3D 12+9 ms, GPU 10 MB
+1379.5 min  no change · 113 MB
+1380.0 min  no change · 113 MB
+1380.5 min  no change · 113 MB
+1381.0 min  no change · 113 MB
+1381.5 min  no change · 113 MB
+1382.0 min  no change · 113 MB
+1382.5 min  no change · 113 MB
+1383.0 min  no change · 113 MB
+1383.5 min  no change · 113 MB
+1384.0 min  no change · 113 MB
+1384.5 min  no change · 113 MB
+1385.0 min  no change · 113 MB
+1385.5 min  no change · 113 MB
+1386.0 min  new KFWS20261011_150122_V06  decode 65 ms  bin 18 sweeps 10 ms · 113 MB · drew REF tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1386.5 min  no change · 113 MB
+1387.0 min  no change · 113 MB
+1387.5 min  no change · 113 MB
+1388.0 min  no change · 113 MB
+1388.5 min  no change · 113 MB
+1389.0 min  no change · 113 MB
+1389.5 min  no change · 113 MB
+1390.0 min  no change · 112 MB
+1390.5 min  no change · 112 MB
+1391.0 min  no change · 112 MB
+1391.5 min  no change · 112 MB
+1392.0 min  no change · 112 MB
+1392.5 min  no change · 112 MB
+1393.0 min  no change · 112 MB
+1393.5 min  new KFWS20261011_150828_V06  decode 65 ms  bin 18 sweeps 9 ms · 113 MB · drew VEL tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1394.0 min  no change · 113 MB
+1394.5 min  no change · 113 MB
+1395.0 min  no change · 113 MB
+1395.5 min  no change · 113 MB
+1396.0 min  no change · 113 MB
+1396.5 min  no change · 113 MB
+1397.0 min  no change · 113 MB
+1397.5 min  no change · 113 MB
+1398.0 min  no change · 113 MB
+1398.5 min  no change · 113 MB
+1399.0 min  no change · 113 MB
+1399.5 min  no change · 113 MB
+1400.0 min  no change · 113 MB
+1400.5 min  new KFWS20261011_151533_V06  decode 64 ms  bin 18 sweeps 10 ms · 113 MB · drew CC tilt 2 4 ms, 3D 12+9 ms, GPU 10 MB
+1401.0 min  no change · 113 MB
+1401.5 min  no change · 113 MB
+1402.0 min  no change · 113 MB
+1402.5 min  no change · 113 MB
+1403.0 min  no change · 113 MB
+1403.5 min  no change · 113 MB
+1404.0 min  no change · 113 MB
+1404.5 min  no change · 113 MB
+1405.0 min  no change · 112 MB
+1405.5 min  no change · 112 MB
+1406.1 min  no change · 112 MB
+1406.5 min  no change · 112 MB
+1407.1 min  no change · 112 MB
+1407.6 min  new KFWS20261011_152238_V06  decode 64 ms  bin 18 sweeps 10 ms · 113 MB · drew ZDR tilt 2 5 ms, 3D 13+9 ms, GPU 10 MB
+1408.0 min  no change · 113 MB
+1408.5 min  no change · 113 MB
+1409.0 min  no change · 113 MB
+1409.5 min  no change · 113 MB
+1410.0 min  no change · 113 MB
+1410.5 min  no change · 113 MB
+1411.0 min  no change · 113 MB
+1411.5 min  no change · 113 MB
+1412.0 min  no change · 113 MB
+1412.5 min  no change · 113 MB
+1413.0 min  no change · 113 MB
+1413.5 min  no change · 113 MB
+1414.0 min  no change · 113 MB
+1414.5 min  new KFWS20261011_152942_V06  decode 68 ms  bin 18 sweeps 10 ms · 113 MB · drew REF tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1415.0 min  no change · 113 MB
+1415.5 min  no change · 113 MB
+1416.1 min  no change · 113 MB
+1416.5 min  no change · 113 MB
+1417.0 min  no change · 113 MB
+1417.5 min  no change · 113 MB
+1418.1 min  no change · 113 MB
+1418.5 min  no change · 113 MB
+1419.0 min  no change · 113 MB
+1419.5 min  no change · 113 MB
+1420.0 min  no change · 112 MB
+1420.5 min  no change · 112 MB
+1421.0 min  no change · 112 MB
+1421.5 min  new KFWS20261011_153647_V06  decode 70 ms  bin 18 sweeps 10 ms · 113 MB · drew VEL tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1422.0 min  no change · 113 MB
+1422.5 min  no change · 113 MB
+1423.0 min  no change · 113 MB
+1423.5 min  no change · 113 MB
+1424.0 min  no change · 113 MB
+1424.5 min  no change · 113 MB
+1425.0 min  no change · 113 MB
+1425.5 min  no change · 113 MB
+1426.0 min  no change · 113 MB
+1426.5 min  no change · 113 MB
+1427.0 min  no change · 113 MB
+1427.5 min  no change · 113 MB
+1428.0 min  no change · 113 MB
+1428.5 min  new KFWS20261011_154352_V06  decode 67 ms  bin 18 sweeps 10 ms · 113 MB · drew CC tilt 3 4 ms, 3D 12+9 ms, GPU 10 MB
+1429.0 min  no change · 113 MB
+1429.5 min  no change · 113 MB
+1430.0 min  no change · 113 MB
+1430.5 min  no change · 113 MB
+1431.0 min  no change · 113 MB
+1431.5 min  no change · 113 MB
+1432.0 min  no change · 113 MB
+1432.5 min  no change · 113 MB
+1433.0 min  no change · 113 MB
+1433.5 min  no change · 113 MB
+1434.0 min  no change · 113 MB
+1434.5 min  no change · 113 MB
+1435.0 min  no change · 113 MB
+1435.5 min  no change · 113 MB
+1436.2 min  new KFWS20261011_155056_V06  decode 92 ms  bin 18 sweeps 13 ms · 114 MB · drew ZDR tilt 3 4 ms, 3D 16+8 ms, GPU 10 MB
+1436.5 min  no change · 113 MB
+1437.0 min  no change · 113 MB
+1437.5 min  no change · 113 MB
+1438.0 min  no change · 113 MB
+1438.5 min  no change · 113 MB
+1439.0 min  no change · 113 MB
+1439.5 min  no change · 113 MB
+{
+  "cycles": 2880,
+  "volumes": 204,
+  "failures": 1,
+  "fail_streak": 0,
+  "worst_fail_streak": 1,
+  "injected": 51,
+  "injected_refused": 51,
+  "decode_ms_max": 2654.0928,
+  "decode_ms_total": 22905.121800000008,
+  "bin_ms_max": 448.434,
+  "last_volume_s": 86174.9576963,
+  "rss_baseline_mb": 122.5078125,
+  "rss_last_mb": 113.48046875,
+  "rss_max_mb": 134.00390625,
+  "renders": 204,
+  "render_failures": 0,
+  "render_ms_max": 131.2474,
+  "build3d_ms_max": 492.0309,
+  "upload3d_ms_max": 238.18880000000001,
+  "gpu_baseline_mb": 9.5478515625,
+  "gpu_last_mb": 9.54736328125,
+  "gpu_max_mb": 9.8291015625,
+  "problems": []
+}
