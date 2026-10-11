@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: user products can say what to do with missing data
+
+Product formulas have two new functions. `if_missing(x, fallback)` uses the fallback where a
+value is missing, for example `REF + if_missing(KDP, 0)` where KDP was not computed, and
+`is_missing(x)` tells you whether it is. A missing value still blanks the result unless you ask
+for a fallback, and a fallback never fills places where the radar recorded nothing the formula
+reads.
+
 ### Improved: the 3D ruler reads the radar and the ground
 
 In the 3D view, each end of the ruler now says how high it is above the ground as well as above

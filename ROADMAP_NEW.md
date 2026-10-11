@@ -1521,9 +1521,11 @@ Do **not** execute arbitrary native code.
 Preferred implementation order:
 
 1. [x] parsed AST evaluated on CPU for correctness
-2. [ ] typed expression validation — today's only validation is "does it parse"; there is no
-   separate type/unit-checking pass (every value is just `f32`, so e.g. adding an angle to a
-   reflectivity silently type-checks — a real gap if this grows more input kinds)
+2. [x] typed expression validation — `Expr::unit_diagnostics` (`udp/units.rs`, 1008.md C4): every
+   operand has a quantity (dBZ, dB, m/s, °/km, ratio, km, degrees, metres above the antenna,
+   metres MSL) and each addition, comparison, choice or fallback between different ones, or
+   between the two height datums, is named in plain words beside the product. Advice, not
+   refusal, since a weighted index may mean it
 3. [ ] optional AST-to-WGSL generation for parallel products
 4. [x] deterministic resource limits — a recursion-depth ceiling on the parser (`MAX_EXPR_DEPTH`),
    found necessary by this session's own test suite: the first version stack-overflowed the
@@ -1542,8 +1544,13 @@ Use TOML/JSON/YAML-like portable definitions containing:
   (`colormap::ramp_table`) across its range; a product cannot name its own palette yet
 - [x] min/max — `ProductDef::range` (optional; without it the 2nd–98th percentile of what the
   product produced, `udp_volume::auto_range`)
-- [ ] missing value — `None`/"—" always means missing; there is no way to configure a different
-  sentinel
+- [x] missing value — by formula rather than a sentinel: `if_missing(x, fallback)` uses `fallback`
+  where `x` is missing (below threshold, range folded, not available, or not a number) and
+  `is_missing(x)` tests for it (1010.md V17). A fallback only fills an input among others that
+  were recorded; where nothing the formula reads was recorded the map stays empty. On the Moore
+  volume (KTLX 2013-05-20 20:12 UTC, 0.5°), `REF + KDP` has 148,959 values and
+  `REF + if_missing(KDP, 0)` 153,695, exactly the gates where reflectivity was recorded
+  (`tests/udp_missing_real.rs`, ignored: it reads the local corpus)
 - [ ] optional environmental requirements
 
 `ProductDef` (`wxdata::udp`) is a plain serde struct, saved as part of `Settings` — JSON on disk
