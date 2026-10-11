@@ -155,7 +155,8 @@ class AlertAlarm : BroadcastReceiver() {
 
         /**
          * Delivery health, as a tab-separated line for the Rust settings panel to parse:
-         * `enabled \t exact \t exempt \t lastPollMsAgo \t nextAlarmInMs`. -1 means never/unknown.
+         * `enabled \t exact \t exempt \t lastPollMsAgo \t nextAlarmInMs \t osStoppedMsAgo`. -1 means
+         * never/unknown; the last field is when Android stopped the service at its time limit.
          *
          * Deliberately one string over the existing bridge rather than five JNI calls or a second
          * bridge: the panel reads it once a second at most.
@@ -166,12 +167,14 @@ class AlertAlarm : BroadcastReceiver() {
             val now = System.currentTimeMillis()
             val last = p.getLong(KEY_LAST_POLL, 0L)
             val next = p.getLong(KEY_NEXT, 0L)
+            val stopped = AlertService.stoppedByOs(context)
             return listOf(
                 AlertService.isEnabled(context),
                 canExact(context),
                 isExempt(context),
                 if (last > 0) now - last else -1L,
                 if (next > 0) next - now else -1L,
+                if (stopped > 0) now - stopped else -1L,
             ).joinToString("\t")
         }
     }

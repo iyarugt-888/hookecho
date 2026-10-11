@@ -106,6 +106,12 @@ class MainActivity : GameActivity() {
         if (isFinishing) android.os.Process.killProcess(android.os.Process.myPid())
     }
 
+    /** The foreground resets Android 15's `dataSync` window: restart a service it stopped. */
+    override fun onResume() {
+        super.onResume()
+        AlertService.resumeIfStoppedByOs(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

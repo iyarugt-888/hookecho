@@ -28,11 +28,14 @@ class AlertWorker(context: Context, params: WorkerParameters) : Worker(context, 
         if (!AlertService.isEnabled(context)) return Result.success()
         AlertService.createChannels(context)
         // Background FGS starts are refused from API 31 unless an exemption applies; when they
-        // are, this pass is the alert path.
-        try {
-            context.startForegroundService(Intent(context, AlertService::class.java))
-        } catch (e: Exception) {
-            if (Build.VERSION.SDK_INT >= 31 && e !is ForegroundServiceStartNotAllowedException) throw e
+        // are, this pass is the alert path. After Android stopped the service at its daily
+        // time limit, a start is refused until the app is opened, so do not keep asking.
+        if (AlertService.stoppedByOs(context) == 0L) {
+            try {
+                context.startForegroundService(Intent(context, AlertService::class.java))
+            } catch (e: Exception) {
+                if (Build.VERSION.SDK_INT >= 31 && e !is ForegroundServiceStartNotAllowedException) throw e
+            }
         }
         AlertService.pollOnce(context, AlertService.loadSeen(context))
         AlertWidget.refresh(context)

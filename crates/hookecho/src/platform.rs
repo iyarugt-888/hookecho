@@ -192,13 +192,18 @@ pub struct AlertHealth {
     pub since_poll: Option<std::time::Duration>,
     /// Until the next scheduled alarm. `None` if none is armed.
     pub until_next: Option<std::time::Duration>,
+    /// Since Android stopped the background service at its daily foreground-service time limit
+    /// (Android 15: six hours of `dataSync` in 24). `None` if it has not, or it has run since.
+    pub os_stopped: Option<std::time::Duration>,
 }
 
 impl AlertHealth {
-    /// `enabled \t exact \t exempt \t sincePollMs \t untilNextMs`, -1 for never/unknown.
+    /// `enabled \t exact \t exempt \t sincePollMs \t untilNextMs [\t osStoppedMs]`, -1 for
+    /// never/unknown. The sixth field is newer; a five-field line (an older APK) reads as
+    /// never stopped.
     pub fn parse(line: &str) -> Option<Self> {
         let f: Vec<&str> = line.split('\t').collect();
-        if f.len() != 5 {
+        if !(5..=6).contains(&f.len()) {
             return None;
         }
         let ms = |s: &str| {
@@ -213,6 +218,7 @@ impl AlertHealth {
             exempt: f[2] == "true",
             since_poll: ms(f[3]),
             until_next: ms(f[4]),
+            os_stopped: f.get(5).and_then(|s| ms(s)),
         })
     }
 }
@@ -1592,6 +1598,18 @@ mod health_tests {
         assert_eq!(h.until_next, Some(std::time::Duration::from_secs(42)));
         // A short line is a Kotlin-side change we haven't followed; report nothing, not garbage.
         assert_eq!(AlertHealth::parse("true\tfalse"), None);
+        // An older APK's five-field line has never been stopped by the OS.
+        assert_eq!(h.os_stopped, None);
+    }
+
+    /// The sixth field: Android stopped the service at its daily time limit this long ago.
+    #[test]
+    fn a_service_the_os_stopped_is_reported() {
+        let h = AlertHealth::parse("true\ttrue\ttrue\t30000\t270000\t600000").unwrap();
+        assert_eq!(h.os_stopped, Some(std::time::Duration::from_secs(600)));
+        let running = AlertHealth::parse("true\ttrue\ttrue\t30000\t270000\t-1").unwrap();
+        assert_eq!(running.os_stopped, None);
+        assert_eq!(AlertHealth::parse("a\tb\tc\td\te\tf\tg"), None);
     }
 }
 

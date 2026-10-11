@@ -2073,6 +2073,22 @@ fn alert_health(ui: &mut egui::Ui) {
         });
         ui.weak("This is the one that decides whether overnight warnings arrive.");
     }
+    if let Some(since) = h.os_stopped {
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(
+                egui::Color32::from_rgb(230, 160, 60),
+                format!(
+                    "\u{26a0} Android paused the background watch {} ago",
+                    ago(Some(since))
+                ),
+            );
+        });
+        ui.weak(
+            "Android 15 allows six hours of this kind of background service a day. Checks go on \
+             through the alarm above, at its own cadence rather than the tighter one during a \
+             warning. Opening the app resets the limit and restarts the watch.",
+        );
+    }
     if h.exact && h.exempt {
         ui.weak(
             "Exact alarms and battery exemption are both granted. Samsung's One UI can still put \

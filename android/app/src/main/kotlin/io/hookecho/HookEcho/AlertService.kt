@@ -1,5 +1,6 @@
 package io.hookecho.HookEcho
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -36,11 +37,41 @@ class AlertService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (running) return START_STICKY
-        running = true
         createChannels(this)
-        startForeground(FOREGROUND_ID, statusNotification())
+        try {
+            startForeground(FOREGROUND_ID, statusNotification())
+        } catch (e: Exception) {
+            // After Android 15's six-hour `dataSync` cap is spent, starting the foreground
+            // service again is refused until the user opens the app. That refusal must not
+            // crash the process: record it, stop, and leave the polls to [AlertAlarm] and
+            // [AlertWorker].
+            if (Build.VERSION.SDK_INT < 31 || e !is ForegroundServiceStartNotAllowedException) throw e
+            markStoppedByOs(this)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        running = true
+        clearStoppedByOs(this)
         Thread { pollLoop() }.start()
         return START_STICKY
+    }
+
+    /**
+     * Android 15 limits a `dataSync` foreground service to six hours in any 24. At the limit the
+     * system calls this and allows a few seconds to stop; not stopping is a fatal
+     * `RemoteServiceException`. That is a crash after a long severe-weather day with background
+     * alerts on (expansion.md §6.2).
+     *
+     * Stop cleanly and record when, so the settings panel can say why the persistent
+     * notification went away. Polling does not stop: [AlertAlarm]'s exact alarm and [AlertWorker]
+     * run the same [pollOnce]. Opening the app resets the window, and [MainActivity] restarts the
+     * service then.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        running = false
+        markStoppedByOs(this)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -103,12 +134,41 @@ class AlertService : Service() {
         private const val KEY_SEEN = "seen"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_SAVER = "battery_saver"
+        private const val KEY_STOPPED_BY_OS = "stopped_by_os"
 
         /** Newest-last, so trimming from the front drops the oldest IDs. */
         private const val SEEN_CAP = 200
 
         private fun prefs(context: Context) =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        /**
+         * When Android last stopped the service at its foreground-service time limit (epoch ms),
+         * or 0. It stays set until the service runs again, so the health readout can explain the
+         * missing notification and [AlertWorker] stops retrying a start the OS will refuse.
+         */
+        @JvmStatic
+        fun stoppedByOs(context: Context): Long = prefs(context).getLong(KEY_STOPPED_BY_OS, 0L)
+
+        private fun markStoppedByOs(context: Context) {
+            prefs(context).edit().putLong(KEY_STOPPED_BY_OS, System.currentTimeMillis()).apply()
+        }
+
+        private fun clearStoppedByOs(context: Context) {
+            prefs(context).edit().remove(KEY_STOPPED_BY_OS).apply()
+        }
+
+        /**
+         * Bring the service back when the app comes to the foreground: opening the app is what
+         * resets Android 15's `dataSync` window, and a foreground start is always allowed.
+         */
+        @JvmStatic
+        fun resumeIfStoppedByOs(context: Context) {
+            if (!isEnabled(context) || stoppedByOs(context) == 0L) return
+            runCatching {
+                context.startForegroundService(Intent(context, AlertService::class.java))
+            }
+        }
 
         /** Whether the user's switch is on — survives process death, unlike the service itself. */
         @JvmStatic
@@ -142,17 +202,30 @@ class AlertService : Service() {
                 context.filesDir,
                 java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
             )
+            val watched = runCatching { Nws.watched(context.filesDir) }.getOrDefault(emptyList())
+            fun found(m: Nws.Watch, a: Nws.Alert) {
+                if (a.tier >= Nws.TIER_WARNING) hot = true
+                val loud = !quiet || a.tier >= Nws.TIER_EMERGENCY
+                if (seen.add(a.id) && loud) notify(context, m, a)
+            }
             runCatching {
-                for (m in Nws.watched(context.filesDir)) {
+                for (m in watched) {
                     for (p in m.samples) {
-                        for (a in Nws.alertsAt(p[0], p[1])) {
-                            if (a.tier >= Nws.TIER_WARNING) hot = true
-                            val loud = !quiet || a.tier >= Nws.TIER_EMERGENCY
-                            if (seen.add(a.id) && loud) notify(context, m, a)
-                        }
+                        for (a in Nws.alertsAt(p[0], p[1])) found(m, a)
                     }
                 }
             }.onFailure { /* offline or NWS hiccup: try again next pass */ }
+            // The polygons themselves, against each place's whole watch circle or zone: a narrow
+            // warning that passes between the point samples above is still a warning here.
+            // Alert IDs are the same in both answers, so nothing is notified twice.
+            runCatching {
+                val states = watched.mapNotNull { Nws.stateFor(context.filesDir, it.lat, it.lon) }.toSet()
+                for (pa in Nws.polygonAlerts(states)) {
+                    for (m in watched) {
+                        if (pa.rings.any { Nws.covers(m, it) }) found(m, pa.alert)
+                    }
+                }
+            }.onFailure { /* the point samples above still ran */ }
             if (seen.size != before) saveSeen(context, seen)
             return hot
         }
@@ -160,7 +233,7 @@ class AlertService : Service() {
         private fun notify(context: Context, m: Nws.Watch, a: Nws.Alert) {
             // Deep-link back to the watched point. The site field is left empty: the app keeps
             // whichever radar it was on and just flies the camera there.
-            val goto = ",%.4f,%.4f,9".format(m.lon, m.lat)
+            val goto = ",%.4f,%.4f,9".format(java.util.Locale.US, m.lon, m.lat)
             val intent = Intent(context, MainActivity::class.java)
                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(MainActivity.EXTRA_GOTO, goto)
