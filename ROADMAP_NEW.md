@@ -2668,7 +2668,7 @@ For GEFS/REFS and any supported ensemble:
   changes. Live: GEFS 500 hPa 5700 m at F+48 and F+168, all 31 members drawn
   (`HOOKECHO_ENSEMBLE_SPAGHETTI=5700 hookecho --headless-ensemble gh500 spread 168 out.png`).
 - [x] point plume/time series — the forecast window's "Ensemble plume (GEFS)": the mean with a one-standard-deviation band at the tapped point, from the ready-made mean and spread files (so it shows the spread, not individual members or percentiles)
-- ensemble sounding overlay
+- [x] ensemble sounding overlay — the GEFS envelope on the Skew-T (F8 below)
 
 Probability examples:
 
@@ -2694,10 +2694,19 @@ Point sounding should support:
   JPEG 2000, a codec the web build leaves out, so in a browser RAP is disabled with that reason
   rather than failing; NAM 3 km works there (checked). The GFS and NAM 12 km are not wired: the
   former is global on its own path, the latter lacks full mandatory-level moisture in `awip12`.
-- [ ] ensemble member soundings — open on cost, not difficulty: the point path samples one GRIB
-  message per variable and level, so 31 GEFS members at 12 levels and 4 variables is ~1,500 range
-  requests per click. Needs a coarser level set or a server-side point extract first.
-- [ ] ensemble envelope — the same fetch, then a min/max band per level on the Skew-T
+- [x] ensemble member soundings — by server-side extract (1010.md V10): NOMADS's GRIB filter cuts
+  each GEFS member's `pgrb2a` and `pgrb2b` files to TMP and RH on 19 levels (1000–200 hPa) in a
+  one-degree box, a few kilobytes each, so a member is two requests instead of hundreds
+  (`wxdata::ensemble_sounding`). All 31 come from one cycle, paced under NOMADS's per-address
+  limit: 64 s for a full ensemble live. Desktop and Android; NOMADS is not on the browser proxy,
+  and the browser version says so. Temperature and dew point only, no member winds
+- [x] ensemble envelope — the "GEFS envelope" switch in the sounding window: the members'
+  lowest and highest temperature and dew point per level, shaded under the model's own traces,
+  cut at the profile's ground and at 200 hPa. The line beside it names the run, the member count
+  and the valid time, and how far that is from the profile when the GEFS's 3-hour steps do not
+  land on it ("valid 09:00Z, -1.0 h from this profile"). A spread, not a probability. Live: HRRR
+  22Z f12 near Oklahoma City under GEFS 12Z f021, 31 members, 19 levels
+  (`docs/certification/m5.3/sounding-gefs-envelope.png`)
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
   the Skew-T and hodograph (built earlier)
 - [x] previous model run overlay — a "Previous run" checkbox fetches the same point at the same

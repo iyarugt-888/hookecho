@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the GEFS ensemble's spread on the sounding
+
+The sounding window can shade the range of the 31 GEFS ensemble members' temperature and dew
+point at each level under the model profile. Tick "GEFS envelope"; it takes about a minute to
+gather the members, and the window shows how many have arrived. The line beside it says which
+run it is from and its valid time, and how far that is from the profile shown. The shading
+shows how much the ensemble disagrees, not a probability. Desktop and Android only: the browser
+version cannot reach the server the members come from.
+
 ### Improved: warnings on the map say what they are
 
 Warning, watch and special weather statement polygons now carry short labels on the map, such as

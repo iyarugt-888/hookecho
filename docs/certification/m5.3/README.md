@@ -116,3 +116,34 @@ asks for their first lead, F+01.
 **Render:** `hookecho --headless-env sbcape <out.png> href-mean`, 12Z valid 13Z: surface CAPE
 from 0 to 4,110 J/kg on a 1725×819 grid with 481,813 cells. See
 [href-mean-sbcape.png](href-mean-sbcape.png) (SHA-256 `35e33edf10518f239c77aafc53692333b670c56d0b707225304cadf098b58c94`).
+
+## The GEFS envelope on the Skew-T (1010.md V10, 2026-10-11)
+
+Each GEFS member at a point comes from NOMADS's GRIB filter
+(`wxdata::ensemble_sounding::member_url`): TMP and RH on the 7 `pgrb2a` and 12 `pgrb2b` levels
+from 1000 to 200 hPa, in a one-degree box, a few kilobytes per file. That is two requests per
+member instead of hundreds of range requests into the global files. All 31 members come from
+one cycle, paced 650 ms apart.
+
+| What | Result |
+| --- | --- |
+| One member live (`live_one_member_profile_from_nomads`) | GEFS 12Z f024 control: 19 levels at (-97.5, 35.5), the grid point nearest (-97.5, 35.4) |
+| The whole ensemble live (`live_envelope_from_nomads`) | GEFS 12Z f033: 31 members, 19 levels, 64 s; at 1000 hPa T 29.1 to 33.7 °C, Td 12.7 to 21.3 °C; at 500 hPa T -6.0 to -4.8 °C (`target/parity-review/f8/live-envelope.log`) |
+| The window, rendered (`gpu_sounding_envelope_review`) | HRRR 22Z f12 near Oklahoma City under GEFS 12Z f021: "31 members · run 2026-10-11 12:00Z f021 · valid 09:00Z, -1.0 h from this profile"; a narrow red temperature band along the HRRR trace, a wide green dew point band through the mid levels |
+
+[sounding-gefs-envelope.png](sounding-gefs-envelope.png) (SHA-256
+`33b42a6dfb12830fe655c48b2f8e64f0ec20f69670f53b14571e436137fed805`), rendered off screen by the
+app's UI snapshot helper on this machine's GPU. It is not a capture of the running app.
+
+Found while building it: a regular lat/lon GRIB message hands back its two axes, not a
+coordinate per cell. Paired as cells, they picked (-97.0, 35.0) for a click at (-97.5, 35.4).
+Expanded row by row, as `global` already did, they pick (-97.5, 35.5).
+
+Limits:
+- Temperature and dew point only: no member winds and no hodograph spread.
+- The GEFS is half a degree and 3-hourly, so the valid time can be up to 1.5 h from the profile.
+  The window states the offset.
+- Desktop and Android only. NOMADS is not on the browser build's proxy (1010.md V12).
+- The HRRR profile under the band starts at 1000 hPa even where that is below the ground. That
+  is the model sounding's own pre-existing issue, filed separately. The band is cut at the
+  profile's first level.
