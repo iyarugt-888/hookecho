@@ -112,6 +112,24 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release --lib -p hookecho
 
+      # 16 KB pages (expansion.md §6.1): every LOAD segment of the native library must be aligned
+      # to at least 16 KB, or Android 15+ devices with 16 KB pages run the app in backcompat mode.
+      # The flags are in .cargo/config.toml; this fails the build if a toolchain dropped them.
+      - name: Verify 16 KB page alignment
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          SO=android/app/src/main/jniLibs/arm64-v8a/libhookecho.so
+          READELF="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$READELF" -lW "$SO" | awk '$1 == "LOAD" { print $NF }' | tee /tmp/load-align
+          test -s /tmp/load-align
+          while read -r a; do
+            if [ $((a)) -lt 16384 ]; then
+              echo "::error::$SO has a LOAD segment aligned to $a, below 16 KB"
+              exit 1
+            fi
+          done < /tmp/load-align
+
       - name: Materialize signing keystore when configured
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
@@ -124,6 +142,12 @@ jobs:
             # installed copy shares: Android refuses it as an update ("App not installed").
             echo "::warning title=Unstable APK signature::ANDROID_KEYSTORE_B64/ANDROID_KEYSTORE_PASS are not set, so this APK is signed with a one-off debug key and cannot update an installed HookEcho."
           fi
+
+      # The Kotlin unit tests (warning-polygon geometry for background alerts). Nothing else
+      # compiles or runs them, and this machine has no Android SDK.
+      - name: Kotlin unit tests
+        working-directory: android
+        run: ./gradlew testReleaseUnitTest --no-daemon
 
       - name: Assemble release APK
         working-directory: android
@@ -138,6 +162,13 @@ jobs:
           test -f "$apk"
           cp "$apk" HookEcho-wsv3-arm64-v8a.apk
           ls -lh HookEcho-wsv3-arm64-v8a.apk
+
+      # The packaging half of 16 KB support: uncompressed native libraries 16 KB zip-aligned.
+      - name: Verify the APK is 16 KB zip-aligned
+        run: |
+          zipalign="$(ls -d "$ANDROID_HOME"/build-tools/*/zipalign | sort -V | tail -1)"
+          "$zipalign" -c -P 16 -v 4 HookEcho-wsv3-arm64-v8a.apk > /tmp/zipalign.log || { tail -20 /tmp/zipalign.log; exit 1; }
+          tail -3 /tmp/zipalign.log
 
       # An unsigned APK is not an installable file: Android answers "There's a problem with the app
       # file" and nothing else. Fail here rather than upload one.
