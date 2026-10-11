@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T20:13:39+00:00",
-  "generated_from_commit": "5365d423cc4a2db973b1720ea542c711b6aeb3a5",
+  "generated_utc": "2026-10-11T20:54:27+00:00",
+  "generated_from_commit": "8bc4a6f9ae8ad45332c40e2410a2b1b01602fa82",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -145,8 +145,8 @@
     {
       "card": "M3.6",
       "title": "Link storm-centered 3D, slices, and measurement",
-      "ledger_entries": 11,
-      "latest_entry": "2026-10-10",
+      "ledger_entries": 12,
+      "latest_entry": "2026-10-11",
       "status_line": "implementation: in progress (direct cross-section editing and 3D cut link, increment 1); verification: partial (geometry unit tests; no device interaction).",
       "evidence_dir": "docs/certification/m3.6"
     },
@@ -1129,8 +1129,8 @@
     },
     {
       "path": "docs/certification/m3.6/README.md",
-      "sha256": "477aa7c5fbba647300c4f9851533bd64ea07aa4726c19ec20f0cf1a5e41fb5be",
-      "bytes": 7166
+      "sha256": "a9d91ddedc18b970a472c766c2143fb08b787b0c46ab4cc3f44a81261458be0b",
+      "bytes": 9442
     },
     {
       "path": "docs/certification/m3.6/drawn-region-box.jpg",
@@ -1166,6 +1166,16 @@
       "path": "docs/certification/m3.6/ruler-3d-label.png",
       "sha256": "891a9fc5147c40a3b01799fbe9ad1b1fc8ee49af2a6ed013d45756453d8d971f",
       "bytes": 145365
+    },
+    {
+      "path": "docs/certification/m3.6/ruler-3d-top-tilt-browser.jpg",
+      "sha256": "76fd1bed2de1d1865526513ade8e385ad08fdb23e59f202a538a8e75f98c5ae1",
+      "bytes": 118440
+    },
+    {
+      "path": "docs/certification/m3.6/ruler-3d-values-agl-browser.jpg",
+      "sha256": "4567e609cfdadbd3b9e7ea64e6ac7d49d4518b30321b46aa81563b6ee5f20718",
+      "bytes": 103820
     },
     {
       "path": "docs/certification/m3.6/ruler-3d.jpg",
