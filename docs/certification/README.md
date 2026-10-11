@@ -10,8 +10,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-11T02:05:17+00:00 from commit
-`668116b0a78f` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-11T02:22:57+00:00 from commit
+`fb4c8d57f573` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
