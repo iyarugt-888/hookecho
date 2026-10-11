@@ -4323,7 +4323,12 @@ will find harder than a mouse; those are what to look for.
 
 - ~~two-column controls on large screens~~ — the desktop layout already has them
 - ~~persistent layer/product panel option~~ — the desktop docked panel
-- multi-pane optimized touch targets — open: desktop targets are mouse-sized
+- multi-pane optimized touch targets — done in code 2026-10-11 (1010.md V11): on a touch tablet
+  (`platform::form_factor::touch_tablet`) the workstation's controls go from 24 to 36 pt, the
+  toolbar to 48, rail buttons to 44, layer/storm/order rows to 34-36 pt, a layer row's star and
+  remove button to 32 pt, and the favourite star shows without a hover. A desktop is unchanged.
+  Seen in the phone emulation at 1280x860 (`docs/certification/a11y/tablet-touch-workstation.png`,
+  `482d70b1…`). Not yet on a real tablet; other hover-only affordances may remain.
 - keyboard/mouse support on tablets — the desktop chrome's own
 - drag/drop pane layout where practical — the desktop's
 

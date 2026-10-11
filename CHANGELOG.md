@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: the desktop layout on a tablet is sized for fingers
+
+On an Android tablet, which shows the full desktop layout, buttons, menus, list rows and the
+side rail are now big enough to tap, and the favourite star on a layer is always visible
+instead of appearing only under a mouse pointer. Desktop sizes are unchanged.
+
 ### Added: step through a SAILS volume's low-level scans
 
 When the radar revisits the lowest tilt partway through a volume (SAILS), stepping back and
