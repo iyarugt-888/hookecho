@@ -1970,6 +1970,8 @@ Evidence: [`docs/certification/m7.1/`](docs/certification/m7.1/) (`soak-ktlx-2h.
 
 Kept as partial evidence ([`soak-ktlx-12h-interrupted.jsonl`](docs/certification/m7.1/soak-ktlx-12h-interrupted.jsonl), `888df3b5…`), not as a completed profile. A second run was started detached at 14:32 UTC on 2026-10-10. Open: a completed 12-hour profile and the 24-hour profile.
 
+**Evidence ledger — 2026-10-10, the 12-hour profile completed (1008.md H2, 1010.md E1):** `--soak KTLX 720 --render --inject`, a detached release build, ran 2026-10-10 14:32 to 2026-10-11 02:31 UTC. **Passed.** The run covered 1440 cycles and 104 new volumes, with 0 failed cycles. Of 26 injected cut-off volumes, 26 were refused. There were 104 renders across all four products, 0 of them failed. Draw p50 was 3.5 ms, 3D build p50 14.9 ms. GPU allocated memory ran from 9.55 MB to a maximum of 9.78 MB and ended at 9.55 MB. The run was not isolated: the branch was being compiled and tested beside it, so the maxima are contention. Evidence: [`docs/certification/m7.1/`](docs/certification/m7.1/) (`soak-ktlx-12h.jsonl` `f5d585f1…`, `summary-12h.json` `c891d60d…`). Open: the 24-hour profile, which is running on KFWS, and the rest of the open list above.
+
 #### M7.2 — Certify Android lifecycle, input, and memory
 
 **Priority:** P0 release gate. **Depends on:** M2.4, M3.6, M4.2, M5.4, M6.4, M7.1. **Original references:** ROADMAP_2 §§2.6, 13, 14; ROADMAP_NEW §§Q1, Q3, O1.

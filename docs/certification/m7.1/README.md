@@ -75,11 +75,50 @@ It is kept as partial evidence. It is not a completed 12-hour profile.
 | [soak-ktlx-12h-interrupted.log](soak-ktlx-12h-interrupted.log) | `9f80001d635d690d4a4c8b380012f1f069c48dd505d7a06a2dd098a6fa54a1a1` |
 
 A second 12-hour run was started at 14:32 UTC on 2026-10-10 as a detached process, so it does
-not depend on a session staying open.
+not depend on a session staying open. It completed; see the next section.
+
+## The 12-hour profile, live KTLX, RTX 2060 (Vulkan), 2026-10-10 14:32–2026-10-11 02:31 UTC
+
+```bash
+hookecho --soak KTLX 720 --render --inject --jsonl soak-ktlx-12h.jsonl
+```
+
+Release build, `0.12.0-beta.2`, run as a detached process. **Passed** (the runner's own
+summary lists no problems; an empty list is its exit-0 condition). 12.0 hours of cycles.
+
+| | |
+| --- | --- |
+| Cycles (every 30 s) | 1440 |
+| New volumes, decoded and binned | 104 (clear air) |
+| Failed cycles | 0 (worst streak 0) |
+| Cut-off volumes injected / refused | 26 / 26 |
+| Renders / failed | 104 / 0 (REF 26, VEL 26, CC 26, ZDR 26) |
+| Draw, p50 / max | 3.5 / 770.8 ms |
+| 3D build, p50 / max | 14.9 / 490.5 ms |
+| 3D upload, p50 / max | 7.1 / 54.8 ms |
+| Decode, p50 / max | 83.2 / 637.9 ms |
+| GPU allocated: baseline / max / end | 9.55 / 9.78 / 9.55 MB |
+| Resident memory: baseline / max / end | 92 / 110 / 90 MB |
+
+Notes on reading it:
+
+- **Not isolated:** the same machine compiled and tested this branch for most of the run, so the
+  maxima are contention spikes beside medians that held. Read the p50s and the memory lines, not
+  the maxima.
+- **Resident memory:** as in the 2-hour run, Windows trims an idle process's working set, so the
+  minimum (8 MB) says nothing about allocations.
+- **GPU memory:** flat to within 0.23 MB over 104 renders.
+
+| File | SHA-256 |
+| --- | --- |
+| [soak-ktlx-12h.jsonl](soak-ktlx-12h.jsonl) | `f5d585f1dd2361694fc9501844965c0b33e1e680884163fe59dad46dab9f5a23` |
+| [soak-ktlx-12h.log](soak-ktlx-12h.log) | `bae7feb5725bcd46cb25c9af9300ce30ef03f54bdf03c561fb3552fd1c7ee61b` |
+| [summary-12h.json](summary-12h.json) | `c891d60d4f020e29c677cd748a57268e6813d8dc6cf3ca7ef21ca165114c938a` |
 
 ## Not established
 
-- **Long profiles:** no 12-hour profile has completed yet, and the 24-hour profile has not run.
+- **Long profiles:** the 12-hour profile has completed (above); the 24-hour profile (KFWS) is
+  still running.
 - **Scope of the soak:** it drives the renderer, not the app's UI. Window frame pacing,
   presentation, panes, playback, GIS and output are not exercised.
 - **Untested faults:** device or surface loss, offline/reconnect, and model or ABI failures are
