@@ -132,6 +132,7 @@ impl HookEchoApp {
             }
         }
         self.schedule_model_fields(ctx);
+        self.update_model_field_contours();
         // Model difference: same cadence as a global layer, and the same refetch-on-change rule.
         {
             let layer = FL::ModelDiff;

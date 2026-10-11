@@ -425,6 +425,7 @@ impl HookEchoApp {
             ensemble_display_key: None,
             ensemble_error: None,
             ensemble_spaghetti: None,
+            model_field_contours: Default::default(),
             ensemble_stamps: Default::default(),
             compare_valid: None,
             compare_error: None,

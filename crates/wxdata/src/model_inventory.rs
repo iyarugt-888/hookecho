@@ -24,6 +24,11 @@ pub struct Quantity {
     /// as the file defines them: the HRRR's and NAM's are relative to their Lambert grid, not to
     /// east and north, so they are named u and v, never east and north.
     pub component: Option<(Component, &'static str)>,
+    /// The conventional contour interval in `unit`, for a quantity that reads well as isolines
+    /// (heights, pressure, temperature, moisture, wind speed, instability, helicity). `None`
+    /// for one drawn only as shading: reflectivity, cloud cover, visibility, updraft-helicity
+    /// tracks and the like, whose contours are noise or a picture of the grid.
+    pub contour: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +40,14 @@ pub enum Component {
 impl Quantity {
     pub fn to_display(&self, native: f32) -> f32 {
         native * self.scale + self.offset
+    }
+
+    /// The same quantity, contoured every `step` (in `unit`).
+    const fn every(self, step: f32) -> Quantity {
+        Quantity {
+            contour: Some(step),
+            ..self
+        }
     }
 }
 
@@ -54,27 +67,28 @@ const fn q(
         scale,
         offset,
         component: None,
+        contour: None,
     }
 }
 
 /// The NCEP GRIB2 abbreviations whose meaning and units are vetted (NCEP's GRIB2 parameter
 /// tables, product discipline 0). Kept short on purpose: an entry here is a claim about units.
 pub const VETTED: &[Quantity] = &[
-    q("TMP", "Temperature", "K", "°C", 1.0, -273.15),
-    q("DPT", "Dew point", "K", "°C", 1.0, -273.15),
-    q("RH", "Relative humidity", "%", "%", 1.0, 0.0),
-    q("SPFH", "Specific humidity", "kg/kg", "g/kg", 1000.0, 0.0),
-    q("HGT", "Geopotential height", "gpm", "dam", 0.1, 0.0),
+    q("TMP", "Temperature", "K", "°C", 1.0, -273.15).every(2.0),
+    q("DPT", "Dew point", "K", "°C", 1.0, -273.15).every(2.0),
+    q("RH", "Relative humidity", "%", "%", 1.0, 0.0).every(10.0),
+    q("SPFH", "Specific humidity", "kg/kg", "g/kg", 1000.0, 0.0).every(2.0),
+    q("HGT", "Geopotential height", "gpm", "dam", 0.1, 0.0).every(6.0),
     Quantity {
         component: Some((Component::U, "VGRD")),
-        ..q("UGRD", "Wind u component", "m/s", "kt", 1.943_844, 0.0)
+        ..q("UGRD", "Wind u component", "m/s", "kt", 1.943_844, 0.0).every(10.0)
     },
     Quantity {
         component: Some((Component::V, "UGRD")),
-        ..q("VGRD", "Wind v component", "m/s", "kt", 1.943_844, 0.0)
+        ..q("VGRD", "Wind v component", "m/s", "kt", 1.943_844, 0.0).every(10.0)
     },
-    q("WIND", "Wind speed", "m/s", "kt", 1.943_844, 0.0),
-    q("GUST", "Wind gust", "m/s", "kt", 1.943_844, 0.0),
+    q("WIND", "Wind speed", "m/s", "kt", 1.943_844, 0.0).every(10.0),
+    q("GUST", "Wind gust", "m/s", "kt", 1.943_844, 0.0).every(10.0),
     q("APCP", "Precipitation", "kg/m²", "mm", 1.0, 0.0),
     q(
         "PRATE",
@@ -84,10 +98,10 @@ pub const VETTED: &[Quantity] = &[
         3600.0,
         0.0,
     ),
-    q("PRMSL", "Sea-level pressure", "Pa", "hPa", 0.01, 0.0),
-    q("MSLMA", "Sea-level pressure (MAPS)", "Pa", "hPa", 0.01, 0.0),
+    q("PRMSL", "Sea-level pressure", "Pa", "hPa", 0.01, 0.0).every(4.0),
+    q("MSLMA", "Sea-level pressure (MAPS)", "Pa", "hPa", 0.01, 0.0).every(4.0),
     q("PRES", "Pressure", "Pa", "hPa", 0.01, 0.0),
-    q("CAPE", "CAPE", "J/kg", "J/kg", 1.0, 0.0),
+    q("CAPE", "CAPE", "J/kg", "J/kg", 1.0, 0.0).every(500.0),
     q("CIN", "CIN", "J/kg", "J/kg", 1.0, 0.0),
     q(
         "HLCY",
@@ -96,7 +110,8 @@ pub const VETTED: &[Quantity] = &[
         "m²/s²",
         1.0,
         0.0,
-    ),
+    )
+    .every(100.0),
     q(
         "MXUPHL",
         "Updraft helicity, max",
@@ -105,7 +120,7 @@ pub const VETTED: &[Quantity] = &[
         1.0,
         0.0,
     ),
-    q("PWAT", "Precipitable water", "kg/m²", "mm", 1.0, 0.0),
+    q("PWAT", "Precipitable water", "kg/m²", "mm", 1.0, 0.0).every(5.0),
     q("REFC", "Composite reflectivity", "dB", "dBZ", 1.0, 0.0),
     q("REFD", "Reflectivity", "dB", "dBZ", 1.0, 0.0),
     q("VIS", "Visibility", "m", "km", 0.001, 0.0),
@@ -113,12 +128,12 @@ pub const VETTED: &[Quantity] = &[
     q("LCDC", "Low cloud cover", "%", "%", 1.0, 0.0),
     q("MCDC", "Middle cloud cover", "%", "%", 1.0, 0.0),
     q("HCDC", "High cloud cover", "%", "%", 1.0, 0.0),
-    q("HPBL", "Boundary layer height", "m", "m", 1.0, 0.0),
+    q("HPBL", "Boundary layer height", "m", "m", 1.0, 0.0).every(500.0),
     q("SNOD", "Snow depth", "m", "cm", 100.0, 0.0),
     q("WEASD", "Snow water equivalent", "kg/m²", "mm", 1.0, 0.0),
     // A temperature difference: no offset.
-    q("LFTX", "Lifted index", "K", "K", 1.0, 0.0),
-    q("4LFTX", "Best lifted index", "K", "K", 1.0, 0.0),
+    q("LFTX", "Lifted index", "K", "K", 1.0, 0.0).every(2.0),
+    q("4LFTX", "Best lifted index", "K", "K", 1.0, 0.0).every(2.0),
     q(
         "VIL",
         "Vertically integrated liquid",
@@ -662,6 +677,25 @@ pub fn field_bytes(message: Vec<u8>, sub: usize) -> anyhow::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Contours are offered by metadata: the smooth quantities have a conventional interval in
+    /// their own display unit, the shaded-only ones none, and no interval is zero or negative.
+    #[test]
+    fn contour_intervals_come_from_each_quantity() {
+        assert_eq!(vetted("HGT").unwrap().contour, Some(6.0)); // dam: 60 m
+        assert_eq!(vetted("PRMSL").unwrap().contour, Some(4.0)); // hPa
+        assert_eq!(vetted("TMP").unwrap().contour, Some(2.0)); // °C
+        assert_eq!(vetted("WIND").unwrap().contour, Some(10.0)); // kt
+        for shaded in [
+            "REFC", "REFD", "TCDC", "VIS", "MXUPHL", "APCP", "VIL", "RETOP",
+        ] {
+            assert_eq!(vetted(shaded).unwrap().contour, None, "{shaded}");
+        }
+        assert!(VETTED
+            .iter()
+            .filter_map(|q| q.contour)
+            .all(|step| step > 0.0 && step.is_finite()));
+    }
 
     /// Real lines from `noaa-hrrr-bdp-pds` `hrrr.t23z.wrfsfcf06.grib2.idx` (2026-10-06 23Z run),
     /// selected lines, each unedited (the ranges tested are between lines that are adjacent there).

@@ -20,6 +20,10 @@ pub(crate) struct ModelControls {
     /// set, so a workspace without one stays readable by builds that predate it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<crate::app::model_field::SavedFieldPick>,
+    /// Draw the picked field as contour lines too, at its quantity's own interval (ROADMAP_NEW
+    /// F4). Written only when on, so older builds still read the workspace.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub field_contours: bool,
     #[serde(skip)]
     pub hrrr_by_timeline: bool,
 }
@@ -39,6 +43,7 @@ impl Default for ModelControls {
             env_cape_ml: false,
             env_srh_km: 3,
             field: None,
+            field_contours: false,
             hrrr_by_timeline: false,
         }
     }
@@ -263,5 +268,22 @@ mod native_lead_tests {
         assert!(!controls.valid());
         controls.hrrr_fcst_min = 75;
         assert!(controls.valid());
+    }
+
+    /// The contour switch is written only when on, comes back on, and a pane saved before it
+    /// existed reads as off.
+    #[test]
+    fn the_field_contour_switch_saves_only_when_on() {
+        let off = serde_json::to_value(ModelControls::default()).unwrap();
+        assert!(off.get("field_contours").is_none());
+        let on = ModelControls {
+            field_contours: true,
+            ..Default::default()
+        };
+        let saved = serde_json::to_value(&on).unwrap();
+        assert_eq!(saved["field_contours"], true);
+        assert_eq!(serde_json::from_value::<ModelControls>(saved).unwrap(), on);
+        let restored: ModelControls = serde_json::from_value(off).unwrap();
+        assert!(!restored.field_contours);
     }
 }

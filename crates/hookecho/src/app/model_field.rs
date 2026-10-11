@@ -191,6 +191,52 @@ impl FieldPick {
     }
 }
 
+/// Each pane's browsed field as contour lines: what they were made from (the request, its
+/// delivery, the interval's bits), and the lines.
+pub(crate) type FieldContours = std::collections::HashMap<
+    usize,
+    (
+        (ModelRequest, chrono::DateTime<chrono::Utc>, u32),
+        std::sync::Arc<Vec<wxdata::contour::ContourLine>>,
+    ),
+>;
+
+/// Contours are made on a grid no wider than this: isolines of a smooth field need nothing finer,
+/// and the HRRR's full grid is millions of cells.
+const CONTOUR_MAX_DIM: usize = 900;
+
+/// The interval the picked field is contoured at, in its own unit, from its quantity's metadata
+/// (`model_inventory::Quantity::contour`): `None` for a shaded-only quantity, and for a
+/// difference, whose isolines would read as the field's own.
+pub(crate) fn contour_step(pick: FieldPick) -> Option<f32> {
+    if pick.minus.is_some() {
+        return None;
+    }
+    let var = if pick.vector { "WIND" } else { pick.var };
+    wxdata::model_inventory::vetted(var)?.contour
+}
+
+/// A contour's label: whole numbers as they are, anything finer to one decimal.
+pub(crate) fn contour_label(level: f32) -> String {
+    if (level - level.round()).abs() < 1e-3 {
+        format!("{level:.0}")
+    } else {
+        format!("{level:.1}")
+    }
+}
+
+/// The contour lines of `grid` every `step`, on a grid at most [`CONTOUR_MAX_DIM`] across.
+pub(crate) fn field_contour_lines(
+    grid: &wxdata::mrms::MrmsField,
+    step: f32,
+) -> Vec<wxdata::contour::ContourLine> {
+    if grid.nx.max(grid.ny) > CONTOUR_MAX_DIM {
+        wxdata::contour::contour_lines(&grid.subsampled(CONTOUR_MAX_DIM), step)
+    } else {
+        wxdata::contour::contour_lines(grid, step)
+    }
+}
+
 /// A `'static` copy of `s`, made once per distinct string: parameter abbreviations and level
 /// texts, a few hundred at most, so a request can stay `Copy`.
 pub(crate) fn intern(s: &str) -> &'static str {
@@ -486,6 +532,48 @@ impl HookEchoApp {
         wind_from_deg(u, v)
     }
 
+    /// Recontour each pane's browsed field whose contours are on, when the grid it shows or its
+    /// interval changed (ROADMAP_NEW F4), and drop the lines of panes that no longer show them.
+    /// Lines are made only from a grid accepted for the pane's own request.
+    pub(crate) fn update_model_field_contours(&mut self) {
+        let mut keep = std::collections::HashSet::new();
+        for idx in 0..self.views.len() {
+            let v = &self.views[idx];
+            if !v.models.field_contours
+                || !v.fields_on.contains(&crate::render::FieldLayer::ModelField)
+            {
+                continue;
+            }
+            let Some(step) = v.models.field.as_ref().and_then(|p| contour_step(p.pick())) else {
+                continue;
+            };
+            let Some(request) =
+                self.selected_model_request_for(idx, crate::render::FieldLayer::ModelField)
+            else {
+                continue;
+            };
+            let Some(slot) = self
+                .model_fields
+                .get(&request)
+                .filter(|slot| slot.state.model_ready(request))
+            else {
+                continue;
+            };
+            let (Some(grid), Some(stamp)) = (slot.state.grid.as_ref(), slot.state.stamp.as_ref())
+            else {
+                continue;
+            };
+            let key = (request, stamp.received_time, step.to_bits());
+            keep.insert(idx);
+            if self.model_field_contours.get(&idx).map(|(k, _)| *k) != Some(key) {
+                let lines = std::sync::Arc::new(field_contour_lines(grid, step));
+                self.model_field_contours.insert(idx, (key, lines));
+            }
+        }
+        self.model_field_contours
+            .retain(|idx, _| keep.contains(idx));
+    }
+
     /// Put `pick` on the active pane and turn its layer on.
     pub(crate) fn show_model_field(&mut self, pick: SavedFieldPick) {
         let v = &mut self.views[self.active];
@@ -504,6 +592,7 @@ impl HookEchoApp {
         let mut open = true;
         let mut chosen = None;
         let current = self.views[self.active].models.field.clone();
+        let mut contours = self.views[self.active].models.field_contours;
         let lead = self
             .field_browser
             .model
@@ -524,6 +613,31 @@ impl HookEchoApp {
                         });
                     ui.label(format!("F+{lead}h (the pane's lead)"));
                 });
+                // Contour lines for the shown field, offered where its quantity has an interval.
+                if let Some(pick) = current.as_ref().map(SavedFieldPick::pick) {
+                    match contour_step(pick) {
+                        Some(step) => {
+                            ui.checkbox(
+                                &mut contours,
+                                format!(
+                                    "Contour lines every {} {}",
+                                    contour_label(step),
+                                    pick.unit()
+                                ),
+                            )
+                            .on_hover_text(
+                                "Isolines of the shown field over its shading, labelled in its \
+                                 own unit",
+                            );
+                        }
+                        None if pick.minus.is_some() => {
+                            ui.weak("A difference is shaded only, not contoured");
+                        }
+                        None => {
+                            ui.weak("This quantity is shaded only, not contoured");
+                        }
+                    }
+                }
                 ui.add(
                     egui::TextEdit::singleline(&mut b.search)
                         .hint_text("Search: temperature, 500, wind…"),
@@ -653,6 +767,7 @@ impl HookEchoApp {
                     });
             });
         self.field_browser.open = open;
+        self.views[self.active].models.field_contours = contours;
         if let Some(pick) = chosen {
             self.show_model_field(pick);
         }
@@ -714,14 +829,22 @@ impl HookEchoApp {
             );
         };
         let unit = pick.unit();
+        let contoured = self.model_field_contours.contains_key(&idx);
         let note = state.and_then(|s| s.stamp.as_ref()).map(|s| {
-            format!(
+            let mut note = format!(
                 "{} run {} \u{b7} valid {} UTC \u{b7} 2nd\u{2013}98th percentile",
                 model_label(pick.model),
                 s.run_time
                     .map_or_else(|| "?".into(), |r| r.format("%HZ").to_string()),
                 s.valid_time.format("%m-%d %H:%M")
-            )
+            );
+            if let Some(step) = contour_step(pick).filter(|_| contoured) {
+                note.push_str(&format!(
+                    " \u{b7} contours every {} {unit}",
+                    contour_label(step)
+                ));
+            }
+            note
         });
         let title = pick.label();
         crate::ui::legend::draw_table_card(
@@ -740,6 +863,75 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Contours follow the quantity: a height every 6 dam, a wind's speed every 10 kt, a
+    /// reflectivity and any difference not at all; labels keep whole numbers whole.
+    #[test]
+    fn a_picked_field_is_contoured_by_its_quantity() {
+        let pick = |var: &'static str, vector: bool, minus: Option<InventorySource>| FieldPick {
+            model: InventorySource::Regional(Regional::Hrrr),
+            var,
+            level: "500 mb",
+            kind: TimingKind::Instant,
+            vector,
+            minus,
+        };
+        assert_eq!(contour_step(pick("HGT", false, None)), Some(6.0));
+        assert_eq!(contour_step(pick("UGRD", true, None)), Some(10.0));
+        assert_eq!(contour_step(pick("REFC", false, None)), None);
+        assert_eq!(contour_step(pick("NOTVETTED", false, None)), None);
+        let other = InventorySource::Regional(Regional::Rap);
+        assert_eq!(contour_step(pick("HGT", false, Some(other))), None);
+        assert_eq!(contour_label(576.0), "576");
+        assert_eq!(contour_label(-2.0), "-2");
+        assert_eq!(contour_label(0.5), "0.5");
+    }
+
+    /// A large grid is contoured on a coarser copy (still at the same levels and place); a small
+    /// one as it is; missing cells leave gaps rather than lines.
+    #[test]
+    fn contours_are_made_on_a_bounded_grid_at_the_fields_own_levels() {
+        let (nx, ny) = (2000, 1000);
+        let values: Vec<f32> = (0..nx * ny).map(|i| (i % nx) as f32 * 0.01).collect();
+        let big = wxdata::mrms::MrmsField {
+            values,
+            nx,
+            ny,
+            lon_west: -120.0,
+            lon_east: -70.0,
+            lat_north: 50.0,
+            lat_south: 25.0,
+            time: chrono::Utc::now(),
+        };
+        let lines = field_contour_lines(&big, 5.0);
+        let levels: std::collections::BTreeSet<i32> =
+            lines.iter().map(|l| l.level as i32).collect();
+        // 5, 10 and 15 cross the field; 0 is its edge, which may or may not draw.
+        assert!([5, 10, 15].iter().all(|l| levels.contains(l)), "{levels:?}");
+        assert!(
+            levels.iter().all(|l| [0, 5, 10, 15].contains(l)),
+            "{levels:?}"
+        );
+        // The 10-unit line sits where x = 1000 cells, half way across: 95 W.
+        let ten = lines.iter().find(|l| l.level == 10.0).unwrap();
+        assert!(
+            ten.pts.iter().all(|p| (p.0 + 95.0).abs() < 0.1),
+            "{:?}",
+            ten.bbox
+        );
+
+        let small = wxdata::mrms::MrmsField {
+            values: vec![f32::NAN; 100],
+            nx: 10,
+            ny: 10,
+            lon_west: -100.0,
+            lon_east: -99.0,
+            lat_north: 40.0,
+            lat_south: 39.0,
+            time: chrono::Utc::now(),
+        };
+        assert!(field_contour_lines(&small, 1.0).is_empty());
+    }
 
     #[test]
     fn a_wind_exports_as_barb_points_read_like_the_probe() {

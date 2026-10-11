@@ -1508,6 +1508,9 @@ pub struct HookEchoApp {
     /// `ensemble_layer::spaghetti_key`).
     /// The ensemble's postage-stamp window (ROADMAP_NEW F7).
     ensemble_stamps: ensemble_stamps::EnsembleStamps,
+    /// Each pane's browsed model field as contour lines, when it asks for them (ROADMAP_NEW F4),
+    /// kept until its grid or interval changes.
+    model_field_contours: model_field::FieldContours,
     ensemble_spaghetti: Option<(
         crate::ensemble_layer::SpaghettiKey,
         std::sync::Arc<crate::ensemble_layer::Spaghetti>,
@@ -5759,6 +5762,7 @@ impl HookEchoApp {
         // fetched and colored — overlaying, say, MSLP and CAPE together rather than one exclusive
         // choice.
         self.paint_model_contours(&painter, prect, cam, vp, idx);
+        self.paint_model_field_contours(&painter, prect, cam, vp, idx);
         self.paint_ensemble_spaghetti(&painter, prect, cam, vp, idx);
 
         // The tornado markers' click targets are this frame's, or none (set again below).

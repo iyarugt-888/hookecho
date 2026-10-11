@@ -173,42 +173,15 @@ impl HookEchoApp {
                     continue;
                 }
                 let col = kind.color();
-                for line in &entry.lines {
-                    let (bx0, by0, bx1, by1) = line.bbox;
-                    if bx1 < vmin_lon || bx0 > vmax_lon || by1 < vmin_lat || by0 > vmax_lat {
-                        continue; // fully off-view
-                    }
-                    let pts: Vec<egui::Pos2> = line
-                        .pts
-                        .iter()
-                        .map(|&(lon, lat)| to_screen(lon, lat))
-                        .collect();
-                    // Label the longest segment's midpoint when the line spans enough pixels.
-                    let seg = longest_segment(&pts);
-                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2, col)));
-                    if let Some((a, b)) = seg {
-                        if a.distance(b) > 60.0 {
-                            let mid = a + (b - a) * 0.5;
-                            let txt = match kind.unit(self.settings.temp_unit) {
-                                Some(unit) => format!("{:.0}{unit}", line.level),
-                                None => format!("{:.0}", line.level),
-                            };
-                            let font = egui::FontId::proportional(11.0);
-                            for dx in [-1.0, 1.0] {
-                                for dy in [-1.0, 1.0] {
-                                    painter.text(
-                                        mid + egui::vec2(dx, dy),
-                                        egui::Align2::CENTER_CENTER,
-                                        &txt,
-                                        font.clone(),
-                                        egui::Color32::from_black_alpha(200),
-                                    );
-                                }
-                            }
-                            painter.text(mid, egui::Align2::CENTER_CENTER, &txt, font, col);
-                        }
-                    }
-                }
+                let unit = kind.unit(self.settings.temp_unit).unwrap_or("");
+                paint_isolines(
+                    painter,
+                    &entry.lines,
+                    (vmin_lon, vmin_lat, vmax_lon, vmax_lat),
+                    to_screen,
+                    col,
+                    |level| format!("{level:.0}{unit}"),
+                );
                 if idx == self.active {
                     let vt = entry
                         .valid
@@ -245,6 +218,47 @@ impl HookEchoApp {
                 }
             }
         }
+    }
+
+    /// The pane's browsed model field as labelled contour lines (ROADMAP_NEW F4), over its own
+    /// shading, when the pane asks for them and the lines are for the grid now shown.
+    pub(crate) fn paint_model_field_contours(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+        idx: usize,
+    ) {
+        let Some((_, lines)) = self.model_field_contours.get(&idx) else {
+            return;
+        };
+        let to_screen = |lon: f64, lat: f64| {
+            let w = crate::render::mercator::lonlat_to_world(lon, lat);
+            let (sx, sy) = cam.world_to_screen(w, vp);
+            egui::pos2(prect.left() + sx, prect.top() + sy)
+        };
+        let view = {
+            use crate::render::mercator::world_to_lonlat;
+            let (wx0, wy0) = cam.screen_to_world((0.0, 0.0), vp);
+            let (wx1, wy1) = cam.screen_to_world((vp.0, vp.1), vp);
+            let (lon0, lat0) = world_to_lonlat(wx0, wy0);
+            let (lon1, lat1) = world_to_lonlat(wx1, wy1);
+            (
+                lon0.min(lon1),
+                lat0.min(lat1),
+                lon0.max(lon1),
+                lat0.max(lat1),
+            )
+        };
+        paint_isolines(
+            painter,
+            lines,
+            view,
+            to_screen,
+            egui::Color32::from_rgb(240, 240, 240),
+            super::model_field::contour_label,
+        );
     }
 
     /// METAR station plots, decluttered windiest first.
@@ -526,6 +540,128 @@ pub(crate) fn stale_badge(
         "Aging"
     };
     Some((class, format!("{word} \u{b7} newest scan {old} old")))
+}
+
+/// Contour polylines in `(lon, lat)`, culled against the view's `(min_lon, min_lat, max_lon,
+/// max_lat)` by each line's own box before any point is projected, each labelled half way along
+/// it when it is long enough on screen to carry a label.
+fn paint_isolines(
+    painter: &egui::Painter,
+    lines: &[wxdata::contour::ContourLine],
+    view: (f64, f64, f64, f64),
+    to_screen: impl Fn(f64, f64) -> egui::Pos2,
+    col: egui::Color32,
+    label: impl Fn(f32) -> String,
+) {
+    let (vmin_lon, vmin_lat, vmax_lon, vmax_lat) = view;
+    for line in lines {
+        let (bx0, by0, bx1, by1) = line.bbox;
+        if bx1 < vmin_lon || bx0 > vmax_lon || by1 < vmin_lat || by0 > vmax_lat {
+            continue; // fully off-view
+        }
+        let pts = thin_on_screen(line.pts.iter().map(|&(lon, lat)| to_screen(lon, lat)), 1.5);
+        if pts.len() < 2 {
+            continue; // a ring smaller than a couple of pixels at this zoom
+        }
+        let at = label_point(&pts, 120.0);
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2, col)));
+        if let Some(mid) = at {
+            let txt = label(line.level);
+            let font = egui::FontId::proportional(11.0);
+            for dx in [-1.0, 1.0] {
+                for dy in [-1.0, 1.0] {
+                    painter.text(
+                        mid + egui::vec2(dx, dy),
+                        egui::Align2::CENTER_CENTER,
+                        &txt,
+                        font.clone(),
+                        egui::Color32::from_black_alpha(200),
+                    );
+                }
+            }
+            painter.text(mid, egui::Align2::CENTER_CENTER, &txt, font, col);
+        }
+    }
+}
+
+/// A projected polyline without the points closer than `min_px` to the last one kept (the end is
+/// always kept, so a line still reaches where it ends). Zoomed out, a contour's hundreds of grid
+/// crossings fall within a pixel or two of each other, and every one costs tessellation each
+/// frame for nothing visible.
+fn thin_on_screen(pts: impl Iterator<Item = egui::Pos2>, min_px: f32) -> Vec<egui::Pos2> {
+    let mut out: Vec<egui::Pos2> = Vec::new();
+    let mut last_dropped = None;
+    for p in pts {
+        match out.last() {
+            Some(q) if q.distance(p) < min_px => last_dropped = Some(p),
+            _ => {
+                out.push(p);
+                last_dropped = None;
+            }
+        }
+    }
+    out.extend(last_dropped);
+    out
+}
+
+/// The point half way along a screen polyline, by length, when the polyline is at least
+/// `min_len` pixels long. A finely sampled contour has no single long segment, so labelling the
+/// longest segment left almost every line bare.
+fn label_point(pts: &[egui::Pos2], min_len: f32) -> Option<egui::Pos2> {
+    let total: f32 = pts.windows(2).map(|w| w[0].distance(w[1])).sum();
+    if total < min_len {
+        return None;
+    }
+    let mut left = total * 0.5;
+    for w in pts.windows(2) {
+        let d = w[0].distance(w[1]);
+        if d >= left && d > 0.0 {
+            return Some(w[0] + (w[1] - w[0]) * (left / d));
+        }
+        left -= d;
+    }
+    pts.last().copied()
+}
+
+#[cfg(test)]
+mod isoline_label_tests {
+    use super::{label_point, thin_on_screen};
+    use egui::pos2;
+
+    /// Sub-pixel steps are dropped but both ends stay; a tiny ring thins to almost nothing.
+    #[test]
+    fn a_zoomed_out_line_keeps_its_shape_with_far_fewer_points() {
+        let fine: Vec<egui::Pos2> = (0..=1000).map(|i| pos2(i as f32 * 0.1, 0.0)).collect();
+        let thin = thin_on_screen(fine.iter().copied(), 1.5);
+        assert_eq!(thin.first(), Some(&pos2(0.0, 0.0)));
+        assert_eq!(thin.last(), Some(&pos2(100.0, 0.0)));
+        assert!(thin.len() < 80, "{}", thin.len());
+        assert!(thin.windows(2).all(|w| w[0].distance(w[1]) <= 1.6));
+        let ring = [
+            pos2(5.0, 5.0),
+            pos2(5.5, 5.0),
+            pos2(5.5, 5.5),
+            pos2(5.0, 5.0),
+        ];
+        assert!(thin_on_screen(ring.into_iter(), 1.5).len() <= 2);
+        assert!(thin_on_screen(std::iter::empty(), 1.5).is_empty());
+    }
+
+    /// Many short segments still get a label, half way along by length; a short line gets none.
+    #[test]
+    fn a_finely_sampled_line_is_labelled_half_way_along() {
+        let fine: Vec<egui::Pos2> = (0..=100).map(|i| pos2(i as f32 * 2.0, 10.0)).collect();
+        let at = label_point(&fine, 120.0).unwrap();
+        assert!(
+            (at.x - 100.0).abs() < 1e-3 && (at.y - 10.0).abs() < 1e-3,
+            "{at:?}"
+        );
+        // An L: 100 px across then 100 px down; half way is the corner.
+        let ell = [pos2(0.0, 0.0), pos2(100.0, 0.0), pos2(100.0, 100.0)];
+        assert_eq!(label_point(&ell, 120.0), Some(pos2(100.0, 0.0)));
+        assert_eq!(label_point(&fine[..30], 120.0), None);
+        assert_eq!(label_point(&[], 120.0), None);
+    }
 }
 
 #[cfg(test)]
