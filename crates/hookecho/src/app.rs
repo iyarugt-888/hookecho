@@ -1637,6 +1637,8 @@ pub struct HookEchoApp {
     /// Exposure along the chosen route for (route generation, overlay generation, progress in
     /// 100 m steps), so it is recomputed only when one of those moves.
     route_exposure: RouteExposure,
+    /// HRRR forecast frames for the chosen route (ROADMAP_NEW L3), while the route window asks.
+    route_forecast: route_frame::RouteForecast,
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
     previous_sounding_rx:
         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
@@ -7477,7 +7479,12 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
 
 /// Exposure along the chosen route and what it was computed for: (route generation, overlay
 /// generation, progress in 100 m steps) and `(alert kind, km ahead, seconds ahead)` lines.
-type RouteExposure = (RouteExposureKey, Vec<(String, f64, f64, bool)>, Vec<String>);
+type RouteExposure = (
+    RouteExposureKey,
+    Vec<(String, f64, f64, bool)>,
+    Vec<String>,
+    route_frame::ForecastLines,
+);
 type RouteExposureKey = (
     u64,
     u64,
@@ -7485,6 +7492,7 @@ type RouteExposureKey = (
     usize,
     i64,
     (usize, Option<DateTime<Utc>>, Vec<(MrmsContext, u64)>),
+    u64,
 );
 
 /// Eight-point compass name for a bearing.

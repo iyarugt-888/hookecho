@@ -426,6 +426,183 @@ fn bearing(a: [f64; 2], b: [f64; 2]) -> f64 {
     y.atan2(x).to_degrees().rem_euclid(360.0)
 }
 
+// ---- the forecast along the route (L3) ---------------------------------------------------------
+
+/// A stretch of the route where a forecast field meets a condition at the time the vehicle would
+/// be there, driving at the route's average pace.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForecastSpan {
+    /// Metres ahead of the vehicle's progress where the stretch starts and ends.
+    pub from_m: f64,
+    pub to_m: f64,
+    /// When the vehicle would be at each end.
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
+    /// The highest value met along the stretch.
+    pub peak: f32,
+}
+
+/// What [`forecast_along`] found, and how much of the route the frames reached.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ForecastCheck {
+    pub spans: Vec<ForecastSpan>,
+    /// How far ahead (m) and until when the frames stood for the vehicle's time; the route past
+    /// that was not checked. `None` when no sample had a frame near its time.
+    pub covered: Option<(f64, chrono::DateTime<chrono::Utc>)>,
+}
+
+/// How far a sample's time may be from a forecast frame's valid time for that frame to stand for
+/// it: half the HRRR's 15-minute sub-hourly step, and a minute more.
+pub const FORECAST_FRAME_SLACK_S: i64 = 8 * 60 + 30;
+
+/// Walk the route from `from_m` at its average pace, starting `now`, and test each ~200 m sample
+/// against the forecast frame (`time` = valid time) nearest the vehicle's time there, within
+/// `FORECAST_FRAME_SLACK_S`. Contiguous samples where `hit` holds become one [`ForecastSpan`].
+/// A sample with no frame near its time is a gap (it ends a stretch and is not counted as
+/// clear); the walk stops once the vehicle's time is past the last frame.
+pub fn forecast_along(
+    route: &Route,
+    from_m: f64,
+    now: chrono::DateTime<chrono::Utc>,
+    frames: &[crate::mrms::MrmsField],
+    mut hit: impl FnMut(f32) -> bool,
+) -> ForecastCheck {
+    let mut out = ForecastCheck::default();
+    let Some(last) = frames.iter().map(|f| f.time).max() else {
+        return out;
+    };
+    let slack = chrono::Duration::seconds(FORECAST_FRAME_SLACK_S);
+    let cum = cumulative_m(&route.coords);
+    let total = cum.last().copied().unwrap_or(0.0);
+    if total <= 0.0 {
+        return out;
+    }
+    let pace = route.duration_s / total;
+    let from = from_m.clamp(0.0, total);
+    let mut open: Option<ForecastSpan> = None;
+    let mut d = from;
+    loop {
+        let ahead = d - from;
+        let t = now + chrono::Duration::milliseconds((ahead * pace * 1000.0) as i64);
+        if t > last + slack {
+            break;
+        }
+        let frame = frames
+            .iter()
+            .min_by_key(|f| (f.time - t).num_seconds().abs())
+            .filter(|f| (f.time - t).num_seconds().abs() <= FORECAST_FRAME_SLACK_S);
+        let value = frame.and_then(|f| {
+            out.covered = Some((ahead, t));
+            grid_value(f, point_along(&route.coords, &cum, d))
+        });
+        match value.filter(|v| hit(*v)) {
+            Some(v) => match open.as_mut() {
+                Some(s) => {
+                    s.to_m = ahead;
+                    s.end = t;
+                    s.peak = s.peak.max(v);
+                }
+                None => {
+                    open = Some(ForecastSpan {
+                        from_m: ahead,
+                        to_m: ahead,
+                        start: t,
+                        end: t,
+                        peak: v,
+                    })
+                }
+            },
+            None => out.spans.extend(open.take()),
+        }
+        if d >= total {
+            break;
+        }
+        d = (d + 200.0).min(total);
+    }
+    out.spans.extend(open);
+    out
+}
+
+/// HRRR sub-hourly composite-reflectivity frames for the next `horizon_min` minutes, every 15
+/// minutes from the quarter-hour at or before `now`, all from one run and cropped to `bbox`
+/// (`[west, south, east, north]`). Each frame's `time` is its valid time. The newest run that
+/// has posted the farthest frame is used (a run posts its leads in order); older runs are tried
+/// when it has not.
+pub async fn fetch_forecast_frames(
+    http: &reqwest::Client,
+    now: chrono::DateTime<chrono::Utc>,
+    bbox: [f64; 4],
+    horizon_min: u16,
+) -> anyhow::Result<(chrono::DateTime<chrono::Utc>, Vec<crate::mrms::MrmsField>)> {
+    use crate::hrrr::{self, Model};
+    use chrono::Timelike;
+    use futures_util::StreamExt;
+    let start = now
+        .with_minute(now.minute() / 15 * 15)
+        .and_then(|t| t.with_second(0))
+        .and_then(|t| t.with_nanosecond(0))
+        .unwrap_or(now);
+    let steps = i64::from(horizon_min.div_ceil(15).max(1));
+    let valids: Vec<_> = (0..=steps)
+        .map(|i| start + chrono::Duration::minutes(15 * i))
+        .collect();
+    let mut last_err = None;
+    for run in hrrr::recent_cycles(Model::Hrrr, now) {
+        let max_min = i64::from(Model::Hrrr.max_lead_for_cycle(run.hour())) * 60;
+        let leads: Vec<u16> = valids
+            .iter()
+            .map(|v| (*v - run).num_minutes())
+            .filter(|m| (15..=max_min).contains(m))
+            .map(|m| m as u16)
+            .collect();
+        let Some(&farthest) = leads.last().filter(|_| leads.len() == valids.len()) else {
+            last_err = Some(anyhow::anyhow!(
+                "the HRRR {:02}Z run does not reach that far",
+                run.hour()
+            ));
+            continue;
+        };
+        let last = match hrrr::fetch_forecast_subhourly_at_run(http, run, farthest).await {
+            Ok(fc) => crop_frame(fc, bbox)?,
+            Err(e) => {
+                last_err = Some(e);
+                continue;
+            }
+        };
+        // Owned, not borrowed: a borrow held across the await stops the future being `Send`.
+        let earlier: Vec<u16> = leads[..leads.len() - 1].to_vec();
+        let rest: Vec<anyhow::Result<crate::mrms::MrmsField>> =
+            futures_util::stream::iter(earlier.into_iter().map(|m| {
+                let http = http.clone();
+                async move {
+                    let fc = hrrr::fetch_forecast_subhourly_at_run(&http, run, m).await?;
+                    crop_frame(fc, bbox)
+                }
+            }))
+            .buffered(4)
+            .collect()
+            .await;
+        let mut frames = rest.into_iter().collect::<anyhow::Result<Vec<_>>>()?;
+        frames.push(last);
+        return Ok((run, frames));
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+}
+
+/// One forecast cropped to `bbox`, its `time` set to its valid time.
+fn crop_frame(
+    fc: crate::hrrr::HrrrForecast,
+    bbox: [f64; 4],
+) -> anyhow::Result<crate::mrms::MrmsField> {
+    let valid = fc.valid();
+    let mut f = fc
+        .field
+        .cropped(bbox[0], bbox[1], bbox[2], bbox[3])
+        .ok_or_else(|| anyhow::anyhow!("the route is outside the HRRR's grid"))?;
+    f.time = valid;
+    Ok(f)
+}
+
 /// The point `m` metres along the route (clamped to its ends).
 fn point_along(coords: &[[f64; 2]], cum: &[f64], m: f64) -> [f64; 2] {
     let Some(i) = cum.iter().position(|&d| d >= m) else {
@@ -580,6 +757,198 @@ pub fn intercept(
         closest_bearing_deg: bearing(vehicle_at(best.1), storm_at(best.1)),
         crossing,
     })
+}
+
+#[cfg(test)]
+mod forecast_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    /// A 1-degree grid frame over 34-36 N, 99-95 W at `time`, 0 dBZ except where `wet` says.
+    fn frame(
+        time: chrono::DateTime<Utc>,
+        wet: impl Fn(f64) -> Option<f32>,
+    ) -> crate::mrms::MrmsField {
+        let (nx, ny) = (400, 200);
+        let mut values = vec![0.0f32; nx * ny];
+        for r in 0..ny {
+            for c in 0..nx {
+                let lon = -99.0 + (c as f64 + 0.5) * 4.0 / nx as f64;
+                if let Some(v) = wet(lon) {
+                    values[r * nx + c] = v;
+                }
+            }
+        }
+        crate::mrms::MrmsField {
+            values,
+            nx,
+            ny,
+            lon_west: -99.0,
+            lon_east: -95.0,
+            lat_north: 36.0,
+            lat_south: 34.0,
+            time,
+        }
+    }
+
+    /// An eastbound road along 35 N from 98 W to 96 W, about 182 km, driven in two hours.
+    fn road() -> Route {
+        let coords: Vec<[f64; 2]> = (0..=20).map(|i| [-98.0 + 0.1 * i as f64, 35.0]).collect();
+        Route {
+            distance_m: *cumulative_m(&coords).last().unwrap(),
+            coords,
+            duration_s: 7200.0,
+            summary: String::new(),
+        }
+    }
+
+    /// A storm forecast over 97.2-97.0 W only in the frame valid an hour from now is met where the
+    /// vehicle is then (it reaches 97 W at the hour), and not where it is earlier or later; the
+    /// same storm a frame too early is missed, since the vehicle is not there yet.
+    #[test]
+    fn a_forecast_storm_is_met_only_where_the_vehicle_is_at_its_time() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 21, 0, 0).unwrap();
+        let storm = |lon: f64| (-97.2..-97.0).contains(&lon).then_some(52.0);
+        let frames: Vec<_> = (0..=8)
+            .map(|i| {
+                let t = now + chrono::Duration::minutes(15 * i);
+                if i == 3 || i == 4 {
+                    frame(t, storm)
+                } else {
+                    frame(t, |_| None)
+                }
+            })
+            .collect();
+        let check = forecast_along(&road(), 0.0, now, &frames, |v| v >= 40.0);
+        assert_eq!(check.spans.len(), 1, "{check:?}");
+        let s = &check.spans[0];
+        // 97.2 W is 0.8 degree along (~73 km, ~48 min): the 45-min frame covers 37.5-52.5 min.
+        assert!((70_000.0..76_000.0).contains(&s.from_m), "{s:?}");
+        assert!(s.start >= now + chrono::Duration::minutes(46));
+        assert!(s.end <= now + chrono::Duration::minutes(60));
+        assert_eq!(s.peak, 52.0);
+        // The whole road was covered, to its end two hours on.
+        let (m, t) = check.covered.unwrap();
+        assert!((m - road().distance_m).abs() < 1.0);
+        assert!((t - (now + chrono::Duration::hours(2))).num_seconds().abs() <= 1);
+
+        // Only the frame valid at 21:15 has the storm: the vehicle is still far west of it then.
+        let early: Vec<_> = (0..=8)
+            .map(|i| {
+                let t = now + chrono::Duration::minutes(15 * i);
+                if i == 1 {
+                    frame(t, storm)
+                } else {
+                    frame(t, |_| None)
+                }
+            })
+            .collect();
+        assert!(forecast_along(&road(), 0.0, now, &early, |v| v >= 40.0)
+            .spans
+            .is_empty());
+    }
+
+    /// Frames that stop short cover only part of the route, and say how far; no frames, nothing.
+    #[test]
+    fn the_check_says_how_far_the_frames_reach() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 21, 0, 0).unwrap();
+        let frames: Vec<_> = (0..=2)
+            .map(|i| frame(now + chrono::Duration::minutes(15 * i), |_| None))
+            .collect();
+        let check = forecast_along(&road(), 0.0, now, &frames, |v| v >= 40.0);
+        let (m, t) = check.covered.unwrap();
+        // The last frame is valid at 21:30 and stands until 21:38:30: ~58 km of a 182 km road.
+        assert!(t <= now + chrono::Duration::seconds(30 * 60 + FORECAST_FRAME_SLACK_S));
+        assert!((55_000.0..60_000.0).contains(&m), "{m}");
+        assert!(check.spans.is_empty());
+        assert_eq!(
+            forecast_along(&road(), 0.0, now, &[], |_| true),
+            ForecastCheck::default()
+        );
+    }
+
+    /// A missing frame mid-way is a gap: it splits a stretch rather than joining across it, and
+    /// missing values (NaN, outside the grid) never count as a hit.
+    #[test]
+    fn a_missing_frame_or_value_is_a_gap_not_a_hit() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 21, 0, 0).unwrap();
+        let everywhere = |_: f64| Some(45.0);
+        let frames: Vec<_> = [0, 1, 3, 4]
+            .into_iter()
+            .map(|i| frame(now + chrono::Duration::minutes(15 * i), everywhere))
+            .collect();
+        let check = forecast_along(&road(), 0.0, now, &frames, |v| v >= 40.0);
+        assert_eq!(check.spans.len(), 2, "{check:?}");
+        assert!(check.spans[0].end < now + chrono::Duration::minutes(24));
+        assert!(check.spans[1].start > now + chrono::Duration::minutes(36));
+
+        let nan = vec![frame(now, |_| Some(f32::NAN))];
+        assert!(forecast_along(&road(), 0.0, now, &nan, |_| true)
+            .spans
+            .is_empty());
+    }
+
+    /// A crop keeps whole cells in place: a value reads the same through the crop as before it,
+    /// and a box off the grid gives nothing.
+    #[test]
+    fn a_cropped_grid_reads_the_same_values() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 21, 0, 0).unwrap();
+        let f = frame(now, |lon| Some(lon as f32));
+        let c = f.cropped(-97.534, 34.605, -96.413, 35.396).unwrap();
+        assert!(c.nx < f.nx && c.ny < f.ny);
+        for p in [[-97.495, 34.625], [-97.005, 35.005], [-96.425, 35.385]] {
+            assert_eq!(grid_value(&c, p), grid_value(&f, p), "{p:?}");
+        }
+        assert!(c.lon_west <= -97.534 && c.lon_east >= -96.413);
+        assert!(f.cropped(-90.0, 34.0, -89.0, 35.0).is_none());
+        assert!(f.cropped(-98.0, 40.0, -97.0, 41.0).is_none());
+    }
+
+    /// The live HRRR: an hour of sub-hourly frames over central Oklahoma, from one run, every 15
+    /// minutes, cropped to the box, and checked along a real road.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_hrrr_frames_cover_the_next_hour_from_one_run() {
+        let http = reqwest::Client::new();
+        let now = Utc::now();
+        let bbox = [-98.5, 34.5, -96.5, 36.0];
+        let (run, frames) = fetch_forecast_frames(&http, now, bbox, 60).await.unwrap();
+        assert_eq!(frames.len(), 5);
+        let mut times: Vec<_> = frames.iter().map(|f| f.time).collect();
+        times.sort();
+        for w in times.windows(2) {
+            assert_eq!((w[1] - w[0]).num_minutes(), 15);
+        }
+        assert!(times[0] <= now && now - times[0] < chrono::Duration::minutes(15));
+        let wettest = frames
+            .iter()
+            .flat_map(|f| f.values.iter().copied().filter(|v| v.is_finite()))
+            .fold(f32::MIN, f32::max);
+        for f in &frames {
+            assert!(
+                f.lon_west <= bbox[0] && f.lon_east >= bbox[2],
+                "{:?}",
+                f.lon_west
+            );
+            assert!(f.lat_south <= bbox[1] && f.lat_north >= bbox[3]);
+            assert!(f.nx < 200 && f.ny < 200, "{}x{}", f.nx, f.ny);
+        }
+        let road = road();
+        let check = forecast_along(&road, 0.0, now, &frames, |v| v >= 40.0);
+        eprintln!(
+            "HRRR {run} ({} frames {}..{}, {}x{} cells, wettest {wettest:.0} dBZ): {} stretch(es) \
+             of 40+ dBZ, covered {:?}",
+            frames.len(),
+            times[0],
+            times[4],
+            frames[0].nx,
+            frames[0].ny,
+            check.spans.len(),
+            check.covered.map(|(m, t)| (m.round(), t))
+        );
+        assert!(wettest < 90.0);
+        assert!(check.covered.is_some());
+    }
 }
 
 #[cfg(test)]

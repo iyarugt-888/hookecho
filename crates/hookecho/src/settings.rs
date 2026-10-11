@@ -888,6 +888,10 @@ pub struct Settings {
     pub route_engine: wxdata::route::Engine,
     #[serde(default)]
     pub route_url: String,
+    /// ROADMAP_NEW L3: check the HRRR's forecast reflectivity along the chosen route, where the
+    /// vehicle will be when. Off by default: it fetches about nine HRRR files every 15 minutes.
+    #[serde(default)]
+    pub route_forecast: bool,
     /// Attach a picture of the radar to the ntfy push when a warning fires. Desktop only: the
     /// Android background service has no GPU surface to render from, and says so in the UI.
     #[serde(default)]
@@ -2191,6 +2195,7 @@ impl Default for Settings {
             chase_log: false,
             route_engine: Default::default(),
             route_url: String::new(),
+            route_forecast: false,
             battery_saver: false,
             wind_barbs: false,
             wind_streamlines: false,
@@ -3674,6 +3679,7 @@ mod tests {
             chase_log: false,
             route_engine: Default::default(),
             route_url: String::new(),
+            route_forecast: false,
             battery_saver: false,
             wind_barbs: false,
             wind_streamlines: false,

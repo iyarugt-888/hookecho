@@ -43,6 +43,18 @@ pub struct RouteReadout<'a> {
     pub exposure: &'a [(String, f64, f64, bool)],
     /// Tracked storms near the route and how they meet it (L4), nearest approach first.
     pub intercepts: &'a [String],
+    /// The HRRR forecast along the route (L3); `None` while that check is off.
+    pub forecast: Option<ForecastReadout<'a>>,
+}
+
+/// The forecast along the route: where the HRRR has storms when the vehicle gets there.
+pub struct ForecastReadout<'a> {
+    /// Fetching, failed, or not applicable (an archive view).
+    pub status: Option<String>,
+    /// Each stretch of forecast storm echo, soonest first.
+    pub spans: &'a [String],
+    /// Which run, and how far along the route it reached.
+    pub summary: Option<&'a str>,
 }
 
 fn fmt_duration(s: f64) -> String {
@@ -60,6 +72,7 @@ impl RouteWindow {
         ctx: &egui::Context,
         engine: &mut Engine,
         url: &mut String,
+        forecast_on: &mut bool,
         readout: &RouteReadout,
         drawer: &mut crate::ui::drawer::Drawer,
     ) -> RouteAction {
@@ -226,6 +239,28 @@ impl RouteWindow {
                     }
                 };
                 ui.colored_label(egui::Color32::from_rgb(240, 170, 90), text);
+            }
+            ui.separator();
+            ui.checkbox(forecast_on, "Forecast radar along the route (HRRR)")
+                .on_hover_text(
+                    "Checks the HRRR's forecast composite reflectivity where you would be along \
+                     the route, at its average pace, for up to the next two hours. Fetches about \
+                     nine HRRR files every 15 minutes while on.",
+                );
+            if let Some(f) = &readout.forecast {
+                if let Some(s) = &f.status {
+                    ui.weak(s);
+                }
+                for line in f.spans {
+                    ui.colored_label(egui::Color32::from_rgb(240, 170, 90), line);
+                }
+                if let Some(s) = f.summary {
+                    ui.label(s);
+                }
+                ui.weak(
+                    "A model forecast, timed at the route's average pace: storms form and move \
+                     differently from it.",
+                );
             }
             if !readout.intercepts.is_empty() {
                 ui.separator();

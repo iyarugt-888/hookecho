@@ -486,10 +486,12 @@ impl HookEchoApp {
             route_window: Default::default(),
             route_rx: None,
             route_exposure: (
-                (u64::MAX, u64::MAX, 0, 0, 0, Default::default()),
+                (u64::MAX, u64::MAX, 0, 0, 0, Default::default(), u64::MAX),
                 Vec::new(),
                 Vec::new(),
+                Default::default(),
             ),
+            route_forecast: Default::default(),
             previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,

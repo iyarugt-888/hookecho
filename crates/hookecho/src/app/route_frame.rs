@@ -3,6 +3,40 @@
 
 use super::*;
 
+/// Forecast composite reflectivity at or above this on the route is reported: thunderstorm echo
+/// in the HRRR (ROADMAP_NEW L3).
+const FORECAST_DBZ: f32 = 40.0;
+/// The forecast is checked at most this far ahead (minutes), or to the route's end if sooner.
+const FORECAST_HORIZON_MIN: u16 = 120;
+
+type ForecastResult = (
+    (u64, i64),
+    Result<(DateTime<Utc>, Vec<wxdata::mrms::MrmsField>), String>,
+);
+
+/// The HRRR frames behind the forecast along the route, and the fetch for them.
+#[derive(Default)]
+pub(crate) struct RouteForecast {
+    rx: Option<std::sync::mpsc::Receiver<ForecastResult>>,
+    /// The (route generation, quarter-hour) last asked for, so a failure waits for the next one.
+    asked: Option<(u64, i64)>,
+    /// The (route generation, quarter-hour) the held frames, or the error, were fetched for.
+    key: Option<(u64, i64)>,
+    run: Option<DateTime<Utc>>,
+    /// Valid-time frames cropped to the route, all from `run`.
+    frames: Vec<wxdata::mrms::MrmsField>,
+    error: Option<String>,
+    /// Bumped whenever the frames or the error change, so the exposure is recomputed.
+    generation: u64,
+}
+
+/// What the forecast check says, worked out with the rest of the exposure.
+#[derive(Default)]
+pub(crate) struct ForecastLines {
+    pub spans: Vec<String>,
+    pub summary: Option<String>,
+}
+
 impl HookEchoApp {
     /// The route window's per-frame work: take a finished fetch, work out progress and exposure
     /// along the chosen route, draw the window, and act on what it asks.
@@ -23,6 +57,26 @@ impl HookEchoApp {
                     }
                 }
                 w.generation += 1;
+            }
+        }
+        if let Some(rx) = &self.route_forecast.rx {
+            if let Ok((key, res)) = rx.try_recv() {
+                let f = &mut self.route_forecast;
+                f.rx = None;
+                f.key = Some(key);
+                match res {
+                    Ok((run, frames)) => {
+                        f.run = Some(run);
+                        f.frames = frames;
+                        f.error = None;
+                    }
+                    Err(e) => {
+                        f.run = None;
+                        f.frames.clear();
+                        f.error = Some(e);
+                    }
+                }
+                f.generation += 1;
             }
         }
         if !self.route_window.open {
@@ -49,6 +103,44 @@ impl HookEchoApp {
             let left = (total - m).max(0.0);
             (left / 1000.0, r.duration_s * left / total.max(1.0))
         });
+        // The HRRR forecast along the route (L3): live only, refetched each quarter-hour (a new
+        // run, and the window moving on) or when the route changes.
+        let live = self.view_target_time().is_none();
+        let forecast_key = route
+            .as_ref()
+            .filter(|_| self.settings.route_forecast && live)
+            .map(|_| (self.route_window.generation, Utc::now().timestamp() / 900));
+        match (forecast_key, route.as_ref()) {
+            (Some(key), Some(r))
+                if self.route_forecast.rx.is_none() && self.route_forecast.asked != Some(key) =>
+            {
+                let (mut w, mut s, mut e, mut n) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for p in &r.coords {
+                    (w, s, e, n) = (w.min(p[0]), s.min(p[1]), e.max(p[0]), n.max(p[1]));
+                }
+                let bbox = [w - 0.25, s - 0.25, e + 0.25, n + 0.25];
+                let ahead_s = remaining.map_or(r.duration_s, |(_, s)| s);
+                let horizon = ((ahead_s / 60.0).ceil() as u16).clamp(15, FORECAST_HORIZON_MIN);
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.route_forecast.rx = Some(rx);
+                self.route_forecast.asked = Some(key);
+                let (http, now) = (self.http.clone(), Utc::now());
+                self.spawner.spawn(async move {
+                    let res = wxdata::route::fetch_forecast_frames(&http, now, bbox, horizon)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send((key, res));
+                });
+            }
+            (None, _) if self.route_forecast.asked.is_some() => {
+                let generation = self.route_forecast.generation + 1;
+                self.route_forecast = RouteForecast {
+                    generation,
+                    ..Default::default()
+                };
+            }
+            _ => {}
+        }
         let key = (
             self.route_window.generation,
             self.overlay_gen,
@@ -76,6 +168,7 @@ impl HookEchoApp {
                 })
                 .collect(),
             ),
+            self.route_forecast.generation,
         );
         if self.route_exposure.0 != key {
             // Warnings and watches in effect now: every overlay polygon that carries an alert.
@@ -249,20 +342,102 @@ impl HookEchoApp {
             }
             storms.sort_by(|a, b| a.0.total_cmp(&b.0));
             let intercepts = storms.into_iter().take(6).map(|(_, l)| l).collect();
-            self.route_exposure = (key, lines, intercepts);
+            // The HRRR forecast where the vehicle will be when (L3), from frames fetched for this
+            // route (not one still being replaced).
+            let mut forecast = ForecastLines::default();
+            let f = &self.route_forecast;
+            let current = f.key.is_some_and(|k| k.0 == self.route_window.generation);
+            if let (Some(r), Some(run), true) = (route.as_ref(), f.run, current) {
+                let from = along.unwrap_or(0.0);
+                let check = wxdata::route::forecast_along(r, from, Utc::now(), &f.frames, |v| {
+                    v >= FORECAST_DBZ
+                });
+                let tz = self.active_tz();
+                let clock = |t| crate::timefmt::fmt_clock(t, tz, false);
+                let dist = |m: f64| crate::geo::fmt_distance(m / 1000.0, metric, 0);
+                for s in check.spans.iter().take(4) {
+                    let mut line = if s.from_m < 50.0 {
+                        format!(
+                            "{FORECAST_DBZ:.0}+ dBZ forecast on the route here now, through {} \
+                             (to {} ahead)",
+                            clock(s.end),
+                            dist(s.to_m)
+                        )
+                    } else if s.end - s.start < chrono::Duration::minutes(1) {
+                        format!(
+                            "{FORECAST_DBZ:.0}+ dBZ forecast on the route at {}, {} ahead",
+                            clock(s.start),
+                            dist(s.from_m)
+                        )
+                    } else {
+                        format!(
+                            "{FORECAST_DBZ:.0}+ dBZ forecast on the route {} to {}, {} to {} ahead",
+                            clock(s.start),
+                            clock(s.end),
+                            dist(s.from_m),
+                            dist(s.to_m)
+                        )
+                    };
+                    line.push_str(&format!("; up to {:.0} dBZ", s.peak));
+                    forecast.spans.push(line);
+                }
+                let run = format!("HRRR {} run", run.format("%HZ"));
+                forecast.summary = Some(match check.covered {
+                    Some((m, t)) if check.spans.is_empty() => format!(
+                        "No {FORECAST_DBZ:.0}+ dBZ in the {run} on the route as far as it was \
+                         checked: to {}, {} ahead.",
+                        clock(t),
+                        dist(m)
+                    ),
+                    Some((m, t)) => format!(
+                        "From the {run}, checked to {}, {} ahead.",
+                        clock(t),
+                        dist(m)
+                    ),
+                    None => format!(
+                        "The {run}'s frames do not reach the times you would be on the route."
+                    ),
+                });
+            }
+            self.route_exposure = (key, lines, intercepts, forecast);
         }
+        let forecast_status = if !self.settings.route_forecast {
+            None
+        } else if !live {
+            Some("The forecast check is for driving now; the view is on an archive time.".into())
+        } else if self.route_forecast.rx.is_some() {
+            Some("Fetching the HRRR forecast…".to_string())
+        } else {
+            self.route_forecast
+                .error
+                .as_ref()
+                .map(|e| format!("No HRRR forecast: {e}"))
+        };
         let readout = ui::route_window::RouteReadout {
             metric: self.metric(),
             have_position: self.chase_pos.is_some(),
             remaining,
             exposure: &self.route_exposure.1,
             intercepts: &self.route_exposure.2,
+            forecast: self
+                .settings
+                .route_forecast
+                .then(|| ui::route_window::ForecastReadout {
+                    status: forecast_status,
+                    spans: &self.route_exposure.3.spans,
+                    summary: self.route_exposure.3.summary.as_deref().filter(|_| live),
+                }),
         };
-        let before = (self.settings.route_engine, self.settings.route_url.clone());
+        let before = (
+            self.settings.route_engine,
+            self.settings.route_url.clone(),
+            self.settings.route_forecast,
+        );
         let action = self.route_window.show(
             ctx,
             &mut self.settings.route_engine,
             &mut self.settings.route_url,
+            &mut self.settings.route_forecast,
             &readout,
             &mut self.drawer,
         );
@@ -275,7 +450,13 @@ impl HookEchoApp {
             }
             ui::route_window::RouteAction::Fetch => self.fetch_route(),
             ui::route_window::RouteAction::None => {
-                if before != (self.settings.route_engine, self.settings.route_url.clone()) {
+                if before
+                    != (
+                        self.settings.route_engine,
+                        self.settings.route_url.clone(),
+                        self.settings.route_forecast,
+                    )
+                {
                     self.settings.save();
                 }
             }

@@ -294,6 +294,42 @@ impl MrmsField {
         }
     }
 
+    /// The part of the grid inside `[west, south, east, north]` (degrees), in whole cells so every
+    /// value keeps its own place (cells are `(east - west) / nx` wide, as [`crate::route::grid_value`]
+    /// reads them). `None` when the box misses the grid.
+    pub fn cropped(&self, west: f64, south: f64, east: f64, north: f64) -> Option<MrmsField> {
+        if self.nx == 0 || self.ny == 0 || self.values.len() != self.nx * self.ny {
+            return None;
+        }
+        let dx = (self.lon_east - self.lon_west) / self.nx as f64;
+        let dy = (self.lat_north - self.lat_south) / self.ny as f64;
+        if dx <= 0.0 || dy <= 0.0 {
+            return None;
+        }
+        // Negative bounds saturate to 0 in the casts, so a box wholly off one side comes out empty.
+        let c0 = ((west - self.lon_west) / dx).floor().max(0.0) as usize;
+        let c1 = ((east - self.lon_west) / dx).ceil().min(self.nx as f64) as usize;
+        let r0 = ((self.lat_north - north) / dy).floor().max(0.0) as usize;
+        let r1 = ((self.lat_north - south) / dy).ceil().min(self.ny as f64) as usize;
+        if c0 >= c1 || r0 >= r1 {
+            return None;
+        }
+        let mut values = Vec::with_capacity((c1 - c0) * (r1 - r0));
+        for r in r0..r1 {
+            values.extend_from_slice(&self.values[r * self.nx + c0..r * self.nx + c1]);
+        }
+        Some(MrmsField {
+            values,
+            nx: c1 - c0,
+            ny: r1 - r0,
+            lon_west: self.lon_west + c0 as f64 * dx,
+            lon_east: self.lon_west + c1 as f64 * dx,
+            lat_north: self.lat_north - r0 as f64 * dy,
+            lat_south: self.lat_north - r1 as f64 * dy,
+            time: self.time,
+        })
+    }
+
     pub fn decimated(self, max_dim: usize) -> MrmsField {
         let factor = self.nx.max(self.ny).div_ceil(max_dim);
         if factor <= 1 {
