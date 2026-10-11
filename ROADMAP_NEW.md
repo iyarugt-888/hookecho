@@ -4424,7 +4424,14 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   gives the count and the worst tier in words. Toasts lead with a glyph for their kind, not only
   a border colour. Evidence: `docs/certification/a11y/`. The WSV3 ribbon's own marks were
   already words or shapes when looked at (its Live chip, tilt progress and data age); not yet
-  swept as exhaustively as the dock.
+  swept as exhaustively as the dock. Warning polygons on the map, which were told apart by NWS
+  colour alone (red tornado against green flash flood is the classic red-green confusion), now
+  carry their kind in words (`alerts::map_tag`: "TOR", "TOR PDS", "TOR EMERGENCY", "SVR", "FFW",
+  "FLOOD", "TOR WATCH"..., placed inside polygons big enough to hold one, most severe first, never
+  overlapping) and in line (`overlay_build::alert_stroke`: tornado 3.4 px, the other short-fuse
+  warnings 2.4 px, watches dashed). Seen in the browser build on the Moore 2013 archive (TOR, SVR)
+  and on a live Flood Warning (2026-10-11, `docs/certification/a11y/README.md`). Not yet checked
+  with a colour-vision simulator.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from

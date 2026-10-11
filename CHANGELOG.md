@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: warnings on the map say what they are
+
+Warning, watch and special weather statement polygons now carry short labels on the map, such as
+"TOR", "SVR", "FFW", "FLOOD" or "TOR WATCH", and the labels say when a warning is more than usual:
+"TOR PDS", "TOR EMERGENCY", "SVR DESTRUCTIVE". Tornado warnings are drawn with a heavier line,
+and watches with a dashed one. Until now only the colour told a tornado warning from a flash
+flood warning, which people with red-green colour blindness cannot rely on. A label is shown
+when the polygon is big enough on screen to hold it.
+
 ### Added: user products can say what to do with missing data
 
 Product formulas have two new functions. `if_missing(x, fallback)` uses the fallback where a
