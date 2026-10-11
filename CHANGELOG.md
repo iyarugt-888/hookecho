@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: contour lines for model fields
+
+A field picked in Model fields can now also be drawn as labelled contour lines over its shading,
+at the usual interval for what it is: 500 hPa height every 6 dam, sea-level pressure every 4 hPa,
+temperature every 2 °C, wind speed every 10 kt. Tick "Contour lines every …" in the Model fields
+window. Fields that read badly as lines, such as reflectivity, cloud cover and rainfall, stay
+shading only. Contour lines on the HRRR contour layer are now labelled on many more lines.
+
 ### Added: the forecast along your route
 
 The route window can check the HRRR model's forecast radar along the road, at the time you would

@@ -2519,12 +2519,23 @@ At minimum: 1000/925/850/700/500/300/250/200 hPa where the model provides them.
 
 Where source grids do not publish the diagnostic, compute it from the vertical profile using one shared meteorological calculation library rather than different formulas per model.
 
-## F4. Model display modes
+## F4. Model display modes — contours by metadata for the browsed field
 
 Every appropriate field should support:
 
 - shaded fill
-- contours
+- contours — for any field picked in "Model fields" (every model the app reads), a "Contour lines
+  every …" switch per pane (`ModelControls::field_contours`, saved only when on). Whether a field
+  is contoured, and at what interval, is its quantity's metadata
+  (`model_inventory::Quantity::contour`): heights every 6 dam, sea-level pressure 4 hPa,
+  temperature and dew point 2 °C, humidity 10 %, wind speed 10 kt, CAPE 500 J/kg, helicity
+  100 m²/s², precipitable water 5 mm. Reflectivity, cloud cover, visibility, rain, VIL, echo tops
+  and updraft-helicity tracks stay shaded only, as do differences. Contoured from the pane's
+  accepted grid (on a copy at most 900 cells across), only when it or the interval changes. The
+  painter it shares with the HRRR contour layer now labels a line half way along its length
+  rather than only at a long single segment, and drops points under 1.5 px apart. Seen in the
+  browser build on 2026-10-11: HRRR 500 hPa height labelled 552-594 dam, and 850 hPa
+  temperature (`docs/certification/model-fields/`). Isobaric levels below ground are not masked.
 - barbs
 - arrows
 - wind particles
