@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: step through a SAILS volume's low-level scans
+
+When the radar revisits the lowest tilt partway through a volume (SAILS), stepping back and
+forward and playing the loop now show each of those scans in the order they were taken, with
+its own time, instead of only the last one of each volume. On a fast-moving storm that is a
+picture every two minutes or so at the lowest tilt instead of one every five.
+
 ### Improved: alerts and notices are not told by colour alone
 
 The alert bell's count now marks how serious the worst alert in view is with more than its

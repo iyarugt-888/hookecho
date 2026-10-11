@@ -627,7 +627,12 @@ and velocity gates, folded and unfolded.
   and the pane is following live. Off by default. Verified live: toggled on, a manual tilt pick
   was overridden back to the lowest tilt on the next low-tilt sweep while the chunk-stream
   progress tooltip showed the scan had already moved past it to later tilts.
-- [ ] make timeline order reflect actual sweep chronology
+- [x] make timeline order reflect actual sweep chronology — done 2026-10-11 (1010.md V6). A
+  one-frame step, and playback, walk each visit to the shown tilt in the order it was scanned
+  before moving to the next volume (`wxdata::level2::moment_visits`: passes within 60 s, a split
+  cut's two rotations, are one visit). Each visit is drawn, probed and timed as itself; a frame
+  opens on its newest visit. The plain tilt only: column maximum, cleaned reflectivity, products,
+  3D and the half-streamed live volume keep the newest. Evidence: ROADMAP_PARITY M1.1 ledger.
 
 The remaining item is a different, larger kind of change — it touches how the timeline itself
 represents a volume's sweep order (including SAILS/MRLE's mid-volume interleaving), not a
