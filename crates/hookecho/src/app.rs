@@ -108,6 +108,7 @@ use loop_capture::LoopExport;
 mod map_click;
 mod map_volume;
 pub(crate) mod memory_trim;
+mod radar_hint;
 mod measure;
 mod pane_3d_overlays;
 mod pane_feeds;
@@ -1561,6 +1562,11 @@ pub struct HookEchoApp {
     follow_cell: Option<(String, Cell, Instant)>,
     /// Transient "follow ended" note `(text, shown-at)`; renders in the follow badge slot ~5 s.
     follow_notice: Option<(String, Instant)>,
+    /// Where the panes were drawn last frame, for what floats over the maps (`badge_lane`).
+    maps_rect: egui::Rect,
+    /// The radar suggestion dismissed, as `(current radar, suggested radar)`; hidden until the
+    /// suggestion changes (`radar_hint`, 1010.md V8).
+    radar_hint_dismissed: Option<(String, String)>,
     /// Open "Active Warnings" window (clicked warning/watch polygons).
     warning_popup: Option<ui::warning_window::WarningPopup>,
     /// People, homes and towns inside open alerts (Census), by alert id.
@@ -4596,9 +4602,9 @@ impl HookEchoApp {
             crate::render::mercator::lonlat_to_world(c.lon, c.lat);
     }
 
-    /// Top-right badge for the storm-follow camera: a tap-to-stop pill while following, or a
-    /// transient "follow ended" note for ~5 s after the tracked cell is lost. Same slot on
-    /// desktop + Android (just below the top bar).
+    /// Badge for the storm-follow camera: a tap-to-stop pill while following, or a transient
+    /// "follow ended" note for ~5 s after the tracked cell is lost. Top of the badge lane
+    /// (`badge_lane`), with the radar suggestion below it.
     fn follow_badge(&mut self, ctx: &egui::Context) {
         if self
             .follow_notice
@@ -4609,30 +4615,22 @@ impl HookEchoApp {
         }
         let following = self.follow_cell.is_some();
         let text = if let Some((_, c, _)) = &self.follow_cell {
-            format!("⌖ Following {}  ✕", c.id)
+            // No ID while a follow carried to another radar waits for that radar's storms.
+            let id = if c.id.is_empty() { "storm" } else { c.id.as_str() };
+            format!("⌖ Following {id}  ✕")
         } else if let Some((msg, _)) = &self.follow_notice {
             msg.clone()
         } else {
             return;
         };
-        // Desktop: just under the menu bar. Android: below the top glass bar + chrome-hide EYE
-        // button (which sits at inset_top + 66; see app/mobile.rs), so nothing stacks.
-        let y = if crate::platform::phone_layout() {
-            let inset_top = (ctx.content_rect().top() - ctx.viewport_rect().top()).max(0.0);
-            inset_top + 116.0
-        } else {
-            // Below the whole control column, in the badge lane.
-            crate::ui::style::lane_right_badge_y(CONTROL_BUTTONS)
-        };
-        egui::Area::new("follow_badge".into())
-            .anchor(
-                egui::Align2::RIGHT_TOP,
-                egui::vec2(crate::ui::style::LANE_RIGHT_BADGE_X, y),
-            )
+        self.badge_lane("follow_badge", 0.0, ctx)
             // Only the following state carries a button; the notice is a read-only badge and must
             // not occlude the map's pinch test.
             .interactable(following)
             .show(ctx, |ui| {
+                // An area lays out in last frame's size: without this, a longer label (a carried
+                // follow's "storm" before the new radar's ID) wraps, and the narrower size sticks.
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 let fill = if following {
                     egui::Color32::from_rgba_unmultiplied(40, 90, 150, 220)
                 } else {

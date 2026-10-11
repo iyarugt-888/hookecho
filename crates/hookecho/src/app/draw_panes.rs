@@ -13,6 +13,7 @@ impl HookEchoApp {
         self.labels.begin();
         egui::CentralPanel::default().show(root, |ui| {
             let full = ui.available_rect_before_wrap();
+            self.maps_rect = full;
             let n = self.views.len();
             // A phone shows one pane at a time. Two 400x400 pt panes stacked is two views of
             // nothing; the pane strip above the scrubber is how you get to the others.

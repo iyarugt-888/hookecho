@@ -92,9 +92,104 @@ pub fn rank(lon: f64, lat: f64, elevation_deg: f64, limit: usize) -> Vec<RadarCa
     candidates
 }
 
+/// How much lower another radar's beam must be before it is worth suggesting (1010.md V8): at
+/// most this fraction of the current radar's height at the storm...
+pub const RECOMMEND_RATIO: f64 = 0.6;
+/// ...and at least this many metres lower. Near a radar every beam is low, and a few hundred
+/// metres is not worth a site switch and a new storm table.
+pub const RECOMMEND_MIN_GAIN_M: f64 = 600.0;
+
+/// A radar worth switching to for a storm, and the geometry that says why.
+#[derive(Debug, Clone, Copy)]
+pub struct Recommendation {
+    /// The radar to switch to, with its beam at the storm.
+    pub better: RadarCandidate,
+    /// The radar being watched now, with its beam at the storm.
+    pub current: RadarCandidate,
+}
+
+/// The radar of `current`'s own network whose beam at `(lon, lat)` is lowest, when it is
+/// meaningfully lower than `current`'s ([`RECOMMEND_RATIO`], [`RECOMMEND_MIN_GAIN_M`]). `None`
+/// when `current` is already the best or close enough, or is not a known site.
+///
+/// Same network only: a TDWR or a European radar carries different products and a different
+/// range, so it is not a drop-in replacement for the radar being watched. Like [`rank`], this is
+/// geometry at one assumed elevation, so in practice it suggests a nearer radar; what it adds is
+/// the beam heights that say whether the difference matters. Volume age and terrain blockage are
+/// not known here (see the module doc), so the suggestion never claims a fresher radar.
+pub fn recommend(current: &str, lon: f64, lat: f64, elevation_deg: f64) -> Option<Recommendation> {
+    let current_site = crate::sites::site_by_id(current)?;
+    let network = crate::sites::network(current_site.id);
+    let now = candidate_at(current_site, lon, lat, elevation_deg);
+    let better = crate::sites::all()
+        .filter(|s| s.id != current_site.id && crate::sites::network(s.id) == network)
+        .map(|s| candidate_at(s, lon, lat, elevation_deg))
+        .min_by(|a, b| {
+            a.beam_height_m
+                .total_cmp(&b.beam_height_m)
+                .then_with(|| a.distance_km.total_cmp(&b.distance_km))
+        })?;
+    worth_switching(now.beam_height_m, better.beam_height_m).then_some(Recommendation {
+        better,
+        current: now,
+    })
+}
+
+/// Whether a beam `better_m` high at the storm is worth leaving one `current_m` high for.
+pub fn worth_switching(current_m: f64, better_m: f64) -> bool {
+    better_m <= current_m * RECOMMEND_RATIO && current_m - better_m >= RECOMMEND_MIN_GAIN_M
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mayfield, Kentucky, on 10 December 2021: Paducah is about 40 km away, Fort Campbell about
+    /// 120 km. Watching from Fort Campbell, Paducah is suggested; watching from Paducah, nothing.
+    #[test]
+    fn a_much_nearer_radar_is_recommended_and_the_nearest_is_left_alone() {
+        let (lon, lat) = (-88.636, 36.742);
+        let r = recommend("KHPX", lon, lat, 0.5).expect("Paducah sees Mayfield far lower");
+        assert_eq!(r.better.site.id, "KPAH");
+        assert_eq!(r.current.site.id, "KHPX");
+        assert!(r.better.beam_height_m < r.current.beam_height_m * RECOMMEND_RATIO);
+        assert!(recommend("KPAH", lon, lat, 0.5).is_none());
+    }
+
+    /// Both radars already see low, or the other is only a little lower: not worth a switch.
+    #[test]
+    fn only_a_large_gain_is_worth_switching() {
+        assert!(
+            worth_switching(2_400.0, 900.0),
+            "1.5 km lower and well under 60%"
+        );
+        assert!(
+            !worth_switching(500.0, 100.0),
+            "both low: 400 m is not worth a new radar"
+        );
+        assert!(
+            !worth_switching(2_000.0, 1_300.0),
+            "65% of the height: too close to call"
+        );
+        assert!(!worth_switching(900.0, 900.0));
+    }
+
+    /// Watching Oklahoma City from Tulsa: KTLX is suggested, never the TDWR beside it.
+    #[test]
+    fn only_a_radar_of_the_same_network_is_recommended() {
+        let tokc = crate::tdwr::site_by_id("TOKC").unwrap();
+        let (lon, lat) = (tokc.longitude as f64, tokc.latitude as f64);
+        let r = recommend("KINX", lon, lat, 0.5).expect("KTLX is far nearer than Tulsa");
+        assert_eq!(r.better.site.id, "KTLX");
+        assert_eq!(
+            crate::sites::network(r.better.site.id),
+            crate::sites::Network::Nexrad
+        );
+        assert!(
+            recommend("XXXX", lon, lat, 0.5).is_none(),
+            "an unknown site has no beam"
+        );
+    }
 
     #[test]
     fn the_radar_at_the_target_itself_has_zero_distance_and_the_lowest_beam() {

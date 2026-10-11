@@ -945,6 +945,7 @@ impl HookEchoApp {
             }
         }
         self.follow_badge(ctx);
+        self.radar_hint(ctx);
         if !self.obs_mode {
             self.chase_hud(ctx);
             self.yall_card(ctx);

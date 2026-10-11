@@ -448,6 +448,8 @@ impl HookEchoApp {
             xsection_moment: Moment::Reflectivity,
             follow_cell: None,
             follow_notice: None,
+            radar_hint_dismissed: None,
+            maps_rect: egui::Rect::NOTHING,
             warning_popup: None,
             impacts: Default::default(),
             towns: Default::default(),
