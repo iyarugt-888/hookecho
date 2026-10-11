@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T21:47:49+00:00",
-  "generated_from_commit": "2259e1a9387e2526b00ce6d6c06056b831216b95",
+  "generated_utc": "2026-10-11T23:01:48+00:00",
+  "generated_from_commit": "32c4a0831884c0e89c9c5a2d72e6b07dcbff64a7",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -57,7 +57,7 @@
     {
       "card": "M1.3",
       "title": "Prove source failover under severe-weather load",
-      "ledger_entries": 6,
+      "ledger_entries": 7,
       "latest_entry": "2026-10-11",
       "status_line": null,
       "evidence_dir": "docs/certification/m1.3"
@@ -896,6 +896,16 @@
       "path": "docs/certification/m1.3/live-session/verification.json",
       "sha256": "cc7294f51af3935b6f6d1feb5fef06977e296f723568648c787c28d867a54ffd",
       "bytes": 5456
+    },
+    {
+      "path": "docs/certification/m1.3/relay-handshake-verification.json",
+      "sha256": "f3943fa5c943a7aef6dcba909b482987e8c126d282c8b8672f77ef63dad22e6f",
+      "bytes": 6391
+    },
+    {
+      "path": "docs/certification/m1.3/relay-handshake.md",
+      "sha256": "4c372b829cc265eae2414207dc17d3432230c9c1c1d193eced43a37eec84163a",
+      "bytes": 8482
     },
     {
       "path": "docs/certification/m1.3/restoration.md",
