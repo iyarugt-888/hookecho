@@ -826,7 +826,7 @@ mod android_back {
     /// # Safety
     /// Called by the JVM with a valid env/object pair; touches only an atomic.
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_zip_batman_hookecho_MainActivity_nativeOnBack(
+    pub extern "system" fn Java_io_hookecho_HookEcho_MainActivity_nativeOnBack(
         _env: jni::JNIEnv,
         _this: JObject,
     ) {
@@ -1610,6 +1610,90 @@ mod health_tests {
         let running = AlertHealth::parse("true\ttrue\ttrue\t30000\t270000\t-1").unwrap();
         assert_eq!(running.os_stopped, None);
         assert_eq!(AlertHealth::parse("a\tb\tc\td\te\tf\tg"), None);
+    }
+}
+
+/// Every Kotlin `external fun` has a Rust export under the JNI name its package and class give
+/// it, and every export has a Kotlin declaration. Nothing else checks this: the symbol is looked
+/// up the first time Kotlin calls it, so a mismatch compiles, installs and launches cleanly, then
+/// throws `UnsatisfiedLinkError` on that first call. The app-id rename did exactly that to
+/// `nativeOnBack`: a back gesture with a sheet open crashed the app.
+#[cfg(test)]
+mod jni_name_tests {
+    use std::path::Path;
+
+    /// JNI's short-name mangling: `.` and `/` become `_`, and `_` itself becomes `_1`.
+    fn mangle(s: &str) -> String {
+        s.replace('_', "_1").replace(['.', '/'], "_")
+    }
+
+    fn sources(dir: &Path, ext: &str, out: &mut Vec<(String, String)>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                sources(&p, ext, out);
+            } else if p.extension().is_some_and(|x| x == ext) {
+                let stem = p.file_stem().unwrap().to_string_lossy().into_owned();
+                out.push((stem, std::fs::read_to_string(&p).unwrap()));
+            }
+        }
+    }
+
+    #[test]
+    fn every_kotlin_native_method_has_a_rust_export_and_back() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut kotlin = Vec::new();
+        sources(
+            &root.join("../../android/app/src/main/kotlin"),
+            "kt",
+            &mut kotlin,
+        );
+        assert!(!kotlin.is_empty(), "the Android sources moved");
+        let mut expected = Vec::new();
+        for (class, src) in &kotlin {
+            let package = src
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("package "))
+                .unwrap_or_else(|| panic!("{class}.kt has no package"))
+                .trim();
+            for l in src.lines() {
+                let Some(rest) = l.split("external fun ").nth(1) else {
+                    continue;
+                };
+                let name = rest.split('(').next().unwrap().trim();
+                expected.push(format!(
+                    "Java_{}_{}_{}",
+                    mangle(package),
+                    mangle(class),
+                    mangle(name)
+                ));
+            }
+        }
+        let mut rust = Vec::new();
+        sources(&root.join("src"), "rs", &mut rust);
+        let exported: Vec<String> = rust
+            .iter()
+            .flat_map(|(_, src)| src.lines())
+            .filter_map(|l| l.split("extern \"system\" fn ").nth(1))
+            .map(|rest| rest.split('(').next().unwrap().trim().to_owned())
+            .filter(|n| n.starts_with("Java_"))
+            .collect();
+        for e in &expected {
+            assert!(
+                exported.contains(e),
+                "Kotlin declares {e}, no Rust export has that name"
+            );
+        }
+        for x in &exported {
+            assert!(
+                expected.contains(x),
+                "Rust exports {x}, no Kotlin `external fun` matches it"
+            );
+        }
+        assert!(
+            !expected.is_empty(),
+            "the test found no native methods at all"
+        );
     }
 }
 
