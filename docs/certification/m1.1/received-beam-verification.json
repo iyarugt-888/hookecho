@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "baseline": "c989505ad1704cd78d083311013348ee3c10378b",
+  "shared_head_at_verification": "c989505ad1704cd78d083311013348ee3c10378b",
+  "host": "Windows NT 10.0.22631.0; offscreen GPU adapter, model unavailable (host inventory denied)",
+  "scope": "Received-data beam geometry and display controls; debug tests in shared checkout",
+  "status": {
+    "implemented": true,
+    "bench_tested": true,
+    "offscreen_gpu_tested": true,
+    "interactive_desktop_tested": false,
+    "android_tested": false,
+    "release_certified": false
+  },
+  "checks": {
+    "focused_data": 0,
+    "focused_ui": 0,
+    "strict_workspace_clippy": 0,
+    "wasm_library": 0,
+    "new_module_rustfmt": 0,
+    "full_workspace": "exit 101: rustc no space on device",
+    "workspace_lib_retry": "interrupted after disk exhaustion; no result claimed",
+    "direct_hookecho_lib": 0,
+    "direct_wxdata_lib": 0,
+    "offscreen_capture": 0,
+    "workspace_format": "pre-existing global differences preserved; see TGFTP evidence"
+  },
+  "commands": [
+    "cargo test -j 1 -p wxdata --lib live_beam::tests",
+    "cargo test -j 1 -p hookecho --lib app::live_sweep::tests -- --nocapture",
+    "cargo clippy -j 1 --workspace --all-targets -- -D warnings",
+    "cargo check -j 1 -p hookecho --lib --target wasm32-unknown-unknown",
+    "cargo test -j 1 --workspace",
+    "cargo test -j 1 --workspace --lib",
+    "target/debug/deps/hookecho-eb8c26238476e2ac.exe --test-threads=2",
+    "target/debug/deps/wxdata-d3f94eb62920da63.exe --test-threads=2",
+    "target/debug/deps/hookecho-eb8c26238476e2ac.exe app::live_sweep::tests::capture_finite_received_beam_at_two_map_scales --ignored --nocapture",
+    "rustfmt --edition 2021 --check crates/wxdata/src/live_beam.rs crates/hookecho/src/app/live_sweep.rs"
+  ],
+  "observations": {
+    "reflectivity_bearing_deg": 359.75,
+    "reflectivity_end_km": 250.875,
+    "velocity_bearing_deg": 271.25,
+    "velocity_end_km": 100.875,
+    "hold_secs": 1.0,
+    "fade_secs": 0.35,
+    "projection_points": 17,
+    "capture_bearing_deg": 60.0,
+    "capture_range_km": 200.0,
+    "capture_dimensions": [
+      960,
+      600
+    ],
+    "capture_zoom_levels": [
+      3.0,
+      6.0
+    ]
+  },
+  "source_worktree_sha256": {
+    "crates/wxdata/src/live_beam.rs": "956bee54785d0188f72a3025f16bcd94f11f2a443bd03ad8d0a9f3d5b724f934",
+    "crates/wxdata/src/lib.rs": "aaeb8ce7c4fa6bb099e31c673d627a7338d51b446bb67ecc48444a4abd04c20b",
+    "crates/hookecho/src/app/live_sweep.rs": "21119e5ba45df6a9edf912c15b54265151bab1548b38a50f5384da8a3cd68c77",
+    "crates/hookecho/src/app.rs": "6fcef59dc5381bec1c9f95f50bc54116587ef5adefda7211d5f247803dd18263",
+    "crates/hookecho/src/app/data_poll.rs": "eec5ae66a7e2d7f9d9d74558807d43d1d2bce421b1d3bcbeb2b7bfcc39c51376",
+    "crates/hookecho/src/app/tests.rs": "565be0d661cee0bbecadae78a1b834d0dc42cc9df9e3f503b8b205925c97e94b",
+    "crates/hookecho/src/view.rs": "53a1d35844c49824a5655c117410b8c998dd79a0a857e57bdcd4baa0eff71cd7",
+    "scripts/certification/manifest.py": "679c03d6b025e3280558c346695c65c2f51b1afe40a9eb290b81b0373bd6635d"
+  },
+  "fixture_sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c",
+  "logs": {
+    "data": {
+      "path": "target/parity-review/m1.3/codex-beam-data.log",
+      "sha256": "3942728bda9547e454e0adc9374d9e27512977435c2ef3feea40be8d33e5e3a0",
+      "test_results": [
+        "ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1144 filtered out; finished in 0.41s"
+      ]
+    },
+    "ui": {
+      "path": "target/parity-review/m1.3/codex-beam-ui.log",
+      "sha256": "9b41f3dc3627a81dc7ea3b7c055328de4262c99c9b6c765295dd36e650832b63",
+      "test_results": [
+        "ok. 3 passed; 0 failed; 1 ignored; 0 measured; 1512 filtered out; finished in 0.20s"
+      ]
+    },
+    "clippy": {
+      "path": "target/parity-review/m1.3/codex-beam-clippy.log",
+      "sha256": "1b63590444bf0eb44b7a874fb49867cbacd5b6086c8b5a133d614ae63e33878c",
+      "test_results": []
+    },
+    "wasm": {
+      "path": "target/parity-review/m1.3/codex-beam-wasm.log",
+      "sha256": "76d3360d4c973a9d650d076a8cbae964f82f93a00f74bf703066fdb2e2fc119d",
+      "test_results": []
+    },
+    "workspace": {
+      "path": "target/parity-review/m1.3/codex-beam-workspace.log",
+      "sha256": "ead822524e3b07d4b0fddcd2319dffb3cf4995d9ed6a77d25517768b60296ad4",
+      "test_results": []
+    },
+    "workspace-lib": {
+      "path": "target/parity-review/m1.3/codex-beam-workspace-lib.log",
+      "sha256": "9e7c0b7e570f9899fc4a45f59031b0c37b66db2857947548925645ff52f1b5e7",
+      "test_results": []
+    },
+    "direct-lib": {
+      "path": "target/parity-review/m1.3/codex-beam-direct-lib.log",
+      "sha256": "f34e9ea9f5a1571d80058a42e277511239bff206cadf305047e0bd94748bc898",
+      "test_results": [
+        "ok. 1427 passed; 0 failed; 89 ignored; 0 measured; 0 filtered out; finished in 27.58s"
+      ]
+    },
+    "direct-wxdata": {
+      "path": "target/parity-review/m1.3/codex-beam-direct-wxdata.log",
+      "sha256": "a612d9f4eeb253f206bdf5c9639abb91b89340ae2556cd5f46537a632a69d99d",
+      "test_results": [
+        "ok. 1059 passed; 0 failed; 87 ignored; 0 measured; 0 filtered out; finished in 70.82s"
+      ]
+    },
+    "capture": {
+      "path": "target/parity-review/m1.3/codex-beam-capture.log",
+      "sha256": "3b67b1530baebf723b55ddafea8dd800a9cbcd330dea44cc047ecc89d97777d7",
+      "test_results": [
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1515 filtered out; finished in 1.85s"
+      ]
+    },
+    "format": {
+      "path": "target/parity-review/m1.3/codex-beam-format.log",
+      "sha256": "00cdcebd26886c7ed7494930353648445795043b985e3c4c2b0df699db0c506b",
+      "test_results": []
+    }
+  },
+  "captures": {
+    "docs/certification/m1.1/received-beam-conus.png": {
+      "sha256": "da8c40fc3f2faebcea8b03e1f3826976916daa035833082248a58920a371d9fe",
+      "visually_reviewed": true,
+      "scope": "controlled offscreen marker; no live map/provider"
+    },
+    "docs/certification/m1.1/received-beam-local.png": {
+      "sha256": "e23a07a792b7ff8cd6b85fd115c9ca50c231b892db0e5604e78e46d31350473d",
+      "visually_reviewed": true,
+      "scope": "controlled offscreen marker; no live map/provider"
+    }
+  },
+  "limitations": [
+    "Full workspace build blocked by disk exhaustion; no cleanup performed.",
+    "Direct executables are from the successful focused builds of these changes; not a full integration test run.",
+    "No physical Android or interactive live GUI session.",
+    "No antenna telemetry, operational failover, or visible presentation timing claimed.",
+    "Concurrent peer changes were present during checks; they are excluded from this commit."
+  ],
+  "next_ready_task": "Whole-app independent-provider recovery harness with presentation-stage observation on documented hardware."
+}

@@ -158,6 +158,9 @@ impl HookEchoApp {
                     if !v.live_scan.accept_volume(&name, time, Utc::now()) {
                         continue; // late chunk from an older volume cannot reverse display time
                     }
+                    v.live_sweep = radial_coverage.as_ref().and_then(|coverage| {
+                        live_sweep::LiveSweep::capture(&scan, v.site.as_deref(), coverage)
+                    });
                     let acquisition = radial_coverage
                         .and_then(|coverage| v.live_scan.capture_acquisition(coverage, Utc::now()));
                     v.live_render_started = received_at;
@@ -197,7 +200,8 @@ impl HookEchoApp {
                     v.follow_sweep();
                     v.last_live_arrival = Some((Utc::now(), time));
                     // `LiveProgress` immediately precedes this partial merge. Keep it: the
-                    // scrubber and 2D sweep bar need to describe/animate the chunk now on screen.
+                    // scrubber needs to describe the chunk now on screen. The map marker owns
+                    // the accepted native radial geometry separately, without angular prediction.
                     // Stream end and site changes clear it, so it cannot linger indefinitely.
                     v.live_retries = retries;
                     v.last_decode_time = Some(decode_time);

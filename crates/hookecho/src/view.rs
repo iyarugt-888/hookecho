@@ -1080,9 +1080,11 @@ pub struct MapView {
     /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
     /// in-progress reading never lingers on screen.
     pub live_progress: Option<wxdata::live::ScanProgress>,
-    /// Local receipt time of `live_progress`. The 2D map uses this to animate exactly one bounded
-    /// sweep through the chunk that just arrived rather than running a decorative beam forever.
+    /// Local receipt time of newly admitted progress metadata. The map marker instead owns
+    /// the native radial geometry of an accepted decoded update (`live_sweep`).
     pub live_progress_at: Option<Instant>,
+    /// Revision-owned, finite geometry of newly accepted native radials, never an antenna guess.
+    pub(crate) live_sweep: Option<crate::app::live_sweep::LiveSweep>,
     /// Monotonic identity for the merged live scan. The volume object name stays constant while
     /// chunks fill a tilt, so 3D caches include this revision to expose each accepted update.
     pub live_scan_revision: u64,
@@ -1279,6 +1281,7 @@ impl MapView {
             live_scan: Default::default(),
             live_progress: None,
             live_progress_at: None,
+            live_sweep: None,
             live_scan_revision: 0,
             live_retries: 0,
             live_history: Default::default(),

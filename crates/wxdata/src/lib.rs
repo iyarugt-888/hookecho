@@ -59,6 +59,7 @@ pub mod kml;
 pub mod level2;
 pub mod level3;
 pub mod live;
+pub mod live_beam;
 pub mod live_block;
 pub mod live_pass;
 pub mod live_sequence;

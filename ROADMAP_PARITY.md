@@ -562,6 +562,22 @@ current agent assignment.
 
 **Evidence ledger — 2026-10-11, SAILS visits in scan order (1010.md V6, ROADMAP_NEW B5):** a SAILS or MRLE volume revisits the lowest tilt partway through, and a frame drew only the newest pass. Now the timeline counts the visits to the shown tilt in the frame at the playhead. A one-frame step walks them before moving frames, and stepping forward into a volume starts at its first visit. Playback plays each one. The visit index is keyed to the playhead, so a live arrival, a jump or the scrubber shows the newest again. The earlier visit is what the pane draws (it is in the upload key), what the probe and the Inspector read, and the time the labels show (`MapView::shown_visit`, `Volume::binned_visit`, `visit_time`). Tests: visit grouping, stepping and playback through visits, frames without repeats, and a view drawing and timing an earlier visit; workspace 2,608 passed, 0 failed, 205 ignored, with clippy and wasm, verified in a clean worktree at b092f58. Live on KJAX (VCP 212 with one SAILS insert), `KJAX20261011_054253_V06` stepped into its first 0.5° visit read 1:43 AM EDT in the Inspector and the timeline ([`sails-visit-0143.png`](docs/certification/m1.1/sails-visit-0143.png) `e669f705…`). The archived file's two visits finish at 01:43:28 and 01:45:57 EDT. Open: the half-streamed live volume steps by frame (its visits are not final), and the scrubber's tick marks are still one per volume.
 
+**Evidence ledger — 2026-10-11, native received-data beam (user request / CODEX_GOAL M1.1):**
+replaced the chunk/VCP-driven angular animation and pane-length ray with a finite marker of
+the newest received radial for the selected native moment. `wxdata::live_beam` matches raw
+arrival identities to the accepted scan and uses decoded bearing, source clock and gate range.
+The map captures numeric metadata with weak scan/site identity only on admitted live updates;
+different display allocations, sites, tilts, unavailable moments and ended streams cannot borrow it.
+It holds briefly and fades without predicting unreceived antenna positions. Gate/column UDP,
+3D and historical playback do not show this marker. No detector or saved-format changes.
+Controls cover bearings that disagree with chunk estimates, reordered arrivals, retained/foreign
+radials, unknown clocks, unavailable geometry, scan/site/tilt identity, fade expiry and a finite
+national-view endpoint. [Source, commands, capture and limits](docs/certification/m1.1/received-beam.md).
+Implementation: implemented for this slice; verification: partial. Live interactive alignment,
+physical Android and visible-presentation latency remain open. Certification generation is now
+pinned to recorded Git evidence bytes, excluding uncommitted peer changes and CRLF conversions.
+
+
 #### M1.2 — Trace receipt through completed rendering
 
 **Priority:** P0. **Depends on:** M0.2, M1.1. **Original references:** ROADMAP_2 §§1.5, 14; ROADMAP_NEW §§B3, O1, O4.

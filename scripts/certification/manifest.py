@@ -1,6 +1,7 @@
 """Generate docs/certification/manifest.json: every reviewed evidence file with its hash, and
 each roadmap card's ledger count and latest entry date (1008.md H4, ROADMAP_PARITY M7.3).
-Run from the repository root. Reads only files already in docs/certification and the roadmap."""
+Run from the repository root after committing evidence. Reads evidence and roadmap from HEAD,
+not from staged or uncommitted peer edits in the shared checkout."""
 import hashlib, json, pathlib, re, subprocess, datetime
 
 root = pathlib.Path('.')
@@ -9,18 +10,20 @@ commit = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=
 branch = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True).stdout.strip()
 
 files = []
-for f in sorted(cert.rglob('*')):
+# Pin both inventory and bytes to the recorded commit. A shared checkout can contain peer
+# edits (and CRLF conversions); those must not be attributed to this commit's evidence.
+paths = subprocess.run(['git', 'ls-tree', '-r', '--name-only', commit, '--', cert.as_posix()],
+                       capture_output=True, text=True, check=True).stdout.splitlines()
+for rel in sorted(paths):
+    f = pathlib.Path(rel)
     # The manifest itself and the index written from it are derived, not evidence.
-    if not f.is_file() or f.parent == cert and f.name in ('manifest.json', 'README.md'):
+    if f.parent == cert and f.name in ('manifest.json', 'README.md'):
         continue
-    rel = f.relative_to(root).as_posix()
-    tracked = subprocess.run(['git', 'ls-files', '--error-unmatch', rel], capture_output=True).returncode == 0
-    if not tracked:
-        continue
-    b = f.read_bytes()
+    b = subprocess.run(['git', 'show', f'{commit}:{rel}'], capture_output=True, check=True).stdout
     files.append({'path': rel, 'sha256': hashlib.sha256(b).hexdigest(), 'bytes': len(b)})
 
-road = (root / 'ROADMAP_PARITY.md').read_text(encoding='utf-8')
+road = subprocess.run(['git', 'show', f'{commit}:ROADMAP_PARITY.md'],
+                      capture_output=True, check=True).stdout.decode('utf-8')
 heads = [(m.start(), m.group(1), m.group(2)) for m in re.finditer(r'^#### (M\d\.\d) — (.+)$', road, re.M)]
 cards = []
 for i, (pos, cid, title) in enumerate(heads):
@@ -40,7 +43,7 @@ for i, (pos, cid, title) in enumerate(heads):
         'ledger_entries': len(entries),
         'latest_entry': max(entries) if entries else None,
         'status_line': status.group(1).strip() if status else None,
-        'evidence_dir': d.as_posix() if d.exists() else None,
+        'evidence_dir': d.as_posix() if any(p.startswith(d.as_posix() + '/') for p in paths) else None,
     })
 
 manifest = {
@@ -54,8 +57,8 @@ manifest = {
     'why_not_certified': [
         'No Android device evidence for any card (M7.2 open).',
         'Presentation (scan-out) latency is not observed anywhere (M1.2).',
-        'Only one 2-hour render soak; the 12- and 24-hour profiles have not run (M7.1).',
-        'Operational dual-feed failover with cross-provider cut continuation is not wired (M1.3, A2).',
+        'Renderer-only soaks do not certify full application and Android lifecycle profiles (M7.1/M7.2).',
+        'Operational independent-provider failover remains unverified; loopback continuation is not certification (M1.3).',
         'Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.',
     ],
     'cards': cards,
