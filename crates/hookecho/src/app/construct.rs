@@ -494,6 +494,7 @@ impl HookEchoApp {
             ),
             route_forecast: Default::default(),
             previous_sounding_rx: None,
+            envelope_rx: None,
             chase_mode: false,
             spoke_pos: None,
             recent_hits: Vec::new(),

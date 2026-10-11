@@ -822,7 +822,7 @@ pub async fn fetch_previous_model_run(
 
 /// Dewpoint (°C) from temperature (°C) and relative humidity (%), inverting Bolton's saturation
 /// vapour pressure — for models that publish RH on pressure levels rather than dewpoint.
-fn dewpoint_from_rh(t_c: f64, rh: f64) -> f64 {
+pub(crate) fn dewpoint_from_rh(t_c: f64, rh: f64) -> f64 {
     let e = e_sat_hpa(t_c) * (rh.clamp(0.5, 100.0) / 100.0);
     let ln = (e / 6.112).ln();
     (243.5 * ln / (17.67 - ln)).min(t_c)

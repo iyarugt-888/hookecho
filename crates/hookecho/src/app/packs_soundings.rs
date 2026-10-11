@@ -59,6 +59,33 @@ impl HookEchoApp {
         });
     }
 
+    /// The GEFS members' envelope at the current sounding's point and valid time (ROADMAP_NEW F8),
+    /// the members counted into the window as they arrive.
+    pub(crate) fn fetch_sounding_envelope(&mut self, ctx: &egui::Context) {
+        let Some(current) = self.sounding_window.sounding.as_ref() else {
+            return;
+        };
+        let (lon, lat) = (current.lon, current.lat);
+        let valid = current.run + chrono::Duration::hours(i64::from(current.fh));
+        self.sounding_window.envelope_error = None;
+        let progress = std::sync::Arc::clone(&self.sounding_window.envelope_progress);
+        progress.store(0, std::sync::atomic::Ordering::Relaxed);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.envelope_rx = Some(rx);
+        let (http, ctx) = (self.http.clone(), ctx.clone());
+        self.spawner.spawn(async move {
+            let repaint = ctx.clone();
+            let res = wxdata::ensemble_sounding::fetch_envelope(&http, lon, lat, valid, move |n| {
+                progress.store(n, std::sync::atomic::Ordering::Relaxed);
+                repaint.request_repaint();
+            })
+            .await
+            .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+            ctx.request_repaint();
+        });
+    }
+
     /// Packs saved in this browser, refreshed in the background whenever one is written.
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn packs(&self) -> Vec<crate::webcache::Pack> {

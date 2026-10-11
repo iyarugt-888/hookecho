@@ -39,6 +39,14 @@ pub struct SoundingWindow {
     pub show_previous: bool,
     /// Set for one frame when the previous run is wanted and not yet fetched.
     pub want_previous: bool,
+    /// The GEFS members' spread at the point (ROADMAP_NEW F8), a band per level when shown.
+    pub envelope: Option<wxdata::ensemble_sounding::Envelope>,
+    pub envelope_error: Option<String>,
+    pub show_envelope: bool,
+    /// Set for one frame when the envelope is wanted and not yet fetched.
+    pub want_envelope: bool,
+    /// Members arrived so far, written by the fetch as they come.
+    pub envelope_progress: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Default for SoundingWindow {
@@ -64,6 +72,12 @@ impl Default for SoundingWindow {
             // Off by default: it is another forty-odd range requests.
             show_previous: false,
             want_previous: false,
+            envelope: None,
+            envelope_error: None,
+            // Off by default: sixty-odd requests to NOMADS and the better part of a minute.
+            show_envelope: false,
+            want_envelope: false,
+            envelope_progress: Default::default(),
         }
     }
 }
@@ -393,6 +407,58 @@ impl SoundingWindow {
             .show_previous
             .then_some(self.previous.as_ref())
             .flatten();
+        // The GEFS members' spread at this point, fetched when first asked for.
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .checkbox(&mut self.show_envelope, "GEFS envelope")
+                .on_hover_text(
+                    "The 31 GEFS members' lowest and highest temperature and dew point at each \
+                     level, shaded: how far the ensemble spreads, not a probability. From NOMADS, \
+                     two small requests per member, paced: the better part of a minute.",
+                )
+                .changed()
+                && self.show_envelope
+                && self.envelope.is_none()
+            {
+                self.want_envelope = true;
+            }
+            if self.show_envelope {
+                match (&self.envelope, &self.envelope_error) {
+                    (Some(e), _) => {
+                        let gap = (e.valid() - (s.run + chrono::Duration::hours(i64::from(s.fh))))
+                            .num_minutes();
+                        let note = if gap == 0 {
+                            String::new()
+                        } else {
+                            format!(", {:+.1} h from this profile", gap as f64 / 60.0)
+                        };
+                        ui.weak(format!(
+                            "{} members · run {} f{:03} · valid {}{note}",
+                            e.members,
+                            crate::timefmt::fmt_date_clock(e.run, tz),
+                            e.fh,
+                            crate::timefmt::fmt_clock(e.valid(), tz, false)
+                        ));
+                    }
+                    (None, Some(err)) => {
+                        ui.weak(format!("unavailable: {err}"));
+                    }
+                    (None, None) => {
+                        let n = self
+                            .envelope_progress
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        ui.weak(format!(
+                            "fetching\u{2026} {n} of {} members",
+                            wxdata::ensemble::GEFS_MEMBERS
+                        ));
+                    }
+                }
+            }
+        });
+        let envelope = self
+            .show_envelope
+            .then_some(self.envelope.as_ref())
+            .flatten();
         ui.separator();
         // Phone: the fixed-width plots (300 + 240 px) side by side overflow the screen —
         // stack them vertically inside a scroll instead (fixed-width content overrides
@@ -402,12 +468,12 @@ impl SoundingWindow {
         let mut clicked = None;
         let chosen = s.parcel_of(self.parcel_kind);
         if stacked {
-            skewt(ui, s, observed, previous, chosen.as_ref());
+            skewt(ui, s, observed, previous, envelope, chosen.as_ref());
             ui.add_space(6.0);
             clicked = hodograph(ui, s, observed, previous, custom);
         } else {
             ui.horizontal(|ui| {
-                skewt(ui, s, observed, previous, chosen.as_ref());
+                skewt(ui, s, observed, previous, envelope, chosen.as_ref());
                 clicked = hodograph(ui, s, observed, previous, custom);
             });
         }
@@ -424,6 +490,7 @@ fn skewt(
     s: &Sounding,
     observed: Option<&Sounding>,
     previous: Option<&Sounding>,
+    envelope: Option<&wxdata::ensemble_sounding::Envelope>,
     parcel: Option<&(wxdata::sounding::Parcel, usize)>,
 ) {
     // Up to 300 px wide: narrower where it sits in a dock. The axes are laid out from `rect`.
@@ -493,6 +560,45 @@ fn skewt(
         egui::Color32::from_rgb(120, 230, 120),
         egui::Color32::from_rgb(240, 90, 90),
     );
+    // The GEFS envelope first, under every trace: temperature and dew point bands, from the
+    // members' extremes at each level, cut at this profile's own ground (a GEFS level below it
+    // is the model's extrapolation, not air) and at the plot's top.
+    if let Some(e) = envelope {
+        let ground = s.levels.first().map_or(1000.0, |l| l.pressure_hpa);
+        let rows: Vec<&wxdata::ensemble_sounding::EnvelopeLevel> = e
+            .levels
+            .iter()
+            .filter(|l| l.pressure_hpa <= ground + 0.5 && l.pressure_hpa >= 195.0)
+            .collect();
+        let band = |lo: fn(&wxdata::ensemble_sounding::EnvelopeLevel) -> f64,
+                    hi: fn(&wxdata::ensemble_sounding::EnvelopeLevel) -> f64,
+                    fill: egui::Color32| {
+            for w in rows.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                let (ya, yb) = (y_of(a.pressure_hpa), y_of(b.pressure_hpa));
+                p.add(egui::Shape::convex_polygon(
+                    vec![
+                        egui::pos2(x_of(lo(a), a.pressure_hpa), ya),
+                        egui::pos2(x_of(hi(a), a.pressure_hpa), ya),
+                        egui::pos2(x_of(hi(b), b.pressure_hpa), yb),
+                        egui::pos2(x_of(lo(b), b.pressure_hpa), yb),
+                    ],
+                    fill,
+                    egui::Stroke::NONE,
+                ));
+            }
+        };
+        band(
+            |l| l.td_min_c,
+            |l| l.td_max_c,
+            egui::Color32::from_rgba_unmultiplied(120, 230, 120, 46),
+        );
+        band(
+            |l| l.t_min_c,
+            |l| l.t_max_c,
+            egui::Color32::from_rgba_unmultiplied(240, 90, 90, 46),
+        );
+    }
     // Observed underneath, so the forecast trace stays readable where they overlap.
     if let Some(o) = observed {
         trace(o, green.gamma_multiply(0.85), Some((5.0, 4.0)), &|l| {
@@ -764,4 +870,61 @@ fn hodograph(
     let u_kt = (click.x - center.x) / r_px * max_kt;
     let v_kt = (center.y - click.y) / r_px * max_kt;
     Some((u_kt as f64 / 1.943_844, v_kt as f64 / 1.943_844))
+}
+
+#[cfg(test)]
+mod envelope_review {
+    use super::*;
+
+    /// A live HRRR profile near Oklahoma City with the GEFS members' envelope at its valid time,
+    /// drawn as the window draws it, for visual review (ROADMAP_NEW F8).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu + network (HRRR, NOMADS; about a minute): writes the envelope for review"]
+    fn gpu_sounding_envelope_review() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let http = reqwest::Client::new();
+        let (s, env) = rt.block_on(async {
+            let s = wxdata::sounding::fetch_model_at(
+                &http,
+                wxdata::sounding::SoundingModel::Hrrr,
+                -97.5,
+                35.4,
+                12,
+            )
+            .await
+            .unwrap();
+            let valid = s.run + chrono::Duration::hours(i64::from(s.fh));
+            let env =
+                wxdata::ensemble_sounding::fetch_envelope(&http, s.lon, s.lat, valid, |_| {})
+                    .await
+                    .unwrap();
+            (s, env)
+        });
+        eprintln!(
+            "HRRR {} f{:02}, ground {:.0} hPa; GEFS {} f{:03}, {} members, {} levels",
+            s.run,
+            s.fh,
+            s.levels.first().map_or(0.0, |l| l.pressure_hpa),
+            env.run,
+            env.fh,
+            env.members,
+            env.levels.len()
+        );
+        let mut w = SoundingWindow {
+            sounding: Some(s),
+            envelope: Some(env),
+            show_envelope: true,
+            show_observed: false,
+            ..Default::default()
+        };
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
+        std::fs::create_dir_all(&destination).unwrap();
+        gpu.save(&destination.join("sounding-gefs-envelope.png"), 720, 900, |ui| {
+            w.body(ui, None, false);
+        })
+        .unwrap();
+    }
 }

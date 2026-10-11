@@ -1645,6 +1645,10 @@ pub struct HookEchoApp {
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
     previous_sounding_rx:
         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
+    /// The GEFS envelope at the sounding's point (ROADMAP_NEW F8).
+    envelope_rx: Option<
+        std::sync::mpsc::Receiver<Result<wxdata::ensemble_sounding::Envelope, String>>,
+    >,
     /// Last spoken storm-position update: when, and the distance in whole miles it reported.
     spoke_pos: Option<(Instant, i32)>,
     /// Detections seen recently, for compound rules to ask "and was there also…". Trimmed to the

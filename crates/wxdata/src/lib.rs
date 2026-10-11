@@ -34,6 +34,7 @@ pub mod dwd;
 pub mod eccc;
 pub mod efield;
 pub mod ensemble;
+pub mod ensemble_sounding;
 pub mod ero;
 pub mod evidence;
 pub mod extrema;

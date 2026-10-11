@@ -432,6 +432,11 @@ impl HookEchoApp {
                 self.sounding_window.previous_error = None;
                 self.previous_sounding_rx = None;
                 self.sounding_window.want_previous = self.sounding_window.show_previous;
+                // And the envelope, which is for its point and valid time.
+                self.sounding_window.envelope = None;
+                self.sounding_window.envelope_error = None;
+                self.envelope_rx = None;
+                self.sounding_window.want_envelope = self.sounding_window.show_envelope;
                 match res {
                     Ok(s) => self.sounding_window.sounding = Some(s),
                     Err(e) => {
@@ -451,6 +456,18 @@ impl HookEchoApp {
         }
         if std::mem::take(&mut self.sounding_window.want_previous) {
             self.fetch_previous_sounding();
+        }
+        if let Some(rx) = &self.envelope_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.envelope_rx = None;
+                match res {
+                    Ok(e) => self.sounding_window.envelope = Some(e),
+                    Err(e) => self.sounding_window.envelope_error = Some(e),
+                }
+            }
+        }
+        if std::mem::take(&mut self.sounding_window.want_envelope) {
+            self.fetch_sounding_envelope(ctx);
         }
         if let Some(rx) = &self.raob_rx {
             if let Ok(res) = rx.try_recv() {
