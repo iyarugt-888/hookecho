@@ -57,11 +57,52 @@ Checks in a clean worktree at `d4a7119` with only this change:
 Logs: `target/parity-review/v11-tags/wt-*.log`.
 
 Limits:
-- Not checked with a colour-vision simulator, or by people with colour-vision deficiency.
+- Not checked by people with colour-vision deficiency. The simulation is below.
 - SPC watch boxes carry no alert metadata, so they get no tag or dash.
 - Tags are skipped on small polygons at regional zooms. The alert list and the polygon's own
   click still name it there.
 - Not run in the desktop app or on Android.
+
+## Colours under simulated colour-vision deficiency (2026-10-11)
+
+`wxdata::cvd` simulates protanopia, deuteranopia and tritanopia (Machado, Oliveira and Fernandes
+2009, at full severity, in linear RGB). It measures how far apart two colours are as CIE76 ΔE
+in CIELAB (D65). About 2.3 is just noticeable; under about 10, two colours are easily taken for
+each other at a glance. The figures below are the tests' own output
+(`target/parity-review/v11-cvd/cvd-numbers.log`).
+
+**The NWS warning colours, which is why the polygons above now carry words and line**
+(`the_warning_colours_collapse_for_a_red_green_dichromat`):
+
+| Pair | Normal vision | Protanopia | Deuteranopia |
+| --- | --- | --- | --- |
+| Tornado / Flash Flood Warning | 152.8 | 43.2 | **8.9** |
+| Severe Thunderstorm / Flash Flood Warning | 96.3 | **4.0** | 18.6 |
+
+**The colour-blind-safe tables** (`the_safe_velocity_table_keeps_inbound_and_outbound_apart`,
+`the_safe_reflectivity_table_brightens_with_dbz_for_everyone`):
+
+| Velocity pair (worst of normal and the three dichromacies) | Safe blue/orange | Default |
+| --- | --- | --- |
+| −5 / +5 m/s | 23.3 | 21.6 |
+| −10 / +10 m/s | 46.6 | 19.5 |
+| −25 / +25 m/s | 83.7 | 79.5 |
+
+- The safe table is asserted to keep the pair apart: ΔE above 15 at ±5 m/s and above 30 from
+  ±10 m/s. Each side is also more than 10 from the grey at zero, from ±10 m/s.
+- The default red/green table holds up at ±25 m/s, because its colours also differ in lightness.
+  At moderate speeds it falls to 19.5 at ±10 m/s, against 46.6 for the safe table.
+- The safe reflectivity table (viridis) is asserted to grow lighter with every 5 dBZ step from
+  10 to 70 dBZ, by more than 50 L* overall, under normal vision and each simulation.
+
+Limits:
+- A model of a typical dichromat at full severity, not of anomalous trichromats or real viewers.
+- ΔE76 overstates differences between saturated colours.
+- The other built-in and community tables are not checked.
+
+Checks in a clean worktree at `d000a03` with only this change: clippy clean, the wasm library
+check at its baseline, workspace tests 2,637 passed, 0 failed, 208 ignored
+(`target/parity-review/v11-cvd/wt-*.log`).
 
 ## Earlier captures
 

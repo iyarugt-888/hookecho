@@ -4430,8 +4430,12 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   "FLOOD", "TOR WATCH"..., placed inside polygons big enough to hold one, most severe first, never
   overlapping) and in line (`overlay_build::alert_stroke`: tornado 3.4 px, the other short-fuse
   warnings 2.4 px, watches dashed). Seen in the browser build on the Moore 2013 archive (TOR, SVR)
-  and on a live Flood Warning (2026-10-11, `docs/certification/a11y/README.md`). Not yet checked
-  with a colour-vision simulator.
+  and on a live Flood Warning (2026-10-11, `docs/certification/a11y/README.md`). Colour-vision
+  deficiency is simulated (`wxdata::cvd`, Machado 2009, CIE76 ΔE): for a deuteranope the tornado
+  and flash flood warning colours drop from ΔE 152.8 to 8.9, and for a protanope severe
+  thunderstorm and flash flood from 96.3 to 4.0. The colour-blind-safe velocity and reflectivity
+  tables are tested to stay apart and to brighten with dBZ under all three dichromacies. Other
+  palettes are not checked.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from
