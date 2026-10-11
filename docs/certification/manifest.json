@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T02:33:03+00:00",
-  "generated_from_commit": "00ef3778d7d5ed0fcc42e80dec80d5ce06f8c4ca",
+  "generated_utc": "2026-10-11T06:49:40+00:00",
+  "generated_from_commit": "06b2e3a2d0b4e6a2939548162661c753596d0a0e",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -41,8 +41,8 @@
     {
       "card": "M1.1",
       "title": "Carry temporal coverage into every radar representation",
-      "ledger_entries": 13,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 14,
+      "latest_entry": "2026-10-11",
       "status_line": "implementation: in progress (derived/3D coverage, accepted receipts, native pass history and source sequence receipts); verification: partial. **Original references:** ROADMAP_2 \u00a7\u00a71.2, 9, 10; ROADMAP_NEW \u00a7\u00a7B2, B5, H8.",
       "evidence_dir": "docs/certification/m1.1"
     },
@@ -344,8 +344,8 @@
     },
     {
       "path": "docs/certification/m1.1/coverage-ui/captures.json",
-      "sha256": "2c0108a8a49d5dcda04f07dd4c5b27d9b1f20513ed1033f998a50ba098c3834e",
-      "bytes": 1689
+      "sha256": "1f9a9598e06e58a8a8c1096179a86f7ebceb0e7f5158626238fb62a6bc11cb9d",
+      "bytes": 1639
     },
     {
       "path": "docs/certification/m1.1/coverage-ui/continuous-240-touch-false.png",
@@ -583,6 +583,11 @@
       "bytes": 5569
     },
     {
+      "path": "docs/certification/m1.1/sails-visit-0143.png",
+      "sha256": "e669f705e0acb5ebbafa14d1442b796ecd412718a60747ec4548fd23d2f6c651",
+      "bytes": 684761
+    },
+    {
       "path": "docs/certification/m1.1/source-admission-ui/admitted-240.png",
       "sha256": "784147936977210fd2a5345c865476ee9b448de727597ff4cdb9896ae49d8c0f",
       "bytes": 55303
@@ -729,8 +734,8 @@
     },
     {
       "path": "docs/certification/m1.1/volume-ui/captures.json",
-      "sha256": "b98eb3f07ca15ddb831fb0941e47698ea9be3a27980c0532a0745be20fdea238",
-      "bytes": 2210
+      "sha256": "3689a1df551f2730d375b93213f44739225c083348d6ef53ae023df063979569",
+      "bytes": 2153
     },
     {
       "path": "docs/certification/m1.1/volume-ui/continuous-240-touch-true.png",
@@ -824,8 +829,8 @@
     },
     {
       "path": "docs/certification/m1.3/live-session/verification.json",
-      "sha256": "4847a8ce45289e0587e3fffbf8d6ed0bfb0d8ef34725b29ad244530aeda34c6e",
-      "bytes": 5538
+      "sha256": "cc7294f51af3935b6f6d1feb5fef06977e296f723568648c787c28d867a54ffd",
+      "bytes": 5456
     },
     {
       "path": "docs/certification/m1.3/live-session.md",
@@ -839,8 +844,8 @@
     },
     {
       "path": "docs/certification/m1.3/restoration/verification.json",
-      "sha256": "f4123b9ab188619051ce822275ed61c347ae4850a0fbd73e39f8d95f0571e761",
-      "bytes": 5493
+      "sha256": "1e2f576d69d3f8bcab1fd695d16658d802d26cb6ba641d48a2b1334b2f4e7cb5",
+      "bytes": 5413
     },
     {
       "path": "docs/certification/m1.3/restoration.md",
@@ -869,8 +874,8 @@
     },
     {
       "path": "docs/certification/m1.3/upstream-domains/verification.json",
-      "sha256": "d13b110bbbc9f497f69c63549eda3921f6b1f62645c6587aa47689604a0cdf29",
-      "bytes": 7462
+      "sha256": "0d574f55ac3f3d2e1645488e6c02b765974f52287e15f539d32a3321022c8c78",
+      "bytes": 7325
     },
     {
       "path": "docs/certification/m1.3/upstream-domains.md",
@@ -984,8 +989,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "52d1976807826e1a7076e4f7dfa6e060620d4e81b68e20f54b9c53419ef7f61b",
-      "bytes": 6930
+      "sha256": "c5353055fc9fbd86215e0d25d1eec373bd1749ddad69bcadb0e0273a4ac4450c",
+      "bytes": 6835
     },
     {
       "path": "docs/certification/m3.3/recorded-environment/.gitattributes",
@@ -1009,8 +1014,8 @@
     },
     {
       "path": "docs/certification/m3.3/recorded-environment/reference.json",
-      "sha256": "65147e0f099937d70204cf41a48c4c80d7015c3d7934756166954749c5b77e4e",
-      "bytes": 2955
+      "sha256": "c231edb41abc2223846173d6f8d016990625fa0258a8c6552926567df9f2bbf8",
+      "bytes": 2849
     },
     {
       "path": "docs/certification/m3.3/recorded-environment/reference.py",
@@ -1334,13 +1339,13 @@
     },
     {
       "path": "docs/certification/m6.3/gpu-vs-software-z10.txt",
-      "sha256": "d380a7d6c866ab14a2139edce0b49715366b0ad2c7ea707a06c933269ba53dd3",
-      "bytes": 267
+      "sha256": "e838081e58a4b1515c4d5f1ec599dd2163d103f05b3d9a6c77bf5f09404aa272",
+      "bytes": 263
     },
     {
       "path": "docs/certification/m6.3/gpu-vs-software.txt",
-      "sha256": "9d101b65f70b14b3db2b62bf36acfad261a096d3b29896aae6274e883832fdc4",
-      "bytes": 627
+      "sha256": "825ccdea08266b3bc2e395a0ae1e41f6e3c157c32200d0c7e9d1fc6d05a1f5b7",
+      "bytes": 619
     },
     {
       "path": "docs/certification/m6.3/moore-a.gif",
@@ -1459,8 +1464,8 @@
     },
     {
       "path": "docs/certification/model-context/verification.json",
-      "sha256": "641a14fb7c12fb575761757527cecfbd15e274e0bed387a1431fc36afd9284b8",
-      "bytes": 8148
+      "sha256": "fff1c86b9ac8328a5ff943f57aa0db3d16156f249cc6e91e89d18837654eb8d5",
+      "bytes": 8014
     },
     {
       "path": "docs/certification/model-context/waiting-diagnostics.json",
@@ -1469,8 +1474,8 @@
     },
     {
       "path": "docs/certification/model-context.md",
-      "sha256": "d15bcbe9645dc158bfa5ca09ee2102fa6c7667a87517963318911175b0faefad",
-      "bytes": 6171
+      "sha256": "fc6ff868a2ccf0b8fc481b6bbf916606afd43a21ed4d7090e931c83d30f5ea47",
+      "bytes": 6081
     },
     {
       "path": "docs/certification/model-panes/failed-diagnostics.json",
@@ -1484,28 +1489,28 @@
     },
     {
       "path": "docs/certification/model-panes/verification.json",
-      "sha256": "e726de1e232b70cfd5c09ee27c409d99d2e05f14554d99f0b7bd30d2fcd0735c",
-      "bytes": 16504
+      "sha256": "80564575a4925704a256a5d30aed1a1bb8362e7f64ab57151bf9b44a840c2f37",
+      "bytes": 16141
     },
     {
       "path": "docs/certification/model-panes.md",
-      "sha256": "030da3f135b67a158c0788c7d41469d295568a43ec67c0aa6667c5d96cb488e6",
-      "bytes": 7664
+      "sha256": "b44fd2fd1e1d32ddb0482578a6cfd8c0a22b1bb13add98802a7c79c982a681ff",
+      "bytes": 7566
     },
     {
       "path": "docs/certification/model-timeline/verification.json",
-      "sha256": "2e75dcc57e85fe7bbc0d25d39aa9bb5404e26d07b3ab0e51a59692ac5196b1aa",
-      "bytes": 5488
+      "sha256": "19cea13f0cdb60cf02719a8f70ed9b0446c189a1e2477b6a0874676efaf6809d",
+      "bytes": 5380
     },
     {
       "path": "docs/certification/model-timeline.md",
-      "sha256": "b1ed7f5407c31959d3aeae549a4ceb9f54e9dcd23ea4449c7c8af85edda3ce3a",
-      "bytes": 4452
+      "sha256": "d5a9bfd1e8fc24d40ce9cdbdf823266efeda655301ca8014f2eb9b937188ad20",
+      "bytes": 4385
     },
     {
       "path": "docs/certification/mrms-panes/verification.json",
-      "sha256": "ac0c819fa3bd3887591076d74c1b74ca7b08fc7cdcaa26812e67ea3da6fd714b",
-      "bytes": 29341
+      "sha256": "5aef2b474561d13456791aee5d50ac9bb9a4bf95203e2103fda2ce9fa2a62bdd",
+      "bytes": 28534
     },
     {
       "path": "docs/certification/mrms-panes.md",
@@ -1514,8 +1519,8 @@
     },
     {
       "path": "docs/certification/raster-context/verification.json",
-      "sha256": "b034548f4217b251f8085e004e4a16eac5c40424422cafc82e50bd660357b674",
-      "bytes": 11436
+      "sha256": "17e408a8c9b37294730d99b8ef5c014f4c91ab97bfd0cdb217fd2c4605722da1",
+      "bytes": 11152
     },
     {
       "path": "docs/certification/raster-context.md",
@@ -1524,8 +1529,8 @@
     },
     {
       "path": "docs/certification/spatial-groups/verification.json",
-      "sha256": "a34572f6e9b387c21f9f3c03667b544687bfc228138c348418363dbffcac252c",
-      "bytes": 8527
+      "sha256": "5c0e0a40a7ce04a99b9d78be03c4d78b72a0ed506c2ffb5992e382772e23d460",
+      "bytes": 8376
     },
     {
       "path": "docs/certification/spatial-groups.md",
