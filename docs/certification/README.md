@@ -5,13 +5,13 @@ readiness is **not claimed**, for these reasons:
 
 - No Android device evidence for any card (M7.2 open).
 - Presentation (scan-out) latency is not observed anywhere (M1.2).
-- Only one 2-hour render soak; the 12- and 24-hour profiles have not run (M7.1).
-- Operational dual-feed failover with cross-provider cut continuation is not wired (M1.3, A2).
+- Renderer-only soaks do not certify full application and Android lifecycle profiles (M7.1/M7.2).
+- Operational independent-provider failover remains unverified; loopback continuation is not certification (M1.3).
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-11T06:49:40+00:00 from commit
-`06b2e3a2d0b4` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-11T16:44:48+00:00 from commit
+`9ce325db3d40` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -32,9 +32,9 @@ ledger records a physical-device run.
 | M0.1 | Reconcile and maintain the evidence baseline | — | 0 | — | — |
 | M0.2 | Make domain ownership testable | — | 1 | 2026-10-01 | — |
 | M0.3 | Pin the scientific and visual corpus | — | 5 | 2026-10-02 | [m0.3/](m0.3/) |
-| M1.1 | Carry temporal coverage into every radar representation | A5 | 14 | 2026-10-11 | [m1.1/](m1.1/) |
+| M1.1 | Carry temporal coverage into every radar representation | A5 | 15 | 2026-10-11 | [m1.1/](m1.1/) |
 | M1.2 | Trace receipt through completed rendering | A3 | 3 | 2026-10-10 | [m1.2/](m1.2/) |
-| M1.3 | Prove source failover under severe-weather load | A1, A2 | 5 | 2026-10-10 | [m1.3/](m1.3/) |
+| M1.3 | Prove source failover under severe-weather load | A1, A2 | 6 | 2026-10-11 | [m1.3/](m1.3/) |
 | M1.4 | Complete retained provenance and scientific lineage | A1, A4 | 6 | 2026-10-09 | [m1.4/](m1.4/) |
 | M2.1 | Introduce persistent storm identity and history | B1 | 4 | 2026-10-06 | — |
 | M2.2 | Unify storm selection, trends, and tool entry | B1 | 7 | 2026-10-10 | [m2.2/](m2.2/) |
@@ -58,7 +58,7 @@ ledger records a physical-device run.
 | M6.2 | Persist complete, validated scenes | F1 | 5 | 2026-10-10 | [m6.2/](m6.2/) |
 | M6.3 | Harden deterministic capture and archive output | F2 | 5 | 2026-10-10 | [m6.3/](m6.3/) |
 | M6.4 | Deliver usable desktop and Android presentation | F3 | 2 | 2026-10-09 | [m6.4/](m6.4/) |
-| M7.1 | Extend soaks to the full application and resources | H2 | 3 | 2026-10-10 | [m7.1/](m7.1/) |
+| M7.1 | Extend soaks to the full application and resources | H2 | 4 | 2026-10-11 | [m7.1/](m7.1/) |
 | M7.2 | Certify Android lifecycle, input, and memory | H1 | 2 | 2026-10-10 | — |
 | M7.3 | Publish certification and operational documentation | H4 | 1 | 2026-10-09 | — |
 
