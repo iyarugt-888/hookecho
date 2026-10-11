@@ -132,3 +132,46 @@ surface along the ray), and the reason a 3D ruler on a steep view measures the u
 Test: `the_3d_ruler_reads_rise_and_straight_line` (10 km over the ground and 10,000 ft of rise
 gives a 10.45 km straight line; downhill reads negative). Not added: a sampled value at each end
 (the gate inspector gives it) and the terrain height under an end in the air.
+
+## The 3D ruler's values, ground and tilts (1010.md V19, 2026-10-11)
+
+Each end of the 3D ruler now carries, on the label's second line:
+- its tilt;
+- its height above sea level and above the ground (terrain tiles; "ground loading" until the
+  tile arrives, left out when it cannot be had);
+- the pane's product at that gate on that tilt ("17 dBZ", "range folded", "below threshold";
+  velocity marked raw).
+
+With the Measure tool in the 3D Observed view, PgUp/PgDn move the last end placed one tilt up or
+down over the same ground. The label sits on a dark card.
+
+**Walkthrough** in the browser build (WebGPU, one machine, KAKQ, VCP 212, 2026-10-11 20:30–20:40
+UTC, a Tornado Watch in effect), from the working tree at `b08ea15` with this change and another
+session's uncommitted live-sweep sharing work:
+
+- `ruler-3d-top-tilt-browser.jpg`: both clicks landed on the 19.5° tilt, as the pick's rule makes
+  them on a pitched view: "67.2 mi @ 117° · rise +56830 ft · straight line 68.0 mi / 19.5°
+  51878 ft MSL, 51781 ft AGL, below threshold → 19.5° 108708 ft MSL, 108697 ft AGL". The far
+  end's gate is past the tilt's coverage, so it has no reading.
+- `ruler-3d-values-agl-browser.jpg`: the first end placed and brought down with PgDn, then the
+  second: "66.4 mi @ 130° · rise +4611 ft · straight line 66.4 mi / 0.4° 338 ft MSL, 260 ft AGL,
+  17 dBZ → 0.4° 4949 ft MSL, 4940 ft AGL, below threshold".
+
+Found during the walkthrough: twenty PgDn presses delivered in one frame moved the end one tilt.
+Each press is now counted (`count_and_consume_key`).
+
+| File | SHA-256 |
+| --- | --- |
+| ruler-3d-top-tilt-browser.jpg | `76fd1bed2de1d1865526513ade8e385ad08fdb23e59f202a538a8e75f98c5ae1` |
+| ruler-3d-values-agl-browser.jpg | `4567e609cfdadbd3b9e7ea64e6ac7d49d4518b30321b46aa81563b6ee5f20718` |
+
+Tests:
+- `the_3d_ruler_reads_rise_and_straight_line`: ground known (800 ft AGL), loading, and unknown
+  (left out);
+- `an_end_reading_says_what_the_gate_holds`: units, folded, below threshold, velocity raw;
+- `the_tilt_steps_one_press_at_a_time_within_the_volume`.
+
+Open:
+- Changing the first end's tilt after the second is placed (re-click it).
+- A pick that prefers tilts holding data over the first surface the ray meets.
+- A desktop or device walkthrough.

@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: the 3D ruler reads the radar and the ground
+
+In the 3D view, each end of the ruler now says how high it is above the ground as well as above
+sea level, and what the radar shows there (for example "0.4°  338 ft MSL, 260 ft AGL, 17 dBZ").
+Page Up and Page Down move the last end you placed one tilt up or down, so an end that landed on
+the top tilt can be brought down to the one you meant. The ruler's label now sits on a dark card
+so it can be read over warnings and radar.
+
 ### Added: contour lines for model fields
 
 A field picked in Model fields can now also be drawn as labelled contour lines over its shading,
