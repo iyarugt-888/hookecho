@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T16:44:48+00:00",
-  "generated_from_commit": "9ce325db3d40a2467c06557895f18b27a671a581",
+  "generated_utc": "2026-10-11T19:38:52+00:00",
+  "generated_from_commit": "a9fc76ecd4134c5eb0e57ab933dada8d7d6b3ae2",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -273,9 +273,34 @@
   ],
   "files": [
     {
+      "path": "docs/certification/a11y/tablet-touch-workstation.png",
+      "sha256": "482d70b1ff0f9166fa87a87618ad8f5c72376239d90d81e1a97fcbf9bf790077",
+      "bytes": 310806
+    },
+    {
       "path": "docs/certification/a11y/toast-glyph-and-bell-badge.png",
       "sha256": "d485fc96f49b519354a1800fb4c40d05924b522d3e35d3ab435035c174d7578f",
       "bytes": 619964
+    },
+    {
+      "path": "docs/certification/chase/README.md",
+      "sha256": "80d6e5d1b82d9c9ee5835af48cdb173786e5571c29f951d0f9e7958a61e69fb0",
+      "bytes": 4800
+    },
+    {
+      "path": "docs/certification/chase/route-forecast-clear-browser.jpg",
+      "sha256": "c6f6e7a4de988eb4c467254d17001227675b4fbd2b76c7df44292fe27a279f06",
+      "bytes": 85432
+    },
+    {
+      "path": "docs/certification/chase/route-forecast-hits-browser.jpg",
+      "sha256": "5910160d081c7652c7ac6a6a55eae07139f6180567d51c65b05e9bafcfb5b237",
+      "bytes": 86897
+    },
+    {
+      "path": "docs/certification/chase/route-storms-escape-browser.jpg",
+      "sha256": "286cb8fc67103abe1f0dca7fe4145b5416c5be44ddf46f4b894afe36e9a998d6",
+      "bytes": 81549
     },
     {
       "path": "docs/certification/m0.3/README.md",
