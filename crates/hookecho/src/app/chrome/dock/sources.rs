@@ -245,7 +245,11 @@ fn source_row(
     let state = h.state();
     let (word, color) = health_look(state);
     let error = h.error.as_deref().filter(|_| needs_attention(state));
-    let row_h = if ws::touch(ui.ctx()) { 44.0 } else { 28.0 };
+    let row_h = if ws::touch(ui.ctx()) || ws::touch_tablet() {
+        44.0
+    } else {
+        28.0
+    };
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row_h), Sense::hover());
     let resp = ui.interact(rect, id, Sense::click());
     if resp.has_focus() {

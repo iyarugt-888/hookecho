@@ -457,7 +457,7 @@ pub(crate) fn map_3d_panel(
             ws::prop_row(ui, &t, "Bearing", |ui| {
                 let gap = ui.spacing().item_spacing.x;
                 ui.spacing_mut().slider_width =
-                    ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
+                    ws::prop_slider_width(ui, ws::control_h() + 2.0 * gap);
                 ws::slider(
                     ui,
                     &t,

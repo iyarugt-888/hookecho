@@ -1795,6 +1795,12 @@ pub mod form_factor {
     /// above), and only when it is not a tablet. Every layout decision that used to ask
     /// `cfg!(target_os = "android")` asks this; the ones that are about the platform itself (the
     /// soft keyboard, the file picker, no ffmpeg) still ask the platform.
+    /// A touch screen showing the desktop layout: an Android tablet, or the phone emulation in a
+    /// tablet-sized window. Its controls take a finger's size (1010.md V11, ROADMAP_NEW Q1).
+    pub fn touch_tablet() -> bool {
+        (cfg!(target_os = "android") || emulating_phone()) && is_tablet()
+    }
+
     pub fn phone_layout() -> bool {
         (cfg!(target_os = "android") || emulating_phone()) && !is_tablet()
     }

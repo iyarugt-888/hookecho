@@ -9,7 +9,9 @@ use crate::ui::a11y::Named as _;
 use egui_phosphor::regular as ph;
 
 /// The rail's width: one button and its margin.
-const RAIL_W: f32 = ws::RAIL_BTN + 8.0;
+fn rail_w() -> f32 {
+    ws::rail_btn() + 8.0
+}
 
 /// The zoom "center on the radar" frames the site at: a radar's useful range fills the map.
 const RADAR_ZOOM: f64 = 8.0;
@@ -85,7 +87,7 @@ impl HookEchoApp {
         let probe_on = self.settings.layer_probe;
         let mut toggle_probe = false;
         egui::Panel::left("dock_rail")
-            .exact_size(RAIL_W)
+            .exact_size(rail_w())
             .resizable(false)
             .frame(
                 egui::Frame::NONE
@@ -177,7 +179,7 @@ impl HookEchoApp {
 
 /// The hairline between the rail's groups.
 fn separator(ui: &mut egui::Ui, t: &ws::Tokens) {
-    let (r, _) = ui.allocate_exact_size(egui::vec2(ws::RAIL_BTN, 9.0), egui::Sense::hover());
+    let (r, _) = ui.allocate_exact_size(egui::vec2(ws::rail_btn(), 9.0), egui::Sense::hover());
     ui.painter().line_segment(
         [
             egui::pos2(r.left() + 6.0, r.center().y),

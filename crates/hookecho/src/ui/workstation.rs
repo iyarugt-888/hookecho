@@ -13,11 +13,33 @@ use egui::{
 /// App bar height.
 pub const APP_BAR_H: f32 = 40.0;
 /// Context toolbar height.
-pub const TOOLBAR_H: f32 = 36.0;
+pub fn toolbar_h() -> f32 {
+    touch_size(36.0, 48.0)
+}
 /// Standard control height (buttons, combos, fields).
-pub const CONTROL_H: f32 = 24.0;
+pub fn control_h() -> f32 {
+    touch_size(24.0, 36.0)
+}
 /// Tool-rail button edge.
-pub const RAIL_BTN: f32 = 36.0;
+pub fn rail_btn() -> f32 {
+    touch_size(36.0, 44.0)
+}
+
+/// A touch tablet showing the workstation (`platform::form_factor::touch_tablet`): no pointer to
+/// hover with, so nothing may appear only under one, and targets take a finger's size.
+pub fn touch_tablet() -> bool {
+    crate::platform::form_factor::touch_tablet()
+}
+
+/// `mouse` points on a desktop, at least `finger` on a touch tablet (1010.md V11): the
+/// workstation's controls are sized for a pointer, and a fingertip covers several of them.
+pub fn touch_size(mouse: f32, finger: f32) -> f32 {
+    if touch_tablet() {
+        mouse.max(finger)
+    } else {
+        mouse
+    }
+}
 /// Panel header height.
 pub const HEADER_H: f32 = 28.0;
 
@@ -124,7 +146,7 @@ pub fn card_frame(t: &Tokens) -> Frame {
 /// panels and the workstation (the settings switch) take the compact metrics here. Read from
 /// the two metrics the scope sets together, which no app theme uses as a pair.
 pub fn in_scope(ui: &egui::Ui) -> bool {
-    ui.spacing().interact_size.y == CONTROL_H
+    ui.spacing().interact_size.y == control_h()
         && ui
             .style()
             .text_styles
@@ -167,7 +189,7 @@ pub fn style_scope(ui: &mut egui::Ui, t: &Tokens) {
         .insert(egui::TextStyle::Small, FontId::proportional(11.0));
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);
     style.spacing.button_padding = egui::vec2(8.0, 3.0);
-    style.spacing.interact_size.y = CONTROL_H;
+    style.spacing.interact_size.y = control_h();
     let v = &mut style.visuals;
     v.override_text_color = Some(t.text);
     v.extreme_bg_color = t.field;
@@ -300,7 +322,7 @@ pub fn touch(ctx: &egui::Context) -> bool {
 
 /// The header height: taller for a finger.
 pub fn header_h(ctx: &egui::Context) -> f32 {
-    if touch(ctx) {
+    if touch(ctx) || touch_tablet() {
         40.0
     } else {
         HEADER_H
@@ -636,7 +658,7 @@ pub fn icon_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, label: &str, on: 
     let galley = ui
         .painter()
         .layout_no_wrap(text.clone(), font.clone(), t.text);
-    let size = egui::vec2(galley.size().x + 18.0, CONTROL_H + 4.0);
+    let size = egui::vec2(galley.size().x + 18.0, control_h() + 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let fill = if on {
         t.accent_soft()
@@ -669,7 +691,7 @@ pub fn button(ui: &mut egui::Ui, t: &Tokens, label: &str, width: f32) -> Respons
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(width.max(galley.size().x + 20.0), CONTROL_H + 4.0);
+    let size = egui::vec2(width.max(galley.size().x + 20.0), control_h() + 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     ui.painter().rect(
         rect,
@@ -697,7 +719,7 @@ pub fn button(ui: &mut egui::Ui, t: &Tokens, label: &str, width: f32) -> Respons
 
 /// A square tool-rail button: the glyph alone, the armed tool filled with the accent.
 pub fn rail_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, on: bool) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(RAIL_BTN, RAIL_BTN), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(rail_btn(), rail_btn()), Sense::click());
     let fill = if on {
         t.accent
     } else if resp.hovered() {
@@ -769,7 +791,7 @@ pub fn segmented_full(
     }
     let total: f32 = widths.iter().sum();
     let enabled = ui.is_enabled();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(total, CONTROL_H), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(total, control_h()), Sense::hover());
     ui.painter().rect(
         rect,
         4.0,
@@ -848,7 +870,7 @@ fn check_sized(
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(width.unwrap_or(galley.size().x + 24.0), CONTROL_H);
+    let size = egui::vec2(width.unwrap_or(galley.size().x + 24.0), control_h());
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     if resp.clicked() {
@@ -920,7 +942,10 @@ fn prop_container<R>(
     ui: &mut egui::Ui,
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
-    let room = Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), CONTROL_H));
+    let room = Rect::from_min_size(
+        ui.cursor().min,
+        egui::vec2(ui.available_width(), control_h()),
+    );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(room)
@@ -934,7 +959,7 @@ fn prop_container<R>(
     let inner = add(&mut child);
     let used = Rect::from_min_size(
         room.min,
-        egui::vec2(room.width(), child.min_rect().height().max(CONTROL_H)),
+        egui::vec2(room.width(), child.min_rect().height().max(control_h())),
     );
     InnerResponse::new(inner, ui.allocate_rect(used, Sense::hover()))
 }
@@ -948,7 +973,8 @@ pub fn prop_row<R>(
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
     prop_container(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(PROP_LABEL_W, CONTROL_H), Sense::hover());
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(PROP_LABEL_W, control_h()), Sense::hover());
         let color = if ui.is_enabled() {
             t.text_dim
         } else {
@@ -1017,7 +1043,7 @@ pub fn prop_toggle(
 
 /// A small square glyph button for the end of a property row (reset, face north).
 pub fn glyph_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, label: &str) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(CONTROL_H, CONTROL_H), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(control_h(), control_h()), Sense::click());
     let enabled = ui.is_enabled();
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     let hot = enabled && resp.hovered();

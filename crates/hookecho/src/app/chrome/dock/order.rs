@@ -13,7 +13,9 @@ use crate::ui::a11y::Named as _;
 use egui::{FontId, Sense, Stroke};
 use egui_phosphor::regular as ph;
 
-const ROW_H: f32 = 24.0;
+fn row_h() -> f32 {
+    ws::touch_size(24.0, 34.0)
+}
 
 /// What the list asked for.
 pub(super) enum OrderHit {
@@ -148,7 +150,8 @@ fn order_row(
     names: &dyn Fn(FieldLayer) -> (String, &'static str),
 ) -> Option<OrderHit> {
     let (name, glyph) = names(layer);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), Sense::hover());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), row_h()), Sense::hover());
     // The whole row is the drag source; the handle glyph only says so.
     let resp = ui
         .interact(

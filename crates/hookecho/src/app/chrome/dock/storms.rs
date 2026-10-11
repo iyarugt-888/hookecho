@@ -15,7 +15,9 @@ use egui::{FontId, Rect, Sense, Stroke};
 use egui_phosphor::regular as ph;
 
 pub(super) const STORMS_W: f32 = 320.0;
-const ROW_H: f32 = 22.0;
+fn row_h() -> f32 {
+    ws::touch_size(22.0, 34.0)
+}
 
 /// The table's columns: header, sort key, width.
 const COLS: [(&str, SortCol, f32); 8] = [
@@ -878,7 +880,7 @@ impl HookEchoApp {
                 ));
                 // Keep columns readable even when the operator narrows a side dock to 240 pt.
                 // Horizontal scrolling carries the headers and rows together.
-                let table_h = (ui.available_height() - 48.0).max(ROW_H * 2.0);
+                let table_h = (ui.available_height() - 48.0).max(row_h() * 2.0);
                 let table_h = if floating {
                     table_h.min(list_h)
                 } else {
@@ -892,14 +894,16 @@ impl HookEchoApp {
                         ui.set_min_width(COLS.iter().map(|col| col.2).sum::<f32>() + 8.0 + 32.0);
                         // Header row: each column sorts.
                         let (hr, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), ROW_H),
+                            egui::vec2(ui.available_width(), row_h()),
                             Sense::hover(),
                         );
                         ui.painter().rect_filled(hr, 0.0, t.panel_hi);
                         let mut x = hr.left() + 8.0;
                         for (i, (label, key, w)) in COLS.iter().enumerate() {
-                            let r =
-                                Rect::from_min_size(egui::pos2(x, hr.top()), egui::vec2(*w, ROW_H));
+                            let r = Rect::from_min_size(
+                                egui::pos2(x, hr.top()),
+                                egui::vec2(*w, row_h()),
+                            );
                             x += w;
                             let resp = ui
                                 .interact(r, ui.id().with(("storm_col", i)), Sense::click())
@@ -949,7 +953,7 @@ impl HookEchoApp {
                         let scroll = egui::ScrollArea::vertical()
                             .id_salt("dock_storms_rows")
                             .auto_shrink([false, floating])
-                            .max_height((table_h - ROW_H - 14.0).max(ROW_H));
+                            .max_height((table_h - row_h() - 14.0).max(row_h()));
                         scroll.show(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (n, &i) in order.iter().enumerate() {
@@ -959,7 +963,7 @@ impl HookEchoApp {
                                     cols[1] = format!("{} #{id}", cols[1]);
                                 }
                                 let (r, _) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), ROW_H),
+                                    egui::vec2(ui.available_width(), row_h()),
                                     Sense::hover(),
                                 );
                                 let row_id = ui.id().with(("storm_row", &c.id));
@@ -1009,7 +1013,7 @@ impl HookEchoApp {
                                     p.with_clip_rect(
                                         Rect::from_min_size(
                                             egui::pos2(x, r.top()),
-                                            egui::vec2(COLS[k].2 - 2.0, ROW_H),
+                                            egui::vec2(COLS[k].2 - 2.0, row_h()),
                                         )
                                         .intersect(ui.clip_rect()),
                                     )
@@ -1143,7 +1147,7 @@ impl HookEchoApp {
                                         ui.scroll_to_rect(
                                             r.translate(egui::vec2(
                                                 0.0,
-                                                (at as f32 - n as f32) * ROW_H,
+                                                (at as f32 - n as f32) * row_h(),
                                             )),
                                             Some(egui::Align::Center),
                                         );

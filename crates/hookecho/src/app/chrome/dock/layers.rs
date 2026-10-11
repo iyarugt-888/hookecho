@@ -7,7 +7,9 @@ use egui::{FontId, Rect, Sense, Stroke};
 use egui_phosphor::regular as ph;
 
 /// One tree row's height: tight enough to see a category at a glance, tall enough to hit.
-const ROW_H: f32 = 26.0;
+fn row_h() -> f32 {
+    ws::touch_size(26.0, 36.0)
+}
 
 /// What a click in the tree asked for.
 enum Hit {
@@ -18,7 +20,9 @@ enum Hit {
 }
 
 /// The height of the control row under an active layer in the Active filter.
-const CONTROL_ROW_H: f32 = 22.0;
+fn control_row_h() -> f32 {
+    ws::touch_size(22.0, 34.0)
+}
 
 /// What an active layer's control row offers (design plan §3.1): an opacity fader for the layers
 /// that paint through the field pipeline, where opacity is a per-frame uniform, and a remove
@@ -456,7 +460,7 @@ fn group(
     let best = g.category == BEST;
     let tint = category_color(g.category);
     let (rect, resp) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), ROW_H + 2.0),
+        egui::vec2(ui.available_width(), row_h() + 2.0),
         Sense::click(),
     );
     let name = if best {
@@ -537,17 +541,23 @@ fn row(
     opacity: Option<&std::collections::HashMap<crate::render::FieldLayer, f32>>,
 ) -> Option<Hit> {
     let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), Sense::click());
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), row_h()), Sense::click());
     let on = e.on == Some(true);
     let slug = favorite_slug(e);
     // In the Active filter an active layer's own remove button takes the row's last slot and the
     // star and health mark move one slot in.
     let (fade, removable) = row_controls(e.action);
     let managing = opacity.is_some() && on;
-    let shift = if managing && removable { 22.0 } else { 0.0 };
+    // The star and the remove button: 20 points under a pointer, a fingertip's on a tablet.
+    let tap = ws::touch_size(20.0, 32.0);
+    let shift = if managing && removable {
+        tap + 2.0
+    } else {
+        0.0
+    };
     let star_rect = Rect::from_center_size(
-        egui::pos2(rect.right() - 18.0 - shift, rect.center().y),
-        egui::vec2(20.0, 20.0),
+        egui::pos2(rect.right() - 8.0 - tap / 2.0 - shift, rect.center().y),
+        egui::vec2(tap, tap),
     );
     let star = slug.map(|s| {
         (
@@ -645,8 +655,8 @@ fn row(
     if let Some((s, star_resp)) = star {
         let starred = favorites.iter().any(|f| f == s);
         // An unstarred star only shows while the row is under the pointer, so the list reads as
-        // names, not as a column of hollow stars.
-        if starred || resp.hovered() || star_resp.hovered() {
+        // names, not as a column of hollow stars. A touch tablet has no pointer: it shows faint.
+        if starred || resp.hovered() || star_resp.hovered() || ws::touch_tablet() {
             ui.painter().text(
                 star_rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -674,7 +684,10 @@ fn row(
         }
     }
     if managing && removable {
-        let r = Rect::from_center_size(egui::pos2(rect.right() - 18.0, y), egui::vec2(20.0, 20.0));
+        let r = Rect::from_center_size(
+            egui::pos2(rect.right() - 8.0 - tap / 2.0, y),
+            egui::vec2(tap, tap),
+        );
         let x_resp = ui
             .interact(r, ui.id().with(("dock_remove", &e.label)), Sense::click())
             .named(&format!("Remove {}", e.label))
@@ -718,7 +731,7 @@ fn fade_row(
     levels: &std::collections::HashMap<crate::render::FieldLayer, f32>,
 ) -> Option<Hit> {
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), CONTROL_ROW_H),
+        egui::vec2(ui.available_width(), control_row_h()),
         Sense::hover(),
     );
     let p = ui.painter();

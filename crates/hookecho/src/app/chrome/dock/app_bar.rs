@@ -491,7 +491,7 @@ impl HookEchoApp {
         let folded = toolbar_folds(ctx.content_rect().width() - 20.0, &widths);
         let fold = |g: ToolGroup| (g as usize) < folded;
         egui::Panel::top("dock_toolbar")
-            .exact_size(ws::TOOLBAR_H)
+            .exact_size(ws::toolbar_h())
             .frame(
                 egui::Frame::NONE
                     .fill(t.panel)
@@ -505,7 +505,7 @@ impl HookEchoApp {
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.set_height(ws::TOOLBAR_H);
+                        ui.set_height(ws::toolbar_h());
                         ui.horizontal_centered(|ui| {
                             ui.spacing_mut().item_spacing.x = 6.0;
                             let x0 = ui.cursor().left();
@@ -546,7 +546,7 @@ impl HookEchoApp {
                                     );
                                 });
                             }
-                            ws::divider(ui, &t, ws::TOOLBAR_H);
+                            ws::divider(ui, &t, ws::toolbar_h());
                             ws::caption(ui, &t, "Product");
                             egui::ComboBox::from_id_salt("dock_product")
                                 .width(170.0)
@@ -610,7 +610,7 @@ impl HookEchoApp {
                                         egui::Button::new(ws::mono(&label, 11.5, t.live))
                                             .fill(t.field)
                                             .stroke(egui::Stroke::new(1.0, t.line))
-                                            .min_size(egui::vec2(0.0, ws::CONTROL_H)),
+                                            .min_size(egui::vec2(0.0, ws::control_h())),
                                     )
                                     .named(&format!(
                                         "Live sweep at {:.1} degrees; show that tilt",
@@ -650,7 +650,7 @@ impl HookEchoApp {
                                 })
                                 .response
                                 .on_hover_text(follow_now.hint());
-                            ws::divider(ui, &t, ws::TOOLBAR_H);
+                            ws::divider(ui, &t, ws::toolbar_h());
                             match ws::segmented(
                                 ui,
                                 &t,
@@ -672,7 +672,7 @@ impl HookEchoApp {
                                 }
                                 ws::check(ui, &t, &mut legend, "Legend")
                                     .on_hover_text("The product's colour scale beside the map");
-                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                ws::divider(ui, &t, ws::toolbar_h());
                                 widths.groups[ToolGroup::View as usize] = take(ui);
                             }
                             if !fold(ToolGroup::Table) {
@@ -684,7 +684,7 @@ impl HookEchoApp {
                                         ws::menu_scope(ui, &t);
                                         table_items(ui, moment, &table_now, &mut table_pick);
                                     });
-                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                ws::divider(ui, &t, ws::toolbar_h());
                                 widths.groups[ToolGroup::Table as usize] = take(ui);
                             }
                             if !fold(ToolGroup::Overlays) {
@@ -694,7 +694,7 @@ impl HookEchoApp {
                                         action = Some(A::ToggleOverlay(*tg));
                                     }
                                 }
-                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                ws::divider(ui, &t, ws::toolbar_h());
                                 widths.groups[ToolGroup::Overlays as usize] = take(ui);
                             }
                             if !fold(ToolGroup::Map) {
