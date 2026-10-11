@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T20:54:27+00:00",
-  "generated_from_commit": "8bc4a6f9ae8ad45332c40e2410a2b1b01602fa82",
+  "generated_utc": "2026-10-11T21:37:28+00:00",
+  "generated_from_commit": "6b4d3c4157d6169c113cebac1a609562e9c10c74",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -113,8 +113,8 @@
     {
       "card": "M3.2",
       "title": "Complete portable, validated product definitions",
-      "ledger_entries": 2,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 3,
+      "latest_entry": "2026-10-11",
       "status_line": null,
       "evidence_dir": "docs/certification/m3.2"
     },
@@ -273,6 +273,11 @@
   ],
   "files": [
     {
+      "path": "docs/certification/a11y/README.md",
+      "sha256": "d77ba226a85020ea3ce672c5e365917210bda670678a67d21edf0e8d89a60403",
+      "bytes": 4395
+    },
+    {
       "path": "docs/certification/a11y/tablet-touch-workstation.png",
       "sha256": "482d70b1ff0f9166fa87a87618ad8f5c72376239d90d81e1a97fcbf9bf790077",
       "bytes": 310806
@@ -281,6 +286,16 @@
       "path": "docs/certification/a11y/toast-glyph-and-bell-badge.png",
       "sha256": "d485fc96f49b519354a1800fb4c40d05924b522d3e35d3ab435035c174d7578f",
       "bytes": 619964
+    },
+    {
+      "path": "docs/certification/a11y/warning-tags-flood-live-browser.jpg",
+      "sha256": "366ba9da2e1871b24584f1d4b1946ba93d3986f5bb8373b76f7aff5628c0ff5f",
+      "bytes": 106951
+    },
+    {
+      "path": "docs/certification/a11y/warning-tags-moore-archive-browser.jpg",
+      "sha256": "76e7ca7188a44c9304ce3916dd73a9534dbb42f89593c01362f55d01da7f0015",
+      "bytes": 77310
     },
     {
       "path": "docs/certification/chase/README.md",
