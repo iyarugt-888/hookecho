@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T02:22:57+00:00",
-  "generated_from_commit": "fb4c8d57f573328e18da0433f707ab664d7b4294",
+  "generated_utc": "2026-10-11T02:33:03+00:00",
+  "generated_from_commit": "00ef3778d7d5ed0fcc42e80dec80d5ce06f8c4ca",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -249,7 +249,7 @@
     {
       "card": "M7.1",
       "title": "Extend soaks to the full application and resources",
-      "ledger_entries": 2,
+      "ledger_entries": 3,
       "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m7.1"
@@ -1394,8 +1394,8 @@
     },
     {
       "path": "docs/certification/m7.1/README.md",
-      "sha256": "f2be8388a79fdfceec2bd9336fdc1ef6a0839353fc4c227104f8eb588b376ea0",
-      "bytes": 4195
+      "sha256": "c0462ecc53c54b36410afed25b884b2d4db0a41f4bb40cc34add1e3da1ae6de1",
+      "bytes": 5953
     },
     {
       "path": "docs/certification/m7.1/render-profile.txt",
@@ -1413,6 +1413,16 @@
       "bytes": 20039
     },
     {
+      "path": "docs/certification/m7.1/soak-ktlx-12h.jsonl",
+      "sha256": "f5d585f1dd2361694fc9501844965c0b33e1e680884163fe59dad46dab9f5a23",
+      "bytes": 303653
+    },
+    {
+      "path": "docs/certification/m7.1/soak-ktlx-12h.log",
+      "sha256": "bae7feb5725bcd46cb25c9af9300ce30ef03f54bdf03c561fb3552fd1c7ee61b",
+      "bytes": 56066
+    },
+    {
       "path": "docs/certification/m7.1/soak-ktlx-2h.jsonl",
       "sha256": "29f7beff42c3afadcaaf97b01f16e128b15f1b4092029691fe053793cfa57520",
       "bytes": 50522
@@ -1421,6 +1431,11 @@
       "path": "docs/certification/m7.1/soak-ktlx-2h.log",
       "sha256": "492f421030ed79f2481cad62ba68b976843ba9cbe9df9fbaae2873ad15e90abd",
       "bytes": 10104
+    },
+    {
+      "path": "docs/certification/m7.1/summary-12h.json",
+      "sha256": "c891d60d4f020e29c677cd748a57268e6813d8dc6cf3ca7ef21ca165114c938a",
+      "bytes": 1722
     },
     {
       "path": "docs/certification/m7.1/summary.json",
