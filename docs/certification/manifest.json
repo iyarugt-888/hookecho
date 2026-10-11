@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T21:37:28+00:00",
-  "generated_from_commit": "6b4d3c4157d6169c113cebac1a609562e9c10c74",
+  "generated_utc": "2026-10-11T21:47:49+00:00",
+  "generated_from_commit": "2259e1a9387e2526b00ce6d6c06056b831216b95",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -274,8 +274,8 @@
   "files": [
     {
       "path": "docs/certification/a11y/README.md",
-      "sha256": "d77ba226a85020ea3ce672c5e365917210bda670678a67d21edf0e8d89a60403",
-      "bytes": 4395
+      "sha256": "0959e5227fbe2f96c847caf9bf1dfae323201b7d9e39fa24d48c3055ea8a5657",
+      "bytes": 6561
     },
     {
       "path": "docs/certification/a11y/tablet-touch-workstation.png",
