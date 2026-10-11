@@ -233,11 +233,10 @@ impl HookEchoApp {
                         },
                     };
                     self.measure.push(point);
-                    if self.measure.len() == 2 {
-                        // The ground under the far end, for the beam's height above it.
-                        let [far_lon, far_lat] = self.measure[1].ll;
-                        self.request_ground(far_lon, far_lat, ctx);
-                    }
+                    // The ground under each end: the far end's for the beam's height above it,
+                    // and both ends' for a 3D ruler's heights above the ground.
+                    let [end_lon, end_lat] = point.ll;
+                    self.request_ground(end_lon, end_lat, ctx);
                 }
                 MapTool::Marker => {
                     let n = self.settings.markers.len() + 1;

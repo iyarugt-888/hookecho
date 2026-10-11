@@ -16,33 +16,86 @@ pub(crate) struct MeasurePoint {
 }
 
 /// An end picked on a tilt: the tilt's elevation and the beam centre's height there, feet above
-/// mean sea level (true geometry, not the 3D view's exaggeration).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// mean sea level (true geometry, not the 3D view's exaggeration), the ground under it, and what
+/// the pane's product reads at that gate.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AirEnd {
     pub elevation_deg: f32,
     pub msl_ft: f64,
+    pub ground: super::terrain_cache::Ground,
+    /// The gate's value as shown ("52 dBZ", "range folded", "below threshold"); `None` when the
+    /// point is outside the tilt's coverage.
+    pub reading: Option<String>,
 }
 
-/// The 3D ruler's label (ROADMAP_PARITY M3.6): the horizontal distance and bearing, each end's
-/// tilt and height above sea level, the rise from the first end to the second, and the
-/// straight-line distance between the two points in the air.
+/// What the pane's product reads at a measure end on its tilt.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EndReading {
+    pub moment: Moment,
+    pub value: Option<f32>,
+    pub folded: bool,
+}
+
+/// An end's reading in the pane's display units: velocity and spectrum width follow the Units
+/// setting, and velocity is the raw (aliased) value the sweep carries, said so.
+pub(crate) fn reading_text(r: EndReading, factor: f32, unit: &str) -> String {
+    if r.folded {
+        return "range folded".into();
+    }
+    let Some(v) = r.value else {
+        return "below threshold".into();
+    };
+    let decimals = match r.moment {
+        Moment::CorrelationCoefficient => 2,
+        Moment::DifferentialReflectivity | Moment::SpecificDifferentialPhase => 1,
+        _ => 0,
+    };
+    let raw = if r.moment == Moment::Velocity {
+        " raw"
+    } else {
+        ""
+    };
+    format!("{:.*} {unit}{raw}", decimals, v * factor)
+        .trim_end()
+        .to_string()
+}
+
+/// One end of the 3D ruler: its tilt, its height above sea level and above the ground, and the
+/// gate's value.
+fn air_end_text(e: &AirEnd) -> String {
+    use super::terrain_cache::Ground;
+    let mut t = format!("{:.1}°  {:.0} ft MSL", e.elevation_deg, e.msl_ft);
+    match e.ground {
+        Ground::Known { msl_m, .. } => {
+            t.push_str(&format!(", {:.0} ft AGL", e.msl_ft - msl_m * 3.280_84))
+        }
+        Ground::Loading => t.push_str(", ground loading"),
+        Ground::Unknown => {}
+    }
+    if let Some(r) = &e.reading {
+        t.push_str(&format!(", {r}"));
+    }
+    t
+}
+
+/// The 3D ruler's label (ROADMAP_PARITY M3.6), on two lines: the horizontal distance and bearing,
+/// the rise from the first end to the second and the straight-line distance between the two points
+/// in the air; then each end's tilt, heights and the gate's value.
 pub(crate) fn ruler_3d_label(
     km: f64,
     bearing_deg: f64,
     metric: bool,
-    a: AirEnd,
-    b: AirEnd,
+    a: &AirEnd,
+    b: &AirEnd,
 ) -> String {
     let rise_ft = b.msl_ft - a.msl_ft;
     let straight_km = km.hypot(rise_ft / 3_280.84);
     format!(
-        "{}  @ {bearing_deg:.0}°  ·  {:.1}° {:.0} ft → {:.1}° {:.0} ft MSL  ·  rise {rise_ft:+.0} ft  ·  straight line {}",
+        "{}  @ {bearing_deg:.0}°  ·  rise {rise_ft:+.0} ft  ·  straight line {}\n{}  →  {}",
         crate::geo::fmt_distance(km, metric, 1),
-        a.elevation_deg,
-        a.msl_ft,
-        b.elevation_deg,
-        b.msl_ft,
         crate::geo::fmt_distance(straight_km, metric, 1),
+        air_end_text(a),
+        air_end_text(b),
     )
 }
 
@@ -155,18 +208,89 @@ impl HookEchoApp {
         )
     }
 
-    /// A measure end picked on a tilt, in the air: its tilt and height above sea level.
-    pub(crate) fn air_end(&self, idx: usize, p: MeasurePoint) -> Option<AirEnd> {
+    /// A measure end picked on a tilt, in the air: its tilt, height above sea level, the ground
+    /// under it as far as the terrain tiles know, and `reading` (from [`Self::measure_readings`]).
+    pub(crate) fn air_end(
+        &self,
+        idx: usize,
+        p: MeasurePoint,
+        reading: Option<EndReading>,
+    ) -> Option<AirEnd> {
         let v = &self.views[idx];
         let site = wxdata::sites::site_by_id(v.site.as_deref()?)?;
         let elevation_deg = *v.volume.as_ref()?.elevations.get(p.tilt?)?;
         let (km, _) = crate::geo::great_circle([site.longitude as f64, site.latitude as f64], p.ll);
         let antenna_m = f64::from(site.elevation_meters) + wxdata::towers::tower_m(site.id);
         let above_radar_m = wxdata::xsection::beam_height_km(km, elevation_deg as f64) * 1_000.0;
+        let reading = reading.map(|r| {
+            let (factor, unit) = super::display_units(r.moment, &self.settings);
+            reading_text(r, factor, unit)
+        });
         Some(AirEnd {
             elevation_deg,
             msl_ft: (above_radar_m + antenna_m) * 3.280_84,
+            ground: self.terrain.ground(p.ll[0], p.ll[1]),
+            reading,
         })
+    }
+
+    /// What pane `idx`'s product reads at each measure end on its own tilt, from that tilt's
+    /// binned sweep (cached: the 3D view bins every tilt it draws). `None` for an end on the
+    /// ground or outside the tilt's coverage.
+    pub(crate) fn measure_readings(&mut self, idx: usize) -> Vec<Option<EndReading>> {
+        let points = self.measure.clone();
+        let Some(v) = self.views.get_mut(idx) else {
+            return Vec::new();
+        };
+        let moment = v.moment;
+        points
+            .iter()
+            .map(|p| {
+                let sweep = v.volume.as_mut()?.binned(moment, p.tilt?, false).ok()?;
+                let s = sweep.sample_at(p.ll[0], p.ll[1])?;
+                Some(EndReading {
+                    moment,
+                    value: s.value,
+                    folded: s.folded,
+                })
+            })
+            .collect()
+    }
+
+    /// PgUp/PgDn with the Measure tool: move the last end placed in the 3D Observed view up or
+    /// down a tilt over the same ground (ROADMAP_PARITY M3.6), so the ruler spans the tilts the
+    /// analyst means rather than whichever beam a click met first. Untouched otherwise.
+    pub(crate) fn measure_tilt_keys(&mut self, ctx: &egui::Context) {
+        if self.tool != MapTool::Measure || ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        let Some(tilt) = self.measure.last().and_then(|p| p.tilt) else {
+            return;
+        };
+        let tilts = self.views[self.active]
+            .volume
+            .as_ref()
+            .map_or(0, |v| v.elevations.len());
+        // Counted, not just seen: presses that land in one frame each move a tilt.
+        let (up, down) = ctx.input_mut(|i| {
+            (
+                i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::PageUp),
+                i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::PageDown),
+            )
+        });
+        let next = step_tilt(tilt, tilts, up, down);
+        if let Some(p) = self.measure.last_mut() {
+            p.tilt = Some(next);
+        }
+    }
+
+    /// Whether a Measure click on the active pane lands on a tilt, in the air: the 3D Observed
+    /// view with a volume.
+    pub(crate) fn measure_in_air(&self) -> bool {
+        let v = &self.views[self.active];
+        v.map_3d.enabled
+            && v.map_3d.representation == crate::view::Map3dRepresentation::ObservedSweeps
+            && v.volume.is_some()
     }
 
     /// Where a measure end is drawn: on its beam in the 3D Observed view, the way the sweeps
@@ -203,7 +327,8 @@ impl HookEchoApp {
         Some(cam.world_to_screen(w, vp))
     }
 
-    /// Draw the measure tool's points, line and label on pane `idx`.
+    /// Draw the measure tool's points, line and label on pane `idx`; `readings` are each end's
+    /// gate values on its tilt ([`Self::measure_readings`]).
     pub(crate) fn paint_measure(
         &self,
         painter: &egui::Painter,
@@ -211,6 +336,7 @@ impl HookEchoApp {
         cam: crate::render::mercator::Camera,
         vp: (f32, f32),
         idx: usize,
+        readings: &[Option<EndReading>],
     ) {
         if self.measure.is_empty() {
             return;
@@ -230,11 +356,12 @@ impl HookEchoApp {
             painter.line_segment([a, b], egui::Stroke::new(2.0, col));
             let (km, brg) = crate::geo::great_circle(self.measure[0].ll, self.measure[1].ll);
             // Both ends on tilts in the 3D view: a ruler in the air. Otherwise the map's ruler.
+            let reading = |i: usize| readings.get(i).copied().flatten();
             let txt = match (
-                self.air_end(idx, self.measure[0]),
-                self.air_end(idx, self.measure[1]),
+                self.air_end(idx, self.measure[0], reading(0)),
+                self.air_end(idx, self.measure[1], reading(1)),
             ) {
-                (Some(ea), Some(eb)) => ruler_3d_label(km, brg, self.metric_in(idx), ea, eb),
+                (Some(ea), Some(eb)) => ruler_3d_label(km, brg, self.metric_in(idx), &ea, &eb),
                 _ => measure_label(
                     km,
                     brg,
@@ -242,16 +369,25 @@ impl HookEchoApp {
                     self.beam_over(idx, self.measure[1].ll),
                 ),
             };
+            // On a dark card: over radar, roads and warnings, bare yellow text is unreadable.
             let mid = a + (b - a) * 0.5;
-            painter.text(
-                mid + egui::vec2(0.0, -10.0),
-                egui::Align2::CENTER_BOTTOM,
-                txt,
-                egui::FontId::proportional(12.0),
-                col,
-            );
+            let galley = painter.layout_no_wrap(txt, egui::FontId::proportional(12.0), col);
+            let rect = egui::Align2::CENTER_BOTTOM
+                .anchor_size(mid + egui::vec2(0.0, -10.0), galley.size())
+                .expand2(egui::vec2(6.0, 3.0));
+            painter.rect_filled(rect, 4.0, egui::Color32::from_black_alpha(200));
+            painter.galley(rect.min + egui::vec2(6.0, 3.0), galley, col);
         }
     }
+}
+
+/// The tilt `up` PgUp and `down` PgDn presses move an end to: one tilt each, held at the lowest
+/// and highest of `tilts`; unchanged when the volume has no tilts.
+pub(crate) fn step_tilt(tilt: usize, tilts: usize, up: usize, down: usize) -> usize {
+    if tilts == 0 {
+        return tilt;
+    }
+    (tilt + up).saturating_sub(down).min(tilts - 1)
 }
 
 #[cfg(test)]
@@ -263,22 +399,91 @@ mod tests {
     /// hypot(10 km, 3.048 km) = 10.45 km.
     #[test]
     fn the_3d_ruler_reads_rise_and_straight_line() {
+        use crate::app::terrain_cache::Ground;
         let a = AirEnd {
             elevation_deg: 0.5,
             msl_ft: 2_000.0,
+            // 1,200 ft of ground under it.
+            ground: Ground::Known {
+                msl_m: 365.76,
+                resolution_m: 62.0,
+            },
+            reading: Some("52 dBZ".into()),
         };
         let b = AirEnd {
             elevation_deg: 3.1,
             msl_ft: 12_000.0,
+            ground: Ground::Loading,
+            reading: None,
         };
-        let l = ruler_3d_label(10.0, 45.0, true, a, b);
-        assert!(l.contains("0.5° 2000 ft → 3.1° 12000 ft MSL"), "{l}");
-        assert!(l.contains("rise +10000 ft"), "{l}");
+        let l = ruler_3d_label(10.0, 45.0, true, &a, &b);
+        let (top, ends) = l.split_once('\n').expect("two lines");
+        assert!(top.contains("rise +10000 ft"), "{l}");
         let straight = crate::geo::fmt_distance(10.0f64.hypot(10_000.0 / 3_280.84), true, 1);
-        assert!(l.ends_with(&format!("straight line {straight}")), "{l}");
+        assert!(top.ends_with(&format!("straight line {straight}")), "{l}");
         assert!(straight.starts_with("10.5"), "{straight}");
-        // Downhill reads as a negative rise.
-        assert!(ruler_3d_label(10.0, 45.0, true, b, a).contains("rise -10000 ft"));
+        assert_eq!(
+            ends,
+            "0.5°  2000 ft MSL, 800 ft AGL, 52 dBZ  →  3.1°  12000 ft MSL, ground loading"
+        );
+        // Downhill reads as a negative rise; unknown ground is left out rather than guessed.
+        let b_unknown = AirEnd {
+            ground: Ground::Unknown,
+            ..b.clone()
+        };
+        let down = ruler_3d_label(10.0, 45.0, true, &b_unknown, &a);
+        assert!(down.contains("rise -10000 ft"), "{down}");
+        assert!(down.contains("\n3.1°  12000 ft MSL  →  "), "{down}");
+    }
+
+    /// A gate's value as the ruler says it: in display units, folded and below-threshold gates in
+    /// words, velocity marked raw.
+    #[test]
+    fn an_end_reading_says_what_the_gate_holds() {
+        let r = |moment, value, folded| EndReading {
+            moment,
+            value,
+            folded,
+        };
+        assert_eq!(
+            reading_text(r(Moment::Reflectivity, Some(52.4), false), 1.0, "dBZ"),
+            "52 dBZ"
+        );
+        assert_eq!(
+            reading_text(
+                r(Moment::CorrelationCoefficient, Some(0.873), false),
+                1.0,
+                ""
+            ),
+            "0.87"
+        );
+        assert_eq!(
+            reading_text(r(Moment::Velocity, Some(-20.0), false), 1.943_844, "kt"),
+            "-39 kt raw"
+        );
+        assert_eq!(
+            reading_text(r(Moment::Velocity, None, true), 1.0, "m/s"),
+            "range folded"
+        );
+        assert_eq!(
+            reading_text(r(Moment::Reflectivity, None, false), 1.0, "dBZ"),
+            "below threshold"
+        );
+    }
+
+    /// Each PgUp/PgDn moves an end one tilt, several in a frame several tilts, stopping at the
+    /// volume's lowest and highest.
+    #[test]
+    fn the_tilt_steps_one_press_at_a_time_within_the_volume() {
+        assert_eq!(step_tilt(2, 14, 1, 0), 3);
+        assert_eq!(step_tilt(2, 14, 0, 1), 1);
+        assert_eq!(step_tilt(13, 14, 1, 0), 13);
+        assert_eq!(step_tilt(0, 14, 0, 1), 0);
+        assert_eq!(step_tilt(4, 14, 0, 0), 4);
+        assert_eq!(step_tilt(4, 14, 1, 1), 4);
+        assert_eq!(step_tilt(13, 14, 0, 20), 0);
+        assert_eq!(step_tilt(3, 14, 5, 0), 8);
+        assert_eq!(step_tilt(0, 0, 1, 0), 0);
     }
 
     #[test]

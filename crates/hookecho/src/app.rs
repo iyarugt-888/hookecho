@@ -6592,7 +6592,8 @@ impl HookEchoApp {
         }
 
         // Measure tool.
-        self.paint_measure(&painter, prect, cam, vp, idx);
+        let readings = self.measure_readings(idx);
+        self.paint_measure(&painter, prect, cam, vp, idx, &readings);
 
         self.region.paint(&painter, |ll| {
             let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
@@ -8187,6 +8188,7 @@ impl HookEchoApp {
         // listening for the next keypress.
         if !self.capture_key {
             self.storm_track_keys(ctx);
+            self.measure_tilt_keys(ctx);
             let bindings = hotkeys::active(&self.settings).into_owned();
             for action in hotkeys::poll(ctx, &bindings) {
                 self.apply_action(action, ctx);

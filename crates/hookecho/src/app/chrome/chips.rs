@@ -210,6 +210,11 @@ impl HookEchoApp {
                 "Radar suitability",
                 "click a point to rank nearby radars",
             ),
+            MapTool::Measure if self.measure_in_air() => (
+                ph::RULER,
+                "Measure",
+                "click two points on the tilts · PgUp/PgDn moves the last one a tilt",
+            ),
             MapTool::Measure => (ph::RULER, "Measure", "click two points"),
             MapTool::Marker => (ph::MAP_PIN, "Drop marker", "click the map"),
             MapTool::CrossSection => (
