@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: alerts and notices are not told by colour alone
+
+The alert bell's count now marks how serious the worst alert in view is with more than its
+colour: a ring for a considerable damage threat, "!" for a destructive one or an observed
+tornado, and "!!" for a Tornado Emergency or PDS, which used to look the same as a destructive
+warning. Screen readers hear the count and the worst alert in words. Notices that pop up in the
+corner start with an icon for information, success or a problem.
+
 ### Fixed: Android back gesture with a sheet open
 
 Swiping back while a sheet or full-screen view was open closed the app with an error instead of

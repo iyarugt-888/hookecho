@@ -4374,7 +4374,13 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   in words in their hover and accessible name, the app bar's feed dot sits beside its own text,
   the live tilt is a ring (and an arc for progress) rather than a colored dot, and the one mark
   that relied on color alone, the timeline's forecast-hour ticks, is now split at the rail. The
-  floating chrome and ribbon have not had this pass.
+  floating chrome and phone rail had theirs on 2026-10-10 (1010.md V11). The alert bell's count
+  badge, which told the worst alert in view by colour alone and gave its two top tiers the same
+  red, now adds a ring from CONSIDERABLE up and "!" or "!!" for the top two. Its accessible name
+  gives the count and the worst tier in words. Toasts lead with a glyph for their kind, not only
+  a border colour. Evidence: `docs/certification/a11y/`. The WSV3 ribbon's own marks were
+  already words or shapes when looked at (its Live chip, tilt progress and data age); not yet
+  swept as exhaustively as the dock.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from
