@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: Android background alerts on long severe-weather days
+
+On Android 15, background alerting could crash the app after six hours of watching in a day, the
+system's limit for this kind of service. The watch now stops cleanly at the limit, Settings says
+so, and checks continue on the alarm schedule until the app is opened again, which restarts it.
+
+### Fixed: Android background alerts catch narrow warnings
+
+Background alerts used to check a saved place's centre and six points around its watch radius,
+so a narrow warning could pass between them. Each check now tests the warning polygons
+themselves against the place's whole watch circle, or the whole drawn zone. Phones set to a
+language that writes decimals with a comma also asked the weather service a malformed question
+and found no alerts at all; that is fixed too.
+
+### Fixed: Android 15 devices with 16 KB memory pages
+
+The app is now built for 16 KB memory pages, so newer phones no longer show a compatibility
+warning or run it in a reduced-stability mode. The build checks this on every run.
+
 ### Added: a ruler in 3D
 
 In the 3D Observed view, the Measure tool's two clicks land on the radar beams under the

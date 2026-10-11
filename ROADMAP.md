@@ -61,8 +61,6 @@ naming its own upgrade path.
   everything. IndexedDB or OPFS is the upgrade (`paths.rs`).
 - A tablet layout for Android — the phone chrome is what a tablet gets today
   (`ui/m3.rs`).
-- Background alerts that test real polygon intersection instead of sampling
-  points around a marker's radius (`Nws.kt`).
 - Snap positions for the mobile sheets; they dismiss on a drag today but have no
   half-open state.
 - Blending surface observations into the effective-layer analysis, which is the

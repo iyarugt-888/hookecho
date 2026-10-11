@@ -352,6 +352,9 @@ be building on a floor that is already cracked.
 
 ### 6.1 16 KB page alignment — NDK r26d is too old
 
+> **Done, 2026-10-10:** the linker flags are in `.cargo/config.toml`, and CI checks LOAD alignment
+> and `zipalign -P 16` (ROADMAP_PARITY M7.2 ledger). Not yet seen on a 16 KB device.
+
 Android 15+ devices can run with 16 KB memory pages. Native libraries whose ELF LOAD segments
 are 4 KB-aligned fall into **16 KB backcompat mode**: the app shows a warning on first launch
 and runs with, in Google's words, reduced reliability and stability.
@@ -373,6 +376,10 @@ targeting API 35+ since 2025-11-01) does not apply to sideloaded APKs — but ba
 its warning dialog apply to any app on a 16 KB device, however it was installed.
 
 ### 6.2 Android 15 foreground-service timeout — a live crash
+
+> **Fixed in code, 2026-10-10:** `onTimeout` stops cleanly, a refused restart after the cap stops
+> instead of crashing, Settings reports it, and opening the app restarts the service
+> (ROADMAP_PARITY M7.2 ledger). The `dataSync`/`specialUse` decision and a device check remain.
 
 `AndroidManifest.xml` declares `android:foregroundServiceType="dataSync"` and `targetSdk` is
 35. On Android 15 that means **6 hours of cumulative `dataSync` foreground service per 24-hour
