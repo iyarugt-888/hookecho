@@ -503,7 +503,7 @@ mod android_trim {
                     log::info!("memory trim, level {level:?} ({trim:?}): {done}");
                 }
                 Err(_) => log::warn!("memory trim, level {level:?}: the app was busy"),
-            }
+            };
         }
     }
 }
