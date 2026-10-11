@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "baseline": "bea5e673f4936ebb746fc1a023ae559bc00094c8",
+  "host": "Windows NT 10.0.22631.0; loopback CPU controls; no GPU exercised",
+  "commands_exit_status": {
+    "baseline": "bea5e673f4936ebb746fc1a023ae559bc00094c8",
+    "focused": 0,
+    "clippy": 0,
+    "wasm": 0,
+    "workspace": 0,
+    "format_owned": 0,
+    "format_workspace": 1,
+    "final_shared_head": "bea5e673f4936ebb746fc1a023ae559bc00094c8"
+  },
+  "logs": {
+    "focused-final": {
+      "path": "target/parity-review/m1.3/codex-relay-focused-final.log",
+      "sha256": "3bed450b6d550d69cc3c35cd08576c3fc8f11c66c50527470cfa9f12a6c40e65",
+      "results": [
+        "ok. 21 passed; 0 failed; 0 ignored; 0 measured; 1512 filtered out; finished in 9.17s"
+      ]
+    },
+    "clippy": {
+      "path": "target/parity-review/m1.3/codex-relay-clippy.log",
+      "sha256": "051a00e28c13b4c42eda7c3d0437f96cc8aa21254014f5c4f7398ac5c07776a9",
+      "results": []
+    },
+    "wasm": {
+      "path": "target/parity-review/m1.3/codex-relay-wasm.log",
+      "sha256": "065d4656fe4fc98bb0e2577c866b010aef7690bd1a7946819f1b94648648aa1f",
+      "results": []
+    },
+    "workspace": {
+      "path": "target/parity-review/m1.3/codex-relay-workspace.log",
+      "sha256": "480a5aa4ca29caebc79b408aa4acbab669bc016650bed80a9ce8c932cc88de9b",
+      "results": [
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+        "ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "ok. 1444 passed; 0 failed; 89 ignored; 0 measured; 0 filtered out; finished in 27.45s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s",
+        "ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+        "ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s",
+        "ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+        "ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 1073 passed; 0 failed; 90 ignored; 0 measured; 0 filtered out; finished in 41.79s",
+        "ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+        "ok. 13 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 60.29s",
+        "ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s",
+        "ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "ok. 0 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 14.21s",
+        "ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 7 passed; 0 failed; 14 ignored; 0 measured; 0 filtered out; finished in 2.21s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s",
+        "ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+        "ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    "format": {
+      "path": "target/parity-review/m1.3/codex-relay-format.log",
+      "sha256": "00cdcebd26886c7ed7494930353648445795043b985e3c4c2b0df699db0c506b",
+      "results": []
+    },
+    "format-workspace": {
+      "path": "target/parity-review/m1.3/codex-relay-format-workspace.log",
+      "sha256": "8eb0bc3e69b20ef949e635abb98fcf7cbd7bd8ae9dc0742739ca80e880ecc610",
+      "results": []
+    }
+  },
+  "source_worktree_sha256": "a38c13d99713607e5501d6df0fc0359543583a5db2a55bf4b41c039480415f69",
+  "fixture_sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c",
+  "production_setup_timeout_secs": 15,
+  "retirement_check_ms": 250,
+  "final_focused_command": "target/debug/deps/hookecho-cb830ecc8c6a7c3c.exe relay_provider:: --nocapture (executable from full workspace build)",
+  "test_setup_timeout_ms": 150,
+  "observed_cancellation_ms": [
+    "251"
+  ],
+  "observed_test_attempt_ms": [
+    "275"
+  ],
+  "observations": "individual debug test runs; deadline-attempt timing includes fixture setup; not percentiles",
+  "scope": "Five new connection-lifetime controls plus existing relay protocol tests in a shared checkout",
+  "limitations": [
+    "No operational dual-feed independence or live severe-weather fault session.",
+    "No interactive desktop/Android or visible presentation timing.",
+    "Successful second handshake closes without radar input; it establishes connection recovery only.",
+    "Concurrent peer changes were present for checks and excluded from the commit."
+  ]
+}

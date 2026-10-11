@@ -764,6 +764,22 @@ gates remain open. Native decode already running can finish after cancellation; 
 cannot deliver a result. Visible presentation latency is not measured by this increment.
 
 
+**Evidence ledger — 2026-10-11, relay connection lifetime (CODEX_GOAL M1.3):**
+`relay_provider::subscribe` now bounds DNS/TCP/TLS/WebSocket setup to 15 seconds and checks
+retirement on the existing 250 ms activity cadence before the WebSocket is established.
+Inactive entry opens no connection; retirement is a clean exit, and a ready result racing
+with retirement cannot deliver callbacks. An active timeout reaches the existing health
+failure/cooldown path. Established quiet sockets and merge/continuation rules retain their
+existing behavior. Five real loopback controls cover stalled-upgrade timeout and socket
+release, same-endpoint connection recovery, inactive entry, the unbounded original expression,
+and monitor failure without fabricated source/receipt clocks or immediate retries.
+[Refreshed gap audit, exact commands, results and limits](docs/certification/m1.3/relay-handshake.md).
+Implementation: implemented; verification: partial. Operational upstream independence,
+full-app switch/rendering, actual visible presentation and physical Android remain open.
+Only the relay adapter, its controls and evidence/ledger are owned by this increment;
+concurrent sounding, sweep-sharing and detector changes are excluded.
+
+
 #### M1.4 — Complete retained provenance and scientific lineage
 
 **Priority:** P0. **Depends on:** M0.2, M1.1. **Status:** implementation: in progress (source clocks; Tornado ID lineage); verification: partial. **Original references:** ROADMAP_2 §§9, 10; ROADMAP_NEW §§A1, A2, N1, N2.

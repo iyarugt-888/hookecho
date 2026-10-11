@@ -24,17 +24,24 @@ use wxdata::live_block::{assemble_scan, LiveLevel2Block, ProviderCapabilities, V
 use wxdata::live_sequence::{SequenceLedger, SequenceOrigin};
 use wxdata::relay_wire::BlockDto;
 
+// Connection setup includes DNS, TCP, TLS and the HTTP upgrade. A quiet open WebSocket may
+// stay open, but an unfinished handshake must eventually become a transport failure.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const CANCEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// A live Level II source backed by a self-hosted `radar-ingest` instance (ROADMAP_NEW B6.2-B6.4).
 pub struct HookEchoRelayLevel2Provider {
     /// Base URL of the relay, e.g. `http://localhost:8080` or `https://relay.example.com` — no
     /// trailing slash (normalized in [`Self::new`]).
     base_url: String,
+    connect_timeout: std::time::Duration,
 }
 
 impl HookEchoRelayLevel2Provider {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
+            connect_timeout: CONNECT_TIMEOUT,
         }
     }
 
@@ -183,10 +190,29 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         mut on_update: Box<dyn FnMut(Update) + Send>,
         mut on_progress: Box<dyn FnMut(ScanProgress) + Send>,
     ) -> anyhow::Result<()> {
+        if !active() {
+            return Ok(());
+        }
         let url = self.ws_url(&site);
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .map_err(|e| anyhow::anyhow!("connecting to relay at {url}: {e}"))?;
+        let connection =
+            tokio::time::timeout(self.connect_timeout, tokio_tungstenite::connect_async(&url));
+        tokio::pin!(connection);
+        let connected = loop {
+            tokio::select! {
+                result = &mut connection => break result,
+                _ = tokio::time::sleep(CANCEL_INTERVAL) => {
+                    if !active() { return Ok(()); }
+                }
+            }
+        };
+        // A stop can race with successful setup or its deadline. Retirement is a clean exit,
+        // not a transport error, and must not deliver data into the old subscription.
+        if !active() {
+            return Ok(());
+        }
+        let (ws_stream, _) = connected
+            .map_err(|_| anyhow::anyhow!("relay connection setup timed out"))?
+            .map_err(|e| anyhow::anyhow!("connecting to relay: {e}"))?;
         let mut read = ws_stream;
 
         let mut merged = base;
@@ -206,7 +232,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             let msg = loop {
                 tokio::select! {
                     msg = &mut next => break msg,
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                    _ = tokio::time::sleep(CANCEL_INTERVAL) => {
                         if !active() { return Ok(()); }
                     }
                 }
@@ -531,6 +557,262 @@ mod integration_tests {
     use radar_ingest::pipeline::Pipeline;
     use radar_ingest::rechunk::RechunkConfig;
     use std::sync::Mutex;
+
+    fn handshake_base() -> Arc<Scan> {
+        Arc::new(
+            wxdata::level2::decode_volume(
+                include_bytes!("../../wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2")
+                    .to_vec(),
+            )
+            .unwrap(),
+        )
+    }
+
+    // Read the real upgrade request but never answer it. EOF proves the cancelled/expired
+    // future released its socket; merely observing an outer test timeout would not prove that.
+    async fn stalled_upgrade(
+        listener: &tokio::net::TcpListener,
+        ready: tokio::sync::oneshot::Sender<()>,
+    ) {
+        use tokio::io::AsyncReadExt;
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut header = Vec::new();
+        while !header.ends_with(b"\r\n\r\n") {
+            let byte = socket.read_u8().await.unwrap();
+            header.push(byte);
+            assert!(header.len() < 8192);
+        }
+        assert!(header.starts_with(b"GET /sites/KFTG/live HTTP/1.1\r\n"));
+        let _ = ready.send(());
+        let mut byte = [0];
+        let read = tokio::time::timeout(std::time::Duration::from_secs(2), socket.read(&mut byte))
+            .await
+            .expect("client must release the abandoned handshake socket");
+        assert!(matches!(read, Ok(0)) || read.is_err()); // Windows can report a reset.
+    }
+
+    #[tokio::test]
+    async fn retiring_during_a_stalled_handshake_releases_the_connection_without_delivery() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move { stalled_upgrade(&listener, ready_tx).await });
+        let active = Arc::new(AtomicBool::new(true));
+        let token = active.clone();
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let updates = delivered.clone();
+        let progress = delivered.clone();
+        let client = tokio::spawn(async move {
+            HookEchoRelayLevel2Provider::new(format!("http://{address}"))
+                .subscribe(
+                    "KFTG".into(),
+                    handshake_base(),
+                    Box::new(move || token.load(Ordering::Relaxed)),
+                    Box::new(move |_| {
+                        updates.fetch_add(1, Ordering::Relaxed);
+                    }),
+                    Box::new(move |_| {
+                        progress.fetch_add(1, Ordering::Relaxed);
+                    }),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), ready_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let stop = std::time::Instant::now();
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(1), client)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        server.await.unwrap();
+        assert_eq!(delivered.load(Ordering::Relaxed), 0);
+        println!(
+            "relay stalled handshake cancellation_ms={}",
+            stop.elapsed().as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_handshake_times_out_and_the_same_endpoint_can_recover() {
+        use futures_util::SinkExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            stalled_upgrade(&listener, ready_tx).await;
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(socket).await.unwrap();
+            ws.send(tokio_tungstenite::tungstenite::Message::Close(None))
+                .await
+                .unwrap();
+        });
+        let mut provider = HookEchoRelayLevel2Provider::new(format!("http://{address}"));
+        provider.connect_timeout = std::time::Duration::from_millis(150);
+        let start = std::time::Instant::now();
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            provider.subscribe(
+                "KFTG".into(),
+                handshake_base(),
+                Box::new(|| true),
+                Box::new(|_| panic!("stalled upgrade cannot supply a scan")),
+                Box::new(|_| panic!("stalled upgrade cannot supply progress")),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.to_string(), "relay connection setup timed out");
+        println!(
+            "relay stalled handshake timeout_ms={}",
+            start.elapsed().as_millis()
+        );
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            provider.subscribe(
+                "KFTG".into(),
+                handshake_base(),
+                Box::new(|| true),
+                Box::new(|_| panic!("close-only recovery cannot invent data")),
+                Box::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_inactive_subscription_never_opens_a_connection() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let provider =
+            HookEchoRelayLevel2Provider::new(format!("http://{}", listener.local_addr().unwrap()));
+        provider
+            .subscribe(
+                "KFTG".into(),
+                handshake_base(),
+                Box::new(|| false),
+                Box::new(|_| panic!("inactive update")),
+                Box::new(|_| panic!("inactive progress")),
+            )
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_original_connection_expression_has_no_handshake_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move { stalled_upgrade(&listener, ready_tx).await });
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(150),
+                tokio_tungstenite::connect_async(format!("ws://{address}/sites/KFTG/live"))
+            )
+            .await
+            .is_err(),
+            "unbounded original expression must still be waiting for upgrade"
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_handshake_timeout_reaches_health_without_inventing_receipts_or_hot_retries() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            // Advisory topology is absent on this old relay, but the monitor must still try
+            // data setup and classify its actual timeout separately from metadata failure.
+            let (mut metadata, _) = listener.accept().await.unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                header.push(metadata.read_u8().await.unwrap());
+                assert!(header.len() < 8192);
+            }
+            assert!(header.starts_with(b"GET /provider HTTP/1.1\r\n"));
+            metadata
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            drop(metadata);
+            stalled_upgrade(&listener, ready_tx).await;
+            // The existing two-second monitor cooldown must still apply after the new timeout.
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(300), listener.accept())
+                    .await
+                    .is_err()
+            );
+        });
+        let mut provider = HookEchoRelayLevel2Provider::new(format!("http://{address}"));
+        provider.connect_timeout = std::time::Duration::from_millis(150);
+        let board: crate::provider_health::HealthBoard =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let active = Arc::new(AtomicBool::new(true));
+        let token = active.clone();
+        let monitor = tokio::spawn(crate::provider_health::monitor_provider(
+            Arc::new(provider),
+            "KFTG".into(),
+            handshake_base(),
+            Arc::new(move || token.load(Ordering::Relaxed)),
+            board.clone(),
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("HookEcho Relay")
+                    .is_some_and(|health| health.failures == 1)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // Keep the monitor wanted during the no-retry observation; retirement alone would
+        // otherwise prevent retries and fail to exercise the existing cooldown.
+        server.await.unwrap();
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(1), monitor)
+            .await
+            .unwrap()
+            .unwrap();
+        let health = board.lock().unwrap();
+        let relay = &health["HookEcho Relay"];
+        assert_eq!(
+            (
+                relay.failures,
+                relay.successes,
+                relay.reconnects,
+                relay.advancing_observations
+            ),
+            (1, 0, 1, 0)
+        );
+        assert!(relay.last_receipt_at.is_none() && relay.newest_radar_time.is_none());
+        assert_eq!(
+            relay.last_error.as_deref(),
+            Some("relay connection setup timed out")
+        );
+    }
 
     // radial_status codes (see nexrad-decode's `RadialStatus`).
     const ELEVATION_END: u8 = 2;
