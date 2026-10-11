@@ -28,10 +28,11 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   the way) were the real unknowns, and all three bands are proven against the
   live bucket now. GOES-West is in too (`settings.goes_satellite_west`, a
   Layer settings toggle — exclusive with East, since the two satellites'
-  CONUS scans overlap). What's actually left: other sectors (mesoscale, full
-  disk) instead of the one hardcoded CONUS crop, hooking the CMIP bands into
-  the existing GIBS frame bar's "follow the radar clock" scrubbing rather
-  than a plain on/off toggle, and imagery inside an offline chase pack.
+  CONUS scans overlap). The two mesoscale sectors are in beside CONUS
+  (`goes_abi::Sector`), native ABI frames follow the radar clock, and a
+  satellite loop plays every one-minute mesoscale scan (ROADMAP_PARITY M5.2).
+  What's actually left: the full-disk sector, and imagery inside an offline
+  chase pack.
 - **Model coverage on par with the other radar apps.** NAM's own 12 km grid
   (`hrrr::Model::Nam`), the GFS ensemble mean (`global::GlobalModel::Gefs`),
   Environment Canada's GDPS (`global::GlobalModel::Gdps`) and NDFD (the NWS's
@@ -39,14 +40,13 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   `wxdata::ndfd`) are all in, each verified against its live public source.
   NDFD's snowfall grid also turned up (and paid for the fix of) a real
   decoder bug in the Complex Grid Packing template nothing else here had
-  exercised — see the changelog. Still open: RRFS (HRRR's planned successor
-  — its public bucket currently holds only a 2024 retrospective test run,
-  not a live operational feed, so it's not addable yet as more than a
-  guess) and HREF (the short-range CAM ensemble — no confirmed public
-  bucket found yet; NOMADS may have it but that needs its own directory-
-  listing recon the way GDPS's Datamart got). ICON (DWD) is the one of
-  these four with a real open question rather than just unconfirmed
-  logistics: its native grid is icosahedral (triangular cells over the
+  exercised — see the changelog. RRFS v1.0 and HREF's probability-matched
+  mean are in too (`hrrr::Model`), both from NOMADS, since neither has an
+  operational AWS bucket (RRFS's holds only retrospective runs, and
+  `noaa-href-pds` does not exist). Still open: HREF's neighbourhood
+  probabilities (1010.md V10), and the browser build, which cannot reach
+  NOMADS without a proxy. ICON (DWD) is the one model here with a real open
+  question rather than just unconfirmed logistics: its native grid is icosahedral (triangular cells over the
   sphere), not the regular lat/lon or Lambert grids every model this app
   reads decodes today, so `gribberish` support for that grid definition
   template would need confirming (or a DWD-published regular-lat/lon

@@ -4519,12 +4519,13 @@ This is the explicit “what are we still missing?” list for agents.
   CONUS), with missing scans as gaps and bounded disk prefetch (ROADMAP_PARITY M5.2 increment 1)
 - [ ] broad RGB/channel suite
 - [ ] generic 80+-class MRMS catalog coverage
-- [ ] RRFS/REFS
-- [ ] GEFS / ensemble probabilities
-- [ ] NBM
-- [ ] RTMA/URMA
+- [ ] RRFS/REFS — RRFS v1.0 is in from NOMADS (`hrrr::Model`); REFS, its ensemble, is not
+- [ ] GEFS / ensemble probabilities — the GEFS mean is in (`global::GlobalModel::Gefs`), and
+  HREF's probability-matched mean; neighbourhood probabilities, stamps and plumes are 1010.md V10
+- [x] NBM — `hrrr::Model` (National Blend of Models), on the model timeline
+- [x] RTMA/URMA — `wxdata::rtma`, the surface analyses
 - [ ] richer model/run comparison
-- [ ] route planning
+- [x] route planning — L1–L4: OSRM/Valhalla routes, weather exposure along them, storm intercepts
 - [x] AWIPS-style pane layouts — J1 now supports persisted equal grids and adaptive large-primary
   focus layouts for every supported multi-pane count
 - [ ] WFO boundary/contact tooling
@@ -4714,11 +4715,11 @@ too, and so are terrain (H5), storm-relative velocity (H1) and user-defined prod
 
 - [x] user-defined radar product system — formula evaluation + a live gate-side readout (see C1);
   rendering a product as its own map layer is not built
-- [ ] maximum/minimum value trails
+- [x] maximum/minimum value trails — C2's extremum trail (`app/trail.rs`), drawn in the sweep's place
 - [ ] mature transfer-function 3D — translucent front-to-back compositing with per-km opacity
   and gradient lighting now sits beside MIP (ROADMAP_PARITY M3.5 increment 1), and the opacity
   curve takes two to eight editable stops (increment 2); colour stops remain
-- [ ] isosurfaces
+- [x] isosurfaces — `wxdata::isosurface`, built per frame for the 3D loop (`loop3d`)
 - [x] movable slicing planes / clip slabs — see H4: an arbitrary-bearing vertical plane plus the
   pre-existing axis-aligned box; a horizontal in-view CAPPI plane and a map-pane cross-section
   line remain unbuilt
@@ -5065,11 +5066,11 @@ HookEcho should be considered “top-tier U.S. analyst workstation” only when 
 - [ ] radar/satellite/MRMS valid-time synchronization
 - [ ] RRFS/REFS + GEFS + NBM + expanded HRRR/RAP/GFS
 - [ ] ensemble probabilities/postage stamps/plumes
-- [ ] RTMA/URMA surface analysis
+- [x] RTMA/URMA surface analysis — `wxdata::rtma`
 - [ ] model/run/observed comparison workflows
 - [ ] advanced soundings/hodographs
-- [ ] user-defined radar products
-- [ ] temporal max/min trails
+- [x] user-defined radar products — C1 (`wxdata::udp`), drawn as their own layer
+- [x] temporal max/min trails — C2
 - [ ] advanced 3D transfer functions + isosurfaces + slicing planes
 - [ ] beam-rise/blockage/coverage analysis
 - [ ] GeoJSON/Shapefile/KML GIS import
@@ -5078,7 +5079,7 @@ HookEcho should be considered “top-tier U.S. analyst workstation” only when 
 - [x] synchronized multi-pane crosshair/probe — J3 links one geographic cursor across panes and
   samples radar plus resident MRMS/model/GOES/NDFD grids into one time/value table
 - [ ] historical algorithm and model verification
-- [ ] chase route weather-exposure analysis
+- [x] chase route weather-exposure analysis — L3 (warnings, heavy echo, MRMS hail and rain, lightning, storm intercepts); forecast fields along the route are still open
 - [ ] broadcast/headless deterministic rendering
 - [ ] GeoTIFF/NetCDF/CSV/GeoJSON scientific export where applicable
 - [ ] browser persistent cache
