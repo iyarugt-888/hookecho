@@ -51,7 +51,7 @@ class AlertWidget : AppWidgetProvider() {
         val intent = Intent(context, MainActivity::class.java)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         watched.firstOrNull()?.let {
-            intent.putExtra(MainActivity.EXTRA_GOTO, ",%.4f,%.4f,9".format(it.lon, it.lat))
+            intent.putExtra(MainActivity.EXTRA_GOTO, ",%.4f,%.4f,9".format(java.util.Locale.US, it.lon, it.lat))
         }
         val tap = PendingIntent.getActivity(
             context, 0, intent,

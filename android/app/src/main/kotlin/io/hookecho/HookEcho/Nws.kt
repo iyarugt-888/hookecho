@@ -30,9 +30,16 @@ object Nws {
         val lat: Double,
         val lon: Double,
         val samples: List<DoubleArray>,
+        /** A saved place's watch radius; 0 for a drawn zone or a place without one. */
+        val radiusMi: Double = 0.0,
+        /** A drawn zone's ring, `[lat, lon]`; empty for a saved place. */
+        val ring: List<DoubleArray> = emptyList(),
     )
 
     data class Alert(val id: String, val event: String, val headline: String, val tier: Int)
+
+    /** An alert that carries its own polygon (outer rings, `[lat, lon]` vertices). */
+    data class PolyAlert(val alert: Alert, val rings: List<List<DoubleArray>>)
 
     /**
      * Is the phone inside the user's quiet-hours window? Same `settings.json` fields, and the
@@ -70,9 +77,10 @@ object Nws {
      * Saved markers and drawn zones from settings.json — the same file the Rust app reads and
      * writes (`markers[].name/lat/lon/alert_radius_mi`, `alert_polygons[].name/ring`).
      *
-     * ponytail: sampled points, not geometry. `?point=` resolves zone-only alerts (geometry null)
-     * server-side, which polygon math in Kotlin would have to re-implement; the ceiling is a small
-     * warning threading between two samples. Real polygon intersection is the upgrade path.
+     * These samples are for `?point=`, which resolves zone-only alerts (null geometry) on the
+     * server. Alerts that carry a polygon are also tested against each place's whole watch circle
+     * or zone ([polygonAlerts], [covers]), so a narrow warning between two samples is still
+     * caught (1010.md V2).
      */
     fun watched(filesDir: File): List<Watch> {
         val f = File(filesDir, "config/settings.json")
@@ -92,7 +100,7 @@ object Nws {
             if (radiusMi > 0.0) {
                 for (k in 0 until RIM_POINTS) samples.add(offset(lat, lon, radiusMi, k * 360.0 / RIM_POINTS))
             }
-            out.add(Watch(m.optString("name", "Saved location"), lat, lon, samples))
+            out.add(Watch(m.optString("name", "Saved location"), lat, lon, samples, radiusMi = radiusMi))
         }
 
         val zones = root.optJSONArray("alert_polygons")
@@ -112,7 +120,7 @@ object Nws {
             val samples = ArrayList<DoubleArray>()
             samples.add(doubleArrayOf(lat, lon))
             for (k in pts.indices step step) samples.add(pts[k])
-            out.add(Watch(z.optString("name", "Watch zone"), lat, lon, samples))
+            out.add(Watch(z.optString("name", "Watch zone"), lat, lon, samples, ring = pts))
         }
 
         // Trim from the back so early markers keep their rim rather than every place losing it.
@@ -138,8 +146,97 @@ object Nws {
         return doubleArrayOf(Math.toDegrees(la2), Math.toDegrees(lo2))
     }
 
+    /**
+     * Whether [w] touches a warning polygon [ring]: a drawn zone by overlap, a saved place by its
+     * watch circle (or the point itself without a radius).
+     */
+    fun covers(w: Watch, ring: List<DoubleArray>): Boolean =
+        if (w.ring.size >= 3) {
+            Geo.polygonsTouch(w.ring, ring)
+        } else {
+            Geo.circleTouches(w.lat, w.lon, w.radiusMi, ring)
+        }
+
+    /**
+     * The state a watched place is in (`OK`), from `api.weather.gov/points`, cached by place in
+     * `alert_states.txt` so it is asked once. `null` offshore, outside the U.S., or offline.
+     */
+    fun stateFor(filesDir: File, lat: Double, lon: Double): String? {
+        val key = "%.2f,%.2f".format(java.util.Locale.US, lat, lon)
+        val cache = File(filesDir, "alert_states.txt")
+        val known = runCatching {
+            cache.readLines().mapNotNull { l -> l.split('\t').takeIf { it.size == 2 } }
+                .associate { it[0] to it[1] }
+        }.getOrDefault(emptyMap())
+        known[key]?.let { return it }
+        val body = get("https://api.weather.gov/points/%.4f,%.4f".format(java.util.Locale.US, lat, lon)) ?: return null
+        val state = runCatching {
+            JSONObject(body).getJSONObject("properties").getJSONObject("relativeLocation")
+                .getJSONObject("properties").getString("state")
+        }.getOrNull()?.takeIf { it.length == 2 } ?: return null
+        runCatching { cache.appendText("$key\t$state\n") }
+        return state
+    }
+
+    /**
+     * Every active alert in [states] that carries a polygon, with its rings (1010.md V2). One
+     * request covers every watched place. The `?point=` samples stay for alerts that only name
+     * zones (null geometry), which the server resolves and this geometry cannot.
+     */
+    fun polygonAlerts(states: Collection<String>): List<PolyAlert> {
+        if (states.isEmpty()) return emptyList()
+        val body = get("https://api.weather.gov/alerts/active?area=" + states.sorted().joinToString(","))
+            ?: return emptyList()
+        val features = JSONObject(body).optJSONArray("features") ?: return emptyList()
+        return (0 until features.length()).mapNotNull { i ->
+            val f = features.optJSONObject(i) ?: return@mapNotNull null
+            val p = f.optJSONObject("properties") ?: return@mapNotNull null
+            val rings = ringsOf(f.optJSONObject("geometry"))
+            if (rings.isEmpty()) return@mapNotNull null
+            val event = p.optString("event")
+            val id = p.optString("id").ifEmpty { event + p.optString("sent") }
+            val alert = Alert(id, event, p.optString("headline", event), tierOf(p, event))
+            PolyAlert(alert, rings).takeIf { alert.tier > 0 }
+        }
+    }
+
+    /** The outer rings of a GeoJSON Polygon or MultiPolygon, as `[lat, lon]` vertices. */
+    private fun ringsOf(geometry: JSONObject?): List<List<DoubleArray>> {
+        if (geometry == null) return emptyList()
+        val coords = geometry.optJSONArray("coordinates") ?: return emptyList()
+        val polygons = when (geometry.optString("type")) {
+            "Polygon" -> listOf(coords)
+            "MultiPolygon" -> (0 until coords.length()).mapNotNull { coords.optJSONArray(it) }
+            else -> return emptyList()
+        }
+        return polygons.mapNotNull { poly ->
+            val outer = poly.optJSONArray(0) ?: return@mapNotNull null
+            (0 until outer.length()).mapNotNull { k ->
+                val pt = outer.optJSONArray(k) ?: return@mapNotNull null
+                val lon = pt.optDouble(0)
+                val lat = pt.optDouble(1)
+                if (lat.isFinite() && lon.isFinite()) doubleArrayOf(lat, lon) else null
+            }.takeIf { it.size >= 3 }
+        }
+    }
+
+    /** A GET to api.weather.gov; `null` on any non-200 answer. */
+    private fun get(url: String): String? {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            setRequestProperty("User-Agent", USER_AGENT)
+            setRequestProperty("Accept", "application/geo+json")
+            connectTimeout = 15_000
+            readTimeout = 15_000
+        }
+        return try {
+            if (conn.responseCode != 200) null else conn.inputStream.bufferedReader().readText()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun alertsAt(lat: Double, lon: Double): List<Alert> {
-        val url = URL("https://api.weather.gov/alerts/active?point=%.4f,%.4f".format(lat, lon))
+        val url = URL("https://api.weather.gov/alerts/active?point=%.4f,%.4f".format(java.util.Locale.US, lat, lon))
         val conn = (url.openConnection() as HttpURLConnection).apply {
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Accept", "application/geo+json")

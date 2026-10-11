@@ -16,6 +16,9 @@ dependencies {
     // Survives process death and reboot: the alert foreground service can be killed, and only a
     // scheduled worker gets the poll going again (see AlertWorker.kt / BootReceiver.kt).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // JVM unit tests for the Android-free pieces (Geo.kt's warning-polygon tests). CI runs them
+    // with `testReleaseUnitTest` before assembling the APK.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Single source of truth for the version: the workspace Cargo.toml. Hand-maintained gradle
