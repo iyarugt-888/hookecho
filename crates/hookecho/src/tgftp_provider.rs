@@ -20,6 +20,11 @@
 //! latest_complete_volume`] to serving the last good volume (an honest stale display) rather than
 //! erroring out to a blank pane, per B6.8's explicit ask.
 //!
+//! Listing and volume reads have whole-response deadlines. A retired subscription drops its
+//! in-flight poll within a 250 ms timer slice instead of waiting for the server. Native decoding
+//! uses the existing blocking-work boundary; a decode already running there can finish after
+//! cancellation, but cannot deliver an update to the retired subscription.
+//!
 //! Cross-platform (native and wasm32) — unlike [`crate::relay_provider`]/[`crate::
 //! provider_health`], this needs nothing beyond `reqwest` (already used cross-platform elsewhere
 //! in this codebase for the Unidata path) and [`wxdata::task::sleep_while`].
@@ -32,6 +37,9 @@ use wxdata::live::{ScanProgress, Update};
 use wxdata::live_block::ProviderCapabilities;
 
 const DEFAULT_BASE_URL: &str = "https://tgftp.nws.noaa.gov/data/radar/nexrad_level2";
+const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const VOLUME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
+const CANCEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
 #[derive(Clone)]
 struct CachedVolume {
@@ -45,6 +53,8 @@ struct CachedVolume {
 pub struct NoaaTgftpLevel2Provider {
     base_url: String,
     poll_interval: std::time::Duration,
+    list_timeout: std::time::Duration,
+    volume_timeout: std::time::Duration,
     last_known: Mutex<Option<CachedVolume>>,
 }
 
@@ -59,6 +69,8 @@ impl NoaaTgftpLevel2Provider {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             poll_interval: std::time::Duration::from_secs(60),
+            list_timeout: LIST_TIMEOUT,
+            volume_timeout: VOLUME_TIMEOUT,
             last_known: Mutex::new(None),
         }
     }
@@ -73,14 +85,22 @@ impl NoaaTgftpLevel2Provider {
 
     async fn fetch_dir_list(&self, site: &str) -> anyhow::Result<String> {
         let url = format!("{}/{}/dir.list", self.base_url, site.to_ascii_uppercase());
-        let response = reqwest::get(&url).await?.error_for_status()?;
-        Ok(response.text().await?)
+        // Bound headers AND body on native and WASM; a server can accept the connection and
+        // then stop sending, including after headers arrive.
+        wxdata::task::timeout(self.list_timeout, async {
+            let response = reqwest::get(&url).await?.error_for_status()?;
+            Ok(response.text().await?)
+        })
+        .await?
     }
 
     async fn fetch_volume_bytes(&self, site: &str, filename: &str) -> anyhow::Result<Vec<u8>> {
         let url = format!("{}/{}/{filename}", self.base_url, site.to_ascii_uppercase());
-        let response = reqwest::get(&url).await?.error_for_status()?;
-        Ok(response.bytes().await?.to_vec())
+        wxdata::task::timeout(self.volume_timeout, async {
+            let response = reqwest::get(&url).await?.error_for_status()?;
+            Ok(response.bytes().await?.to_vec())
+        })
+        .await?
     }
 
     /// Fetch and decode the newest volume for `site` — network + decode, no caching or
@@ -92,7 +112,7 @@ impl NoaaTgftpLevel2Provider {
         let (name, time) = newest_entry(&entries)
             .ok_or_else(|| anyhow::anyhow!("no volume files found for {site} in dir.list"))?;
         let bytes = self.fetch_volume_bytes(site, &name).await?;
-        let scan = wxdata::level2::decode_volume(bytes)?;
+        let scan = wxdata::task::blocking(move || wxdata::level2::decode_volume(bytes)).await??;
         Ok((name, time, scan))
     }
 }
@@ -178,10 +198,28 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
         let mut current_name: Option<String> = None;
 
         while active() {
-            match self
-                .latest_complete_volume(&site, current_name.as_deref())
-                .await
-            {
+            // Dropping the poll cancels an in-flight HTTP read. Switching providers, sites or
+            // going to the background must not retain a hung fallback until its deadline.
+            let result = {
+                use futures_util::future::{select, Either};
+                let poll =
+                    std::pin::pin!(self.latest_complete_volume(&site, current_name.as_deref()));
+                let cancelled = std::pin::pin!(async {
+                    while active() {
+                        wxdata::task::sleep(CANCEL_INTERVAL).await;
+                    }
+                });
+                match select(poll, cancelled).await {
+                    Either::Left((result, _)) => result,
+                    Either::Right(_) => return Ok(()),
+                }
+            };
+            // Cancellation can coincide with the response becoming ready. Never deliver it
+            // into a retired subscription, even if the poll won the race above.
+            if !active() {
+                return Ok(());
+            }
+            match result {
                 Ok(LatestVolume::New { name, time, scan }) => {
                     let (new_scan, changed) = wxdata::live::merge_scan(&merged, scan);
                     current_name = Some(name.clone());
@@ -240,6 +278,9 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
             // call, before any fetch has ever succeeded) is still a real error.
             Err(e) => {
                 let cached = self.last_known.lock().unwrap().clone();
+                if cached.is_some() {
+                    log::warn!("TGFTP poll failed for {site}; retaining last known volume: {e}");
+                }
                 match cached {
                     Some(c) if current_name != Some(c.name.as_str()) => Ok(LatestVolume::New {
                         name: c.name,
@@ -393,5 +434,262 @@ mod tests {
 
         let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
         assert!(provider.latest_complete_volume("KTLX", None).await.is_err());
+    }
+
+    // NOAA KFTG 2017-05-08, first three Archive-II records; pinned partial coverage,
+    // NOT a complete TGFTP volume. The corpus manifest retains its source and checksum.
+    const RECOVERY_BYTES: &[u8] =
+        include_bytes!("../../wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2");
+    const RECOVERY_NAME: &str = "KFTG_20170508_203405.bz2";
+
+    fn stalled_body() -> axum::body::Body {
+        axum::body::Body::from_stream(futures_util::stream::once(std::future::pending::<
+            Result<Vec<u8>, std::io::Error>,
+        >()))
+    }
+
+    #[tokio::test]
+    async fn a_subscription_retries_after_timeout_and_delivers_the_recovered_scan() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let requests = Arc::new(AtomicUsize::new(0));
+        let count = requests.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(move || {
+                    let count = count.clone();
+                    async move {
+                        if count.fetch_add(1, Ordering::Relaxed) == 0 {
+                            std::future::pending::<()>().await;
+                        }
+                        format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len())
+                    }
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            );
+        let addr = spawn_test_server(app).await;
+        let mut provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        provider.list_timeout = std::time::Duration::from_millis(100);
+        provider.poll_interval = std::time::Duration::from_millis(150);
+        let expected = wxdata::level2::decode_volume(RECOVERY_BYTES.to_vec()).unwrap();
+        let base = Arc::new(Scan::new(expected.coverage_pattern().clone(), Vec::new()));
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let flag = active.clone();
+        let stop = active.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let started = std::time::Instant::now();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            provider.subscribe(
+                "KFTG".into(),
+                base,
+                Box::new(move || flag.load(Ordering::Relaxed)),
+                Box::new(move |update| {
+                    tx.try_send(update).unwrap();
+                    stop.store(false, Ordering::Relaxed);
+                }),
+                Box::new(|_| panic!("completed fallback must not fabricate progress")),
+            ),
+        )
+        .await
+        .expect("the stream must recover after its failed poll")
+        .unwrap();
+        let update = rx.recv().await.unwrap();
+        assert_eq!(requests.load(Ordering::Relaxed), 2, "no hot retry loop");
+        assert_eq!(update.name, RECOVERY_NAME);
+        assert_eq!(update.time, parse_filename_time(RECOVERY_NAME).unwrap());
+        assert_eq!(update.scan.sweeps(), expected.sweeps());
+        assert!(update.received_at.is_none() && update.radial_coverage.is_none());
+        assert!(started.elapsed() >= provider.list_timeout + provider.poll_interval);
+        println!(
+            "TGFTP timeout -> retry -> recovered update: {} ms, 2 polls",
+            started.elapsed().as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_listing_times_out_then_recovers_without_changing_source_data() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let stalled = Arc::new(AtomicBool::new(true));
+        let flag = stalled.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(move || {
+                    let flag = flag.clone();
+                    async move {
+                        if flag.load(Ordering::Relaxed) {
+                            std::future::pending::<()>().await;
+                        }
+                        format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len())
+                    }
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            );
+        let addr = spawn_test_server(app).await;
+        let mut provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        provider.list_timeout = std::time::Duration::from_millis(100);
+        let failed = match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            provider.latest_complete_volume("KFTG", None),
+        )
+        .await
+        .expect("the listing deadline must release the poll")
+        {
+            Err(error) => error,
+            Ok(_) => panic!("a stalled listing must fail"),
+        };
+        assert!(failed.to_string().contains("timed out"));
+        assert!(provider.last_known.lock().unwrap().is_none());
+
+        stalled.store(false, Ordering::Relaxed);
+        let LatestVolume::New { name, time, scan } =
+            provider.latest_complete_volume("KFTG", None).await.unwrap()
+        else {
+            panic!("a successful next poll must recover");
+        };
+        assert_eq!(name, RECOVERY_NAME);
+        assert_eq!(time, parse_filename_time(RECOVERY_NAME).unwrap());
+        let expected = wxdata::level2::decode_volume(RECOVERY_BYTES.to_vec()).unwrap();
+        let actual =
+            wxdata::level2::bin_scan(&scan, wxdata::level2::Moment::Reflectivity, 0).unwrap();
+        let expected =
+            wxdata::level2::bin_scan(&expected, wxdata::level2::Moment::Reflectivity, 0).unwrap();
+        assert_eq!(actual.data, expected.data);
+        assert_eq!(actual.bin_time_ms, expected.bin_time_ms);
+
+        // A new outage retains only the original clock and gates, never "now".
+        stalled.store(true, Ordering::Relaxed);
+        assert!(matches!(
+            provider
+                .latest_complete_volume("KFTG", Some(RECOVERY_NAME))
+                .await
+                .unwrap(),
+            LatestVolume::UpToDate
+        ));
+        let cached = provider.last_known.lock().unwrap();
+        assert_eq!(cached.as_ref().unwrap().time, time);
+        assert_eq!(cached.as_ref().unwrap().scan.sweeps(), scan.sweeps());
+    }
+
+    #[tokio::test]
+    async fn deadlines_cover_stalled_listing_and_volume_bodies_after_headers() {
+        let app = axum::Router::new()
+            .route(
+                "/KTLX/dir.list",
+                axum::routing::get(|| async { stalled_body() }),
+            )
+            .route(
+                "/KTLX/volume.bz2",
+                axum::routing::get(|| async { stalled_body() }),
+            );
+        let addr = spawn_test_server(app).await;
+        // Negative control: the baseline's unbounded headers+body expression cannot finish
+        // against this server. This demonstrates the fault independently of the timeout helper.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), async {
+                reqwest::get(format!("http://{addr}/KTLX/dir.list"))
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap()
+                    .text()
+                    .await
+            })
+            .await
+            .is_err()
+        );
+        let mut provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        provider.list_timeout = std::time::Duration::from_millis(100);
+        provider.volume_timeout = std::time::Duration::from_millis(100);
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            provider.fetch_dir_list("KTLX")
+        )
+        .await
+        .expect("listing body must time out")
+        .is_err());
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            provider.fetch_volume_bytes("KTLX", "volume.bz2")
+        )
+        .await
+        .expect("volume body must time out")
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_stalled_subscription_releases_headers_and_body_reads() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        for body_stall in [false, true] {
+            let requested = Arc::new(tokio::sync::Notify::new());
+            let signal = requested.clone();
+            let body_signal = requested.clone();
+            let app = axum::Router::new()
+                .route(
+                    "/KFTG/dir.list",
+                    axum::routing::get(move || {
+                        let signal = signal.clone();
+                        async move {
+                            if !body_stall {
+                                signal.notify_one();
+                                std::future::pending::<()>().await;
+                            }
+                            format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len())
+                        }
+                    }),
+                )
+                .route(
+                    &format!("/KFTG/{RECOVERY_NAME}"),
+                    axum::routing::get(move || {
+                        let signal = body_signal.clone();
+                        async move {
+                            signal.notify_one();
+                            stalled_body()
+                        }
+                    }),
+                );
+            let addr = spawn_test_server(app).await;
+            let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+            let active = Arc::new(AtomicBool::new(true));
+            let flag = active.clone();
+            let updates = Arc::new(AtomicUsize::new(0));
+            let count = updates.clone();
+            let base = Arc::new(wxdata::level2::decode_volume(RECOVERY_BYTES.to_vec()).unwrap());
+            let handle = tokio::spawn(async move {
+                provider
+                    .subscribe(
+                        "KFTG".into(),
+                        base,
+                        Box::new(move || flag.load(Ordering::Relaxed)),
+                        Box::new(move |_| {
+                            count.fetch_add(1, Ordering::Relaxed);
+                        }),
+                        Box::new(|_| panic!("TGFTP has no progressive coverage")),
+                    )
+                    .await
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(3), requested.notified())
+                .await
+                .expect("server must see the in-flight request");
+            let cancelled_at = std::time::Instant::now();
+            active.store(false, Ordering::Relaxed);
+            tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+                .await
+                .expect("cancel must not wait for the HTTP deadline")
+                .unwrap()
+                .unwrap();
+            assert_eq!(updates.load(Ordering::Relaxed), 0);
+            println!(
+                "TGFTP cancellation body_stall={body_stall}: {} ms",
+                cancelled_at.elapsed().as_millis()
+            );
+        }
     }
 }

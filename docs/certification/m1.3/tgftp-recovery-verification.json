@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "baseline": "8bfe56a5000afb68b3d29f73ce71a85c3b633a83",
+  "host": "Windows NT 10.0.22631.0; no GPU exercised",
+  "scope": "TGFTP HTTP/subscription controls; debug tests; concurrent peer work",
+  "commands": {
+    "baseline": "b1e55eafe0b0bcdaead2062dcb41c1d2c0ba6558",
+    "clippy": 0,
+    "focused": 0,
+    "workspace": 101,
+    "workspace_lib": 0,
+    "format_owned": 0,
+    "format_workspace": 1,
+    "final_shared_head": "b1e55eafe0b0bcdaead2062dcb41c1d2c0ba6558",
+    "source_sha256": "22B4827FC305A294B34C33A841D34F088C4D21AD72F4D86F24316F6E4B68B9CD"
+  },
+  "logs": {
+    "clippy": {
+      "sha256": "4c78ff22d686c871cd5da533c4cd3bf114e3a04db1b400670cb3915bd198b423",
+      "results": []
+    },
+    "focused-final": {
+      "sha256": "580538b017b465f01ce6d01ebea865f695a5a748a8714c6b050d55a4337ef51c",
+      "results": [
+        "ok. 15 passed; 0 failed; 1 ignored; 0 measured; 1500 filtered out; finished in 0.74s"
+      ]
+    },
+    "workspace": {
+      "sha256": "f4b3b8d61505ee8289ff054fd277f0567a0b28def9e124f2019446d13cac20dd",
+      "results": []
+    },
+    "workspace-lib": {
+      "sha256": "552c00af95beeba931e8a4bcfbecdc1b4bc6fc29a0deb2821bfde1128af6dd8c",
+      "results": [
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 1428 passed; 0 failed; 88 ignored; 0 measured; 0 filtered out; finished in 11.53s",
+        "ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "ok. 1057 passed; 0 failed; 87 ignored; 0 measured; 0 filtered out; finished in 38.38s"
+      ]
+    },
+    "wasm": {
+      "sha256": "ffc44151a4e3811bf5f27f36ee7fe87e97d02a74286c4ec59d2e4bdb18567fa4",
+      "results": []
+    },
+    "format": {
+      "sha256": "00cdcebd26886c7ed7494930353648445795043b985e3c4c2b0df699db0c506b",
+      "results": []
+    },
+    "format-workspace": {
+      "sha256": "560a7855e1739883477778f627683caf3674850136741dc9626d61f8c8efce43",
+      "results": []
+    }
+  },
+  "observations": {
+    "cancellation_waiting_for_headers_ms": 256,
+    "cancellation_waiting_for_body_ms": 261,
+    "timeout_retry_callback_ms": 373,
+    "recovery_poll_count": 2
+  },
+  "limits": [
+    "Loopback HTTP, not operational upstream failover",
+    "Full workspace build failed with parallel-linker LNK1102 out of memory and dependent missing rlib artifacts",
+    "Workspace library tests pass; integration/binary gates not passed in this run",
+    "Workspace rustfmt has unrelated baseline differences; owned TGFTP file passes",
+    "No visible presentation or Android device evidence"
+  ]
+}

@@ -732,6 +732,22 @@ detection with Claude.
 
 Note: [`docs/certification/m1.3/continuation.md`](docs/certification/m1.3/continuation.md). Checks: clippy, wasm, workspace tests (2,580 passed, 0 failed, 201 ignored) in `target/parity-review/m1.3/a2-*.log`. This is loopback evidence with synthetic radials. Open: an operational dual-feed failover, an interactive switch while drawing, and real failure-domain identity under sustained load.
 
+**Evidence ledger — 2026-10-11, bounded completed-provider reads (CODEX_GOAL M1.3):**
+`tgftp_provider` now bounds whole listing/volume responses (15/100 seconds), cancels in-flight
+polls on 250 ms activity slices, checks activity before delivering a ready result, and decodes
+off the native async worker through the existing task boundary. Failed cached polls log their
+reason while retaining the real previous clock and gates; the existing 60-second retry remains.
+Local HTTP controls cover stalled headers/bodies, timeout → retry → callback recovery, retained
+data, and cancellation without late updates. The pinned partial NOAA KFTG hail input is compared
+with independent decode output; no progressive coverage or receipt clock is fabricated.
+Source ownership: only `crates/hookecho/src/tgftp_provider.rs`; detector and concurrent peer edits
+excluded. [Audit, commands, measurements, hashes and limits](docs/certification/m1.3/tgftp-recovery.md).
+Implementation: implemented for this bounded slice; verification: partial (Windows loopback
+controls and WASM build). Whole-app/real independent upstream, severe-cadence and Android device
+gates remain open. Native decode already running can finish after cancellation; its retired future
+cannot deliver a result. Visible presentation latency is not measured by this increment.
+
+
 #### M1.4 — Complete retained provenance and scientific lineage
 
 **Priority:** P0. **Depends on:** M0.2, M1.1. **Status:** implementation: in progress (source clocks; Tornado ID lineage); verification: partial. **Original references:** ROADMAP_2 §§9, 10; ROADMAP_NEW §§A1, A2, N1, N2.
