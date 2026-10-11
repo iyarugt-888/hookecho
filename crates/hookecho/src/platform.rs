@@ -868,6 +868,37 @@ mod android_back {
     }
 }
 
+/// Android's memory-trim level (1010.md V4).
+///
+/// The GameActivity glue turns `onTrimMemory` into a bare low-memory event (winit's
+/// `memory_warning`) and drops the level, so `MainActivity.onTrimMemory` hands the level over
+/// here first and the event loop reads it when the event arrives (`android_trim` in `lib.rs`).
+#[cfg(target_os = "android")]
+pub mod android_memory {
+    use jni::objects::JObject;
+    use jni::sys::jint;
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    /// The highest level asked for since the last read; 0 for none.
+    static LEVEL: AtomicI32 = AtomicI32::new(0);
+
+    /// # Safety
+    /// Called by the JVM with a valid env/object pair; touches only an atomic.
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_io_hookecho_HookEcho_MainActivity_nativeOnTrimMemory(
+        _env: jni::JNIEnv,
+        _this: JObject,
+        level: jint,
+    ) {
+        LEVEL.fetch_max(level, Ordering::Relaxed);
+    }
+
+    /// The level asked for since the last call, if any.
+    pub fn take_trim_level() -> Option<i32> {
+        Some(LEVEL.swap(0, Ordering::Relaxed)).filter(|&l| l > 0)
+    }
+}
+
 /// The home-screen radar widget's one call into Java: "there is a new picture on disk".
 #[cfg(target_os = "android")]
 mod android_widget {

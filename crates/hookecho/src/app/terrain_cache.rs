@@ -54,6 +54,14 @@ impl TerrainCache {
         }
     }
 
+    /// Drop every tile that is here (memory trim), keeping the fetches still on their way so
+    /// their answers are not refetched. Returns how many went.
+    pub(crate) fn trim(&mut self) -> usize {
+        let before = self.tiles.len();
+        self.tiles.retain(|_, s| matches!(s, TileState::Pending));
+        before - self.tiles.len()
+    }
+
     /// Take finished fetches; once a frame.
     pub(crate) fn take_arrivals(&mut self) {
         if let Some(rx) = &self.rx {

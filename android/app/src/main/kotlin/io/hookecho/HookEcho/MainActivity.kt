@@ -89,6 +89,18 @@ class MainActivity : GameActivity() {
     private external fun nativeOnBack()
 
     /**
+     * Android asking for memory back. The level goes to Rust first: GameActivity passes the
+     * call on as a bare low-memory event without it, and that event is what wakes the Rust
+     * side to drop its caches (`android_trim` in lib.rs), even while the app is hidden.
+     */
+    override fun onTrimMemory(level: Int) {
+        nativeOnTrimMemory(level)
+        super.onTrimMemory(level)
+    }
+
+    private external fun nativeOnTrimMemory(level: Int)
+
+    /**
      * Back out of the app and the process has to go with it.
      *
      * `android_main` is a one-shot: the Rust event loop starts when the native thread does, and it

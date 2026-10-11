@@ -107,6 +107,7 @@ mod loop_capture;
 use loop_capture::LoopExport;
 mod map_click;
 mod map_volume;
+pub(crate) mod memory_trim;
 mod measure;
 mod pane_3d_overlays;
 mod pane_feeds;

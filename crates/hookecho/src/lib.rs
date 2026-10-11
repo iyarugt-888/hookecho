@@ -369,11 +369,141 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         ..Default::default()
     };
     cap_texture_limit_to_adapter(&mut native_options.wgpu_options);
-    if let Err(e) = eframe::run_native(
-        "HookEcho",
-        native_options,
-        Box::new(|cc| Ok(Box::new(HookEchoApp::new(cc)))),
-    ) {
+    if let Err(e) = android_trim::run(native_options) {
         log::error!("eframe exited: {e}");
+    }
+}
+
+/// `eframe::run_native`, plus one thing it cannot do: hand Android's memory-trim requests to the
+/// app (1010.md V4, expansion.md §6.3).
+///
+/// Android asks once the app is hidden, when nothing of it runs: no surface, so no `update()`.
+/// eframe 0.35 also drops winit's `memory_warning`. So the event loop is built here, exactly as
+/// `run_native` builds it, and eframe's handler is wrapped: every event goes on to it unchanged,
+/// and a memory warning also trims the app, on this thread, through a shared handle to it.
+#[cfg(target_os = "android")]
+mod android_trim {
+    use crate::app::memory_trim::Trim;
+    use crate::app::HookEchoApp;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use winit::application::ApplicationHandler;
+    use winit::event_loop::ActiveEventLoop;
+
+    type Shared = Rc<RefCell<HookEchoApp>>;
+
+    pub(super) fn run(
+        mut native_options: eframe::NativeOptions,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use winit::platform::android::EventLoopBuilderExtAndroid as _;
+        use winit::platform::run_on_demand::EventLoopExtRunOnDemand as _;
+        let android_app = native_options
+            .android_app
+            .take()
+            .ok_or("NativeOptions is missing android_app")?;
+        let mut event_loop = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event()
+            .with_android_app(android_app)
+            .build()?;
+        let app: Rc<RefCell<Option<Shared>>> = Rc::default();
+        let slot = Rc::clone(&app);
+        let inner = eframe::create_native(
+            "HookEcho",
+            native_options,
+            Box::new(move |cc| {
+                let shared = Rc::new(RefCell::new(HookEchoApp::new(cc)));
+                *slot.borrow_mut() = Some(Rc::clone(&shared));
+                Ok(Box::new(SharedApp(shared)))
+            }),
+            &event_loop,
+        );
+        event_loop.run_app_on_demand(&mut TrimOnLowMemory { inner, app })?;
+        Ok(())
+    }
+
+    /// The app, as eframe sees it: every method `HookEchoApp` overrides, passed through. A test
+    /// (`memory_trim::tests`) keeps this list the same as that impl's.
+    struct SharedApp(Shared);
+
+    impl eframe::App for SharedApp {
+        fn on_exit(&mut self) {
+            eframe::App::on_exit(&mut *self.0.borrow_mut());
+        }
+
+        fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+            eframe::App::raw_input_hook(&mut *self.0.borrow_mut(), ctx, raw_input);
+        }
+
+        fn ui(&mut self, root: &mut egui::Ui, frame: &mut eframe::Frame) {
+            eframe::App::ui(&mut *self.0.borrow_mut(), root, frame);
+        }
+    }
+
+    /// eframe's own event handler, with a memory warning also trimming the app.
+    struct TrimOnLowMemory<'a> {
+        inner: eframe::EframeWinitApplication<'a>,
+        /// Filled when eframe creates the app, on the first resume.
+        app: Rc<RefCell<Option<Shared>>>,
+    }
+
+    impl ApplicationHandler<eframe::UserEvent> for TrimOnLowMemory<'_> {
+        fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: winit::event::StartCause) {
+            self.inner.new_events(event_loop, cause);
+        }
+
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            self.inner.resumed(event_loop);
+        }
+
+        fn user_event(&mut self, event_loop: &ActiveEventLoop, event: eframe::UserEvent) {
+            self.inner.user_event(event_loop, event);
+        }
+
+        fn window_event(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+            window_id: winit::window::WindowId,
+            event: winit::event::WindowEvent,
+        ) {
+            self.inner.window_event(event_loop, window_id, event);
+        }
+
+        fn device_event(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+            device_id: winit::event::DeviceId,
+            event: winit::event::DeviceEvent,
+        ) {
+            self.inner.device_event(event_loop, device_id, event);
+        }
+
+        fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+            self.inner.about_to_wait(event_loop);
+        }
+
+        fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+            self.inner.suspended(event_loop);
+        }
+
+        fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+            self.inner.exiting(event_loop);
+        }
+
+        fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+            self.inner.memory_warning(event_loop);
+            // Kotlin reports the level before the warning is sent; without one, trim as if the
+            // app were still on screen.
+            let level = crate::platform::android_memory::take_trim_level();
+            let trim = level.map_or(Trim::Visible, Trim::from_level);
+            let Some(app) = self.app.borrow().clone() else {
+                return;
+            };
+            match app.try_borrow_mut() {
+                Ok(mut app) => {
+                    let done = app.trim_memory(trim);
+                    log::info!("memory trim, level {level:?} ({trim:?}): {done}");
+                }
+                Err(_) => log::warn!("memory trim, level {level:?}: the app was busy"),
+            }
+        }
     }
 }

@@ -31,6 +31,15 @@ pub(crate) struct LightFrames {
     cache: lru::LruCache<LightKey, Arc<Scan>>,
 }
 
+impl LightFrames {
+    /// Drop every light frame (memory trim); returns how many there were.
+    pub(crate) fn clear(&mut self) -> usize {
+        let n = self.cache.len();
+        self.cache.clear();
+        n
+    }
+}
+
 impl Default for LightFrames {
     fn default() -> Self {
         Self {
