@@ -10,8 +10,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-11T01:26:25+00:00 from commit
-`27df24716a77` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-11T02:04:15+00:00 from commit
+`0e96e35d592f` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -37,7 +37,7 @@ ledger records a physical-device run.
 | M1.3 | Prove source failover under severe-weather load | A1, A2 | 5 | 2026-10-10 | [m1.3/](m1.3/) |
 | M1.4 | Complete retained provenance and scientific lineage | A1, A4 | 6 | 2026-10-09 | [m1.4/](m1.4/) |
 | M2.1 | Introduce persistent storm identity and history | B1 | 4 | 2026-10-06 | — |
-| M2.2 | Unify storm selection, trends, and tool entry | B1 | 6 | 2026-10-09 | [m2.2/](m2.2/) |
+| M2.2 | Unify storm selection, trends, and tool entry | B1 | 7 | 2026-10-10 | [m2.2/](m2.2/) |
 | M2.3 | Extend impacts to geolocated communities and assets | B2, H3 | 5 | 2026-10-09 | [m2.3/](m2.3/) |
 | M2.4 | Certify editing and preserve historical manual work | B3 | 3 | 2026-10-10 | [m2.4/](m2.4/) |
 | M3.1 | Expose authoritative gate metadata | C3 | 4 | 2026-10-09 | — |

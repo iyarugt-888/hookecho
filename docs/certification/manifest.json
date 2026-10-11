@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T01:26:25+00:00",
-  "generated_from_commit": "27df24716a7784785374ed784cfc439c7f28fe2c",
+  "generated_utc": "2026-10-11T02:04:15+00:00",
+  "generated_from_commit": "0e96e35d592f9886e7f66d8f67b7967ebc99fe18",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -81,8 +81,8 @@
     {
       "card": "M2.2",
       "title": "Unify storm selection, trends, and tool entry",
-      "ledger_entries": 6,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 7,
+      "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": "docs/certification/m2.2"
     },
@@ -901,6 +901,21 @@
       "path": "docs/certification/m1.4/tornado-id-lineage.json",
       "sha256": "12b78b670359a943370fce79ae4d2a31ac65685a8cade767f86807e21615e5dc",
       "bytes": 6184
+    },
+    {
+      "path": "docs/certification/m2.2/radar-hint-card.png",
+      "sha256": "91d84aa5736d3958050ea9f7ae31b4168f829f60ab7c828e9f480956e9b73191",
+      "bytes": 695050
+    },
+    {
+      "path": "docs/certification/m2.2/radar-hint-following.png",
+      "sha256": "e6bd9a4b8c2a5a05aa0ee4621830d12a9c1d6f6715403982671863a38e5d2277",
+      "bytes": 797050
+    },
+    {
+      "path": "docs/certification/m2.2/radar-hint-switched.png",
+      "sha256": "b121f90bb8df00ab96d50038cae151f7e58df78be84b9af3ab85e0eebe17368f",
+      "bytes": 660561
     },
     {
       "path": "docs/certification/m2.2/README.md",
