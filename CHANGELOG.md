@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: Android back gesture with a sheet open
+
+Swiping back while a sheet or full-screen view was open closed the app with an error instead of
+closing the sheet. It closes the sheet again.
+
+### Improved: Android gives memory back when the system asks
+
+When the phone runs short of memory, the app now drops the radar data it can rebuild, such as
+3D frames, decoded scans and terrain, instead of holding it until Android closes the app. A
+quick switch to another app keeps everything, so coming back is instant.
+
 ### Added: a better radar for the storm you are watching
 
 When you follow or select a storm and another radar of the same network sees it far lower, a

@@ -410,6 +410,10 @@ window. Neither prevents the crash.
 
 ### 6.3 Memory pressure — nothing listens
 
+> **Done in code, 2026-10-10:** `onTrimMemory` reaches the app on its own thread, even while it
+> is hidden, and drops the rebuildable caches by level (ROADMAP_PARITY M7.2 ledger). The measured
+> device-class budget (ROADMAP_NEW O1) still needs a device.
+
 `platform.rs` gates background work on foreground state (eframe stops calling `update()` when
 Android tears down the surface), which is the right instinct applied to CPU. Nothing does the
 equivalent for memory: no `onTrimMemory`/`onLowMemory` path, so no cache is dropped when the OS

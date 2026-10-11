@@ -1992,6 +1992,21 @@ Kept as partial evidence ([`soak-ktlx-12h-interrupted.jsonl`](docs/certification
 
 Verified here: Rust checks (clippy, wasm, workspace tests: 2,595 passed, 0 failed, 205 ignored). No Android SDK is installed here, so the Kotlin was compiled and the JUnit tests run by the branch build: branch run 38100967967 at `c4af420` (job 114356640753): the Kotlin compiled, `testReleaseUnitTest` passed with `GeoTest`, every LOAD segment of `libhookecho.so` is 16 KB-aligned, and `zipalign -c -P 16` passed on the APK. Open: every behaviour on a device. Test the time limit with `adb shell am compat enable FGS_INTRODUCE_TIME_LIMITS io.hookecho.HookEcho`. Unconfirmed until then: whether stopping after a refused `startForeground` also avoids Android's "did not call startForeground" check. Also open: the FGS-type decision (`dataSync` or `specialUse`, 1010.md §4).
 
+**Evidence ledger — 2026-10-10, the back-gesture crash and memory trim (1010.md V4; no device):**
+
+- **Back with a sheet open crashed the app.** The app-id rename (`105628b`) moved the Kotlin package to `io.hookecho.HookEcho`, but the Rust export kept its old JNI name, `Java_zip_batman_hookecho_MainActivity_nativeOnBack`. JNI looks the symbol up on the first call, so the build compiled, installed and launched cleanly. Then the first back gesture while the app consumed back (a sheet or a full-screen surface open) threw `UnsatisfiedLinkError`. Renamed, and a new test (`jni_name_tests`) derives every Kotlin `external fun`'s JNI name from its package and class and checks that a Rust export has it, and the reverse. Against the old name it fails with "Kotlin declares Java_io_hookecho_HookEcho_MainActivity_nativeOnBack, no Rust export has that name".
+- **Memory trim (V4, expansion.md §6.3).** Nothing listened to `onTrimMemory`. Two gaps sit in the way. eframe 0.35 drops winit's `memory_warning`, and the GameActivity glue drops the level. Since Android 14 the only levels sent arrive once the app is hidden, when no `update()` runs. So:
+  - `MainActivity.onTrimMemory` hands the level to Rust (`nativeOnTrimMemory`) before GameActivity wakes the native loop.
+  - `android_main` now builds the event loop itself, as `run_native` does, and wraps eframe's handler (`android_trim` in `lib.rs`). Every event passes through unchanged, and a memory warning also calls `HookEchoApp::trim_memory` on the UI thread, through a shared handle to the app.
+  - The trim policy (`app/memory_trim.rs`):
+    - `UI_HIDDEN` keeps everything, since a quick app switch should not cost a 3D rebuild.
+    - The running levels (before Android 14) drop the built 3D frames and the light loop frames.
+    - `BACKGROUND` and above also drop the decoded scans and the terrain tiles.
+    - What a pane shows is held outside these caches.
+  - A second test keeps the wrapper's delegated `eframe::App` methods the same as the app's own impl.
+
+Verified here: Rust checks (clippy, wasm, workspace tests: 2,598 passed, 0 failed, 205 ignored). There is no Android toolchain here; branch run 38103114189 compiled `48a87f8` (Android job 114362983197): the native library built, the Kotlin compiled with the new `onTrimMemory` override, and `testReleaseUnitTest`, the 16 KB checks and APK signing all passed. The first push (`8e26662`) did not compile, with E0597 from a tail-expression `RefCell` borrow; `48a87f8` fixed it, after a host type-check of the Android-only module with its two Android calls stubbed found it. Open: everything on a device. Check the log line `memory trim, level Some(40) (Background): dropped …` after `adb shell am send-trim-memory io.hookecho.HookEcho BACKGROUND`, and check that back with a sheet open closes the sheet. Also open: the device-class memory budget (ROADMAP_NEW O1), which needs a device to measure.
+
 #### M7.3 — Publish certification and operational documentation
 
 **Priority:** P0 release gate. **Depends on:** M1.3, M2.4, M3.4, M3.6, M4.4, M5.3, M5.4, M6.4, M7.1, M7.2. **Original references:** ROADMAP_2 §§0.2, 15, 17; ROADMAP_NEW §§26, 27, 30. These dependencies transitively include every implementation card above; every applicable platform acceptance gate must be complete.
