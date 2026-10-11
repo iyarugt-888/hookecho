@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-10T20:54:14+00:00",
-  "generated_from_commit": "fc0dbc58a0046aa55a1c01dd6ca2cb81ab1d6e59",
+  "generated_utc": "2026-10-11T01:26:25+00:00",
+  "generated_from_commit": "27df24716a7784785374ed784cfc439c7f28fe2c",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -257,8 +257,8 @@
     {
       "card": "M7.2",
       "title": "Certify Android lifecycle, input, and memory",
-      "ledger_entries": 0,
-      "latest_entry": null,
+      "ledger_entries": 1,
+      "latest_entry": "2026-10-10",
       "status_line": null,
       "evidence_dir": null
     },
