@@ -220,6 +220,30 @@ impl HookEchoApp {
                             (you_s / 60.0).round()
                         ));
                     }
+                    // The chase HUD's escape bearing, said against the road (L4): whether
+                    // driving on, or turning back, takes you off the storm's path.
+                    let you = self
+                        .chase_pos
+                        .map(|(lon, lat)| [lon, lat])
+                        .or_else(|| r.coords.first().copied());
+                    if let Some(you) = you {
+                        let escape = crate::geo::escape_bearing([c.lon, c.lat], deg as f64, you);
+                        let way = match wxdata::route::route_escape(&r.coords, from, escape) {
+                            Some(wxdata::route::RouteEscape::Ahead(_)) => {
+                                "driving on along the route".to_string()
+                            }
+                            Some(wxdata::route::RouteEscape::Back(_)) => {
+                                "turning back along the route".to_string()
+                            }
+                            Some(wxdata::route::RouteEscape::Off(h)) => {
+                                format!("off this route, which heads {} here", compass8(h))
+                            }
+                            None => String::new(),
+                        };
+                        if !way.is_empty() {
+                            line.push_str(&format!("; escape {}: {way}", compass8(escape)));
+                        }
+                    }
                     storms.push((i.closest_m, line));
                 }
             }

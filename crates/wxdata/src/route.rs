@@ -439,6 +439,60 @@ fn point_along(coords: &[[f64; 2]], cum: &[f64], m: f64) -> [f64; 2] {
     [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
 }
 
+/// Which way along the route gets off a storm's path (ROADMAP_NEW L4): the route's heading at the
+/// vehicle, ahead and back, against the escape bearing (perpendicular to the storm's motion, on
+/// the vehicle's side of it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RouteEscape {
+    /// Driving on along the route heads within [`ESCAPE_TOLERANCE_DEG`] of the escape; the
+    /// route's heading there.
+    Ahead(f64),
+    /// Turning back along the route does; the heading back.
+    Back(f64),
+    /// Neither does: the escape is off this route. The route's heading ahead.
+    Off(f64),
+}
+
+/// How far the route's heading may be from the escape bearing and still count as an escape.
+pub const ESCAPE_TOLERANCE_DEG: f64 = 60.0;
+
+/// [`RouteEscape`] at `from_m` along the route, judged over the next (and previous) 2 km so a
+/// kink at the vehicle does not decide it. `None` for a route with no length.
+pub fn route_escape(coords: &[[f64; 2]], from_m: f64, escape_deg: f64) -> Option<RouteEscape> {
+    let cum = cumulative_m(coords);
+    let total = *cum.last()?;
+    if total <= 0.0 {
+        return None;
+    }
+    let here = point_along(coords, &cum, from_m.clamp(0.0, total));
+    let heading = |m: f64| {
+        let there = point_along(coords, &cum, m.clamp(0.0, total));
+        (haversine_m(here, there) > 1.0).then(|| initial_bearing(here, there))
+    };
+    let off = |h: f64| {
+        let d = (h - escape_deg).rem_euclid(360.0);
+        d.min(360.0 - d)
+    };
+    let ahead = heading(from_m + 2_000.0);
+    let back = heading(from_m - 2_000.0);
+    Some(match (ahead, back) {
+        (Some(a), _) if off(a) <= ESCAPE_TOLERANCE_DEG => RouteEscape::Ahead(a),
+        (_, Some(b)) if off(b) <= ESCAPE_TOLERANCE_DEG => RouteEscape::Back(b),
+        (Some(a), _) => RouteEscape::Off(a),
+        (None, Some(b)) => RouteEscape::Off((b + 180.0) % 360.0),
+        (None, None) => return None,
+    })
+}
+
+/// The initial great-circle bearing from `a` to `b`, degrees clockwise from north.
+fn initial_bearing(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (la1, la2) = (a[1].to_radians(), b[1].to_radians());
+    let dlo = (b[0] - a[0]).to_radians();
+    let y = dlo.sin() * la2.cos();
+    let x = la1.cos() * la2.sin() - la1.sin() * la2.cos() * dlo.cos();
+    y.atan2(x).to_degrees().rem_euclid(360.0)
+}
+
 /// A storm against a route (ROADMAP_NEW L4), from the vehicle's current progress on it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Intercept {
@@ -526,6 +580,47 @@ pub fn intercept(
         closest_bearing_deg: bearing(vehicle_at(best.1), storm_at(best.1)),
         crossing,
     })
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::*;
+
+    /// An eastbound road: escaping east is on the route ahead, west is back along it, north is off
+    /// it; a bearing 50 degrees off the road still counts, 70 does not.
+    #[test]
+    fn the_escape_is_judged_against_the_road_ahead_and_behind() {
+        let road = vec![[-98.0, 35.0], [-97.0, 35.0], [-96.0, 35.0]];
+        let at = progress(&road, [-97.0, 35.0]).unwrap().0;
+        assert!(
+            matches!(route_escape(&road, at, 90.0), Some(RouteEscape::Ahead(h)) if (h - 90.0).abs() < 1.0)
+        );
+        assert!(
+            matches!(route_escape(&road, at, 270.0), Some(RouteEscape::Back(h)) if (h - 270.0).abs() < 1.0)
+        );
+        assert!(
+            matches!(route_escape(&road, at, 0.0), Some(RouteEscape::Off(h)) if (h - 90.0).abs() < 1.0)
+        );
+        assert!(matches!(
+            route_escape(&road, at, 140.0),
+            Some(RouteEscape::Ahead(_))
+        ));
+        assert!(matches!(
+            route_escape(&road, at, 160.0),
+            Some(RouteEscape::Off(_))
+        ));
+        // At the end of the road there is only back.
+        let end = progress(&road, [-96.0, 35.0]).unwrap().0;
+        assert!(matches!(
+            route_escape(&road, end, 270.0),
+            Some(RouteEscape::Back(_))
+        ));
+        assert!(matches!(
+            route_escape(&road, end, 90.0),
+            Some(RouteEscape::Off(_))
+        ));
+        assert_eq!(route_escape(&[[-97.0, 35.0]], 0.0, 90.0), None);
+    }
 }
 
 #[cfg(test)]
