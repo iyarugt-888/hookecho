@@ -3763,7 +3763,7 @@ two).
 - [x] alternate routes when provider supplies them — drawn thin and grey, selectable in the window;
   the chosen route is blue on a dark casing
 
-## L3. Weather exposure analysis — partly done
+## L3. Weather exposure analysis — done
 
 Sample along the route against:
 
@@ -3779,7 +3779,18 @@ Sample along the route against:
 - [x] lightning — GLM flashes of the last 15 minutes within 8 km of the road ahead, live only
 - [x] storm-motion cones — as L4's intercept geometry: each tracked storm's straight-line track
   against the route, closest approach and crossing ETAs
-- [ ] forecast radar/model fields
+- [x] forecast radar/model fields — the route window's "Forecast radar along the route (HRRR)"
+  switch, off by default (`Settings.route_forecast`). HRRR sub-hourly composite reflectivity
+  every 15 minutes, for up to two hours or to the route's end, all from one run and cropped to
+  the route (`route::fetch_forecast_frames`, `MrmsField::cropped`). Each ~200 m sample ahead is
+  read from the frame nearest the time the vehicle would be there at the route's average pace
+  (`route::forecast_along`); a sample with no frame near its time is a gap, never "clear".
+  Stretches of 40+ dBZ are listed with their times and distances: "40+ dBZ forecast on the route
+  3:33 PM EDT to 3:37 PM EDT, 9 mi to 12 mi ahead; up to 47 dBZ". The window names the run and
+  how far along the route it reached, and says it is a model forecast. Refetched each quarter
+  hour and when the route changes; live only. Seen in the browser build on 2026-10-11 on routes
+  across eastern North Carolina under a Tornado Watch (`docs/certification/chase/`). Other model
+  fields (UH, rain) are not checked yet.
 
 Output should say things like:
 
@@ -3792,7 +3803,7 @@ warnings can be issued over any road at any moment, and this only checks the pol
 now." Checked in the browser: a route from Guthrie to Norman down I-35 (49.7 mi, 1 h 06 min) drawn
 and assessed against the current polygons.
 
-## L4. Storm intercept geometry — done, apart from the escape-direction link
+## L4. Storm intercept geometry — done
 
 For a selected tracked storm and route (every SCIT cell with a motion within 150 km of the chosen
 route, nearest approach first, in the route window's "Storms near this route"):
@@ -3803,12 +3814,17 @@ route, nearest approach first, in the route window's "Storms near this route"):
 - [x] projected intersection time — where the storm's track crosses the route ahead
 - [x] storm ETA vs vehicle ETA — both to that crossing: "crosses the route 12 mi ahead: storm in
   18 min, you in 14 min"
-- [ ] escape-direction visualization already present should integrate with route
+- [x] escape-direction visualization already present should integrate with route —
+  `route::route_escape`: each storm line ends with the chase HUD's escape bearing said against the
+  road at the vehicle (driving on, turning back, or off this route with the heading it has
+  there, within 60 degrees), e.g. "escape NW: off this route, which heads NE here"
 
 Straight-line motion and average pace, labelled as an estimate in the window. Tested with a
 synthetic crossing (a 30 kt storm reaching a north-south road in ~32 min, the vehicle in ~30, a
-closest approach under 3 km); not yet seen live, since no tracked storm was near a route while it
-was checked.
+closest approach under 3 km). Seen live on 2026-10-11 in the browser build, on a route from near
+Greenville, NC to Manteo inside a Tornado Warning: "N2 (49 dBZ): closest 1 mi in 11 min, to your
+NE; crosses the route 8 mi ahead: storm in 10 min, you in 11 min; escape NW: off this route,
+which heads NE here" (`docs/certification/chase/route-storms-escape-browser.jpg`).
 
 ## L5. Offline chase pack v2
 

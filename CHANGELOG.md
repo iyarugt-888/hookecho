@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the forecast along your route
+
+The route window can check the HRRR model's forecast radar along the road, at the time you would
+reach each part of it, for up to two hours ahead: for example "40+ dBZ forecast on the route
+3:33 PM EDT to 3:37 PM EDT, 9 mi to 12 mi ahead". It says which model run it used and how far
+along the route that run reached. Tick "Forecast radar along the route (HRRR)" to turn it on;
+it is off by default because it downloads about nine model files every 15 minutes. It is a model
+forecast, timed at the route's average pace: real storms form and move differently.
+
+Each storm listed near the route also says whether escaping it means driving on, turning back,
+or leaving this route.
+
 ### Improved: the desktop layout on a tablet is sized for fingers
 
 On an Android tablet, which shows the full desktop layout, buttons, menus, list rows and the
