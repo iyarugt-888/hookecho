@@ -555,6 +555,8 @@ const RECENT_VOLUMES: usize = if cfg!(target_os = "android") {
 const COLUMN_MAX_TILT: usize = usize::MAX;
 /// Offset of a cleaned reflectivity tilt's cache slot ([`Volume::clean_reflectivity`]).
 const CLEAN_TILT_BASE: usize = usize::MAX / 2;
+/// Offset of one earlier visit's cache slot, by sweep index ([`Volume::binned_visit`]).
+const VISIT_BASE: usize = usize::MAX / 4;
 
 /// A decoded volume plus lazily-binned sweeps for the moments/tilts the user has viewed.
 pub struct Volume {
@@ -786,6 +788,15 @@ impl Volume {
         for k in cleaned {
             self.binned.pop(&k);
         }
+        let visits: Vec<_> = self
+            .binned
+            .iter()
+            .map(|(k, _)| *k)
+            .filter(|(_, t, _)| (VISIT_BASE..CLEAN_TILT_BASE).contains(t))
+            .collect();
+        for k in visits {
+            self.binned.pop(&k);
+        }
         if !tilts_only_grew(&self.elevations, &new_elev) {
             self.binned.clear(); // tilt indices may have shifted
         } else {
@@ -855,6 +866,52 @@ impl Volume {
         self.binned.try_get_or_insert((moment, tilt, dealias), || {
             level2::bin_scan_opts_recorded(&scan, moment, tilt, dealias)
         })
+    }
+
+    /// The visits to `tilt` for `moment` when there is more than one, oldest first, as
+    /// `(sweep index, finished ms)`: SAILS and MRLE revisit the lowest tilt partway through a
+    /// volume (`level2::moment_visits`). Empty for a tilt visited once.
+    pub fn visits(&self, moment: Moment, tilt: usize) -> Vec<(usize, i64)> {
+        let visits = level2::moment_visits(&self.scan, moment, tilt);
+        if visits.len() > 1 {
+            visits
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// [`Self::binned`], or an earlier visit to the tilt when `visit` names one (index into
+    /// [`Self::visits`]; 1010.md V6). The newest visit is the tilt's own sweep.
+    pub fn binned_visit(
+        &mut self,
+        moment: Moment,
+        tilt: usize,
+        dealias: bool,
+        visit: Option<usize>,
+    ) -> anyhow::Result<&BinnedSweep> {
+        let visits = self.visits(moment, tilt);
+        match visit
+            .and_then(|i| visits.get(i))
+            .filter(|_| visit != Some(visits.len() - 1))
+        {
+            Some(&(sweep, _)) => {
+                let scan = Arc::clone(&self.scan);
+                self.binned
+                    .try_get_or_insert((moment, VISIT_BASE + sweep, dealias), || {
+                        level2::bin_sweep_index(&scan, moment, sweep, dealias)
+                    })
+            }
+            None => self.binned(moment, tilt, dealias),
+        }
+    }
+
+    /// When visit `visit` to `tilt` was scanned, or [`Self::acquisition_time`] for the newest.
+    pub fn visit_time(&self, moment: Moment, tilt: usize, visit: Option<usize>) -> DateTime<Utc> {
+        visit
+            .and_then(|i| self.visits(moment, tilt).get(i).copied())
+            .filter(|&(_, ms)| ms > 0)
+            .and_then(|(_, ms)| DateTime::from_timestamp_millis(ms))
+            .unwrap_or_else(|| self.acquisition_time(moment, tilt))
     }
 
     /// Reflectivity at tilt `tilt` with its non-weather echo removed by the same tilt's CC
@@ -1084,11 +1141,24 @@ pub struct MapView {
 }
 
 impl MapView {
-    /// Time of the radar data actually retained on screen, independent of a pending playhead move.
+    /// Time of the radar data actually retained on screen, independent of a pending playhead move:
+    /// an earlier SAILS visit's own time when one is shown ([`Self::shown_visit`]).
     pub(crate) fn displayed_radar_time(&self) -> Option<DateTime<Utc>> {
+        let visit = self.shown_visit();
         self.volume
             .as_ref()
-            .map(|v| v.acquisition_time(self.moment, self.tilt))
+            .map(|v| v.visit_time(self.moment, self.tilt, visit))
+    }
+
+    /// The earlier visit to the shown tilt the timeline has stepped back into (1010.md V6), while
+    /// the volume on screen is the frame at the playhead; `None` shows the newest. Column maximum
+    /// and cleaned reflectivity read every visit's tilt, so they stay on the newest.
+    pub(crate) fn shown_visit(&self) -> Option<usize> {
+        let vol = self.volume.as_ref()?;
+        let at_playhead = self.timeline.current().map(|id| id.name()) == Some(vol.name.as_str());
+        let plain =
+            !(self.moment == Moment::Reflectivity && (self.column_max || self.clean_reflectivity));
+        self.timeline.visit().filter(|_| at_playhead && plain)
     }
     /// Volumes held off-screen for the playhead to come back to.
     pub fn recent_len(&self) -> usize {
@@ -1937,6 +2007,60 @@ mod tests {
             controls
         )
         .is_none());
+    }
+
+    /// A SAILS volume's earlier visit to the lowest tilt, stepped back into, is what the pane
+    /// draws and the time it shows (1010.md V6). Column maximum stays on the newest.
+    #[test]
+    fn an_earlier_sails_visit_is_drawn_and_timed_when_stepped_into() {
+        let _serial = BINNING.lock().unwrap_or_else(|e| e.into_inner());
+        let start = DateTime::from_timestamp_millis(1_000).unwrap();
+        let mut v = MapView::new(None, Camera::at_lonlat(-97.0, 35.0, 8.0));
+        v.volume = Some(Volume::new(
+            scan_at_times(&[(0.5, 2_000), (1.5, 30_000), (0.5, 150_000)]),
+            "a".into(),
+            start,
+        ));
+        v.timeline.frames = vec![wxdata::level2::Identifier::new("a".to_string())];
+        v.timeline.playhead = 0;
+        v.timeline.following = false;
+        let vol = v.volume.as_ref().unwrap();
+        assert_eq!(vol.visits(Moment::Reflectivity, 0).len(), 2);
+        assert!(
+            vol.visits(Moment::Reflectivity, 1).is_empty(),
+            "one visit is no list"
+        );
+        let drawn_time = |v: &mut MapView, visit| {
+            v.volume
+                .as_mut()
+                .unwrap()
+                .binned_visit(Moment::Reflectivity, 0, false, visit)
+                .unwrap()
+                .bin_time_ms
+                .iter()
+                .copied()
+                .max()
+        };
+        assert_eq!(
+            v.displayed_radar_time().unwrap().timestamp_millis(),
+            150_000
+        );
+        let shown = v.shown_visit();
+        assert_eq!(drawn_time(&mut v, shown), Some(150_000));
+
+        v.timeline.visits = 2;
+        v.timeline.step(-1);
+        assert_eq!(v.shown_visit(), Some(0));
+        assert_eq!(v.displayed_radar_time().unwrap().timestamp_millis(), 2_000);
+        let shown = v.shown_visit();
+        assert_eq!(drawn_time(&mut v, shown), Some(2_000));
+
+        v.column_max = true;
+        assert_eq!(
+            v.shown_visit(),
+            None,
+            "column maximum reads the newest visit"
+        );
     }
 
     #[test]

@@ -109,6 +109,13 @@ pub struct Timeline {
     /// Forecast hours appended after the newest observed frame (HRRR "future radar" scrub tail).
     pub forecast_hours: u8,
     last_advance: Option<Instant>,
+    /// Visits to the shown tilt in the frame at the playhead, when there is more than one: SAILS
+    /// and MRLE revisit the lowest tilt partway through a volume (`level2::moment_visits`). Set
+    /// by the app each frame from the loaded volume; 0 when there is nothing to step through.
+    pub visits: usize,
+    /// The visit shown, as `(playhead, visit index)`. Only the frame it names: any other move of
+    /// the playhead (live arrival, a jump, the scrubber) leaves the newest visit showing.
+    visit: Option<(usize, usize)>,
 }
 
 impl Default for Timeline {
@@ -129,11 +136,54 @@ impl Default for Timeline {
             replay: None,
             forecast_hours: 6,
             last_advance: None,
+            visits: 0,
+            visit: None,
         }
     }
 }
 
 impl Timeline {
+    /// Which visit to the shown tilt is on screen (index into the frame's visits, oldest first),
+    /// or `None` for the newest, which is what a frame shows unless stepped back into (1010.md
+    /// V6).
+    pub fn visit(&self) -> Option<usize> {
+        let (at, i) = self.visit?;
+        (at == self.playhead && self.visits > 1 && i + 1 < self.visits).then_some(i)
+    }
+
+    /// The visit on screen as an index, the newest when [`Self::visit`] is `None`.
+    fn visit_index(&self) -> usize {
+        self.visit().unwrap_or(self.visits.saturating_sub(1))
+    }
+
+    /// One step through the visits inside the frame at the playhead, if there is one to take in
+    /// that direction. Otherwise the caller moves the playhead.
+    fn step_visit(&mut self, forward: bool) -> bool {
+        if self.visits < 2 {
+            return false;
+        }
+        let i = self.visit_index();
+        let next = if forward {
+            (i + 1 < self.visits).then(|| i + 1)
+        } else {
+            i.checked_sub(1)
+        };
+        match next {
+            Some(n) => {
+                self.visit = Some((self.playhead, n));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// After the playhead moved forward a frame: start that frame at its first visit, since the
+    /// one before it ended at its newest. (A frame without repeat visits ignores this.)
+    fn enter_first_visit(&mut self) {
+        self.visit = Some((self.playhead, 0));
+        self.visits = 0;
+    }
+
     /// The identifier of the volume at the playhead, if any (`None` in the forecast tail).
     pub fn current(&self) -> Option<&Identifier> {
         self.frames.get(self.playhead)
@@ -398,9 +448,20 @@ impl Timeline {
         if n == 0 {
             return;
         }
+        // One frame at a time steps through a SAILS volume's visits to the shown tilt first, in
+        // the order they were scanned (1010.md V6). A bigger jump moves frames.
+        if delta.abs() == 1 && self.step_visit(delta > 0) {
+            self.following = false;
+            return;
+        }
+        let was = self.playhead;
         self.playhead = (self.playhead as i32 + delta).clamp(0, n - 1) as usize;
-        // Re-pin to live only when back on the last observed frame (not in the forecast tail).
-        self.following = self.playhead + 1 == self.frames.len();
+        if delta == 1 && self.playhead != was {
+            self.enter_first_visit();
+        }
+        // Re-pin to live only when back on the newest visit of the last observed frame (not in
+        // the forecast tail).
+        self.following = self.playhead + 1 == self.frames.len() && self.visit().is_none();
     }
 
     /// Jump to the newest frame and re-pin to live.
@@ -449,6 +510,10 @@ impl Timeline {
             return false;
         }
         self.last_advance = Some(Instant::now());
+        // A SAILS volume plays each visit to the shown tilt before the next volume (1010.md V6).
+        if self.step_visit(true) {
+            return true;
+        }
         // A replay bundle owns the playhead: it wraps inside its own window, live or not.
         if let Some((from, to)) = self.replay {
             let to = to.min(self.frames.len().saturating_sub(1));
@@ -457,10 +522,12 @@ impl Timeline {
             } else {
                 self.playhead + 1
             };
+            self.enter_first_visit();
             return true;
         }
         if self.playhead + 1 < self.frames.len() {
             self.playhead += 1;
+            self.enter_first_visit();
             // Archive play re-pins to live at the head; a live loop stays pinned throughout.
             if !self.following {
                 self.following = self.playhead + 1 >= self.frames.len();
@@ -473,6 +540,7 @@ impl Timeline {
             } else {
                 self.playhead = 0;
             }
+            self.enter_first_visit();
         } else {
             self.playing = false;
         }
@@ -483,6 +551,87 @@ impl Timeline {
 fn frame_interval(speed: f32, degraded: bool) -> std::time::Duration {
     let speed = if degraded { speed.min(8.0) } else { speed };
     std::time::Duration::from_secs_f32((1.0 / speed).clamp(0.05, 10.0))
+}
+
+#[cfg(test)]
+mod visit_tests {
+    use super::Timeline;
+
+    fn timeline(frames: usize) -> Timeline {
+        Timeline {
+            frames: (0..frames)
+                .map(|i| wxdata::level2::Identifier::new(format!("KTLX20240101_00{i:02}00_V06")))
+                .collect(),
+            playhead: 0,
+            following: false,
+            ..Timeline::default()
+        }
+    }
+
+    /// A SAILS volume with three visits to the shown tilt steps through them in time order, then
+    /// moves on to the next volume at its first visit; stepping back retraces it.
+    #[test]
+    fn stepping_walks_each_visit_then_the_next_volume() {
+        let mut t = timeline(3);
+        t.visits = 3;
+        assert_eq!(t.visit(), None, "a frame opens on its newest visit");
+        t.step(-1);
+        assert_eq!((t.playhead, t.visit()), (0, Some(1)));
+        t.step(-1);
+        assert_eq!((t.playhead, t.visit()), (0, Some(0)));
+        t.step(-1);
+        assert_eq!(
+            (t.playhead, t.visit()),
+            (0, Some(0)),
+            "nothing before the first"
+        );
+        t.step(1);
+        t.step(1);
+        assert_eq!((t.playhead, t.visit()), (0, None), "back to the newest");
+        t.step(1);
+        assert_eq!(t.playhead, 1);
+        t.visits = 2; // the app reads the new volume's visits
+        assert_eq!(
+            t.visit(),
+            Some(0),
+            "the next volume starts at its first visit"
+        );
+        t.step(1);
+        assert_eq!((t.playhead, t.visit()), (1, None));
+    }
+
+    /// Without repeat visits, steps move frames exactly as before.
+    #[test]
+    fn a_volume_without_repeats_steps_frames() {
+        let mut t = timeline(3);
+        t.step(1);
+        assert_eq!(t.playhead, 1);
+        t.step(-1);
+        assert_eq!(t.playhead, 0);
+        // A jump to another frame never carries a visit with it.
+        t.visits = 3;
+        t.step(-1);
+        assert_eq!(t.visit(), Some(1));
+        t.playhead = 2;
+        assert_eq!(t.visit(), None);
+    }
+
+    /// Playback plays every visit, then the next volume's first.
+    #[test]
+    fn playback_plays_each_visit() {
+        let mut t = timeline(2);
+        t.visits = 2;
+        t.step(-1);
+        assert_eq!(t.visit(), Some(0));
+        t.playing = true;
+        assert!(t.tick());
+        assert_eq!((t.playhead, t.visit()), (0, None));
+        t.last_advance = None;
+        assert!(t.tick());
+        assert_eq!(t.playhead, 1);
+        t.visits = 2;
+        assert_eq!(t.visit(), Some(0));
+    }
 }
 
 #[cfg(test)]

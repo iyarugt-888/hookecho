@@ -113,6 +113,23 @@ impl HookEchoApp {
                             })
                     })
         };
+        // How many visits to the shown tilt the frame at the playhead has, so stepping and
+        // playback walk a SAILS volume's low-level revisits in scan order (1010.md V6). Only for
+        // the loaded frame's plain tilt; anything else steps frames as before.
+        let visits = {
+            let v = &self.views[idx];
+            v.volume
+                .as_ref()
+                .filter(|vol| v.timeline.current().map(|id| id.name()) == Some(vol.name.as_str()))
+                .filter(|_| {
+                    v.user_product.is_none()
+                        && !v.map_3d.enabled
+                        && !(v.moment == Moment::Reflectivity
+                            && (v.column_max || v.clean_reflectivity))
+                })
+                .map_or(0, |vol| vol.visits(v.moment, v.tilt).len())
+        };
+        self.views[idx].timeline.visits = visits;
         // Likewise while its 3D is still being built, so the 3D view plays frame for frame
         // rather than showing one scan's volume under the next scan's time (ROADMAP_NEW H8).
         if !next_pending && !self.next_frame_3d_pending(idx) {

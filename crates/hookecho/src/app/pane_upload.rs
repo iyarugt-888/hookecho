@@ -93,6 +93,15 @@ impl HookEchoApp {
             Some((_, key)) => format!("{name}\u{2}udp{key:x}"),
             None => name,
         };
+        // An earlier SAILS visit to the shown tilt, stepped back into (1010.md V6): the plain tilt
+        // only, and in the shown key so a step between visits uploads.
+        let visit = self.views[data]
+            .shown_visit()
+            .filter(|_| product.is_none() && trail_tag.is_none());
+        let name = match visit {
+            Some(i) => format!("{name}\u{3}visit{i}"),
+            None => name,
+        };
         let (threshold, storm_uv) = if product.is_some() {
             (None, None) // both are in the moment's units, which a product does not share
         } else {
@@ -207,7 +216,7 @@ impl HookEchoApp {
             } else if clean {
                 vol.clean_reflectivity(tilt)
             } else {
-                vol.binned(moment, tilt, dealias)
+                vol.binned_visit(moment, tilt, dealias, visit)
             };
             sweep.map(|s| {
                 if want_age {

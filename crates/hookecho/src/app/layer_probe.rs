@@ -122,6 +122,7 @@ impl HookEchoApp {
         let dealias = self.settings.dealias_velocity;
         let storm_uv = self.views[idx].storm_motion_uv();
         let velocity_unit = self.settings.velocity_unit;
+        let visit = self.views[idx].shown_visit();
         let v = &mut self.views[idx];
         let (moment, tilt, srv) = (v.moment, v.tilt, v.srv);
         let site = v.site.clone();
@@ -130,7 +131,7 @@ impl HookEchoApp {
             && !site.as_deref().is_some_and(wxdata::tdwr::is_tdwr);
         if let Some(vol) = v.volume.as_mut().filter(|vol| !vol.elevations.is_empty()) {
             let elev = vol.elevations.get(tilt).copied().unwrap_or(0.0);
-            let scan_time = vol.acquisition_time(moment, tilt);
+            let scan_time = vol.visit_time(moment, tilt, visit);
             let (label, sweep) = match &product {
                 Some((spec, key)) => (
                     format!(
@@ -141,7 +142,7 @@ impl HookEchoApp {
                 ),
                 None => (
                     format!("{} {elev:.1}\u{b0}", crate::products::name(moment, srv)),
-                    vol.binned(moment, tilt, dealias),
+                    vol.binned_visit(moment, tilt, dealias, visit),
                 ),
             };
             let units = match &product_name {

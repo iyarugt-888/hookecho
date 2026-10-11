@@ -18,6 +18,7 @@ impl HookEchoApp {
     pub(super) fn dock_probe(&mut self, lon: f64, lat: f64) -> Option<Probe> {
         let dealias = self.settings.dealias_velocity;
         let storm_uv = self.views[self.active].storm_motion_uv();
+        let visit = self.views[self.active].shown_visit();
         let v = &mut self.views[self.active];
         let (moment, tilt) = (v.moment, v.tilt);
         // Same rule as the renderer: velocity is dealiased where it can be folded, and a TDWR's
@@ -33,7 +34,7 @@ impl HookEchoApp {
         let pass_index = vol
             .acquisition_for(pass_site.as_deref())
             .and_then(|receipt| receipt.inventory().source_attribution.clone());
-        let sweep = vol.binned(moment, tilt, dealias).ok()?;
+        let sweep = vol.binned_visit(moment, tilt, dealias, visit).ok()?;
         let s = sweep.sample_at(lon, lat)?;
         Some(Probe {
             lon,

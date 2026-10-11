@@ -1767,6 +1767,26 @@ pub fn moment_cuts(scan: &Scan, moment: Moment, tilt: usize) -> Vec<(usize, i64)
     cuts
 }
 
+/// Passes of one moment at one tilt that finish closer together than this are one visit to the
+/// tilt: a split cut's surveillance and Doppler rotations, about 17 s apart. SAILS and MRLE
+/// revisits come minutes apart (a median 1.8 minutes in the backtest's volumes).
+pub const VISIT_GAP_MS: i64 = 60_000;
+
+/// One pass per visit to `tilt` ([`moment_cuts`] grouped by [`VISIT_GAP_MS`]), oldest first,
+/// each the newest pass of its visit, as [`bin_scan`] reads the newest of the last. Two or more
+/// at the lowest tilt under SAILS or MRLE; one for an ordinary or split-cut tilt, and one for a
+/// source without timestamps. These are the frames the timeline steps through (1010.md V6).
+pub fn moment_visits(scan: &Scan, moment: Moment, tilt: usize) -> Vec<(usize, i64)> {
+    let mut visits: Vec<(usize, i64)> = Vec::new();
+    for cut in moment_cuts(scan, moment, tilt) {
+        match visits.last_mut() {
+            Some(last) if cut.1 - last.1 < VISIT_GAP_MS => *last = cut,
+            _ => visits.push(cut),
+        }
+    }
+    visits
+}
+
 /// The pass of `moment` at `tilt` that finished nearest `ms` ([`moment_cuts`]): the reflectivity
 /// to read beside one velocity pass.
 pub fn nearest_cut(scan: &Scan, moment: Moment, tilt: usize, ms: i64) -> Option<usize> {
@@ -3017,6 +3037,54 @@ mod tests {
         assert!(moment_cuts(&scan, Moment::Velocity, 0).is_empty());
         assert!(moment_cuts(&scan, Moment::Reflectivity, 5).is_empty());
         assert!(bin_sweep_index(&scan, Moment::Velocity, 0, false).is_err());
+    }
+
+    /// A split cut's two rotations are one visit; a SAILS revisit minutes later is another. Each
+    /// visit is its newest pass, so the last visit is what `bin_scan` draws.
+    #[test]
+    fn split_cuts_are_one_visit_and_a_sails_revisit_is_another() {
+        let refl_at = |ts: i64| {
+            let data = MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![106u8]);
+            Radial::new(
+                ts,
+                0,
+                0.0,
+                0.5,
+                nexrad_model::data::RadialStatus::ScanStart,
+                1,
+                0.5,
+                Some(data),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        let sweeps = vec![
+            Sweep::new(1, vec![refl_at(1_000)]),   // surveillance
+            Sweep::new(2, vec![refl_at(25_000)]),  // Doppler, same visit
+            Sweep::new(3, vec![refl_at(130_000)]), // SAILS surveillance
+            Sweep::new(4, vec![refl_at(152_000)]), // SAILS Doppler
+        ];
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        let scan = Scan::with_site(site.clone(), minimal_vcp(), sweeps);
+        assert_eq!(moment_cuts(&scan, Moment::Reflectivity, 0).len(), 4);
+        let visits = moment_visits(&scan, Moment::Reflectivity, 0);
+        assert_eq!(visits, vec![(1, 25_000), (3, 152_000)]);
+        let newest = newest_moment_sweep(&scan, 0.5, Moment::Reflectivity).unwrap();
+        assert!(std::ptr::eq(newest, &scan.sweeps()[visits[1].0]));
+        // No timestamps: one visit, the newest pass.
+        let bare = Scan::with_site(
+            site,
+            minimal_vcp(),
+            vec![
+                Sweep::new(1, vec![refl_at(0)]),
+                Sweep::new(2, vec![refl_at(0)]),
+            ],
+        );
+        assert_eq!(moment_visits(&bare, Moment::Reflectivity, 0).len(), 1);
     }
 
     /// At a split cut, `bin_scan` reads reflectivity from the later Doppler cut, while
