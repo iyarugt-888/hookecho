@@ -19,6 +19,7 @@ pub mod clock;
 pub mod confirm;
 pub mod continuation;
 pub mod contour;
+pub mod cvd;
 pub mod dat;
 pub mod dealias;
 pub mod debris_class;

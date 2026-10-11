@@ -1016,6 +1016,73 @@ pub fn tint_lut(lut: &[u8; 1024], tint: PrecipTint) -> [u8; 1024] {
 }
 
 #[cfg(test)]
+mod cvd_tests {
+    use super::*;
+    use wxdata::cvd::{lab, simulate, Deficiency};
+
+    fn rgb(t: &ColorTable, v: f32) -> [u8; 3] {
+        let c = t.sample(v).expect("a colour there");
+        [c[0], c[1], c[2]]
+    }
+
+    /// The colour-blind-safe velocity table keeps inbound and outbound apart, and each apart
+    /// from the grey at zero, under normal vision and every simulated dichromacy (1010.md V11).
+    /// The default table's figures are printed beside it: its red and green also differ in
+    /// lightness, so at these speeds it holds up better than its hues suggest.
+    #[test]
+    fn the_safe_velocity_table_keeps_inbound_and_outbound_apart() {
+        let safe = builtin_alt("Colorblind-safe (blue/orange)").expect("the table");
+        let default = default_table(Moment::Velocity);
+        let worst =
+            |t: &ColorTable, a: f32, b: f32| wxdata::cvd::worst_delta_e(rgb(t, a), rgb(t, b));
+        for v in [5.0f32, 10.0, 25.0] {
+            let (pair, from_zero) = (
+                worst(&safe, -v, v),
+                worst(&safe, -v, 0.0).min(worst(&safe, v, 0.0)),
+            );
+            eprintln!(
+                "±{v} m/s, worst of normal and three dichromacies: safe ΔE {pair:.1} (from zero \
+                 {from_zero:.1}), default ΔE {:.1}",
+                worst(default, -v, v)
+            );
+            // Weak flow is nearer the grey, so its pair is nearer too; still well past a glance.
+            let floor = if v < 10.0 { 15.0 } else { 30.0 };
+            assert!(pair > floor, "safe ±{v} m/s: {pair:.1}");
+            if v >= 10.0 {
+                assert!(from_zero > 10.0, "safe ±{v} m/s from zero: {from_zero:.1}");
+            }
+        }
+    }
+
+    /// The colour-blind-safe reflectivity table gets lighter as reflectivity rises, under normal
+    /// vision and every simulated dichromacy, so "stronger" reads without hue.
+    #[test]
+    fn the_safe_reflectivity_table_brightens_with_dbz_for_everyone() {
+        let safe = builtin_alt("Colorblind-safe (viridis)").expect("the table");
+        let lightness = |v: f32, d: Option<Deficiency>| {
+            let c = rgb(&safe, v);
+            lab(d.map_or(c, |d| simulate(c, d)))[0]
+        };
+        for d in [None]
+            .into_iter()
+            .chain(Deficiency::ALL.into_iter().map(Some))
+        {
+            let mut last = f64::MIN;
+            for step in 0..=12 {
+                let v = 10.0 + 5.0 * step as f32;
+                let l = lightness(v, d);
+                assert!(
+                    l > last - 0.5,
+                    "{d:?} at {v} dBZ: L* {l:.1} after {last:.1}"
+                );
+                last = l;
+            }
+            assert!(lightness(70.0, d) - lightness(10.0, d) > 50.0, "{d:?}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tint_tests {
     use super::*;
 

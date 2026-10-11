@@ -607,6 +607,31 @@ mod tests {
         }
     }
 
+    /// Why the tags and line weights exist: with red-green colour vision deficiency the NWS
+    /// colours of a tornado warning and a flash flood warning, and of a severe thunderstorm
+    /// warning and a flash flood warning, come within a few ΔE of each other.
+    #[test]
+    fn the_warning_colours_collapse_for_a_red_green_dichromat() {
+        use crate::cvd::{delta_e, simulate, Deficiency};
+        let rgb = |e: &str| event_style(e).1;
+        let (tor, svr, ffw) = (
+            rgb("Tornado Warning"),
+            rgb("Severe Thunderstorm Warning"),
+            rgb("Flash Flood Warning"),
+        );
+        for (a, b, what) in [(tor, ffw, "TOR/FFW"), (svr, ffw, "SVR/FFW")] {
+            let normal = delta_e(a, b);
+            for d in [Deficiency::Protanopia, Deficiency::Deuteranopia] {
+                let seen = delta_e(simulate(a, d), simulate(b, d));
+                eprintln!("{what} {d:?}: ΔE {seen:.1}, normal vision {normal:.1}");
+                assert!(
+                    seen < normal * 0.5,
+                    "{what} {d:?}: {seen:.1} of {normal:.1}"
+                );
+            }
+        }
+    }
+
     /// Every warning and watch has words on the map, the threat tags change them, and
     /// advisories stay untagged; other agencies' lower-case names read the same.
     #[test]
