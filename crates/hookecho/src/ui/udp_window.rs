@@ -342,7 +342,13 @@ fn reference(ui: &mut egui::Ui) {
         });
         ui.add_space(4.0);
         ui.label(
-            "Functions: min(a,b)  max(a,b)  mean(a,b,...) [2–8 values]  clamp(x,lo,hi)  abs(x)",
+            "Functions: min(a,b)  max(a,b)  mean(a,b,...) [2–8 values]  clamp(x,lo,hi)  abs(x)  \
+             if_missing(x,fallback)  is_missing(x)",
+        );
+        ui.weak(
+            "A missing value (below threshold, range folded, or not available) makes the whole \
+             result missing unless if_missing gives a fallback. Where nothing the formula reads \
+             was recorded the map stays empty, fallback or not.",
         );
         ui.weak(
             "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M, FREEZING_LEVEL_M, \
@@ -351,7 +357,7 @@ fn reference(ui: &mut egui::Ui) {
         );
         ui.weak("Archived isotherms use recorded sounding HGHT (geopotential metres MSL). −30/−40 °C are unavailable from the live HRRR source. Missing levels are never estimated from another isotherm.");
         ui.label(
-            "Functions: min max mean(2-8) clamp abs   max_vertical(e[,cond]) min_vertical(e[,cond]) \
+            "Functions: min max mean(2-8) clamp abs if_missing is_missing   max_vertical(e[,cond]) min_vertical(e[,cond]) \
              mean_vertical(e[,cond]) max_height(e[,cond]) min_height(e[,cond]) \
              max_layer(e,lo,hi[,cond]) min_layer mean_layer \
              first_height_above(e,t) last_height_above(e,t) count_above(e,t) \

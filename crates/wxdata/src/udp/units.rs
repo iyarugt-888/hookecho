@@ -229,6 +229,8 @@ fn call(f: Func, args: &[ExprNode], out: &mut Vec<String>) -> Quantity {
     match f {
         Func::Min | Func::Max | Func::Mean | Func::Clamp => same(out, "Mixes", &q),
         Func::Abs => first,
+        Func::IfMissing => same(out, "Replaces missing", &q),
+        Func::IsMissing => Quantity::Number,
         Func::MaxVertical | Func::MinVertical | Func::MeanVertical => first,
         Func::MaxLayer | Func::MinLayer | Func::MeanLayer => {
             bounds(out, q.get(1..3).unwrap_or(&[]));
@@ -281,9 +283,24 @@ mod tests {
             "max_vertical(REF, BEAM_ALTITUDE_M >= FREEZING_LEVEL_M) - 10",
             "abs(VEL) / SW",
             "count_above(REF, 45) * 2",
+            "if_missing(ZDR, 0) > 1 && REF >= 45",
+            "is_missing(ZDR) ? REF : REF - 10",
         ] {
             assert!(diag(ok).is_empty(), "{ok}: {:?}", diag(ok));
         }
+    }
+
+    /// A fallback in another unit is said, as any other mix is.
+    #[test]
+    fn a_fallback_in_another_unit_is_noted() {
+        assert_eq!(
+            diag("if_missing(ZDR, VEL)"),
+            vec!["Replaces missing dB with m/s".to_string()]
+        );
+        assert_eq!(
+            parse("if_missing(REF, -30)").unwrap().result_quantity(),
+            super::Quantity::Dbz
+        );
     }
 
     #[test]

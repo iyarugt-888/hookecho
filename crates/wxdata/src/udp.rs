@@ -37,6 +37,13 @@
 //! `BEAM_ALTITUDE_M` (above sea level when site elevation is known), and the environmental heights
 //! above. `VEL` is the dealiased radial velocity, as the map draws it. Functions:
 //! `min`, `max` (2 args), `mean` (2–8 args), `clamp` (3 args: value, low, high), `abs` (1 arg).
+//! Missing values (a gate below threshold or range folded, an input the caller does not have, or
+//! a result that is not a number) propagate: anything computed from one is missing too, unless
+//! the formula says otherwise with `if_missing(x, fallback)` (`x`, or `fallback` where `x` is
+//! missing) or tests for it with `is_missing(x)` (1 or 0). A fallback only fills an input among
+//! others that were recorded: where nothing the formula reads was recorded, the map evaluates
+//! nothing and the point stays empty (`udp_volume`, `udp_column`), so a fallback never paints
+//! beyond what the radar saw.
 //! Comparisons and logical operators produce `1.0`
 //! (true) or `0.0` (false); the ternary's condition treats any nonzero value as true.
 //!
@@ -291,6 +298,10 @@ enum Func {
     LastHeightAbove,
     /// `count_above(expr, threshold)` — how many column entries have `expr >= threshold`.
     CountAbove,
+    /// `if_missing(x, fallback)` — `x`, or `fallback` where `x` is missing.
+    IfMissing,
+    /// `is_missing(x)` — 1 where `x` is missing, else 0.
+    IsMissing,
 }
 
 impl Func {
@@ -317,6 +328,8 @@ impl Func {
             "first_height_above" => (Self::FirstHeightAbove, 2, 2),
             "last_height_above" => (Self::LastHeightAbove, 2, 2),
             "count_above" => (Self::CountAbove, 2, 2),
+            "if_missing" => (Self::IfMissing, 2, 2),
+            "is_missing" => (Self::IsMissing, 1, 1),
             _ => return None,
         })
     }
@@ -603,6 +616,14 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs, column: Option<&[GateInputs]>
                 BinOp::And => f32::from(truthy(a) && truthy(b)),
                 BinOp::Or => f32::from(truthy(a) || truthy(b)),
             })
+        }
+        // The two that look at missingness itself, so their argument is not required to exist.
+        ExprNode::Call(Func::IfMissing, args) => match eval_node(&args[0], inputs, column) {
+            Some(v) => Some(v),
+            None => eval_node(&args[1], inputs, column),
+        },
+        ExprNode::Call(Func::IsMissing, args) => {
+            Some(f32::from(eval_node(&args[0], inputs, column).is_none()))
         }
         ExprNode::Call(func, args) if func.is_column_aware() => {
             eval_column_call(*func, args, inputs, column?)
@@ -1291,6 +1312,52 @@ mod tests {
 
     fn eval(src: &str) -> Option<f32> {
         evaluate(&parse(src).unwrap(), &inputs())
+    }
+
+    /// A missing input propagates unless the formula falls back on purpose; the test for it is
+    /// 1 or 0; and a fallback is used only where its argument is missing, not out of range.
+    #[test]
+    fn missing_values_propagate_unless_the_formula_fills_them() {
+        let no_zdr = GateInputs {
+            differential_reflectivity: None,
+            ..inputs()
+        };
+        let at = |src: &str, g: &GateInputs| evaluate(&parse(src).unwrap(), g);
+        assert_eq!(at("REF + ZDR", &no_zdr), None);
+        assert_eq!(at("REF + if_missing(ZDR, 0)", &no_zdr), Some(45.0));
+        assert_eq!(at("REF + if_missing(ZDR, 0)", &inputs()), Some(47.5));
+        assert_eq!(at("is_missing(ZDR)", &no_zdr), Some(1.0));
+        assert_eq!(at("is_missing(ZDR)", &inputs()), Some(0.0));
+        assert_eq!(at("is_missing(ZDR) ? REF : REF - ZDR", &no_zdr), Some(45.0));
+        // Not a number counts as missing; a fallback can itself be missing.
+        assert_eq!(at("if_missing(0/0, -1)", &inputs()), Some(-1.0));
+        assert_eq!(
+            at(
+                "if_missing(ZDR, KDP)",
+                &GateInputs {
+                    specific_diff_phase: None,
+                    ..no_zdr
+                }
+            ),
+            None
+        );
+        // Inside a column reduction, per entry.
+        let column = [
+            GateInputs {
+                beam_height_m: Some(500.0),
+                ..no_zdr
+            },
+            GateInputs {
+                beam_height_m: Some(2000.0),
+                ..inputs()
+            },
+        ];
+        let e = parse("max_vertical(if_missing(ZDR, -9))").unwrap();
+        assert_eq!(evaluate_at_column(&e, &column[0], &column), Some(2.5));
+        let e = parse("count_vertical(is_missing(ZDR))").unwrap();
+        assert_eq!(evaluate_at_column(&e, &column[0], &column), Some(1.0));
+        assert!(parse("if_missing(REF)").is_err());
+        assert!(parse("is_missing(REF, 1)").is_err());
     }
 
     #[test]
