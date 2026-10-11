@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-11T19:38:52+00:00",
-  "generated_from_commit": "a9fc76ecd4134c5eb0e57ab933dada8d7d6b3ae2",
+  "generated_utc": "2026-10-11T20:13:39+00:00",
+  "generated_from_commit": "5365d423cc4a2db973b1720ea542c711b6aeb3a5",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1546,6 +1546,21 @@
       "path": "docs/certification/model-context/waiting-diagnostics.json",
       "sha256": "a66644badbf81f74c4b0f748e0dca51ddc33d1d9eaf39bbb2b604385df974fee",
       "bytes": 603
+    },
+    {
+      "path": "docs/certification/model-fields/README.md",
+      "sha256": "024d0ab31652a1ac0336920a25847668acf36ef7f27ef2f2c3590a2cca0abc80",
+      "bytes": 4551
+    },
+    {
+      "path": "docs/certification/model-fields/hrrr-500hpa-height-contours-browser.jpg",
+      "sha256": "42127fc48dd262ce4df02667aab8f553b202402245f886591b2ff35db2200306",
+      "bytes": 88473
+    },
+    {
+      "path": "docs/certification/model-fields/hrrr-850hpa-temperature-contours-browser.jpg",
+      "sha256": "a8dffed7e06ecb20e9d8b22fb4d47cb55bf1ab747db91cd272629078afb4a84a",
+      "bytes": 109005
     },
     {
       "path": "docs/certification/model-panes.md",
