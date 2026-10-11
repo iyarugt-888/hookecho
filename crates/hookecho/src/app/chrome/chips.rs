@@ -94,20 +94,40 @@ impl HookEchoApp {
                 for (i, t) in self.toasts.iter().enumerate() {
                     let left = LIFE - t.at.elapsed().as_secs_f32();
                     let alpha = left.min(1.0).clamp(0.0, 1.0);
-                    let stripe = match t.kind {
-                        ToastKind::Info => accent,
-                        ToastKind::Success => crate::ui::style::OMEGA_GREEN,
-                        ToastKind::Error => egui::Color32::from_rgb(220, 90, 90),
+                    // The kind is the border colour and a glyph, not the colour alone
+                    // (ROADMAP_NEW Q3): an error toast reads as one at a glance either way.
+                    let (stripe, glyph) = match t.kind {
+                        ToastKind::Info => (accent, egui_phosphor::regular::INFO),
+                        ToastKind::Success => (
+                            crate::ui::style::OMEGA_GREEN,
+                            egui_phosphor::regular::CHECK_CIRCLE,
+                        ),
+                        ToastKind::Error => (
+                            egui::Color32::from_rgb(220, 90, 90),
+                            egui_phosphor::regular::WARNING_CIRCLE,
+                        ),
                     };
                     let resp = crate::ui::style::glass(ui, (220.0 * alpha) as u8)
                         .stroke(egui::Stroke::new(1.0, stripe.gamma_multiply(alpha)))
                         .show(ui, |ui| {
                             ui.set_max_width(320.0);
-                            ui.label(
-                                egui::RichText::new(&t.text)
-                                    .size(crate::ui::style::FONT_BASE)
-                                    .color(egui::Color32::from_gray(235).gamma_multiply(alpha)),
-                            );
+                            ui.horizontal_top(|ui| {
+                                ui.label(
+                                    egui::RichText::new(glyph)
+                                        .size(crate::ui::style::FONT_BASE)
+                                        .color(stripe.gamma_multiply(alpha)),
+                                );
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&t.text)
+                                            .size(crate::ui::style::FONT_BASE)
+                                            .color(
+                                                egui::Color32::from_gray(235).gamma_multiply(alpha),
+                                            ),
+                                    )
+                                    .wrap(),
+                                );
+                            });
                         })
                         .response;
                     if resp.interact(egui::Sense::click()).clicked() {

@@ -711,7 +711,7 @@ impl HookEchoApp {
                             self.basemap_open = !self.basemap_open;
                         }
                         let bell = square_btn(ui, egui_phosphor::regular::BELL, alerts_on, accent)
-                            .named_toggle("Active alerts in view", alerts_on);
+                            .named_toggle(&ui::alert_panel::bell_name(alert_count, esc), alerts_on);
                         alerts_anchor = Some(bell.rect);
                         if bell.clicked() {
                             self.panel_open = !alerts_on;
@@ -732,23 +732,11 @@ impl HookEchoApp {
                         {
                             self.apply_palette(crate::app::PaletteAction::CopyViewLink, ctx);
                         }
-                        // Count over the bell's top-right corner, coloured by the worst alert in
+                        // Count over the bell's top-right corner, marked by the worst alert in
                         // view — the same escalation the alert panel sorts by.
                         if alert_count > 0 {
-                            let c = match esc {
-                                0 => crate::ui::style::OMEGA_ORANGE,
-                                1 => egui::Color32::from_rgb(230, 120, 60),
-                                _ => egui::Color32::from_rgb(200, 20, 20),
-                            };
                             let at = bell.rect.right_top() + egui::vec2(-4.0, 4.0);
-                            ui.painter().circle_filled(at, 8.0, c);
-                            ui.painter().text(
-                                at,
-                                egui::Align2::CENTER_CENTER,
-                                alert_count.min(99).to_string(),
-                                egui::FontId::proportional(10.0),
-                                egui::Color32::BLACK,
-                            );
+                            ui::alert_panel::paint_bell_badge(ui.painter(), at, alert_count, esc);
                         }
                     });
             });

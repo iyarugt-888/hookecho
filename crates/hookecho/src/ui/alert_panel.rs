@@ -28,6 +28,61 @@ pub fn severity_rank(event: &str) -> u8 {
     }
 }
 
+/// The alert bell's count badge, in the floating chrome and on the phone rail. The worst
+/// escalation in view ([`wxdata::alerts::escalation`]) is shown three ways, never by colour alone
+/// (ROADMAP_NEW Q3): the colour; a ring from CONSIDERABLE up; and "!" after the count for
+/// DESTRUCTIVE or an observed tornado, "!!" for a Tornado Emergency or PDS, which also widens the
+/// circle into a pill. Before this, both of the top tiers were the same red.
+pub fn paint_bell_badge(painter: &egui::Painter, at: egui::Pos2, count: usize, esc: u8) {
+    let (fill, ink, text, ring) = bell_badge(count, esc);
+    let galley = painter.layout_no_wrap(text, egui::FontId::proportional(10.0), ink);
+    let w = (galley.size().x + 8.0).max(16.0);
+    let rect = egui::Rect::from_center_size(at, egui::vec2(w, 16.0));
+    painter.rect_filled(rect, 8.0, fill);
+    if ring {
+        painter.rect_stroke(
+            rect,
+            8.0,
+            egui::Stroke::new(1.5, egui::Color32::WHITE),
+            egui::StrokeKind::Outside,
+        );
+    }
+    painter.galley(rect.center() - galley.size() / 2.0, galley, ink);
+}
+
+/// [`paint_bell_badge`]'s fill, text colour, text and whether it is ringed, for `count` alerts
+/// whose worst escalation is `esc`.
+fn bell_badge(count: usize, esc: u8) -> (egui::Color32, egui::Color32, String, bool) {
+    let (fill, ink) = match esc {
+        0 => (crate::ui::style::OMEGA_ORANGE, egui::Color32::BLACK),
+        1 => (egui::Color32::from_rgb(230, 120, 60), egui::Color32::BLACK),
+        // White on the red: black on it was hard to read.
+        _ => (egui::Color32::from_rgb(200, 20, 20), egui::Color32::WHITE),
+    };
+    let mark = match esc {
+        0 | 1 => "",
+        2 => "!",
+        _ => "!!",
+    };
+    (fill, ink, format!("{}{mark}", count.min(99)), esc >= 1)
+}
+
+/// The alert bell's accessible name and hover text: how many alerts are in view and the worst
+/// of them, in words.
+pub fn bell_name(count: usize, esc: u8) -> String {
+    match (count, esc) {
+        (0, _) => "Active alerts in view".to_owned(),
+        (n, 0) => format!("Active alerts in view: {n}"),
+        (n, 1) => {
+            format!("Active alerts in view: {n}, the worst with a considerable damage threat")
+        }
+        (n, 2) => {
+            format!("Active alerts in view: {n}, the worst destructive or with a tornado observed")
+        }
+        (n, _) => format!("Active alerts in view: {n}, including a Tornado Emergency or PDS"),
+    }
+}
+
 #[cfg(test)]
 mod severity_tests {
     use super::severity_rank;
@@ -204,6 +259,33 @@ fn color32(c: [u8; 4]) -> egui::Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The worst alert in view is said in words, not left to the badge's colour.
+    #[test]
+    fn the_bell_says_how_many_and_how_bad() {
+        assert_eq!(bell_name(0, 3), "Active alerts in view");
+        assert_eq!(bell_name(4, 0), "Active alerts in view: 4");
+        assert!(bell_name(2, 1).contains("considerable"));
+        assert!(bell_name(2, 2).contains("destructive"));
+        assert!(bell_name(1, 3).contains("Tornado Emergency"));
+    }
+
+    /// Each tier differs by more than its colour: a ring from tier 1, a mark from tier 2, and the
+    /// two top tiers (the same red) by their marks.
+    #[test]
+    fn the_bell_badge_marks_each_tier_without_colour() {
+        let tiers: Vec<_> = (0..=3).map(|esc| bell_badge(3, esc)).collect();
+        let marks: Vec<(&str, bool)> = tiers.iter().map(|t| (t.2.as_str(), t.3)).collect();
+        assert_eq!(
+            marks,
+            [("3", false), ("3", true), ("3!", true), ("3!!", true)]
+        );
+        assert_eq!(
+            tiers[2].0, tiers[3].0,
+            "the top tiers share a colour, so the marks must differ"
+        );
+        assert_eq!(bell_badge(250, 0).2, "99");
+    }
 
     #[test]
     fn severity_orders_tornado_first() {

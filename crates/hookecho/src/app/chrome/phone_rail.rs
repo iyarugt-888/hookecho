@@ -199,7 +199,14 @@ impl HookEchoApp {
                                 RailItem::Analysis => "Cross-section",
                                 RailItem::Settings => "Settings",
                             };
-                            let resp = resp.named_toggle(name, on);
+                            let resp = if item == RailItem::Alerts {
+                                resp.named_toggle(
+                                    &crate::ui::alert_panel::bell_name(alert_count, esc),
+                                    on,
+                                )
+                            } else {
+                                resp.named_toggle(name, on)
+                            };
                             if item == RailItem::Alerts {
                                 alerts_anchor = Some(resp.rect);
                             }
@@ -220,19 +227,12 @@ impl HookEchoApp {
                                 }
                             }
                             if item == RailItem::Alerts && alert_count > 0 {
-                                let c = match esc {
-                                    0 => crate::ui::style::OMEGA_ORANGE,
-                                    1 => egui::Color32::from_rgb(230, 120, 60),
-                                    _ => egui::Color32::from_rgb(200, 20, 20),
-                                };
                                 let at = resp.rect.right_top() + egui::vec2(-4.0, 4.0);
-                                ui.painter().circle_filled(at, 8.0, c);
-                                ui.painter().text(
+                                crate::ui::alert_panel::paint_bell_badge(
+                                    ui.painter(),
                                     at,
-                                    egui::Align2::CENTER_CENTER,
-                                    alert_count.min(99).to_string(),
-                                    egui::FontId::proportional(10.0),
-                                    egui::Color32::BLACK,
+                                    alert_count,
+                                    esc,
                                 );
                             }
                         }
