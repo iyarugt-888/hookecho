@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a better radar for the storm you are watching
+
+When you follow or select a storm and another radar of the same network sees it far lower, a
+card says which radar and why ("KTLH: beam 2.4 km up at the storm, 140 km away", against the
+current radar's), with a button to switch. Switching keeps the storm in view and keeps
+following it. "Not now" hides the card until a different radar becomes the better one. The app
+never switches radars on its own.
+
 ### Fixed: Android background alerts on long severe-weather days
 
 On Android 15, background alerting could crash the app after six hours of watching in a day, the

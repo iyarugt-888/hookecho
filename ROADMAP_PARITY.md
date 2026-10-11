@@ -841,6 +841,18 @@ Capture: [`docs/certification/m2.2/storm-row-lineage.png`](docs/certification/m2
 - Desktop and Android walkthroughs.
 - Archive replay from local cells.
 
+**Evidence ledger — 2026-10-10, a better radar for the storm being watched (1010.md V8, suggestions.md §4.3):**
+
+- `wxdata::suitability::recommend` returns the radar of the current radar's own network with the lowest beam at the storm, when it is worth a switch (`worth_switching`: at most 60% of the current height and at least 600 m lower). A TDWR or a European radar is never offered for a NEXRAD.
+- Tests:
+  - Mayfield, 10 December 2021, from KHPX suggests KPAH, and from KPAH nothing.
+  - Oklahoma City from Tulsa suggests KTLX, never the TDWR beside it.
+  - The threshold cases.
+- The app (`app/radar_hint.rs`) shows a card for the followed storm, or else the selected one: the suggested radar, both beam heights and distances, "Switch to …" and "Not now". "Not now" holds until the suggestion changes. Switching sets the pane's site, keeps the camera on the storm, and carries a follow over with the old radar's SCIT ID cleared, since that ID names another storm on the new radar. `update_follow` then adopts the new radar's cell nearest where the storm's motion puts it.
+- The follow badge and this card now share one lane (`badge_lane`). In the workstation it runs down the top centre of the maps, because there the old right-hand lane sat under the Inspector tool window.
+
+Verified here: workspace tests 2,601 passed, 0 failed, 205 ignored; clippy clean; wasm at its baseline. Live, in the sandboxed desktop build: on KJAX with live Gulf-coast storms, the card for Q1 named KTLH (2.3 km against 5.2 km, [`radar-hint-card.png`](docs/certification/m2.2/radar-hint-card.png) `91d84aa5…`); "Not now" hid it with the storm still selected; Follow then stacked the badge above it ([`radar-hint-following.png`](docs/certification/m2.2/radar-hint-following.png) `e6bd9a4b…`); and Switch to KTLH kept the storm in view and carried the follow to KTLH's E6 ([`radar-hint-switched.png`](docs/certification/m2.2/radar-hint-switched.png) `b121f90b…`). Not done: freshness, which needs every candidate's newest volume age and so a live poll, and an automatic mode. A uniform 0.5° elevation means the suggestion is in practice the nearer radar; the module doc says so.
+
 #### M2.3 — Extend impacts to geolocated communities and assets
 
 **Priority:** P0. **Depends on:** M2.1, M1.4. **Original references:** ROADMAP_2 §§2.3, 2.4; ROADMAP_NEW §§L3, L4, R5.

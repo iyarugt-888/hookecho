@@ -322,6 +322,13 @@ The Mayfield event is an ideal regression case:
 
 ## 4.3 Smart radar handoff
 
+> **Done as a suggestion, 2026-10-10 (1010.md V8):** for a followed or selected storm, a radar
+> of the same network whose beam at the storm is far lower (`wxdata::suitability::recommend`:
+> at most 60% of the height and at least 600 m lower) is offered with both beam heights and a
+> one-click switch that keeps the camera on the storm and carries a follow over. It never
+> switches on its own. Not done: freshness (it needs a live poll of every candidate) and an
+> automatic mode.
+
 Optional mode:
 
 `Auto-select best low-level radar for tracked storm`
