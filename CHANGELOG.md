@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wind particles from a wind you pick
+
+With a wind picked in "Model fields" (any level, any model it lists), "Drift wind particles
+with this wind" makes the animated wind particles follow it instead of the HRRR 10 m wind.
+Turning on radar winds hands the particles back to the radar.
+
 ### Added: graph a model field at a point over its run
 
 For a field picked in "Model fields" from HRRR, RAP, NAM or the other regional models, the

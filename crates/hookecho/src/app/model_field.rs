@@ -594,6 +594,7 @@ impl HookEchoApp {
         let mut chosen = None;
         let current = self.views[self.active].models.field.clone();
         let mut contours = self.views[self.active].models.field_contours;
+        let mut particles = self.model_particles.on;
         let lead = self
             .field_browser
             .model
@@ -637,6 +638,13 @@ impl HookEchoApp {
                         None => {
                             ui.weak("This quantity is shaded only, not contoured");
                         }
+                    }
+                    if pick.vector {
+                        ui.checkbox(&mut particles, "Drift wind particles with this wind")
+                            .on_hover_text(
+                                "The animated wind particles follow this wind on the active \
+                                 pane instead of the HRRR 10 m wind (or radar winds)",
+                            );
                     }
                 }
                 ui.add(
@@ -769,6 +777,10 @@ impl HookEchoApp {
             });
         self.field_browser.open = open;
         self.views[self.active].models.field_contours = contours;
+        if particles != self.model_particles.on {
+            self.model_particles.on = particles;
+            self.model_particles_toggled();
+        }
         if let Some(pick) = chosen {
             self.show_model_field(pick);
         }

@@ -100,3 +100,40 @@ The first click on the button moved the probe's pin instead of pressing it; late
 pressed it without moving the pin. Why is not established. Not established either: the desktop
 app, Android, and global models (refused here; the forecast window graphs them).
 
+## Wind particles from a browsed wind (2026-10-12, 1010.md V16, ROADMAP_NEW F4)
+
+With a wind picked in "Model fields", the window offers "Drift wind particles with this wind"
+(`app/model_particles.rs`). While it is on, the animated particles take their field from the
+active pane's accepted browsed wind, the same east/north components its barbs are drawn from,
+instead of the HRRR 10 m wind; the HRRR 10 m fetch stops, and turning on radar winds turns the
+switch off. A new lead or level replaces the field once it is accepted; the last one keeps
+drifting while it loads, and the particles stop when the pane no longer shows a browsed wind.
+
+**Live, headless, one machine** (`browsed_wind_particles_live`, ignored by default): the HRRR
+2026-10-12 10Z run at F+1, fetched as a browsed wind is (`hrrr::fetch_inventory_vector`, 850 hPa)
+and as the 10 m particle layer is (`hrrr::fetch_wind`), each run through the particle engine
+(`wind_draw::Particles`, the CPU path) for 90 frames over Oklahoma at zoom 6. Mean wind over the
+view: 10 m 4.5 m/s from 195°, 850 hPa 16.4 m/s from 225°. The browser probe read the same 850 hPa
+wind as "35.5 from 224°" (kt) at 34.81, −98.62.
+
+**Browser build on WebGPU, one machine**, live, built from the working tree at `98ff55d` with
+this change and another session's uncommitted work: the switch is offered once a wind is picked,
+and turning it on brings up the particles' "Wind (kt)" key under the field's own.
+
+| Capture | What it shows |
+| --- | --- |
+| `particles-hrrr-850-vs-10m-live.png` | Left, the HRRR 10 m particles, short and from the south. Right, the 850 hPa particles, long and from the southwest, fastest (magenta) in the northwest of the view. |
+| `particles-switch-offered-browser.jpg` | "Model fields" with "Wind · 850 hPa · instant (kt)" picked: "Contour lines every 10 kt" and "Drift wind particles with this wind" (off), barbs over the speed. |
+| `particles-switch-on-browser.jpg` | After turning it on: the "Wind (kt)" particle key (0–50) under the 850 hPa key. |
+
+| File | SHA-256 |
+| --- | --- |
+| particles-hrrr-850-vs-10m-live.png | `b4153001b388a7f7204243f176227a8688adab3afb1fd33f9b74258c525dd3f4` |
+| particles-switch-offered-browser.jpg | `12e183e17df7b58d2dbf406602be6a6ac5c292e77dacd4e73b45cfce1b73f5c9` |
+| particles-switch-on-browser.jpg | `a02a699c200f5751c60715c546b44ab7c254aee0ac485f08adcbec97025162c5` |
+
+Not established: particles moving on screen in the app. The browser pane was hidden for the whole
+run and drew about one frame in several seconds (18.6 s at the end), too few for trails, so the
+browser captures show the switch and the key, not drifting particles. Nor the desktop app,
+Android, or the GPU particle path with a browsed wind; that path packs each component into
+±40 m/s, so a jet faster than that drifts as 40 m/s there.

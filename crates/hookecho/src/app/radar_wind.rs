@@ -91,6 +91,7 @@ impl HookEchoApp {
         self.radar_wind.key = None;
         if self.radar_wind.on {
             self.show_wind = true;
+            self.model_particles.on = false;
         }
     }
 }

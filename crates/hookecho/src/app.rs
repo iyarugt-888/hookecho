@@ -36,6 +36,7 @@ mod local_api;
 pub(crate) mod long_loop;
 mod overlay_health;
 mod pane_time;
+mod model_particles;
 mod radar_wind;
 mod region_stats;
 pub(crate) mod model_field;
@@ -2160,6 +2161,8 @@ pub struct HookEchoApp {
     wind_fetched: Option<(wxdata::hrrr::WindLevel, u8)>,
     /// Wind particles from the radar's Doppler velocity instead of the HRRR.
     radar_wind: radar_wind::RadarWindState,
+    /// Wind particles from a wind picked in "Model fields" (ROADMAP_NEW F4).
+    model_particles: model_particles::ModelParticles,
     /// The ground under the 3D map (ROADMAP_NEW H5).
     terrain3d: terrain3d::Terrain3d,
     /// Y'all mode's own outlooks and card state.

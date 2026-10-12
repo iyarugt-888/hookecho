@@ -1180,6 +1180,7 @@ impl HookEchoApp {
         self.sync_boundaries(ctx);
         self.sync_impacts(ctx);
         self.sync_radar_wind(ctx);
+        self.sync_model_particles();
         self.sync_terrain3d(ctx);
         self.sync_yall(ctx);
         // One Smoothing toggle for radar and every gridded layer.

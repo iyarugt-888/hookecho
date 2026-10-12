@@ -458,8 +458,9 @@ impl HookEchoApp {
             let free = self
                 .wind_inflight
                 .is_none_or(|t| t.elapsed().as_secs() >= 60);
-            // Radar winds drive the particles on their own (`sync_radar_wind`).
-            if (stale || changed) && free && !self.radar_wind.on {
+            // Radar winds and a browsed wind drive the particles on their own
+            // (`sync_radar_wind`, `sync_model_particles`).
+            if (stale || changed) && free && self.particles_from_hrrr() {
                 self.wind_last_fetch = Some(Instant::now());
                 self.wind_inflight = Some(Instant::now());
                 self.wind_fetched = Some(want);

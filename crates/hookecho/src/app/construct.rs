@@ -763,6 +763,7 @@ impl HookEchoApp {
             wind_uploaded: None,
             wind_fetched: None,
             radar_wind: Default::default(),
+            model_particles: Default::default(),
             terrain3d: Default::default(),
             yall: Default::default(),
             layer_probe_pin: None,

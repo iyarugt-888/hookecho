@@ -2555,7 +2555,12 @@ Every appropriate field should support:
   grids (`app/model_field.rs`, `wind_draw::barbs_uv`)
 - [ ] arrows — not as such: streamlines carry arrowheads along their length
   (`wind_streamlines::arrowheads`), and barbs give direction and speed
-- [ ] wind particles — the HRRR wind layer only (`wind_gpu`), not a browsed wind
+- [x] wind particles — a wind picked in "Model fields" has "Drift wind particles with this
+  wind": the animated particles then follow the active pane's browsed wind (its east/north
+  components, as the barbs) instead of the HRRR 10 m wind; one of radar winds and a browsed
+  wind drives them at a time (`app/model_particles.rs`, 1010.md V16). HRRR 850 hPa beside
+  10 m, live, in `docs/certification/model-fields/`. The GPU path packs each component into
+  ±40 m/s, so a stronger jet drifts as 40 m/s there
 - [x] streamlines where feasible — a browsed wind is drawn as streamlines when "Streamlines" is
   on, from the same components as its barbs (`app.rs`, `wind_streamlines::streamlines`)
 - [x] point sample — the layer probe reads a browsed field under the pointer, a wind with the

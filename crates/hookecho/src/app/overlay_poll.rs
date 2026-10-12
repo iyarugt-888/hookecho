@@ -553,8 +553,10 @@ impl HookEchoApp {
                 OverlayMsg::Wind(w) => {
                     self.wind_inflight = None;
                     // Keep only if the selection didn't change while the fetch was in flight, and
-                    // radar winds have not taken over the particles meanwhile.
-                    if self.wind_fetched == Some((w.level, w.fcst_hour)) && !self.radar_wind.on {
+                    // radar winds or a browsed wind have not taken over the particles meanwhile.
+                    if self.wind_fetched == Some((w.level, w.fcst_hour))
+                        && self.particles_from_hrrr()
+                    {
                         self.wind = Some(*w);
                     }
                 }
