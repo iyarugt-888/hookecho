@@ -39,7 +39,9 @@ Warning, watch and special weather statement polygons now carry short labels on 
 "TOR PDS", "TOR EMERGENCY", "SVR DESTRUCTIVE". Tornado warnings are drawn with a heavier line,
 and watches with a dashed one. Until now only the colour told a tornado warning from a flash
 flood warning, which people with red-green colour blindness cannot rely on. A label is shown
-when the polygon is big enough on screen to hold it.
+when the polygon is big enough on screen to hold it; a small emergency or PDS warning shows a
+short form, "TOR!!" or "TOR!", so the most serious warning is never the one left unlabelled. Town
+names give way to warning labels.
 
 ### Added: user products can say what to do with missing data
 

@@ -38,7 +38,7 @@ sharing work:
 
 | Capture | What it shows |
 | --- | --- |
-| `warning-tags-moore-archive-browser.jpg` | KTLX archive, 2013-05-20 20:12 UTC (the Moore tornado), from the archived warnings: "TOR" on the Moore tornado warning by Oklahoma City, "TOR" and "SVR" on the storm to the south, each tornado outline visibly heavier. The Moore warning reads "TOR", not "TOR EMERGENCY". The archived warning record carries no damage-threat tag and not the tornado-emergency wording, so the tag cannot say more than "TOR". |
+| `warning-tags-moore-archive-browser.jpg` | KTLX archive, 2013-05-20 20:12 UTC (the Moore tornado), from the archived warnings: "TOR" on the Moore tornado warning by Oklahoma City, "TOR" and "SVR" on the storm to the south, each tornado outline visibly heavier. The Moore warning reads "TOR", not "TOR EMERGENCY". That conclusion was wrong: see "Short tags" below. At this zoom the emergency polygon was too small for its long tag, so it was skipped and an overlapping plain warning's "TOR" showed. |
 | `warning-tags-flood-live-browser.jpg` | Live KTLH and KEVX, the Florida panhandle: "FLOOD" on a live Flood Warning. At a regional zoom the same polygons were too small for a tag and carried none, by design. |
 
 Tests:
@@ -62,6 +62,25 @@ Limits:
 - Tags are skipped on small polygons at regional zooms. The alert list and the polygon's own
   click still name it there.
 - Not run in the desktop app or on Android.
+
+## Short tags, and tags before town names (2026-10-11, 1008.md E4)
+
+- **Town names give way.** Warning tags now reserve their place in the frame's shared label placer
+  at warning priority, before town names. Before, they kept their own list and were drawn after
+  the names, so a name could sit on a tag.
+- **A tag that does not fit falls back.** On the Moore archive, zoomed in to 9.6, the polygon
+  reads "TOR EMERGENCY" (`warning-tags-moore-zoomed-browser.jpg`), and "Moore" is not drawn
+  under it. So the archive does carry the emergency, and the first walkthrough above was
+  misread. At zoom 8.6 that tag was too long for its polygon on screen: it was skipped while an
+  overlapping plain warning kept its "TOR", understating the most severe warning in view. A tag
+  that does not fit now falls back to a short form with the alert bell's marks
+  (`alerts::short_tag`): "TOR!!" for an emergency, "TOR!" for PDS, "SVR!", "FFW!!". The same
+  zoom 8.6 view now reads "TOR!!" (`warning-tags-moore-short-browser.jpg`).
+
+| File | SHA-256 |
+| --- | --- |
+| `warning-tags-moore-zoomed-browser.jpg` | `36989d3b8388547b08341f04cd9614e7e01c1dced3f903db31c19ceda6e1620d` |
+| `warning-tags-moore-short-browser.jpg` | `b8bf4bf5dcec8cf4f35d851ae75678741b5039c8703e0d48258652d87c187542` |
 
 ## Colours under simulated colour-vision deficiency (2026-10-11)
 

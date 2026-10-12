@@ -4450,7 +4450,9 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   carry their kind in words (`alerts::map_tag`: "TOR", "TOR PDS", "TOR EMERGENCY", "SVR", "FFW",
   "FLOOD", "TOR WATCH"..., placed inside polygons big enough to hold one, most severe first, never
   overlapping) and in line (`overlay_build::alert_stroke`: tornado 3.4 px, the other short-fuse
-  warnings 2.4 px, watches dashed). Seen in the browser build on the Moore 2013 archive (TOR, SVR)
+  warnings 2.4 px, watches dashed). A tag too long for its polygon falls back to "TOR!!", "TOR!",
+  "SVR!" or "FFW!!", and tags reserve their place before town names. Seen in the browser build on
+  the Moore 2013 archive (TOR EMERGENCY zoomed in, TOR!! at a wider zoom, SVR)
   and on a live Flood Warning (2026-10-11, `docs/certification/a11y/README.md`). Colour-vision
   deficiency is simulated (`wxdata::cvd`, Machado 2009, CIE76 ΔE): for a deuteranope the tornado
   and flash flood warning colours drop from ΔE 152.8 to 8.9, and for a protanope severe
