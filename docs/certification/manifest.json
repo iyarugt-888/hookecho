@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T19:09:46+00:00",
-  "generated_from_commit": "4b7ba43693d543820fcbb889b95ebd942091464f",
+  "generated_utc": "2026-10-12T19:51:52+00:00",
+  "generated_from_commit": "60a462f2eb044234cbed749cfeb7d7c9b263f149",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1986,6 +1986,26 @@
       "path": "docs/certification/web-walk/ecmwf-runs.jpg",
       "sha256": "8fe528f385976d0d185ed255d8f6c43284fe85dc4c7d02d0ed42c4af3192b93f",
       "bytes": 111591
+    },
+    {
+      "path": "docs/certification/whats-new/README.md",
+      "sha256": "92838fe9c291aa34c1fcf4c6f08d9e7df0abd90adf177b683e64c7b6c14b6b11",
+      "bytes": 3655
+    },
+    {
+      "path": "docs/certification/whats-new/see-everything-changelog-browser.jpg",
+      "sha256": "4eb56a15f233ce850f429f685b9c67da6fcb5583559f38c0b8a771d07b6fa356",
+      "bytes": 85941
+    },
+    {
+      "path": "docs/certification/whats-new/whats-new-phone-desktop-emulation.png",
+      "sha256": "50de32e54d4f4eff7cfed019e40999cc980905af4b03c980b6f49d1a3bd0d346",
+      "bytes": 70360
+    },
+    {
+      "path": "docs/certification/whats-new/whats-new-tablet-browser.jpg",
+      "sha256": "1e9a9a9bdb693230aaee013a29a163575e2bab123ec5ed4ac0b8e1e5b9bd9ecc",
+      "bytes": 60364
     }
   ]
 }
