@@ -1047,8 +1047,25 @@ const TILES_WGSL: &str = concat!(
 );
 const RADAR_WGSL: &str = concat!(
     include_str!("../shaders/globe.wgsl"),
+    include_str!("../shaders/radar_polar.wgsl"),
     include_str!("../shaders/radar.wgsl")
 );
+
+/// The radar uniform as `radar.wgsl` reads it: the upload's twenty values, then the radar's own
+/// world position and the sine and cosine of its latitude, worked out here in double precision so
+/// the shader's range and azimuth need no trigonometry of their own that a GPU could get wrong
+/// (`radar_polar.wgsl`, 1010.md V19).
+fn radar_uniform(u: &[f32; 20]) -> [f32; 24] {
+    let (lat, lon) = (f64::from(u[0]), f64::from(u[1]));
+    let (wx, wy) = mercator::lonlat_to_world(lon, lat);
+    let mut out = [0.0f32; 24];
+    out[..20].copy_from_slice(u);
+    out[20] = wx as f32;
+    out[21] = wy as f32;
+    out[22] = lat.to_radians().sin() as f32;
+    out[23] = lat.to_radians().cos() as f32;
+    out
+}
 const OVERLAY_WGSL: &str = concat!(
     include_str!("../shaders/globe.wgsl"),
     include_str!("../shaders/overlay.wgsl")
@@ -1407,7 +1424,7 @@ impl RenderResources {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(80),
+                        min_binding_size: NonZeroU64::new(std::mem::size_of::<[f32; 24]>() as u64),
                     },
                     count: None,
                 },
@@ -1953,7 +1970,7 @@ impl RenderResources {
                         write_r8(queue, &g.alpha, g.alpha_dims, &r.gate_alpha);
                     }
                 }
-                queue.write_buffer(&g.uni, 0, bytemuck::cast_slice(&r.uniform));
+                queue.write_buffer(&g.uni, 0, bytemuck::cast_slice(&radar_uniform(&r.uniform)));
                 write_lut(queue, &g.lut, &r.lut);
                 record_radar_queue_time(r);
                 return Some(g);
@@ -1995,7 +2012,7 @@ impl RenderResources {
         );
         let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("radar_uniform"),
-            contents: bytemuck::cast_slice(&r.uniform),
+            contents: bytemuck::cast_slice(&radar_uniform(&r.uniform)),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 

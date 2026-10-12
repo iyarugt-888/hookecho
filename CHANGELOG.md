@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: radar drawn in the right place by Windows' software renderer
+
+On Windows' software renderer the radar was drawn up to 0.9 km out of place: the map worked
+out each pixel's distance and direction from the radar with less precise maths than a graphics
+card's. The calculation no longer depends on that precision. On this machine's graphics card and
+the software renderer, the same picture now shows the same gate at all but 0.08 % of pixels. The
+export command can also draw the radar without smoothing (`--nearest`).
+
 ### Improved: towns in a storm's path are timed at their limits
 
 "Towns in its path" and the impact report now time each town when the storm's path enters

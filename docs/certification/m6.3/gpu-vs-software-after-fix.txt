@@ -1,0 +1,14 @@
+KTLX 2013-05-20 20:03:56 UTC (the volume nearest 20:05), REF 0.5 deg, 512 px, zoom 10 at -97.50,35.33, no basemap
+hookecho --watch --site KTLX --time 2013-05-20T20:05 --basemap none --size 512 --zoom 10 --center -97.50,35.33 [--nearest]
+RTX 2060 (Vulkan) against Microsoft Basic Render Driver (Dx12, HOOKECHO_GPU_FALLBACK=1)
+
+before (the haversine radar.wgsl had; built at ce7e00f with --nearest added):
+  smoothed: 512x512: 126327 of 262144 pixels differ (48.19%), 95142 by more than 16 levels (36.29%), max 217
+  nearest:  512x512: 124636 of 262144 pixels differ (47.54%), 98455 by more than 16 levels (37.56%), max 217
+
+after (radar_polar.wgsl):
+  smoothed: 512x512: 43947 of 262144 pixels differ (16.76%), 438 by more than 16 levels (0.17%), max 175
+  nearest:  512x512: 20130 of 262144 pixels differ (7.68%), 396 by more than 16 levels (0.15%), max 217
+  RTX before against RTX after, nearest: 512x512: 742 of 262144 pixels differ (0.28%), 530 by more than 16 levels (0.20%), max 217
+
+repeat runs on the RTX are byte-identical before (e672607f...) and after (b491d97f...)

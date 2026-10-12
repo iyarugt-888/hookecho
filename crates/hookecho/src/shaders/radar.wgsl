@@ -45,6 +45,12 @@ struct Radar {
     stale_start: f32,
     stale_end: f32,
     stale_dim: f32,
+    // Filled in by the renderer from radar_lat/radar_lon, in double precision: the radar's world
+    // position and the sine and cosine of its latitude (`radar_polar.wgsl`).
+    radar_wx: f32,
+    radar_wy: f32,
+    sin_lat0: f32,
+    cos_lat0: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -88,23 +94,16 @@ fn world_to_lonlat(w: vec2<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let ll = world_to_lonlat(in.world);
-    let lat = ll.y * PI / 180.0;
-    let lon = ll.x * PI / 180.0;
-    let lat0 = radar.radar_lat * PI / 180.0;
-    let lon0 = radar.radar_lon * PI / 180.0;
-    let dlon = lon - lon0;
-
-    // Great-circle range (haversine) in km.
-    let dlat = lat - lat0;
-    let a = sin(dlat * 0.5) * sin(dlat * 0.5)
-          + cos(lat0) * cos(lat) * sin(dlon * 0.5) * sin(dlon * 0.5);
-    let range_km = 2.0 * R_EARTH_KM * asin(sqrt(clamp(a, 0.0, 1.0)));
-
-    // Initial bearing (azimuth) from radar, degrees clockwise from north.
-    let y = sin(dlon) * cos(lat);
-    let x = cos(lat0) * sin(lat) - sin(lat0) * cos(lat) * cos(dlon);
-    var az = atan2(y, x) * 180.0 / PI;
-    az = az - floor(az / 360.0) * 360.0;
+    // Great-circle range (km) and initial bearing (degrees clockwise from north) from the radar,
+    // precise on every GPU (`radar_polar.wgsl`).
+    let polar = radar_range_az(
+        in.world,
+        vec2<f32>(radar.radar_wx, radar.radar_wy),
+        radar.sin_lat0,
+        radar.cos_lat0,
+    );
+    let range_km = polar.x;
+    let az = polar.y;
 
     // Map to texture coords.
     let gate_f = (range_km - radar.first_gate_km) / radar.gate_interval_km;
@@ -170,7 +169,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // the tint off, everything falls back to row 0, which is the user's own table.
     var row: i32 = 0;
     if (radar.tint > 0.5) {
-        // `ll` is degrees; `lon`/`lat` above were shadowed into radians for the range maths.
+        // `ll` is degrees.
         let u = (ll.x - radar.flag_west) / (radar.flag_east - radar.flag_west);
         let v = (radar.flag_north - ll.y) / (radar.flag_north - radar.flag_south);
         if (u >= 0.0 && u < 1.0 && v >= 0.0 && v < 1.0) {

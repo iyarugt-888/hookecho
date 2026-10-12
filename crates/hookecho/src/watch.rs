@@ -35,7 +35,8 @@
 //!   laying over other video.
 //!
 //! Options: `--tilt N`, `--zoom Z`, `--center LON,LAT`, `--basemap SLUG` (`none` for a bare
-//! sweep). NEXRAD only: the other networks publish no volume list to poll or scrub.
+//! sweep), `--nearest` (each gate drawn as its own value, with no smoothing between gates, as
+//! the map's smoothing switch off draws it). NEXRAD only: the other networks publish no volume list to poll or scrub.
 
 use crate::loopexport::{LoopFormat, StillFormat, Timing};
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -60,6 +61,8 @@ pub struct Job {
     pub when: When,
     /// Broadcast dressing, when any was asked for.
     pub dress: Option<Dress>,
+    /// Draw each gate as its own value, without smoothing between gates.
+    pub nearest: bool,
 }
 
 /// What `--watch` was asked to dress its frames with.
@@ -141,7 +144,7 @@ pub fn parse_args(
         match a.as_str() {
             "--once" => once = true,
             "--broadcast" | "--clock" | "--crawl" | "--no-legend" | "--no-caption"
-            | "--legend-left" | "--transparent" => {
+            | "--legend-left" | "--transparent" | "--nearest" => {
                 switches.insert(a.trim_start_matches("--").to_string());
             }
             f if f.starts_with("--") => {
@@ -311,6 +314,7 @@ pub fn parse_args(
         out,
         when,
         dress,
+        nearest: switches.contains("nearest"),
     })
 }
 
@@ -362,7 +366,7 @@ fn render_frame(
         &job.site,
         job.moment,
         job.tilt,
-        true,
+        !job.nearest,
         None,
         None,
         Some(time.date_naive()),
@@ -401,6 +405,7 @@ fn job_meta(job: &Job) -> serde_json::Value {
         "zoom": job.zoom,
         "center": job.center.map(|(lon, lat)| serde_json::json!({ "lon": lon, "lat": lat })),
         "rendered_utc": Utc::now().to_rfc3339(),
+        "gates": if job.nearest { "nearest" } else { "smoothed" },
         "source": "NOAA NEXRAD Level II, rendered by HookEcho",
         "broadcast": job.dress.as_ref().map(|d| serde_json::json!({
             "style": d.style,
@@ -615,6 +620,12 @@ mod tests {
     #[test]
     fn a_site_job_defaults_to_live_reflectivity_every_minute() {
         let j = parse_args(&args("--site ktlx --out r.png"), &[]).unwrap();
+        assert!(!j.nearest, "smoothed unless asked");
+        assert!(
+            parse_args(&args("--site ktlx --out r.png --nearest"), &[])
+                .unwrap()
+                .nearest
+        );
         assert_eq!(j.site, "KTLX");
         assert_eq!(j.moment, Moment::Reflectivity);
         assert_eq!(

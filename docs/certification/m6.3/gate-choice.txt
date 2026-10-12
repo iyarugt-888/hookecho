@@ -1,0 +1,9 @@
+NVIDIA GeForce RTX 2060 (Vulkan), radar_polar.wgsl: gate differs from double precision at 35 of 261231 pixels (0.01%), radial at 52 (0.02%), either at 87 (0.03%); largest error 0.0003 gates, 0.0032 radials
+NVIDIA GeForce RTX 2060 (Vulkan), the old haversine: gate differs from double precision at 776 of 261231 pixels (0.30%), radial at 638 (0.24%), either at 1414 (0.54%); largest error 0.0145 gates, 0.0986 radials
+test radar_precision_tests::gpu_radar_gate_choice_against_double_precision ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1546 filtered out; finished in 0.89s
+
+Microsoft Basic Render Driver (Dx12), radar_polar.wgsl: gate differs from double precision at 35 of 261231 pixels (0.01%), radial at 216 (0.08%), either at 251 (0.10%); largest error 0.0003 gates, 0.0044 radials
+Microsoft Basic Render Driver (Dx12), the old haversine: gate differs from double precision at 261231 of 261231 pixels (100.00%), radial at 29834 (11.42%), either at 261231 (100.00%); largest error 3.7036 gates, 1.8172 radials
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1546 filtered out; finished in 1.07s

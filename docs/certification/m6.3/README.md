@@ -92,3 +92,55 @@ the adapter. Pixel-identical output across GPUs is not a property of this render
 | gpu-vs-software-frame0.png | `b6d39fb486e2322ecc41fc9777fabcbae9721f3b3ba8003ac33830fa8120b91c` |
 | gpu-left-software-right-z10.png | `1368acb93214901161b7d15a0f8eb509034bbb75ffd2226537c4af53042e21f4` |
 | gpu-left-software-right-crop.png | `26af34ca5341ed5df1337a60449021da147782cd740d8591e8f7504b2b9aec62` |
+
+## The cause, and the fix (2026-10-12, 1010.md V19)
+
+`--watch` has a `--nearest` switch now, which draws each gate as its own value with no
+smoothing. With it, the RTX and the software adapter still disagreed at 47.5 % of pixels, against
+48.2 % smoothed. So smoothing across colour bands was not the cause.
+
+The cause was the shader's range and azimuth (`gpu_radar_gate_choice_against_double_precision`,
+[gate-choice.txt](gate-choice.txt)). That test runs them as a compute shader for every pixel of a
+512 px view of Moore and compares the gate and radial picked with double precision:
+- **RTX 2060 (Vulkan):** the haversine was off by at most 0.015 gates, and picked a different cell
+  at 0.54 % of pixels.
+- **Software rasterizer (Dx12):** off by up to 3.7 gates (0.9 km) and 1.8 radials, a different
+  gate at every pixel. Its sin, cos and sinh are not precise enough for the haversine's small
+  differences, or for the azimuth's difference of two nearly equal terms.
+
+`radar_polar.wgsl` now computes both from the radar's world position and the sine and cosine of
+its latitude, which the renderer works out in double precision (`render::radar_uniform`).
+Everything that depends on the fragment is a short series in small differences, plus a square
+root and one atan2. A different cell from double precision:
+- RTX: 0.03 % of pixels, largest error 0.0003 gates;
+- software: 0.10 %, largest error 0.0003 gates and 0.0044 radials;
+- RTX against software: 0.08 % of cells.
+
+The pictures ([gpu-vs-software-after-fix.txt](gpu-vs-software-after-fix.txt); KTLX 20:03:56 UTC,
+zoom 10 over Moore, no basemap):
+
+| RTX against software | Pixels that differ | By more than 16 levels |
+| --- | --- | --- |
+| Smoothed, before | 48.19 % | 36.29 % |
+| Nearest gate, before | 47.54 % | 37.56 % |
+| Smoothed, after | 16.76 % | 0.17 % |
+| Nearest gate, after | 7.68 % | 0.15 % |
+
+Nearly all that remains of the nearest-gate difference is one level in one channel: 18,624
+pixels, against 382 that differ by more than 16. That is colour rounding, not a different gate.
+Red in [gpu-vs-software-nearest-before.png](gpu-vs-software-nearest-before.png) and
+[gpu-vs-software-nearest-after.png](gpu-vs-software-nearest-after.png) is a difference of more
+than 16 levels, orange a smaller one. The RTX's own picture changed at 0.28 % of pixels, and
+repeat runs on it are still byte-identical.
+
+| File | SHA-256 |
+| --- | --- |
+| gate-choice.txt | `c4a8cec78c29ef7cd5ffddccc326b9b97fd343bc11fc8e84c48aa625de19e571` |
+| gpu-vs-software-after-fix.txt | `e1b1b5dc0151c40f21f7c066a59bdbeeed6cd9531d65888b3b7c4579e8a621d4` |
+| gpu-vs-software-nearest-before.png | `5fa9dfd81418acdfa84c20abbfb21ea10b5897252d76f7919a1cfd83f5781f4d` |
+| gpu-vs-software-nearest-after.png | `3bcfbf3104acec85478f47298f44e716d4ea9cc98b8823a0a301f2d8d80e91b8` |
+
+Still not established: pixel identity across adapters (the one-level colour rounding remains),
+and a second physical GPU. The MRMS shader's latitude uses the same `atan(sinh(n))` and was not
+changed; its grid cells are a kilometre, against the 40 m that error reached on the software
+adapter.
