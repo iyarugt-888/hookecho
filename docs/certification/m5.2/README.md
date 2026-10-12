@@ -133,5 +133,43 @@ fifth: decode time is what holds a slow build back.
 `sat-loop-desktop.jpg`: the loop bar reading "last pass 2.9 fps" and "GOES-East CONUS (5 min) ·
 14:36:17 UTC · 1/11 · 11/11 cached", with the infrared clouds over the West.
 
-Not established: 8 fps (the speed is only settable with the pointer, and nothing here drives it),
-a one-minute mesoscale loop, the browser with its pane shown, and Android.
+The 8 fps and mesoscale runs follow.
+
+## 8 fps, and a mesoscale loop (2026-10-12, 1010.md V19)
+
+A link's `sat:8` opens the loop at 8 fps (only the speeds the loop offers, 2, 4 and 8, are
+taken). The mesoscale runs set the sandbox's saved sector to Mesoscale 1. Same build, machine
+and link otherwise.
+
+| Run | Frames | Ideal pass | Steady passes |
+| --- | --- | --- | --- |
+| CONUS, 8 fps | 10 | 2.25 s | 2.3 to 2.4 s (passes 3 to 18) |
+| Mesoscale 1, 8 fps, after the change below | 49 (50 after a relist) | 7.1 s | 7.4 to 7.7 s (passes 3 to 12), 8.0 s for 50 |
+
+The bucket had no Mesoscale 1 scans from 16:00 to 16:09 UTC (listed by hand), the "10 scans
+missing" on the strip. At 8 fps the loop keeps within about 4% of the rate asked on a one-minute
+sector, and within 0.1 s a pass on CONUS.
+
+**A failed scan held every pass.** In the first mesoscale run, once a relist brought in a 50th
+scan, one scan never came on screen. The loop waits 12 s for a frame before marking it failed,
+and it waited the full 12 s again on every later pass: passes 5 and 6 took 18.4 and 28.3 s
+instead of about 7.5. A scan already marked failed is now waited for 1 s on later passes, is
+taken off the failed list if it appears, and the log names it when it is first marked
+(`sat_loop::RETRY_WAIT_S`, tested in `playback_waits_for_the_frame_on_screen_and_keeps_its_pace`).
+The run after the change had no failing scan in its 13 passes, so it shows the loop's pace, not
+the retry in use.
+
+| File | SHA-256 |
+| --- | --- |
+| sat-loop-passes-conus-8fps-desktop.txt | `84bda57cf2e841aba476b3252f5f6a6416fa062d45f64e4741604d79240ae34c` |
+| sat-loop-conus-8fps-desktop.jpg | `f7b50168bf8e17ef6d7e39d6ed10744e4eab4e2f198b41947ebf0e18b2d9e7c1` |
+| sat-loop-passes-meso-8fps-before-desktop.txt | `24ad6d67ba85199d679fe6c2613e32072cf937eccf181b8b2e86b40c07e081ff` |
+| sat-loop-meso-8fps-before-desktop.jpg | `778d459906b350c9fb59732f662dd075dd8c7b21de26e5529a4648aca089866d` |
+| sat-loop-passes-meso-8fps-after-desktop.txt | `49ff53e83d6beada6fdd7054fd2e982827dd0675d22fb08d037e3fbf84d49ccd` |
+| sat-loop-meso-8fps-after-desktop.jpg | `d055e86c92ebf04beb2349ff2d02c0013750e53308adfdf5d3e0d1c7177c4cfb` |
+
+`sat-loop-meso-8fps-before-desktop.jpg`: the strip after the slow passes, "GOES-East Mesoscale 1
+(1 min) · 16:10:27 UTC · 49/49 · 10 scans missing · 1 failed to load", "last pass 1.8 fps".
+
+Not established: which scan failed and why (the log did not yet name it), the browser with its
+pane shown, and Android.

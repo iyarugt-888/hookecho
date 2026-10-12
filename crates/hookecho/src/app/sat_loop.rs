@@ -18,8 +18,14 @@ use wxdata::goes_abi::{ScanFrame, ScanGap, Sector};
 pub(crate) const WINDOWS_MIN: [u16; 4] = [15, 30, 60, 120];
 /// Playback speeds offered, frames per second (an upper bound: a frame not yet shown holds).
 pub(crate) const SPEEDS_FPS: [f32; 3] = [2.0, 4.0, 8.0];
+/// The speed a loop starts at.
+pub(crate) const DEFAULT_FPS: f32 = 4.0;
 /// How long a frame may take to appear before the loop moves on and marks it failed.
 const FRAME_WAIT_S: f64 = 12.0;
+/// How long a frame already marked failed is waited for on later passes. It gets a second
+/// chance, but not the whole wait every pass: on a live mesoscale loop one scan that never
+/// showed held each pass 12 s longer (2026-10-12, 18.4 and 28.3 s for 50 frames at 8 fps).
+const RETRY_WAIT_S: f64 = 1.0;
 /// Pause on the newest frame before the loop starts over.
 const END_DWELL_S: f64 = 1.0;
 /// Frames downloaded ahead of the playhead, and at most this many at once.
@@ -133,7 +139,7 @@ impl SatLoop {
     pub(crate) fn new() -> Self {
         Self {
             window_min: 60,
-            fps: 4.0,
+            fps: DEFAULT_FPS,
             ..Default::default()
         }
     }
@@ -192,12 +198,26 @@ impl SatLoop {
         let asked = *self.asked_at.get_or_insert(now);
         let current = self.frames[self.playhead].start;
         self.pass.started.get_or_insert(now);
-        if !shown {
-            if now - asked < FRAME_WAIT_S {
+        if shown {
+            // A scan that failed on an earlier pass and has now appeared is no longer failed.
+            self.failed.remove(&current);
+        } else {
+            let wait = if self.failed.contains(&current) {
+                RETRY_WAIT_S
+            } else {
+                FRAME_WAIT_S
+            };
+            if now - asked < wait {
                 return false;
             }
             // Never appeared: say so on the strip and move on rather than stall the loop.
-            self.failed.insert(current);
+            if self.failed.insert(current) {
+                log::warn!(
+                    "satellite loop: the {} scan was not on screen within {FRAME_WAIT_S} s; \
+                     marked failed",
+                    current.format("%H:%M:%S UTC")
+                );
+            }
         }
         let since = now - self.stepped_at.unwrap_or(f64::NEG_INFINITY);
         let dwell = 1.0 / self.fps.max(0.5) as f64
@@ -759,6 +779,18 @@ mod tests {
         assert!(l.tick(0.3 + FRAME_WAIT_S + 0.1, false));
         assert!(l.failed.contains(&frames(&[1])[0].start));
         assert_eq!(l.playhead, 2);
+        // On a later pass that frame is waited for only briefly, and is no longer failed once
+        // it appears.
+        l.seek(1, 50.0);
+        assert!(!l.tick(50.5, false));
+        assert!(
+            l.tick(50.0 + RETRY_WAIT_S + 0.1, false),
+            "not the whole wait again"
+        );
+        assert_eq!(l.playhead, 2);
+        l.seek(1, 60.0);
+        assert!(l.tick(60.3, true));
+        assert!(!l.failed.contains(&frames(&[1])[0].start));
         // The newest frame dwells before the loop starts over.
         l.seek(3, 100.0);
         assert!(!l.tick(100.5, true));

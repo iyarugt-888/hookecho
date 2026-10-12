@@ -2385,7 +2385,8 @@ impl HookEchoApp {
                 self.gauge_cards.queue(lid);
             }
         }
-        if g.sat {
+        if let Some(fps) = g.sat {
+            self.sat_loop.fps = fps;
             // The loop needs a GOES layer to list; infrared reads day and night.
             let goes_on = self.views[self.active]
                 .fields_on
@@ -4561,7 +4562,7 @@ impl HookEchoApp {
                     srv: false,
                     gauges: vec![lid],
                     tropical: None,
-                    sat: false,
+                    sat: None,
                 });
                 if !crate::platform::share_link("HookEcho", &link) {
                     ctx.copy_text(link.clone());

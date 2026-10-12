@@ -409,7 +409,7 @@ fn goto_link_round_trips() {
         srv: false,
         gauges: Vec::new(),
         tropical: None,
-        sat: false,
+        sat: None,
     };
     let link = goto_link(&base(Moment::Reflectivity, 0, None));
     assert!(link.starts_with("hookecho://goto/KFWS,"), "{link}");
@@ -481,13 +481,28 @@ fn draw_strokes_append_and_undo() {
     assert_eq!(strokes[0].color, red);
 }
 
-/// `sat` opens the satellite loop, and a view with the loop playing shares it.
+/// `sat` opens the satellite loop, `sat:8` at a speed it offers, and a view with the loop
+/// playing shares it, its speed only when not the default.
 #[test]
 fn goto_sat_opens_the_satellite_loop_and_round_trips() {
     let g = parse_goto("KTLX,-97.3,35.3,7,sat").unwrap();
-    assert!(g.sat);
-    assert!(!parse_goto("KTLX,-97.3,35.3,7").unwrap().sat);
-    let link = goto_link(&Goto { sat: true, ..g });
+    assert_eq!(g.sat, Some(4.0));
+    assert_eq!(parse_goto("KTLX,-97.3,35.3,7").unwrap().sat, None);
+    assert_eq!(
+        parse_goto("KTLX,-97.3,35.3,7,sat:8").unwrap().sat,
+        Some(8.0)
+    );
+    assert_eq!(
+        parse_goto("KTLX,-97.3,35.3,7,sat:5").unwrap().sat,
+        None,
+        "not a speed offered"
+    );
+    let link = goto_link(&g);
     assert!(link.ends_with(",sat"), "{link}");
-    assert!(parse_goto(&link).unwrap().sat);
+    let fast = goto_link(&Goto {
+        sat: Some(8.0),
+        ..g
+    });
+    assert!(fast.ends_with(",sat:8"), "{fast}");
+    assert_eq!(parse_goto(&fast).unwrap().sat, Some(8.0));
 }

@@ -28,14 +28,15 @@ pub(crate) struct Goto {
     /// Tropical model guidance on (`tc`), optionally focused on one system (`tc:al062026`, which
     /// also opens its Models tab). `Some("")` is on with no focus.
     pub(crate) tropical: Option<String>,
-    /// The satellite loop playing (`sat`), with GOES infrared turned on when no GOES layer is.
-    pub(crate) sat: bool,
+    /// The satellite loop playing at this many frames a second (`sat` at the default speed,
+    /// `sat:8`), with GOES infrared turned on when no GOES layer is. `None`: not asked for.
+    pub(crate) sat: Option<f32>,
 }
 
 /// Parse `[hookecho://goto/]SITE[,lon,lat,zoom][,extra…]`, where each extra is an RFC3339 time, a
 /// moment code (`VEL`), a tilt index, a basemap (`bm:dark`), a threshold (`thr:25` / `thr:off`),
-/// a river gauge whose card to open (`gauge:ACRT2`), the literal `srv`, or `sat` (the satellite
-/// loop) — sniffed by shape, so their order does not matter. A bare `SITE` flies to the site
+/// a river gauge whose card to open (`gauge:ACRT2`), the literal `srv`, or `sat` / `sat:8` (the
+/// satellite loop, at a speed) — sniffed by shape, so their order does not matter. A bare `SITE` flies to the site
 /// itself; the site may be empty when lon/lat are given.
 pub(crate) fn parse_goto(v: &str) -> Option<Goto> {
     let v = v.trim().strip_prefix(GOTO_SCHEME).unwrap_or(v.trim());
@@ -61,7 +62,7 @@ pub(crate) fn parse_goto(v: &str) -> Option<Goto> {
             srv: false,
             gauges: Vec::new(),
             tropical: None,
-            sat: false,
+            sat: None,
         }
     } else {
         let (Some(site), Some(Ok(lon)), Some(Ok(lat)), Some(Ok(zoom))) = (
@@ -85,7 +86,7 @@ pub(crate) fn parse_goto(v: &str) -> Option<Goto> {
             srv: false,
             gauges: Vec::new(),
             tropical: None,
-            sat: false,
+            sat: None,
         }
     };
     for s in p.iter().skip(4).filter(|s| !s.is_empty()) {
@@ -112,7 +113,16 @@ pub(crate) fn parse_goto(v: &str) -> Option<Goto> {
         } else if s.eq_ignore_ascii_case("srv") {
             g.srv = true;
         } else if s.eq_ignore_ascii_case("sat") {
-            g.sat = true;
+            g.sat = Some(super::sat_loop::DEFAULT_FPS);
+        } else if let Some(fps) = s.strip_prefix("sat:") {
+            // One of the loop's own speeds, or the link is not followed for it.
+            match fps.parse::<f32>() {
+                Ok(f) if super::sat_loop::SPEEDS_FPS.contains(&f) => g.sat = Some(f),
+                _ => log::warn!(
+                    "goto: want sat:<{:?}>, got {s:?}",
+                    super::sat_loop::SPEEDS_FPS
+                ),
+            }
         } else if s.eq_ignore_ascii_case("tc") {
             g.tropical = Some(String::new());
         } else if let Some(id) = s.strip_prefix("tc:") {
@@ -175,7 +185,11 @@ pub(crate) fn goto_link(g: &Goto) -> String {
         Some(id) => format!(",tc:{id}"),
         None => String::new(),
     };
-    let sat = if g.sat { ",sat" } else { "" };
+    let sat = match g.sat {
+        Some(f) if f == super::sat_loop::DEFAULT_FPS => ",sat".to_string(),
+        Some(f) => format!(",sat:{f}"),
+        None => String::new(),
+    };
     let body =
         format!("{site},{lon:.4},{lat:.4},{zoom:.1}{t}{m}{z}{thr}{basemap}{srv}{gauges}{tc}{sat}");
     #[cfg(target_arch = "wasm32")]

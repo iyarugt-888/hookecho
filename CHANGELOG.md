@@ -10,8 +10,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ### Added: a link that opens the satellite loop
 
-A shared HookEcho link now carries the satellite loop when it is playing, and opening the
-link starts it (turning on GOES infrared if no satellite layer is shown).
+A shared HookEcho link now carries the satellite loop when it is playing, and its speed when
+that is not the default, and opening the link starts it (turning on GOES infrared if no
+satellite layer is shown).
+
+### Fixed: one satellite frame that never loads no longer slows every pass of the loop
+
+When a frame of the satellite loop did not come on screen, the loop waited 12 seconds for it
+on every pass, not just the first. It now waits a second on later passes, and the frame stops
+being marked as failed if it does load.
 
 ### Improved: saving a loop in the browser says how big it will be
 
