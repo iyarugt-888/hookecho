@@ -2550,12 +2550,22 @@ Every appropriate field should support:
   rather than only at a long single segment, and drops points under 1.5 px apart. Seen in the
   browser build on 2026-10-11: HRRR 500 hPa height labelled 552-594 dam, and 850 hPa
   temperature (`docs/certification/model-fields/`). Isobaric levels below ground are not masked.
-- barbs
-- arrows
-- wind particles
-- streamlines where feasible
-- point sample
-- time series
+- [x] barbs — a wind picked in "Model fields" (its east component, `SavedFieldPick::vector`)
+  fetches both components with its speed and draws barbs over the speed, from the same staged
+  grids (`app/model_field.rs`, `wind_draw::barbs_uv`)
+- [ ] arrows — not as such: streamlines carry arrowheads along their length
+  (`wind_streamlines::arrowheads`), and barbs give direction and speed
+- [ ] wind particles — the HRRR wind layer only (`wind_gpu`), not a browsed wind
+- [x] streamlines where feasible — a browsed wind is drawn as streamlines when "Streamlines" is
+  on, from the same components as its barbs (`app.rs`, `wind_streamlines::streamlines`)
+- [x] point sample — the layer probe reads a browsed field under the pointer, a wind with the
+  direction it blows from (`app/layer_probe.rs`, `model_wind_from_deg`)
+- [x] time series — the forecast window graphs a global model's field at a point over its
+  forecast hours (`global::fetch_point_series`, `ui/forecast_window.rs`); not yet for the HRRR
+  family's browsed fields
+
+(Checked against the code on 2026-10-12, 1010.md V20: barbs, streamlines and the probe were
+already in for browsed winds but not ticked here.)
 
 ## F5. Run-to-run comparison — partly done
 
