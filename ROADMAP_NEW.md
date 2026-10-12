@@ -3913,7 +3913,13 @@ Pack selection UI should optionally include:
 - routing graph when implemented
 - saved placefiles/GIS layers
 
-Show estimated pack size before download.
+Show estimated pack size before download. — for a kept radar loop on the desktop: before
+"Keep this loop on this device" is pressed, its menu says how many of the loop's volumes
+are to fetch and about how many megabytes, at the mean size of those already on disk
+(`keep_estimate`; none on disk, it says the size is not known yet rather than guess). The
+docked timeline, the workstation's default, now has that button too (its download icon);
+before, only the floating timeline's menu offered it. Not yet: the browser's saved loops,
+and the popup opened in a running app (`docs/certification/chase/`)
 
 ---
 

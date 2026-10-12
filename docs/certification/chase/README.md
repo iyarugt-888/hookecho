@@ -115,3 +115,32 @@ cached either; a chase pack fills that.
 
 Not established: the network adapter itself turned off (a dead proxy fails the same request
 another way), Android, and fetching a loop ahead on purpose.
+
+## How much keeping a loop will download (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+Before "Keep this loop on this device" is pressed, its menu now says what it would fetch:
+"3 of 5 volumes to fetch, about 30 MB (at the 10.0 MB mean of the 2 already on this device)."
+The estimate is the mean size on disk of the loop's volumes already kept, times the number still
+to fetch (`packs_soundings::keep_estimate`, re-read at most once a second; tested in
+`a_kept_loops_size_is_estimated_from_the_volumes_already_kept`). With none of the loop on disk it
+says the size is not known until the first volume arrives, rather than guess one. For scale, the
+nine KHTX 2026-09-10 VCP 215 volumes in the sandbox cache were 9.1 to 10.2 MB each.
+
+The docked timeline, which the workstation shows by default, had no way to keep a loop: the
+button was only in the floating timeline's menu. It now has a download icon beside the archive
+date that opens the same button and the estimate (`dock/timeline.rs`).
+
+**Windows desktop app, debug build, sandboxed, one machine**, built from the working tree at
+`5669a77` with this change and another session's uncommitted work, at KHTX 2026-09-10:
+
+| Capture | What it shows |
+| --- | --- |
+| `keep-loop-button-desktop.png` | The docked timeline in archive, with the new download icon to the left of "Sep 10, 2026 UTC". |
+
+| File | SHA-256 |
+| --- | --- |
+| keep-loop-button-desktop.png | `404c825fc9fae609691798afdbaed8352ebc7b30aa6dd1fd2e90c5b66575efc1` |
+
+Not established: the popup opened and the button pressed in a running app. Clicks sent to the
+window as messages (`PostMessage`, then `SendMessage`) did not reach its input, and nothing here
+drives the real pointer. Nor the browser's saved loops, which still give no size before saving.

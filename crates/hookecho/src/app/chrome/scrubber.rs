@@ -73,6 +73,8 @@ impl HookEchoApp {
         let mut keep_loop = false;
         #[cfg(not(target_arch = "wasm32"))]
         let keep_status = self.keep_status();
+        #[cfg(not(target_arch = "wasm32"))]
+        let keep_estimate = self.keep_estimate(self.settings.live_loop_frames);
         #[cfg(target_arch = "wasm32")]
         let mut save_pack = false;
         #[cfg(target_arch = "wasm32")]
@@ -455,7 +457,7 @@ impl HookEchoApp {
                                 {
                                     keep_loop = true;
                                 }
-                                if let Some(msg) = &keep_status {
+                                for msg in [&keep_estimate, &keep_status].into_iter().flatten() {
                                     ui.weak(msg);
                                 }
                             }

@@ -122,6 +122,14 @@ impl HookEchoApp {
         let mut pick_tilt = None;
         let mut seek = None;
         let valid = self.views[self.active].displayed_radar_time();
+        // The desktop keeps a loop on disk for no signal (ROADMAP_NEW L5): what it would fetch,
+        // and how far a keep that is running has got.
+        #[cfg(not(target_arch = "wasm32"))]
+        let keep_frames = self.settings.live_loop_frames;
+        #[cfg(not(target_arch = "wasm32"))]
+        let keep_notes = [self.keep_estimate(keep_frames), self.keep_status()];
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut keep_loop = false;
         egui::Panel::bottom("dock_timeline")
             .exact_size(if phone { PHONE_TIMELINE_H } else { TIMELINE_H })
             .resizable(false)
@@ -266,6 +274,33 @@ impl HookEchoApp {
                                     crate::app::chrome::scrubber::seek_to_day(tl, &site, d);
                                 }
                             });
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let offline =
+                                ws::icon_button(ui, &t, ph::DOWNLOAD_SIMPLE, "", false)
+                                    .named("Keep this loop for no signal");
+                            egui::Popup::menu(&offline)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                .show(|ui| {
+                                    ui.set_min_width(280.0);
+                                    if ui
+                                        .button(format!(
+                                            "Keep this loop on this device ({keep_frames} frames)"
+                                        ))
+                                        .on_hover_text(
+                                            "Download this loop's volumes up to the playhead now, \
+                                             so it plays with no signal later. Volumes already on \
+                                             disk are skipped.",
+                                        )
+                                        .clicked()
+                                    {
+                                        keep_loop = true;
+                                    }
+                                    for msg in keep_notes.iter().flatten() {
+                                        ui.weak(msg);
+                                    }
+                                });
+                        }
                     });
                 }); }
                 ui.add_space(4.0);
@@ -463,6 +498,11 @@ impl HookEchoApp {
             });
         if go_head {
             self.views[self.active].timeline.go_head();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if keep_loop {
+            let ctx = root.ctx().clone();
+            self.keep_loop_offline(&ctx, keep_frames);
         }
         if use_model {
             self.activate_model_timeline();

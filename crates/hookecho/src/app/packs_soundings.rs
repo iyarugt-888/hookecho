@@ -22,8 +22,81 @@ fn loop_to_keep(frames: &[Identifier], playhead: usize, n: usize) -> Vec<Identif
     frames[end.saturating_sub(n)..end].to_vec()
 }
 
+/// What keeping a loop would download, said before it starts (ROADMAP_NEW L5 "show estimated
+/// pack size before download"): `on_disk` holds each of the loop's volumes' size on disk, `None`
+/// for one not there yet. The volumes still to fetch are estimated at the mean of those already
+/// kept; with none kept there is nothing to estimate from, and the text says so.
+#[cfg(not(target_arch = "wasm32"))]
+fn keep_estimate(on_disk: &[Option<u64>]) -> String {
+    let total = on_disk.len();
+    let kept: Vec<u64> = on_disk.iter().flatten().copied().collect();
+    let missing = total - kept.len();
+    let mb = |b: f64| b / 1_000_000.0;
+    if total == 0 {
+        return "No volumes in this loop yet.".into();
+    }
+    if missing == 0 {
+        return format!("All {total} volumes are already on this device.");
+    }
+    if kept.is_empty() {
+        return format!(
+            "{missing} volumes to fetch; their size is not known until the first arrives \
+             (none of this loop is on this device yet)."
+        );
+    }
+    let mean = kept.iter().sum::<u64>() as f64 / kept.len() as f64;
+    format!(
+        "{missing} of {total} volumes to fetch, about {:.0} MB (at the {:.1} MB mean of the {} \
+         already on this device).",
+        mb(mean * missing as f64),
+        mb(mean),
+        kept.len()
+    )
+}
+
+/// The last estimate, and when and for which loop it was made: the menu asks every frame, and
+/// a loop's volumes are only stat'ed again after a second or when the loop changes.
+#[cfg(not(target_arch = "wasm32"))]
+type KeepMemo = Option<(wxdata::clock::Instant, (String, String, usize), String)>;
+#[cfg(not(target_arch = "wasm32"))]
+static KEEP_ESTIMATE: std::sync::Mutex<KeepMemo> = std::sync::Mutex::new(None);
+
 #[cfg(not(target_arch = "wasm32"))]
 impl HookEchoApp {
+    /// What "Keep this loop on this device" would fetch for a loop of `frames`, and about how
+    /// many megabytes, before it is pressed.
+    pub(crate) fn keep_estimate(&self, frames: usize) -> Option<String> {
+        let cache = crate::paths::cache_dir()?;
+        let tl = &self.views[self.active].timeline;
+        let ids = loop_to_keep(&tl.frames, tl.playhead, frames);
+        let key = (
+            ids.first()
+                .map(|id| id.name().to_string())
+                .unwrap_or_default(),
+            ids.last()
+                .map(|id| id.name().to_string())
+                .unwrap_or_default(),
+            ids.len(),
+        );
+        let mut memo = KEEP_ESTIMATE.lock().ok()?;
+        if let Some((at, k, text)) = memo.as_ref() {
+            if *k == key && at.elapsed() < std::time::Duration::from_secs(1) {
+                return Some(text.clone());
+            }
+        }
+        let sizes: Vec<Option<u64>> = ids
+            .iter()
+            .map(|id| {
+                std::fs::metadata(cache.join("volumes").join(id.name()))
+                    .ok()
+                    .map(|m| m.len())
+            })
+            .collect();
+        let text = keep_estimate(&sizes);
+        *memo = Some((wxdata::clock::Instant::now(), key, text.clone()));
+        Some(text)
+    }
+
     /// How keeping a loop on this device is going, if one was asked for.
     pub(crate) fn keep_status(&self) -> Option<String> {
         KEEP_STATUS.lock().ok().and_then(|s| s.clone())
@@ -100,6 +173,24 @@ impl HookEchoApp {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod keep_tests {
     use super::*;
+
+    /// The size is estimated from the loop's volumes already kept, and never invented when none
+    /// are.
+    #[test]
+    fn a_kept_loops_size_is_estimated_from_the_volumes_already_kept() {
+        let mb = 1_000_000u64;
+        assert_eq!(
+            keep_estimate(&[Some(8 * mb), None, Some(12 * mb), None, None]),
+            "3 of 5 volumes to fetch, about 30 MB (at the 10.0 MB mean of the 2 already on this \
+             device)."
+        );
+        assert_eq!(
+            keep_estimate(&[Some(mb), Some(mb)]),
+            "All 2 volumes are already on this device."
+        );
+        assert!(keep_estimate(&[None, None]).contains("not known until the first arrives"));
+        assert_eq!(keep_estimate(&[]), "No volumes in this loop yet.");
+    }
 
     /// A kept loop is the last `n` frames up to the playhead, fewer near the start, none of
     /// an empty timeline.

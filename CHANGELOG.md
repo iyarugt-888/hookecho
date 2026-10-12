@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: keeping a radar loop says how much it will download
+
+On the desktop, "Keep this loop on this device" now says before you press it how many of the
+loop's volumes still have to be fetched and about how many megabytes that is. It is also on
+the timeline at the bottom of the workstation now (the download icon beside the date), not
+only in the floating timeline's menu.
+
 ### Added: wind particles from a wind you pick
 
 With a wind picked in "Model fields" (any level, any model it lists), "Drift wind particles
