@@ -24,5 +24,32 @@ row was filed under a category the layers panel does not draw (fixed in `1b39538
 ## Not established
 
 - OBS itself was not run; the guide follows the app's behaviour.
-- Monitor selection, and remembering the window's position, monitor, program pane and held view.
+- Remembering the program pane and held view, and a monitor chosen from a list (the window's
+  position, and so its monitor, is remembered since 2026-10-12, below).
 - Android share sheet for stills and loops; GIF from the control strip; Android walkthrough.
+
+## The output window reopens where it was (2026-10-12, 1008.md F3)
+
+The output window's outer top-left is kept with its other settings (`OutputPrefs::position`, in
+points, not while fullscreen, whose origin is the monitor's corner) and asked for when it opens
+(`ViewportBuilder::with_position`). Fullscreen fills the monitor the window is on, so a window put
+on a monitor and made fullscreen comes back fullscreen on that monitor. Settings written before
+there was a position still read (`the_output_window_reopens_as_it_was_left`).
+
+**Windows desktop app, debug build, sandboxed, one machine**, built from the working tree at
+`745ad64d` with this change and another session's uncommitted work
+([output-position-desktop.txt](output-position-desktop.txt)):
+
+1. With the window saved open at 420,260, the app opened "HookEcho Output" at 420,260.
+2. The window was moved to 640,140 (`SetWindowPos`) and the app closed normally (`WM_CLOSE`):
+   the saved position read `[640,140]`.
+3. Started again, it opened at 640,140 ([output-reopened-where-left-desktop.jpg](output-reopened-where-left-desktop.jpg):
+   live KTLX with the clock and caption).
+
+| File | SHA-256 |
+| --- | --- |
+| output-position-desktop.txt | `de26b2689ac5abe1089925c126fa99b5b658c680a9c7a3a539230b147511d226` |
+| output-reopened-where-left-desktop.jpg | `e7383581fd58a515dc7b20556908c4a56ec492536a7cbbd59ffa10150b8fde1e` |
+
+Not established: a second monitor (this machine has one), fullscreen across a restart, a monitor
+that has gone since, and OBS itself.

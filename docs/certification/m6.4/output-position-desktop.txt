@@ -1,0 +1,3 @@
+first start, saved position [420,260]: 'HookEcho Output' at 420,260 size 816x639
+moved with SetWindowPos to 640,140; app closed with WM_CLOSE; saved output_window: {"open":true,"size":"free","fullscreen":false,"strap":"","position":[640,140]}
+second start: 'HookEcho Output' at 640,140 size 816x639

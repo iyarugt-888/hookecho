@@ -113,6 +113,8 @@ pub(crate) struct OutputWindow {
     pub thumbs: std::collections::HashMap<u64, egui::TextureHandle>,
     /// The size the window was last asked to be, so a change is sent once.
     sent: Option<(OutputSize, bool)>,
+    /// Where the window's outer top-left was last seen on the desktop, in points.
+    pub position: Option<[i32; 2]>,
 }
 
 impl OutputWindow {
@@ -124,6 +126,7 @@ impl OutputWindow {
             size: OutputSize::from_key(&p.size),
             fullscreen: p.fullscreen,
             strap: p.strap.clone(),
+            position: p.position,
             ..Default::default()
         }
     }
@@ -135,6 +138,7 @@ impl OutputWindow {
             size: self.size.key().to_string(),
             fullscreen: self.fullscreen,
             strap: self.strap.clone(),
+            position: self.position,
         }
     }
 }
@@ -172,6 +176,11 @@ impl HookEchoApp {
             .with_fullscreen(self.output.fullscreen);
         if let Some(px) = self.output.size.pixels() {
             builder = builder.with_inner_size(points_for(px, ppp));
+        }
+        // Where it was: the same place on the same monitor, which is the one fullscreen fills
+        // (1008.md F3, monitor selection by where the window is put).
+        if let Some([x, y]) = self.output.position {
+            builder = builder.with_position([x as f32, y as f32]);
         }
         let want = (self.output.size, self.output.fullscreen);
         let resend = self.output.sent != Some(want);
@@ -235,6 +244,14 @@ impl HookEchoApp {
                 }
                 if vctx.input(|i| i.viewport().close_requested()) {
                     close = true;
+                }
+                // Remember where it is, but not a fullscreen window's origin: that is the
+                // monitor's corner, and the windowed place is what to come back to.
+                if !want.1 {
+                    if let Some(r) = vctx.input(|i| i.viewport().outer_rect) {
+                        self.output.position =
+                            Some([r.min.x.round() as i32, r.min.y.round() as i32]);
+                    }
                 }
             },
         );
@@ -430,6 +447,16 @@ mod tests {
         );
         w.size = OutputSize::Free;
         assert_eq!(OutputWindow::restored(&w.prefs()).size, OutputSize::Free);
+        // Where it was comes back, and settings written before there was a place still read.
+        w.position = Some([1930, 40]);
+        assert_eq!(
+            OutputWindow::restored(&w.prefs()).position,
+            Some([1930, 40])
+        );
+        let old: crate::settings::OutputPrefs =
+            serde_json::from_str(r#"{"open":true,"size":"1080","fullscreen":false,"strap":""}"#)
+                .unwrap();
+        assert_eq!(OutputWindow::restored(&old).position, None);
         let odd = crate::settings::OutputPrefs {
             size: "8k".into(),
             ..Default::default()

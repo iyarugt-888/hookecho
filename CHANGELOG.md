@@ -35,6 +35,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: the output window comes back where you left it
+
+The output window for OBS now reopens in the same place, so on the same monitor, and a
+fullscreen output fills that monitor again.
+
 ### Added: what's new, on phones and tablets
 
 After an update, a phone or tablet opens on a page of the big changes, each a large card in

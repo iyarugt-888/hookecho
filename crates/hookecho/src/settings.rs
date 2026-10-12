@@ -198,7 +198,8 @@ impl LineDash {
     }
 }
 
-/// The restorable part of the output window: whether it is open, its size, fullscreen and strap.
+/// The restorable part of the output window: whether it is open, its size, fullscreen, strap and
+/// where it was.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OutputPrefs {
@@ -207,6 +208,10 @@ pub struct OutputPrefs {
     pub size: String,
     pub fullscreen: bool,
     pub strap: String,
+    /// The window's outer top-left on the desktop, in points, as it was last seen: it reopens
+    /// there, and so on the monitor it was on, which is the monitor fullscreen fills.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<[i32; 2]>,
 }
 
 /// The symbol an imported layer draws at each point.

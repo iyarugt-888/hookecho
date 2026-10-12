@@ -28,7 +28,8 @@ In **Output window** on the same page:
 4. **Size** — 1920 × 1080, 2560 × 1440 or 3840 × 2160 in *physical* pixels whatever the
    display scaling, or Free size to drag it yourself.
 5. **Fullscreen** — fills the monitor the window is on. To put it on another monitor, drag the
-   window there first, then tick Fullscreen. **Esc** in the output leaves fullscreen.
+   window there first, then tick Fullscreen. **Esc** in the output leaves fullscreen. The window
+   reopens where it was left, so a fullscreen output comes back on the same monitor.
 6. **Title strap** — a lower-third caption at the bottom left, above the warning crawl.
 
 ## 3. Capture it in OBS
@@ -36,8 +37,8 @@ In **Output window** on the same page:
 Add a **Window Capture** source (on macOS, **macOS Screen Capture** with the window method) and
 choose **[hookecho.exe]: HookEcho Output** (the process name differs by platform). Set
 **Window Match Priority** to *Match title, otherwise find window of same type*: the title is
-always "HookEcho Output", and HookEcho reopens the output window at launch with the size,
-fullscreen setting and strap it was left with, so OBS finds it again after a restart. On Windows, the
+always "HookEcho Output", and HookEcho reopens the output window at launch where it was, with
+the size, fullscreen setting and strap it was left with, so OBS finds it again after a restart. On Windows, the
 *Windows 10 (1903 and up)* capture method is the one that captures GPU-drawn windows reliably.
 
 Because the output is sized in physical pixels, a 1920 × 1080 output fills a 1920 × 1080 OBS
@@ -54,8 +55,8 @@ screen**.
 
 ## What is not supported yet
 
-- Choosing the monitor from a list: drag the output window to the monitor first. Its position
-  and which monitor it was on are not remembered across restarts (its size, fullscreen and strap
-  are), so a fullscreen output reopens on the monitor the operating system places it on.
+- Choosing the monitor from a list: drag the output window to the monitor instead. It reopens
+  where it was left (since 2026-10-12), so it stays on that monitor; if that monitor is gone, the
+  operating system decides where it appears.
 - Which pane program shows and a held view are not remembered across restarts either.
 - A separate output window on Android or in a browser; there, streaming mode dresses the main view.
