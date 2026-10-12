@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T17:27:21+00:00",
-  "generated_from_commit": "8765d7ff9ce3c82a0e8289cba57c980ed8eec3bb",
+  "generated_utc": "2026-10-12T17:51:50+00:00",
+  "generated_from_commit": "605953753807119556e6b8224a7782db611ea4bd",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1849,8 +1849,23 @@
     },
     {
       "path": "docs/certification/multi-radar/README.md",
-      "sha256": "f89a66ea41d0f19fb37ca076151c2b9496d58e3118c181a4a625801ccdf8e416",
-      "bytes": 9343
+      "sha256": "f0739134021372e766d18574b155df218ca48772f3e3e9ad175f5840e23cc06a",
+      "bytes": 11646
+    },
+    {
+      "path": "docs/certification/multi-radar/fused-3d-browser.jpg",
+      "sha256": "8777ee40e8f2ae4a9358e906807de1f60246853241fab249efa8f273e0a55944",
+      "bytes": 75690
+    },
+    {
+      "path": "docs/certification/multi-radar/fused-3d-window-off.png",
+      "sha256": "4c9b1873d74f279c6753e45f71f820409e384c05161abbb8e375498935a99d0c",
+      "bytes": 55798
+    },
+    {
+      "path": "docs/certification/multi-radar/fused-3d-window-on.png",
+      "sha256": "bf64fcbdef58a50689d94167bed7905403557a6b907f5554ec376008600dbe52",
+      "bytes": 87660
     },
     {
       "path": "docs/certification/multi-radar/ktlx-bias-afternoon.txt",
