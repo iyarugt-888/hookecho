@@ -106,7 +106,52 @@ pub async fn fetch(http: &reqwest::Client, url: &str) -> anyhow::Result<Placefil
         .error_for_status()?
         .text()
         .await?;
-    let mut pf = parse(&text);
+    // Kept as the last good copy for a start with no signal (ROADMAP_NEW L5).
+    if let Some(store) = crate::objcache::store() {
+        store
+            .put(
+                &crate::objcache::PLACEFILES,
+                url,
+                offline_record(Utc::now(), &text),
+            )
+            .await;
+    }
+    Ok(from_text(&text, url))
+}
+
+/// The copy of `url`'s placefile kept from its last fetch that worked, and when that was: what a
+/// start with no signal shows instead of nothing, said to be that old.
+pub async fn offline_copy(url: &str) -> Option<(Placefile, DateTime<Utc>)> {
+    offline_copy_in(crate::objcache::store().map(|s| s.as_ref()), url).await
+}
+
+async fn offline_copy_in(
+    store: Option<&dyn crate::objcache::ObjectStore>,
+    url: &str,
+) -> Option<(Placefile, DateTime<Utc>)> {
+    let bytes = store?.get(&crate::objcache::PLACEFILES, url).await?;
+    let (at, text) = read_record(&bytes)?;
+    Some((from_text(text, url), at))
+}
+
+/// A kept copy: the fetch time in Unix seconds on the first line, then the text as fetched.
+fn offline_record(at: DateTime<Utc>, text: &str) -> Vec<u8> {
+    format!("{}\n{text}", at.timestamp()).into_bytes()
+}
+
+fn read_record(bytes: &[u8]) -> Option<(DateTime<Utc>, &str)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let (head, body) = text.split_once('\n')?;
+    Some((
+        DateTime::from_timestamp(head.trim().parse().ok()?, 0)?,
+        body,
+    ))
+}
+
+/// `text` parsed as the placefile at `url`, its relative sheet and image paths resolved against
+/// that URL.
+pub fn from_text(text: &str, url: &str) -> Placefile {
+    let mut pf = parse(text);
     // Sheet and Image paths are usually relative to the placefile itself.
     let base = url.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
     for sheet in pf.icon_files.values_mut() {
@@ -124,7 +169,7 @@ pub async fn fetch(http: &reqwest::Client, url: &str) -> anyhow::Result<Placefil
             }
         }
     }
-    Ok(pf)
+    pf
 }
 
 /// Strip a trailing `;` comment (not inside quotes) and trim.
@@ -520,6 +565,37 @@ pub fn parse(text: &str) -> Placefile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fetch's kept copy reads back as the same placefile with its fetch time, relative paths
+    /// resolved against the URL as a fetch resolves them; a damaged record is no copy.
+    #[tokio::test]
+    async fn the_last_good_copy_reads_back_with_its_age() {
+        use crate::objcache::ObjectStore;
+        let store = crate::objcache::testing::MemStore::default();
+        let url = "https://example.test/feeds/spotters.txt";
+        let text = "Title: Spotters\nIconFile: 1, 22, 22, 11, 11, \"icons.png\"\nObject: 35.3,-97.5\nIcon: 0,0,000,1,1,\"Spotter\"\nEnd:\n";
+        let at = DateTime::from_timestamp(1_760_000_000, 0).unwrap();
+        assert!(
+            offline_copy_in(Some(&store), url).await.is_none(),
+            "nothing kept yet"
+        );
+        store
+            .put(&crate::objcache::PLACEFILES, url, offline_record(at, text))
+            .await;
+        let (pf, saved) = offline_copy_in(Some(&store), url).await.expect("kept copy");
+        assert_eq!(saved, at);
+        assert_eq!(pf.title, "Spotters");
+        assert_eq!(pf.items.len(), from_text(text, url).items.len());
+        assert!(!pf.items.is_empty());
+        assert!(pf
+            .icon_files
+            .values()
+            .all(|s| s.url == "https://example.test/feeds/icons.png"));
+        store
+            .put(&crate::objcache::PLACEFILES, url, b"not a record".to_vec())
+            .await;
+        assert!(offline_copy_in(Some(&store), url).await.is_none());
+    }
 
     /// A blank line before any coordinate, and a ring too short to be a polygon: the parser has
     /// to survive both without producing an item.

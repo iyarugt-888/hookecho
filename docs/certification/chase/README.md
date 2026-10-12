@@ -207,3 +207,34 @@ loop length 10, with the earlier pack (frames 8 to 17) still saved:
 Saving a loop of the same radar and day replaces that day's pack, as before: here the 01:48 loop
 took the place of the 01:25 one. Not established: how many of the 7 came from the automatic
 cache rather than the old pack (nothing here counts the reads), and Android's WebView.
+
+## A placefile with no signal (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+A placefile loaded from a URL was fetched each time and kept only in memory: while the app ran,
+a failed refresh left the last good one on the map, but a start with no signal drew nothing.
+Each fetch that works now keeps the text, with the time it was fetched, in the object cache's
+new "Placefiles (last good copies)" space (`objcache::PLACEFILES`, 32 MB on the desktop, 8 MB
+on phones and in the browser; on disk on the desktop, in IndexedDB in the browser). When a fetch
+fails, the app shows that copy (`placefile::offline_copy`, `OverlayMsg::PlacefileOffline`), the
+placefile's line says "Could not refresh (...); showing the copy fetched N ago", and the source
+still counts as failing in source health (`the_last_good_copy_reads_back_with_its_age`).
+
+**Windows desktop app, debug build, sandboxed, one machine**, built from the working tree at
+`1f8fe356` with this change and another session's uncommitted work. A test placefile (a line
+and the text "OFFLINE COPY TEST" near Norman) was served from `http://127.0.0.1:8099/`:
+
+| Capture | What it shows |
+| --- | --- |
+| `placefile-online-desktop.jpg` | First start, the server up: the placefile drawn; a 198-byte copy was kept. |
+| `placefile-offline-copy-desktop.jpg` | Second start with the server stopped (connection refused): the same placefile drawn from the kept copy. |
+| `placefile-offline-copy-desktop.txt` | The log line: the refused connection, "showing the copy fetched 2026-10-12 18:22:44 UTC". |
+
+| File | SHA-256 |
+| --- | --- |
+| placefile-online-desktop.jpg | `a4dabe775e81335517c4ed89bd0fce08cf12453dbc421d5f528a6d479bcbc9a2` |
+| placefile-offline-copy-desktop.jpg | `ed5720dce9cf2fb27feec08f6c721493c67b64201894223cbd09de7353836618` |
+| placefile-offline-copy-desktop.txt | `15f83ab0d8b466bc0ba3e9b60324c81188304cdcccebd0e54491845aed4bb8dc` |
+
+Not established: the placefile list's line seen on screen (the captures show the map), the
+browser, Android, and a placefile's icon sheets and images, which are not kept, so a placefile
+of icons draws without them offline.

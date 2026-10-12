@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: placefiles stay on the map with no signal
+
+A placefile loaded from a web address now keeps its last good copy. If it cannot be fetched,
+including when HookEcho starts with no signal, that copy is shown and the placefile list
+says how old it is. Its icon images are not kept yet.
+
 ### Improved: velocity from radars that scan sectors at different speeds
 
 Some radar scan modes send the lowest tilts at two different pulse rates depending on

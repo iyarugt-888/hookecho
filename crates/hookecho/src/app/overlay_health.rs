@@ -19,6 +19,7 @@ impl OverlayMsg {
     pub(super) fn health_error(&self) -> Option<&str> {
         match self {
             Self::PlacefileError(_, error) => Some(error),
+            Self::PlacefileOffline(_, _, _, error) => Some(error),
             Self::DerivedFields(delivery) => delivery.fields.as_ref().err().map(String::as_str),
             Self::ColumnProduct(delivery) => delivery.error(),
             _ => None,
@@ -107,6 +108,7 @@ impl OverlayMsg {
             | Self::DotCams(_)
             | Self::Mill(_)
             | Self::PlacefileError(_, _)
+            | Self::PlacefileOffline(..)
             | Self::Gauges(_)
             | Self::Tropical(_)
             | Self::Outages(_)

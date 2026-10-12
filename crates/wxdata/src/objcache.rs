@@ -88,14 +88,24 @@ pub const GOES: Space = Space {
     cap_small: 96 * MB,
 };
 
+/// The last good copy of each placefile, for a start with no signal (`placefile::offline_copy`).
+/// Unlike the rest, these change: each entry is overwritten by the next fetch that works.
+pub const PLACEFILES: Space = Space {
+    slug: "placefiles",
+    label: "Placefiles (last good copies)",
+    cap: 32 * MB,
+    cap_small: 8 * MB,
+};
+
 /// Every space, for sweeps and the Storage tab.
-pub const SPACES: [&Space; 6] = [
+pub const SPACES: [&Space; 7] = [
     &GRIB_HRRR,
     &GRIB_GEFS,
     &GRIB_RTMA,
     &GRIB_MODELS,
     &MRMS,
     &GOES,
+    &PLACEFILES,
 ];
 
 static STORE: OnceLock<Arc<dyn ObjectStore>> = OnceLock::new();

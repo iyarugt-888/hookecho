@@ -34,6 +34,13 @@ pub(crate) enum OverlayMsg {
     Cells(String, Vec<Cell>, CellHistory),
     /// A fetched placefile keyed by its URL.
     Placefile(String, wxdata::placefile::Placefile),
+    /// A placefile's fetch failed, and its last good copy (fetched at that time) stands in.
+    PlacefileOffline(
+        String,
+        wxdata::placefile::Placefile,
+        chrono::DateTime<chrono::Utc>,
+        String,
+    ),
     /// The latest grid for a national field layer (mosaic, rotation, MESH, AzShear, lightning).
     Field(crate::render::FieldLayer, wxdata::mrms::MrmsField),
     GoesField(GoesRequest, wxdata::field::Stamped<wxdata::mrms::MrmsField>),
@@ -519,10 +526,16 @@ impl OverlaySource {
                 });
                 OverlayMsg::Cells(site, cells, past)
             }
-            OverlaySource::Placefile(url) => {
-                let pf = wxdata::placefile::fetch(http, &url).await?;
-                OverlayMsg::Placefile(url, pf)
-            }
+            OverlaySource::Placefile(url) => match wxdata::placefile::fetch(http, &url).await {
+                Ok(pf) => OverlayMsg::Placefile(url, pf),
+                // No signal: the copy kept from the last fetch that worked, said to be that old.
+                Err(e) => match wxdata::placefile::offline_copy(&url).await {
+                    Some((pf, saved)) => {
+                        OverlayMsg::PlacefileOffline(url, pf, saved, format!("{e:#}"))
+                    }
+                    None => return Err(e),
+                },
+            },
             #[cfg(not(target_arch = "wasm32"))]
             OverlaySource::Plugin(key, command, args, pctx) => {
                 // A plugin failure is the user's own command misbehaving, so it has to reach the

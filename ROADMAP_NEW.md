@@ -3911,7 +3911,13 @@ Pack selection UI should optionally include:
 - selected GOES frames
 - selected MRMS frames
 - routing graph when implemented
-- saved placefiles/GIS layers
+- [x] saved placefiles/GIS layers — imported GIS files are already kept with the settings.
+  A URL placefile now keeps its last good copy (`objcache::PLACEFILES`, disk on the desktop,
+  IndexedDB in the browser), and a fetch that fails, a start with no signal included, shows
+  that copy and says how old it is (`placefile::offline_copy`, `OverlayMsg::PlacefileOffline`;
+  the source still counts as failing). Shown in the Windows desktop app (debug, sandboxed)
+  with its server stopped (`docs/certification/chase/`). Not yet: a placefile's icon sheets
+  and images, which are not kept
 
 Show estimated pack size before download. — for a kept radar loop on the desktop: before
 "Keep this loop on this device" is pressed, its menu says how many of the loop's volumes

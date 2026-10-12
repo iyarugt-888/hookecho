@@ -266,6 +266,21 @@ impl HookEchoApp {
                         self.overlay_gen = self.overlay_gen.wrapping_add(1);
                     }
                 }
+                OverlayMsg::PlacefileOffline(url, pf, saved, err) => {
+                    log::warn!("{url}: {err}; showing the copy fetched {saved}");
+                    if let Some(lp) = self.placefiles.iter_mut().find(|lp| lp.url == url) {
+                        lp.pf = pf;
+                        lp.loaded = true;
+                        lp.error = Some(format!(
+                            "Could not refresh ({err}); showing the copy fetched {} ago",
+                            crate::ui::layers_panel::compact_age(
+                                (chrono::Utc::now() - saved).to_std().unwrap_or_default()
+                            )
+                        ));
+                        lp.last_fetch = Some(Instant::now());
+                        self.overlay_gen = self.overlay_gen.wrapping_add(1);
+                    }
+                }
                 OverlayMsg::PlacefileError(url, err) => {
                     log::warn!("{url}: {err}");
                     if let Some(lp) = self.placefiles.iter_mut().find(|lp| lp.url == url) {
