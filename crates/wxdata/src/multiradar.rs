@@ -129,8 +129,14 @@ enum Look {
 /// What `sweeps` (one radar) saw at a point `ground_km` from it at azimuth `az` and `z_km` above
 /// its antenna.
 fn look(sweeps: &[BinnedSweep], ground_km: f64, az: f64, z_km: f64) -> Look {
+    look_with_miss(sweeps, ground_km, az, z_km).0
+}
+
+/// [`look`], and how far the chosen beam's centre is from the cell, as a share of the beam's
+/// half-thickness there (0 on the axis, 1 at its edge; 0 when unseen).
+fn look_with_miss(sweeps: &[BinnedSweep], ground_km: f64, az: f64, z_km: f64) -> (Look, f64) {
     let half_beam = (BEAMWIDTH_DEG / 2.0).to_radians();
-    let mut best: Option<(f64, Look)> = None;
+    let mut best: Option<(f64, Look, f64)> = None;
     for s in sweeps {
         let Some((cell, slant)) = crate::xsection::gate_over_ground(s, ground_km, az) else {
             continue;
@@ -152,11 +158,11 @@ fn look(sweeps: &[BinnedSweep], ground_km: f64, az: f64, z_km: f64) -> Look {
             Look::Clear
         };
         // The beam whose centre is nearest the cell.
-        if best.is_none_or(|(m, _)| miss < m) {
-            best = Some((miss, seen));
+        if best.is_none_or(|(m, _, _)| miss < m) {
+            best = Some((miss, seen, miss / half.max(1e-9)));
         }
     }
-    best.map_or(Look::Unseen, |(_, l)| l)
+    best.map_or((Look::Unseen, 0.0), |(_, l, share)| (l, share))
 }
 
 /// Fuse `radars` onto `grid` for `time`: each radar whose volume is within `max_offset_s` of
@@ -661,6 +667,51 @@ mod tests {
                 "KTLX against {site}, where both saw echo: mean difference {d0:.2} dB over {n} cells \
                  read in place (KTLX minus it, on average: {b0:+.2} dB), {d1:.2} dB over {n1} read \
                  along the storm's motion\n"
+            ));
+        }
+        // Is the disagreement the distant beams' height? KTLX against each, where both saw
+        // echo, for all such cells and for those where the distant beam's centre is within a
+        // quarter of its half-thickness of the cell.
+        for r in &radars[1..] {
+            let (mut all, mut near) = ((0usize, 0.0f64), (0usize, 0.0f64));
+            for j in 0..grid.n {
+                for i in 0..grid.n {
+                    let (x, y, _) = grid.cell(i, j, 0);
+                    let ll = grid.lonlat(x, y);
+                    let geo = |rv: &RadarVolume<'_>| {
+                        let s0 = &rv.sweeps[0];
+                        crate::xsection::dist_bearing(
+                            f64::from(s0.radar_lon),
+                            f64::from(s0.radar_lat),
+                            ll[0],
+                            ll[1],
+                        )
+                    };
+                    let (g0, a0) = geo(&radars[0]);
+                    let (g1, a1) = geo(r);
+                    for k in 0..grid.nz {
+                        let z = grid.cell(i, j, k).2;
+                        let (l0, _) =
+                            look_with_miss(radars[0].sweeps, g0, a0, z - radars[0].antenna_m / 1e3);
+                        let (l1, share) = look_with_miss(r.sweeps, g1, a1, z - r.antenna_m / 1e3);
+                        if let (Look::Echo(v0, _), Look::Echo(v1, _)) = (l0, l1) {
+                            all.0 += 1;
+                            all.1 += f64::from(v0 - v1);
+                            if share <= 0.25 {
+                                near.0 += 1;
+                                near.1 += f64::from(v0 - v1);
+                            }
+                        }
+                    }
+                }
+            }
+            report.push_str(&format!(
+                "KTLX minus {}: {:+.2} dB over all {} shared cells, {:+.2} dB over the {} where its beam's centre is within a quarter of its half-thickness\n",
+                r.site,
+                all.1 / all.0.max(1) as f64,
+                all.0,
+                near.1 / near.0.max(1) as f64,
+                near.0
             ));
         }
         print!("{report}");

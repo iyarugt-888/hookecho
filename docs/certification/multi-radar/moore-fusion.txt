@@ -6,5 +6,8 @@ KVNX: volume +78 s; echo in 27274 cells, 1353 of them from it alone; counted mos
 KTLX alone: 11483 cells with echo, 18.5 dBZ top 12.5 km
 fused: 37865 cells with echo, 18.5 dBZ top 16.5 km
 KTLX against KFDR, where both saw echo: mean difference 11.67 dB over 3732 cells read in place (KTLX minus it, on average: -7.58 dB), 11.13 dB over 3706 read along the storm's motion
-KTLX against KINX, where both saw echo: mean difference 10.51 dB over 4125 cells read in place (KTLX minus it, on average: -7.07 dB), 11.33 dB over 4064 read along the storm's motion
+KTLX against KINX, where both saw echo: mean difference 10.51 dB over 4125 cells read in place (KTLX minus it, on average: -7.07 dB), 11.32 dB over 4066 read along the storm's motion
 KTLX against KVNX, where both saw echo: mean difference 8.73 dB over 4526 cells read in place (KTLX minus it, on average: -6.06 dB), 9.25 dB over 4490 read along the storm's motion
+KTLX minus KFDR: -7.58 dB over all 3732 shared cells, -7.67 dB over the 1477 where its beam's centre is within a quarter of its half-thickness
+KTLX minus KINX: -7.07 dB over all 4125 shared cells, -6.99 dB over the 1645 where its beam's centre is within a quarter of its half-thickness
+KTLX minus KVNX: -6.06 dB over all 4526 shared cells, -5.60 dB over the 1754 where its beam's centre is within a quarter of its half-thickness

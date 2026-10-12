@@ -40,7 +40,7 @@ a beam. Wherever KTLX saw echo it counted most: its beam there is about 0.4 km t
 
 | File | SHA-256 |
 | --- | --- |
-| moore-fusion.txt | `591b0d801db3f063a30b7d5ed2e5af2027a79278dfc71f472b3be9cf213cca0b` |
+| moore-fusion.txt | `b540afbd5caf1157ed9d86d30ac5b1c5dbaedacc1768ef9617efdac32ff256fc` |
 
 ### How the radars agree, and reading along the storm's motion
 
@@ -58,9 +58,12 @@ mesocyclone's motion (8.9 m/s toward 73°):
 
 Reading along the motion did not bring them closer: the offsets of 29 to 93 s move the storm
 less than a kilometre, under one column. The radars differ by much more than that, KTLX reading
-6 to 8 dB lower than each distant radar where both saw echo. Why is not established. One
-candidate is the distant radars' 2.3 to 2.8 km beams spreading strong echo into the cells around
-it; calibration differences between radars are another. Because the blend weights KTLX's thin
+6 to 8 dB lower than each distant radar where both saw echo. It is not the distant beams'
+height: counting only cells where the distant beam's centre is within a quarter of its
+half-thickness of the cell (1,477 to 1,754 of them), KTLX is still lower by 7.67 dB than KFDR,
+6.99 dB than KINX and 5.60 dB than KVNX. What it is, is not established. A 2.3 to 2.8 km beam
+averaging toward the strongest echo across its width is one candidate, calibration differences
+between the radars another. Because the blend weights KTLX's thin
 beam far more, the fused value follows KTLX wherever it saw echo.
 
 ### A section through it

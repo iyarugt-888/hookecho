@@ -4571,9 +4571,10 @@ of a 40 km box, its 18.5 dBZ top at 12.5 km. KFDR, KINX and KVNX (volumes 31 to 
 time) added the storm's upper part: 37,865 cells, the top at the box's 16.5 km ceiling, through
 beams 2.3 to 2.8 km thick, so that top is smeared upward. Where KTLX and a distant radar both
 saw echo, they differ by
-8.7 to 11.7 dB on average, KTLX lower by 6.1 to 7.6 dB; the cause is not established (the
-distant radars' wide beams spreading strong echo into the cells around it is one
-candidate). `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
+8.7 to 11.7 dB on average, KTLX lower by 6.1 to 7.6 dB. The distant beams' height is not
+the cause: where a distant beam's centre is on the cell the bias is the same (5.6 to 7.7 dB).
+What is, is not established; a 2.3 to 2.8 km beam averaging toward the strongest echo across
+its width, and calibration differences between radars, remain. `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
 through the fused volume: the first radar alone, fused, and which radar counted most
 (`docs/certification/multi-radar/moore-section.png`). In the app, the cross-section window's
 "Add nearby radars" (reflectivity only) fuses the section with up to three other WSR-88Ds
