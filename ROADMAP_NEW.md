@@ -4563,8 +4563,11 @@ beams 2.3 to 2.8 km thick, so that top is smeared upward. Where KTLX and a dista
 saw echo, they differ by
 8.7 to 11.7 dB on average, KTLX lower by 6.1 to 7.6 dB; the cause is not established (the
 distant radars' wide beams spreading strong echo into the cells around it is one
-candidate). Not yet: anything in the app (a 3D view, a cross-section), and a check against an
-independent multi-radar analysis such as MRMS's 3D mosaic.
+candidate). `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
+through the fused volume: the first radar alone, fused, and which radar counted most
+(`docs/certification/multi-radar/moore-section.png`). Not yet: the fused volume in the
+interactive app (a 3D view, the cross-section window), and a check against an independent
+multi-radar analysis such as MRMS's 3D mosaic.
 
 Do **not** create a “velocity mosaic” by naïvely combining radial velocities. If multi-Doppler wind retrieval is attempted, it must use proper geometry and be labeled experimental/research.
 

@@ -63,6 +63,30 @@ candidate is the distant radars' 2.3 to 2.8 km beams spreading strong echo into 
 it; calibration differences between radars are another. Because the blend weights KTLX's thin
 beam far more, the fused value follows KTLX wherever it saw echo.
 
+### A section through it
+
+`hookecho --headless-fusion KTLX,KFDR,KINX,KVNX 2013-05-20T20:12 -97.50,35.33 moore-section.png`
+fuses a 60 km box around Moore (0.5 km columns and levels to 18.5 km) and draws the west–east row
+through the centre ([moore-section.png](moore-section.png); legend in
+[moore-section.txt](moore-section.txt); debug build, Windows, one machine). Top to bottom:
+
+- **KTLX alone.** Its tilts are sloping stripes, with dark gaps between the upper ones and
+  nothing above its highest tilt on the radar's side (KTLX is to the east).
+- **Fused.** The storm from the ground to about 17 km. Its strongest echo reaches far up the
+  column where only the distant radars saw it. They read 6 to 8 dB higher than KTLX where both
+  saw echo (above), so the upper core is likely too strong and too wide there.
+- **Who counted most.** White is KTLX along its own beams. Green (KVNX), orange (KFDR) and
+  blue (KINX) fill above and between them.
+
+Dark is a cell no radar's beam reached, grey one observed with no echo.
+
+| File | SHA-256 |
+| --- | --- |
+| moore-section.png | `a77c557133a5984dc44dd2815ed94a3ac2aab7f8b541054cef21fc00b2374a2f` |
+| moore-section.txt | `0eca4cf00ac93d638757f93965b3beb7e26e5b493a0e61974c4fb74e9e6dc6c0` |
+
+Test: `the_section_has_three_panels_and_tells_unseen_from_clear`.
+
 Not established:
-- anything in the app (no 3D view or cross-section of the fused volume yet);
+- the fused volume in the interactive app (no 3D view or cross-section window yet);
 - a check against an independent multi-radar analysis, such as MRMS's 3D reflectivity mosaic.

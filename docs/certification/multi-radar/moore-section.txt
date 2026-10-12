@@ -1,0 +1,7 @@
+West-east section through 35.330, -97.500 at 2013-05-20 20:12 UTC: 60 km wide, 0.5 to 18.5 km above sea level, 0.5 km columns and levels; faint lines every 2 km of height.
+Panels, top to bottom: KTLX alone; all radars fused; the radar that counted most.
+Dark: no radar's beam reached the cell. Grey: observed, no echo.
+KTLX: volume +29 s; provenance colour rgb(235, 235, 235)
+KFDR: volume -31 s; provenance colour rgb(235, 125, 60)
+KINX: volume +93 s; provenance colour rgb(90, 170, 240)
+KVNX: volume +78 s; provenance colour rgb(150, 220, 90)

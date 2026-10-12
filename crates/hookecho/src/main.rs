@@ -722,6 +722,45 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Multi-radar section (ROADMAP_NEW R1): `hookecho --headless-fusion SITE,SITE,... TIME
+    // LON,LAT <out.png>`, TIME as `2013-05-20T20:12` (UTC) or RFC 3339; the first radar is the
+    // one drawn alone.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-fusion") {
+        let usage = "usage: --headless-fusion SITE,SITE,... TIME LON,LAT <out.png>";
+        let sites: Vec<String> = args
+            .get(pos + 1)
+            .map(|s| s.split(',').map(|x| x.trim().to_string()).collect())
+            .unwrap_or_default();
+        let time = args.get(pos + 2).and_then(|t| {
+            chrono::DateTime::parse_from_rfc3339(t)
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .ok()
+                .or_else(|| {
+                    chrono::NaiveDateTime::parse_from_str(t.trim_end_matches('Z'), "%Y-%m-%dT%H:%M")
+                        .ok()
+                        .map(|n| n.and_utc())
+                })
+        });
+        let center = args.get(pos + 3).and_then(|c| {
+            let (lon, lat) = c.split_once(',')?;
+            Some([lon.trim().parse().ok()?, lat.trim().parse().ok()?])
+        });
+        let out = args
+            .get(pos + 4)
+            .filter(|a| !a.starts_with("--"))
+            .map(String::as_str)
+            .unwrap_or("fusion.png");
+        let (Some(time), Some(center)) = (time, center) else {
+            eprintln!("{usage}");
+            std::process::exit(2);
+        };
+        if let Err(e) = hookecho::headless_fusion::run_fusion(&sites, time, center, out) {
+            eprintln!("headless fusion failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // Cross-section verify: `hookecho --headless-xsection SITE lon1,lat1 lon2,lat2 <out.png>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-xsection") {
         let site = args.get(pos + 1).map(String::as_str).unwrap_or("KTLX");

@@ -65,6 +65,9 @@ pub mod gps;
 /// Off-screen rendering for the CLI verifiers and the server snapshot.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod headless;
+/// `--headless-fusion`: a section through a storm fused from several radars (ROADMAP_NEW R1).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod headless_fusion;
 pub mod hotkeys;
 pub mod icon;
 pub mod labelplace;
