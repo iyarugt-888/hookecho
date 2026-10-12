@@ -4558,7 +4558,7 @@ Create persistent storm objects that combine:
 
 Expose a storm history timeline and exportable JSON/CSV.
 
-## R4. Feature tracking — engine started (1010.md V14)
+## R4. Feature tracking — mesocyclone and core, in the app (1010.md V14)
 
 Track analyst-selected radar features through time using optical flow/object matching:
 
@@ -4571,7 +4571,10 @@ Track analyst-selected radar features through time using optical flow/object mat
   Live on the Moore tornado, KTLX 2013-05-20 19:51-20:33 UTC: all 11 volumes followed, shear
   0.017-0.046 s⁻¹, from 35.278, -97.647 to 35.339, -97.408, 8.9 m/s toward 73°, along the
   tornado's own path west of Newcastle through Moore (`live_the_moore_mesocyclone_is_followed_through_the_loop`,
-  ignored, network; `target/parity-review/v14/live-moore.log`). Not in the app yet.
+  ignored, network; `target/parity-review/v14/live-moore.log`). In the app: the gate inspector's
+  "Follow this rotation through the loop", a window of fixes with confidence, and the track on the
+  map (`app::feature_tracking`; walkthrough in `docs/certification/feature-track/`). Only decoded
+  volumes are searched, and the track is not saved with a case yet.
 - hail core
 - [x] reflectivity core — the same engine on the strongest reflectivity (`core_peak`, 40 dBZ
   floor); tested synthetically only
@@ -4580,8 +4583,8 @@ Track analyst-selected radar features through time using optical flow/object mat
 
 Always show confidence and allow manual correction. — the engine keeps each fix with its
 confidence, and a fix placed by hand is kept as placed while the track continues from it
-(`track`'s overrides; tested). The window, the map drawing and the click that moves a fix are
-the next increment.
+(`track`'s overrides; tested). In the app, "Correct this volume" and a click put the shown volume's
+fix there and follow the track again from it (seen in the browser build on the Moore archive).
 
 ## R5. Uncertainty everywhere
 

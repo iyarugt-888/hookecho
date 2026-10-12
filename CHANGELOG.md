@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: follow a rotation or a core through the loop
+
+In the gate inspector, on a velocity or reflectivity gate, "Follow this rotation (or core)
+through the loop" finds the strongest rotation (or echo) there and follows it forward and back
+through the volumes the pane has loaded. A window lists each volume's position, strength and how
+confidently it was followed, and the track is drawn on the map. If it jumped to the wrong thing,
+"Correct this volume" and a click put that volume's position right, and the rest is followed
+again from there. Confidence describes how clearly one feature was followed; it is not a tornado
+probability.
+
 ### Improved: quality profiles also set contour detail
 
 Low, Balanced, High and Analysis now also decide how finely model contour lines follow the
