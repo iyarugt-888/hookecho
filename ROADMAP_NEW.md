@@ -4385,7 +4385,15 @@ will find harder than a mouse; those are what to look for.
   Seen in the phone emulation at 1280x860 (`docs/certification/a11y/tablet-touch-workstation.png`,
   `482d70b1…`). Not yet on a real tablet; other hover-only affordances may remain.
 - keyboard/mouse support on tablets — the desktop chrome's own
-- drag/drop pane layout where practical — the desktop's
+- drag/drop pane layout where practical — the desktop's. Fixed 2026-10-11 from a tablet user's
+  report: dragging a floating tool window onto a dock target lit the target, but letting go did
+  nothing. A finger lifting off arrives with the pointer already gone, and the drop read the
+  pointer's position at release, so there was nothing to drop at. The target lit during the drag
+  is now kept and used when the release has no position (`dock::drop_target`); a mouse let go
+  off the target still cancels. `a_window_dragged_by_touch_docks_where_it_was_let_go` drives a
+  window through egui's own input, pressed, dragged onto the right-hand target, and released with
+  the pointer leaving in the same frame: it docks, and with the fix disabled it does not. Not yet
+  re-checked on the reporter's tablet.
 
 ## Q2. Desktop analyst density
 

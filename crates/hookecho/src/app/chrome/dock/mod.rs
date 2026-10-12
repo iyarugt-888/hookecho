@@ -1092,6 +1092,26 @@ fn dock_target_at(map: egui::Rect, p: egui::Pos2) -> Option<Place> {
         .map(|(place, _)| place)
 }
 
+/// The target a released drag docks on: the one under the pointer where it let go, or, when the
+/// release has no position, the one lit while dragging. A finger lifting off a touch screen
+/// arrives with the pointer already gone (egui forgets the position on release), so reading only
+/// the release position meant a tablet showed the target and then never docked.
+fn drop_target(
+    map: egui::Rect,
+    released_at: Option<egui::Pos2>,
+    lit: Option<Place>,
+) -> Option<Place> {
+    match released_at {
+        Some(p) => dock_target_at(map, p),
+        None => lit,
+    }
+}
+
+/// The target lit while window `id` is dragged, kept for its release.
+fn dock_lit_id(id: &str) -> egui::Id {
+    egui::Id::new(("ws_dock_lit", id))
+}
+
 /// Paint the dock targets over everything, and the area a window would take if dropped on the
 /// one under the pointer.
 fn paint_dock_targets(ctx: &egui::Context, t: &ws::Tokens, map: egui::Rect, hot: Option<Place>) {
@@ -1207,10 +1227,14 @@ pub(super) fn tool_window(
                         .pointer_interact_pos()
                         .and_then(|p| dock_target_at(map_rect, p));
                     paint_dock_targets(ctx, t, map_rect, hot);
+                    ctx.data_mut(|d| d.insert_temp(dock_lit_id(id), hot));
                 }
                 if moved.drag_stopped() {
                     let at = ctx.input(|i| i.pointer.latest_pos());
-                    if let Some(place) = at.and_then(|p| dock_target_at(map_rect, p)) {
+                    let lit = ctx
+                        .data_mut(|d| d.remove_temp::<Option<Place>>(dock_lit_id(id)))
+                        .flatten();
+                    if let Some(place) = drop_target(map_rect, at, lit) {
                         ctx.data_mut(|d| d.insert_temp(dock_drop_id(), place));
                     }
                 }
@@ -2283,6 +2307,99 @@ mod tests {
             ),
             Some(Place::Left),
             "a near miss still counts"
+        );
+    }
+
+    /// The tablet bug through egui's own input handling: a floating window dragged by touch onto
+    /// the right-hand target, then the finger lifted, with the release and the pointer leaving in
+    /// one frame as a touch screen delivers them. The release frame has no pointer position, and the
+    /// window still docks on the target that was lit.
+    #[test]
+    fn a_window_dragged_by_touch_docks_where_it_was_let_go() {
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0));
+        let target = dock_targets(screen)[1].1.center();
+        let start = egui::pos2(420.0, 330.0);
+        let (mut docked, mut released_at) = (None, Some(egui::Pos2::ZERO));
+        let mut frame = |n: usize, events: Vec<egui::Event>, last: bool| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                time: Some(n as f64 * 0.05),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let ctx = ui.ctx();
+                tool_window(
+                    Host::Floating(ctx),
+                    ToolWindow {
+                        id: "touch_test",
+                        place: Place::Float,
+                        width: 200.0,
+                        float_at: egui::pos2(400.0, 300.0),
+                    },
+                    screen,
+                    &t,
+                    |ui| {
+                        ui.allocate_space(egui::vec2(200.0, 120.0));
+                    },
+                );
+                if last {
+                    released_at = ctx.input(|i| i.pointer.latest_pos());
+                }
+                if let Some(p) = ctx.data_mut(|d| d.remove_temp::<Place>(dock_drop_id())) {
+                    docked = Some(p);
+                }
+            });
+        };
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(0, vec![], false);
+        frame(
+            1,
+            vec![egui::Event::PointerMoved(start), button(start, true)],
+            false,
+        );
+        let steps = 12;
+        for k in 1..=steps {
+            let p = start + (target - start) * (k as f32 / steps as f32);
+            frame(1 + k, vec![egui::Event::PointerMoved(p)], false);
+        }
+        frame(
+            steps + 2,
+            vec![button(target, false), egui::Event::PointerGone],
+            true,
+        );
+        frame(steps + 3, vec![], false);
+        assert_eq!(
+            released_at, None,
+            "a touch release carries no pointer position"
+        );
+        assert_eq!(docked, Some(Place::Right));
+    }
+
+    /// A touch release arrives with no pointer position: the target lit during the drag is the one
+    /// docked on. With a position (a mouse), the release point decides, so sliding off a target
+    /// before letting go still cancels.
+    #[test]
+    fn a_touch_release_docks_on_the_target_that_was_lit() {
+        let map = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(1000.0, 700.0));
+        let right = dock_targets(map)[1].1.center();
+        assert_eq!(
+            drop_target(map, None, Some(Place::Right)),
+            Some(Place::Right)
+        );
+        assert_eq!(drop_target(map, None, None), None);
+        assert_eq!(drop_target(map, Some(right), None), Some(Place::Right));
+        assert_eq!(
+            drop_target(map, Some(map.center()), Some(Place::Right)),
+            None,
+            "a mouse let go off the target does not dock"
         );
     }
 

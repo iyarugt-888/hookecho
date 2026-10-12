@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: docking a window by touch on a tablet
+
+On a tablet, dragging a floating window onto one of the dock targets lit the target, but lifting
+your finger left the window where it was. It now docks on the target you let go over.
+
 ### Added: forecast rotating storms along your route
 
 The route window's HRRR forecast check now also looks for the model's rotating storm tracks
