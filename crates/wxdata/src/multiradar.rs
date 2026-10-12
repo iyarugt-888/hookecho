@@ -183,13 +183,12 @@ pub fn fuse_moving(
     fuse_inner(radars, time, max_offset_s, grid, Some(motion_ms))
 }
 
-fn fuse_inner(
-    radars: &[RadarVolume<'_>],
+/// The radars within `max_offset_s` of `time` (at most 32), and the others with why.
+fn select<'r, 'a>(
+    radars: &'r [RadarVolume<'a>],
     time: DateTime<Utc>,
     max_offset_s: i64,
-    grid: Grid,
-    motion_ms: Option<[f64; 2]>,
-) -> FusedVolume {
+) -> (Vec<&'r RadarVolume<'a>>, Vec<LeftOut>) {
     let mut used: Vec<&RadarVolume<'_>> = Vec::new();
     let mut left_out = Vec::new();
     for r in radars {
@@ -213,6 +212,74 @@ fn fuse_inner(
             used.push(r);
         }
     }
+    (used, left_out)
+}
+
+/// Each used radar's ground range and azimuth (km, degrees) to the column at `ll`, where the
+/// storm put it at that radar's time when `motion_ms` is given.
+fn column_geometry(
+    used: &[&RadarVolume<'_>],
+    time: DateTime<Utc>,
+    motion_ms: Option<[f64; 2]>,
+    ll: [f64; 2],
+) -> Vec<(f64, f64)> {
+    let km_per_deg = 6371.0f64.to_radians();
+    let coslat = ll[1].to_radians().cos().max(0.05);
+    used.iter()
+        .map(|r| {
+            let dt = (r.time - time).num_milliseconds() as f64 / 1000.0;
+            let [ue, vn] = motion_ms.unwrap_or([0.0, 0.0]);
+            let at = [
+                ll[0] + ue * dt / 1000.0 / (km_per_deg * coslat),
+                ll[1] + vn * dt / 1000.0 / km_per_deg,
+            ];
+            let s = &r.sweeps[0];
+            crate::xsection::dist_bearing(
+                f64::from(s.radar_lon),
+                f64::from(s.radar_lat),
+                at[0],
+                at[1],
+            )
+        })
+        .collect()
+}
+
+/// One cell `z_km` above sea level over a column: the fused dBZ (NaN without echo), the radars
+/// that observed it and gave echo (bits), and the one that counted most (or `u8::MAX`).
+fn fuse_cell(used: &[&RadarVolume<'_>], geometry: &[(f64, f64)], z_km: f64) -> (f32, u32, u32, u8) {
+    let (mut sum, mut wsum, mut top) = (0.0f64, 0.0f64, (0.0f64, u8::MAX));
+    let (mut observed, mut echo) = (0u32, 0u32);
+    for (r_i, (r, &(ground, az))) in used.iter().zip(geometry).enumerate() {
+        match look(r.sweeps, ground, az, z_km - r.antenna_m / 1000.0) {
+            Look::Unseen => {}
+            Look::Clear => observed |= 1 << r_i,
+            Look::Echo(v, thick) => {
+                observed |= 1 << r_i;
+                echo |= 1 << r_i;
+                let w = 1.0 / (thick * thick).max(1e-6);
+                sum += w * f64::from(v);
+                wsum += w;
+                if w > top.0 {
+                    top = (w, r_i as u8);
+                }
+            }
+        }
+    }
+    if wsum > 0.0 {
+        ((sum / wsum) as f32, observed, echo, top.1)
+    } else {
+        (f32::NAN, observed, echo, u8::MAX)
+    }
+}
+
+fn fuse_inner(
+    radars: &[RadarVolume<'_>],
+    time: DateTime<Utc>,
+    max_offset_s: i64,
+    grid: Grid,
+    motion_ms: Option<[f64; 2]>,
+) -> FusedVolume {
+    let (used, left_out) = select(radars, time, max_offset_s);
     let len = grid.len();
     let mut out = FusedVolume {
         grid,
@@ -229,52 +296,83 @@ fn fuse_inner(
     for j in 0..grid.n {
         for i in 0..grid.n {
             let (x, y, _) = grid.cell(i, j, 0);
-            // Each radar's range and azimuth to this column, where the storm put it at that
-            // radar's time.
-            let geometry: Vec<(f64, f64)> = used
-                .iter()
-                .map(|r| {
-                    let dt = (r.time - time).num_milliseconds() as f64 / 1000.0;
-                    let [ue, vn] = motion_ms.unwrap_or([0.0, 0.0]);
-                    let ll = grid.lonlat(x + ue * dt / 1000.0, y + vn * dt / 1000.0);
-                    let s = &r.sweeps[0];
-                    crate::xsection::dist_bearing(
-                        f64::from(s.radar_lon),
-                        f64::from(s.radar_lat),
-                        ll[0],
-                        ll[1],
-                    )
-                })
-                .collect();
+            let geometry = column_geometry(&used, time, motion_ms, grid.lonlat(x, y));
             for k in 0..grid.nz {
                 let (_, _, z) = grid.cell(i, j, k);
-                let (mut sum, mut wsum, mut top) = (0.0f64, 0.0f64, (0.0f64, u8::MAX));
                 let at = grid.index(i, j, k);
-                for (r_i, (r, &(ground, az))) in used.iter().zip(&geometry).enumerate() {
-                    let above_antenna = z - r.antenna_m / 1000.0;
-                    match look(r.sweeps, ground, az, above_antenna) {
-                        Look::Unseen => {}
-                        Look::Clear => out.observed[at] |= 1 << r_i,
-                        Look::Echo(v, thick) => {
-                            out.observed[at] |= 1 << r_i;
-                            out.echo[at] |= 1 << r_i;
-                            let w = 1.0 / (thick * thick).max(1e-6);
-                            sum += w * f64::from(v);
-                            wsum += w;
-                            if w > top.0 {
-                                top = (w, r_i as u8);
-                            }
-                        }
-                    }
-                }
-                if wsum > 0.0 {
-                    out.dbz[at] = (sum / wsum) as f32;
-                    out.dominant[at] = top.1;
-                }
+                let (v, o, e, d) = fuse_cell(&used, &geometry, z);
+                out.dbz[at] = v;
+                out.observed[at] = o;
+                out.echo[at] = e;
+                out.dominant[at] = d;
             }
         }
     }
     out
+}
+
+/// A vertical section fused from several radars, along the straight lon/lat line `a` to `b`, as
+/// the single-radar [`crate::xsection::build`] draws one: `cols` columns, `rows` rows from
+/// `max_height_km` (row 0) down to the ground, heights above the first radar's antenna so the
+/// two read on one axis. `beam_covered` is true where a radar saw echo; there are no beam-rise
+/// lines, since several radars' beams cross the panel. With the section, which radars went in
+/// (the bits' order), their offsets, those left out, and per cell the radar that counted most.
+pub struct FusedSection {
+    pub section: crate::xsection::CrossSection,
+    pub sites: Vec<String>,
+    pub offsets_s: Vec<i64>,
+    pub left_out: Vec<LeftOut>,
+    pub dominant: Vec<u8>,
+}
+
+#[allow(clippy::too_many_arguments)] // the line, its raster and the time base, all distinct
+pub fn fuse_section(
+    radars: &[RadarVolume<'_>],
+    time: DateTime<Utc>,
+    max_offset_s: i64,
+    a: (f64, f64),
+    b: (f64, f64),
+    cols: usize,
+    rows: usize,
+    max_height_km: f32,
+) -> Option<FusedSection> {
+    let (used, left_out) = select(radars, time, max_offset_s);
+    let base_km = used.first()?.antenna_m / 1000.0;
+    let (cols, rows) = (cols.max(2), rows.max(2));
+    let length_km = crate::xsection::dist_bearing(a.0, a.1, b.0, b.1).0;
+    let mut dbz = vec![None; cols * rows];
+    let mut beam_covered = vec![false; cols * rows];
+    let mut dominant = vec![u8::MAX; cols * rows];
+    for i in 0..cols {
+        let t = i as f64 / (cols - 1) as f64;
+        let ll = [a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t];
+        let geometry = column_geometry(&used, time, None, ll);
+        for r in 0..rows {
+            let h = f64::from(max_height_km) * (1.0 - r as f64 / (rows - 1) as f64);
+            let (v, _, e, d) = fuse_cell(&used, &geometry, h + base_km);
+            let at = r * cols + i;
+            if !v.is_nan() {
+                dbz[at] = Some(v);
+            }
+            beam_covered[at] = e != 0;
+            dominant[at] = d;
+        }
+    }
+    Some(FusedSection {
+        section: crate::xsection::CrossSection {
+            cols,
+            rows,
+            max_height_km,
+            length_km,
+            dbz,
+            beam_covered,
+            beam_lines: Vec::new(),
+        },
+        sites: used.iter().map(|r| r.site.clone()).collect(),
+        offsets_s: used.iter().map(|r| (r.time - time).num_seconds()).collect(),
+        left_out,
+        dominant,
+    })
 }
 
 #[cfg(test)]
@@ -627,6 +725,59 @@ mod tests {
             (mean(&moving) - 50.0).abs() < 2.5,
             "read along the motion: {moving:?}"
         );
+    }
+
+    /// A fused section along a line reads what the fused volume reads at the same places, and
+    /// says which radars went in.
+    #[test]
+    fn a_fused_section_matches_the_volume_along_its_line() {
+        let c = [-97.5, 35.3];
+        let near = crate::rotation::dest(c[0], c[1], 270.0, 15.0);
+        let far = crate::rotation::dest(c[0], c[1], 90.0, 110.0);
+        let t = Utc.with_ymd_and_hms(2013, 5, 20, 20, 10, 0).unwrap();
+        let a = volume([near.0, near.1], 0.0, 40.0, storm(c));
+        let b = volume([far.0, far.1], 0.0, 140.0, storm(c));
+        let radars = [
+            RadarVolume {
+                site: "NEAR".into(),
+                time: t,
+                antenna_m: 0.0,
+                sweeps: &a,
+            },
+            RadarVolume {
+                site: "FAR".into(),
+                time: t,
+                antenna_m: 0.0,
+                sweeps: &b,
+            },
+        ];
+        let w = crate::rotation::dest(c[0], c[1], 270.0, 4.0);
+        let e = crate::rotation::dest(c[0], c[1], 90.0, 4.0);
+        let s = fuse_section(&radars, t, 300, w, e, 9, 33, 16.0).unwrap();
+        assert_eq!(s.sites, ["NEAR", "FAR"]);
+        assert_eq!((s.section.cols, s.section.rows), (9, 33));
+        // The middle column, every height, against the volume's centre column.
+        let grid = Grid {
+            center: c,
+            half_km: 0.0,
+            n: 1,
+            nz: 33,
+            bottom_km: 0.0,
+            top_km: 16.0,
+        };
+        let f = fuse(&radars, t, 300, grid);
+        for r in 0..33 {
+            let k = 32 - r;
+            let vol = f.dbz[grid.index(0, 0, k)];
+            let sec = s.section.dbz[r * 9 + 4];
+            match sec {
+                Some(v) => assert!((v - vol).abs() < 0.5, "row {r}: {v} vs {vol}"),
+                None => assert!(vol.is_nan(), "row {r}"),
+            }
+        }
+        // Echo somewhere up the storm's axis, and none above its top.
+        assert!(s.section.dbz.iter().flatten().any(|v| *v > 45.0));
+        assert!((0..9).all(|i| s.section.dbz[i].is_none()));
     }
 
     /// A radar whose volume is too far from the time asked for is left out, and said so; no

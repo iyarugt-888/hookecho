@@ -494,6 +494,7 @@ impl HookEchoApp {
             ),
             route_forecast: Default::default(),
             feature_tracking: Default::default(),
+            xs_fusion: Default::default(),
             previous_sounding_rx: None,
             envelope_rx: None,
             chase_mode: false,

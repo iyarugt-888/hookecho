@@ -4575,8 +4575,11 @@ saw echo, they differ by
 distant radars' wide beams spreading strong echo into the cells around it is one
 candidate). `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
 through the fused volume: the first radar alone, fused, and which radar counted most
-(`docs/certification/multi-radar/moore-section.png`). Not yet: the fused volume in the
-interactive app (a 3D view, the cross-section window), and a check against an independent
+(`docs/certification/multi-radar/moore-section.png`). In the app, the cross-section window's
+"Add nearby radars" (reflectivity only) fuses the section with up to three other WSR-88Ds
+within 230 km at volumes within five minutes (`app/xsection_fuse.rs`,
+`multiradar::fuse_section`); seen in the browser build on the Moore archive, panel coverage
+29 % to 76 %. Not yet: the fused volume in the 3D view, and a check against an independent
 multi-radar analysis such as MRMS's 3D mosaic.
 
 Do **not** create a “velocity mosaic” by naïvely combining radial velocities. If multi-Doppler wind retrieval is attempted, it must use proper geometry and be labeled experimental/research.

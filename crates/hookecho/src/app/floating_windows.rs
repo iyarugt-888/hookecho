@@ -1034,6 +1034,7 @@ impl HookEchoApp {
             }
             profile
         });
+        self.poll_xs_fusion(ctx);
         if let (Some(xs), Some(tex), Some(line)) =
             (&self.xsection, &self.xsection_tex, self.xsection_line())
         {
@@ -1042,7 +1043,12 @@ impl HookEchoApp {
                 bearing_deg: line.bearing(),
                 length_km: line.length_km(),
                 cut_3d: self.xsection_cut_3d,
-                info: self.xsection_info(xs),
+                fused: self.xs_fusion.on,
+                can_fuse: moment == Moment::Reflectivity,
+                info: match &self.xs_fusion.status {
+                    Some(s) => format!("{}\n{s}", self.xsection_info(xs)),
+                    None => self.xsection_info(xs),
+                },
                 antenna_msl_km: self.views[self
                     .xsection_source
                     .as_ref()
@@ -1075,6 +1081,9 @@ impl HookEchoApp {
                 self.xsection_source = None;
             } else if moment != self.xsection_moment {
                 self.xsection_moment = moment;
+                self.build_xsection(pane, ctx);
+            } else if ctl.fused != before.fused {
+                self.xs_fusion.on = ctl.fused;
                 self.build_xsection(pane, ctx);
             } else if ctl != before {
                 self.apply_xsection_controls(pane, line, &before, &ctl, ctx);

@@ -87,6 +87,34 @@ Dark is a cell no radar's beam reached, grey one observed with no echo.
 
 Test: `the_section_has_three_panels_and_tells_unseen_from_clear`.
 
+### In the app's cross-section window
+
+"Add nearby radars" (reflectivity only) fuses the section with up to three other WSR-88Ds within
+230 km of its middle, at volumes within five minutes of the pane's (`app/xsection_fuse.rs`,
+`multiradar::fuse_section`). The fetch and fuse run off the UI thread on the desktop; the
+browser has one thread, so it bins and fuses on it. The fused panel replaces the pane's own only
+for the same pane, volume and line, and while the line is being dragged nothing is fetched. The
+window says which radars went in, their offsets, and any left out.
+
+**Browser build on WebGPU, one machine** (2026-10-12), built from the working tree at `6f5c1ea`
+with this change and another session's uncommitted live-sweep work. KTLX archive, 20:12:29 UTC,
+a 64 km section west to east into KTLX:
+
+| Capture | What it shows |
+| --- | --- |
+| `section-ktlx-alone-browser.jpg` | KTLX alone: "29 % of the panel inside beam coverage", its tilts' beam-rise lines, nothing above them. |
+| `section-fused-browser.jpg` | "Add nearby radars" on: "Fused with KVNX (+49 s), KFDR (−60 s), KINX (+64 s)", 76 % of the panel covered, the storm filled to near the panel's top. No beam-rise lines: several radars' beams cross the panel. |
+
+| File | SHA-256 |
+| --- | --- |
+| section-ktlx-alone-browser.jpg | `03ee57f711261d2a5412101278aaaed58bd57d68e61ed99eda22f7ba1385be93` |
+| section-fused-browser.jpg | `8387d42abc926f59fd817479e88f7162100e3ad8788306a3e46a2d2e471b6934` |
+
+Tests: `a_fused_section_matches_the_volume_along_its_line`,
+`nearby_radars_are_others_in_range_and_the_line_names_them`. How long the browser's single
+thread stalls while fusing was not measured.
+
 Not established:
-- the fused volume in the interactive app (no 3D view or cross-section window yet);
+- the fused volume in the 3D view;
+- the window on the desktop app and on Android (only the browser build was run);
 - a check against an independent multi-radar analysis, such as MRMS's 3D reflectivity mosaic.

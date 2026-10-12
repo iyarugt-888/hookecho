@@ -136,6 +136,9 @@ pub struct XsControls {
     pub radial: bool,
     pub swap: bool,
     pub cut_3d: bool,
+    /// Add nearby radars (reflectivity only), and whether this moment can.
+    pub fused: bool,
+    pub can_fuse: bool,
     /// Site, tilts and the span their radials were scanned over.
     pub info: String,
     /// The radar antenna's altitude above mean sea level, km, when the site is known: the
@@ -340,6 +343,14 @@ fn controls(ui: &mut egui::Ui, ctl: &mut XsControls) {
         ui.checkbox(&mut ctl.cut_3d, "3D cut").on_hover_text(
             "Cut the 3D view's smooth volume along this section, a 4 km slab, as it moves",
         );
+        if ctl.can_fuse {
+            ui.checkbox(&mut ctl.fused, "Add nearby radars")
+                .on_hover_text(
+                "Fuse up to three other radars within 230 km, at volumes within five minutes of \
+                 this one: each cell weighted by each beam's thickness there, nothing filled \
+                 between beams (research-grade). Reflectivity only.",
+            );
+        }
     });
     if !ctl.info.is_empty() {
         ui.weak(&ctl.info);

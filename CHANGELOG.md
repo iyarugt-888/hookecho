@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a cross-section from several radars
+
+The cross-section window has "Add nearby radars" for reflectivity. It brings in up to
+three other radars within 230 km whose volumes are within five minutes of yours, and fills
+in what your radar cannot see: above its highest tilt, between its upper tilts, and beyond
+its range. The window names the radars it used and how far apart in time they were. It is
+research-grade: distant radars' wide beams can make the upper part of a storm read too
+strong.
+
 ### Developer: one storm volume from several radars
 
 A research engine fuses the reflectivity of radars that see the same storm into one volume

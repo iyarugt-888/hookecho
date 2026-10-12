@@ -96,6 +96,7 @@ mod quality;
 mod rebuild;
 mod route_frame;
 mod feature_tracking;
+mod xsection_fuse;
 mod self_update_ui;
 mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
@@ -1645,6 +1646,8 @@ pub struct HookEchoApp {
     route_forecast: route_frame::RouteForecast,
     /// A feature the analyst picked, followed through the loop (ROADMAP_NEW R4).
     feature_tracking: feature_tracking::FeatureTracking,
+    /// The cross-section's nearby radars, when its switch is on (ROADMAP_NEW R1).
+    xs_fusion: xsection_fuse::XsFusion,
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
     previous_sounding_rx:
         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
@@ -2979,6 +2982,7 @@ impl HookEchoApp {
             return;
         };
         let moment = self.xsection_moment;
+        let vol_time = vol.time;
         let sweeps = vol.moment_tilts(moment); // owned → the &mut vol borrow ends here
         if sweeps.is_empty() {
             return;
@@ -3012,6 +3016,8 @@ impl HookEchoApp {
         let img = ui::xsection_window::to_image(&xs, &hc_table);
         self.xsection_tex = Some(ctx.load_texture("xsection", img, egui::TextureOptions::LINEAR));
         self.xsection = Some(xs);
+        // With nearby radars on, the fused panel replaces this one when it is ready.
+        self.start_xs_fusion(idx, a, b, sweeps, vol_time, ctx);
     }
 
     /// Detail card for a tapped Spotter Network dot. Their report text sometimes carries a
