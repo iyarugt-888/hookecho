@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the gate inspector gives values past the colour scale as the radar sent them
+
+The map draws ZDR only from -7.9 to 7.9 dB and CC only up to 1.05, so a stronger value is
+drawn at the end of the scale. The gate inspector's "Raw value" used to show that end too, for
+example 7.9 dB where the radar sent 8.9. It now shows the value as sent, and says it is drawn at
+the end of the scale. In clear air most ZDR gates are past 7.9 dB.
+
 ### Developer: what the crossfade and satellite decoding cost
 
 Crossfading a field between frames adds 0.06 ms a frame on a graphics card, but doubles

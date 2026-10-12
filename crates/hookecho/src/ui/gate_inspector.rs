@@ -167,6 +167,29 @@ pub fn show(
     (open, follow)
 }
 
+/// The gate's value. Where the radar sent a value past the colour scale's end, the 8-bit display
+/// binning holds the scale's end, so the transmitted value is given and the clamp said (clear-air
+/// ZDR past 7.9 dB is common).
+fn raw_value_text(popup: &GateInspectorPopup) -> String {
+    let i = &popup.inspection;
+    if i.sample.folded {
+        return "Range folded".to_string();
+    }
+    let units = popup.moment.units();
+    let (lo, hi) = popup.moment.value_range();
+    if let Some(wxdata::level2::GateEncoding {
+        code: wxdata::level2::GateCode::Value(v),
+        ..
+    }) = i.encoding
+    {
+        if v < lo || v > hi {
+            let end = if v > hi { hi } else { lo };
+            return format!("{v:.1} {units} (drawn as {end:.1}, the end of the colour scale)");
+        }
+    }
+    opt(i.sample.value, &format!(" {units}"), 1)
+}
+
 fn opt(v: Option<f32>, unit: &str, decimals: usize) -> String {
     v.map(|x| format!("{x:.*}{unit}", decimals))
         .unwrap_or_else(|| "—".into())
@@ -186,11 +209,7 @@ pub(crate) fn attributes(
     udp_products: &[wxdata::udp::ProductDef],
 ) {
     let i = &popup.inspection;
-    let raw_value = if i.sample.folded {
-        "Range folded".to_string()
-    } else {
-        opt(i.sample.value, &format!(" {}", popup.moment.units()), 1)
-    };
+    let raw_value = raw_value_text(popup);
     let sweep_time = popup.time_range.map_or_else(
         || "—".to_string(),
         |(start, end)| {
@@ -683,6 +702,37 @@ mod tests {
             series: Vec::new(),
             display: MapDisplay::default(),
         }
+    }
+
+    /// A value the radar sent past the colour scale is given as sent, with the clamp said; one
+    /// within it is the shown value, as before.
+    #[test]
+    fn a_value_past_the_colour_scale_is_given_as_sent() {
+        let mut p = sample_popup(Moment::DifferentialReflectivity, false, Some(7.9));
+        p.inspection.encoding = Some(wxdata::level2::GateEncoding {
+            raw: 702,
+            word_bits: 16,
+            scale: 32.0,
+            offset: 418.0,
+            code: wxdata::level2::GateCode::Value(8.875),
+            source_gate: 120,
+        });
+        assert_eq!(
+            raw_value_text(&p),
+            "8.9 dB (drawn as 7.9, the end of the colour scale)"
+        );
+        p.inspection.encoding = Some(wxdata::level2::GateEncoding {
+            code: wxdata::level2::GateCode::Value(-9.5),
+            ..p.inspection.encoding.unwrap()
+        });
+        assert_eq!(
+            raw_value_text(&p),
+            "-9.5 dB (drawn as -7.9, the end of the colour scale)"
+        );
+        let within = sample_popup(Moment::Reflectivity, false, Some(38.0));
+        assert_eq!(raw_value_text(&within), "38.0 dBZ");
+        let folded = sample_popup(Moment::Velocity, true, None);
+        assert_eq!(raw_value_text(&folded), "Range folded");
     }
 
     /// The inspector says what colour the map put on this gate and how it was made: the raw or

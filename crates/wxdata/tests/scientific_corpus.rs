@@ -1250,6 +1250,12 @@ fn radial_blocks_by_hand(bytes: Vec<u8>) -> Vec<(u16, u16)> {
 /// (`DREF`, then reserved 4, gates 2, first gate 2, interval 2, TOVER 2, SNR threshold 2, flags 1,
 /// word size 1, scale f32, offset f32), independently of the decoder.
 fn ref_blocks_by_hand(bytes: Vec<u8>) -> Vec<(f32, f32, u8)> {
+    moment_blocks_by_hand(bytes, b"DREF")
+}
+
+/// Every moment block named `tag` (`DREF`, `DVEL`, `DSW `, `DZDR`, `DPHI`, `DRHO`): its (scale,
+/// offset, word size), read straight from the ICD byte layout as [`ref_blocks_by_hand`] does.
+fn moment_blocks_by_hand(bytes: Vec<u8>, tag: &[u8; 4]) -> Vec<(f32, f32, u8)> {
     let file = nexrad_data::volume::File::new(bytes);
     let file = if file.compressed() {
         file.decompress().unwrap()
@@ -1266,7 +1272,7 @@ fn ref_blocks_by_hand(bytes: Vec<u8>) -> Vec<(f32, f32, u8)> {
         let data = record.data();
         let mut i = 0;
         while i + 28 <= data.len() {
-            if &data[i..i + 4] == b"DREF" {
+            if &data[i..i + 4] == tag {
                 let f = |at: usize| {
                     f32::from_be_bytes([
                         data[i + at],
@@ -1282,7 +1288,137 @@ fn ref_blocks_by_hand(bytes: Vec<u8>) -> Vec<(f32, f32, u8)> {
             i += 1;
         }
     }
+    out.sort_by(|a, b| {
+        a.0.total_cmp(&b.0)
+            .then(a.1.total_cmp(&b.1))
+            .then(a.2.cmp(&b.2))
+    });
+    out.dedup();
     out
+}
+
+/// One moment's sampled gates on its lowest tilt against the moment's own blocks: how many were
+/// checked, had values, were below threshold, and had a value outside the app's display range
+/// (which the 8-bit display binning clamps to its end). `None` when the volume has no such tilt.
+fn check_gate_encoding(
+    id: &str,
+    scan: &level2::Scan,
+    moment: level2::Moment,
+    blocks: &[(f32, f32, u8)],
+) -> Option<(usize, usize, usize, usize)> {
+    use level2::GateCode;
+    // Not dealiased: the shown value is then the transmitted one, decoded.
+    let sweep = level2::bin_scan_opts_recorded(scan, moment, 0, false).ok()?;
+    let step = (sweep.value_max - sweep.value_min) / 253.0;
+    let (lat0, lon0) = (f64::from(sweep.radar_lat), f64::from(sweep.radar_lon));
+    let (mut values, mut below, mut checked, mut clamped) = (0, 0, 0, 0);
+    for i in -60..=60 {
+        for j in -60..=60 {
+            let (lon, lat) = (lon0 + f64::from(i) * 0.02, lat0 + f64::from(j) * 0.016);
+            let Some(sample) = sweep.sample_at(lon, lat) else {
+                continue;
+            };
+            let Some(e) = level2::gate_encoding(scan, moment, &sweep, &sample) else {
+                continue;
+            };
+            checked += 1;
+            assert!(
+                blocks
+                    .iter()
+                    .any(|b| b.0 == e.scale && b.1 == e.offset && b.2 == e.word_bits),
+                "{id} {moment:?}: scale {} offset {} ({}-bit) not in any of its blocks {blocks:?}",
+                e.scale,
+                e.offset,
+                e.word_bits
+            );
+            match e.code {
+                GateCode::Value(v) => {
+                    values += 1;
+                    let shown = sample.value.expect("a value where the radar sent one");
+                    let within = v.clamp(sweep.value_min, sweep.value_max);
+                    clamped += usize::from(within != v);
+                    assert!(
+                        (shown - within).abs() <= step,
+                        "{id} {moment:?}: code {} decodes to {v}, shown {shown}",
+                        e.raw
+                    );
+                }
+                GateCode::BelowThreshold => {
+                    below += 1;
+                    assert!(sample.value.is_none() && !sample.folded, "{id} {moment:?}");
+                }
+                GateCode::RangeFolded => assert!(sample.folded, "{id} {moment:?}"),
+            }
+        }
+    }
+    Some((checked, values, below, clamped))
+}
+
+/// Check `moments` on every fixture of `tier`, and return the moments checked with over a hundred
+/// values on at least one of them.
+fn check_moments_on(
+    tier: &str,
+    moments: &[(level2::Moment, &[u8; 4])],
+) -> std::collections::BTreeSet<String> {
+    let m = corpus::manifest();
+    let mut checked_moments = std::collections::BTreeSet::new();
+    for f in m.fixtures.iter().filter(|f| f.tier == tier) {
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let scan = level2::decode_volume(bytes.clone()).unwrap();
+        for (moment, tag) in moments {
+            let blocks = moment_blocks_by_hand(bytes.clone(), tag);
+            match check_gate_encoding(&f.id, &scan, *moment, &blocks) {
+                Some((checked, values, below, clamped)) => {
+                    println!(
+                        "{} {moment:?}: {checked} gates checked, {values} with values ({clamped} \
+                         past the display range, shown at its end), {below} below threshold, \
+                         blocks {blocks:?}",
+                        f.id
+                    );
+                    assert!(!blocks.is_empty(), "{} {moment:?}: no blocks by hand", f.id);
+                    if values > 100 {
+                        checked_moments.insert(format!("{moment:?}"));
+                    }
+                }
+                None => println!("{} {moment:?}: not in this volume", f.id),
+            }
+        }
+    }
+    checked_moments
+}
+
+/// M3.1 / 1008.md C3, for the dual-pol moments: ZDR, ΦDP and CC each come with their own blocks'
+/// scale, offset and word size, and each sampled gate's code decodes to the value the app shows,
+/// as for reflectivity below, except that a value past the display range is shown at its end
+/// (counted). On all three offline volumes.
+#[test]
+fn dual_pol_gate_encoding_matches_their_own_blocks() {
+    use level2::Moment;
+    let checked = check_moments_on(
+        "offline",
+        &[
+            (Moment::DifferentialReflectivity, b"DZDR"),
+            (Moment::DifferentialPhase, b"DPHI"),
+            (Moment::CorrelationCoefficient, b"DRHO"),
+        ],
+    );
+    assert_eq!(checked.len(), 3, "{checked:?}");
+}
+
+/// The same for velocity and spectrum width, which the offline files (surveillance records only)
+/// do not carry: on the full cached volumes.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_doppler_gate_encoding_matches_their_own_blocks() {
+    use level2::Moment;
+    let checked = check_moments_on(
+        "cached",
+        &[
+            (Moment::Velocity, b"DVEL"),
+            (Moment::SpectrumWidth, b"DSW "),
+        ],
+    );
+    assert_eq!(checked.len(), 2, "{checked:?}");
 }
 
 /// M3.1 / 1008.md C3: the gate inspector's "as transmitted" encoding is the source radial's own.
