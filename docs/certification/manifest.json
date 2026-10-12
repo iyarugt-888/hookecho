@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T10:38:35+00:00",
-  "generated_from_commit": "388cad8fb2d25fd84ac6fbbc9b2b8c6ff995c649",
+  "generated_utc": "2026-10-12T10:52:20+00:00",
+  "generated_from_commit": "4efef301f411ba2c94c9faa217c4d8b6d91ff670",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1744,13 +1744,13 @@
     },
     {
       "path": "docs/certification/multi-radar/README.md",
-      "sha256": "745f24f9fde1f435d2b4c786ccf182623e266f7bcd3af6211f007efc60e5d59b",
-      "bytes": 6902
+      "sha256": "3b6f8201e87d4b87b9f7511b3e32275a577b198fc25c28595630aa0d047d9a7a",
+      "bytes": 7149
     },
     {
       "path": "docs/certification/multi-radar/moore-fusion.txt",
-      "sha256": "591b0d801db3f063a30b7d5ed2e5af2027a79278dfc71f472b3be9cf213cca0b",
-      "bytes": 1115
+      "sha256": "b540afbd5caf1157ed9d86d30ac5b1c5dbaedacc1768ef9617efdac32ff256fc",
+      "bytes": 1544
     },
     {
       "path": "docs/certification/multi-radar/moore-section.png",
