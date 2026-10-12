@@ -187,3 +187,75 @@ fn cached_decoded_nyquist_unfolds_no_worse_than_the_estimate() {
         "dealiasing left {jumps_dec_total} fold-sized jumps"
     );
 }
+
+/// As [`jumps`], with each pair judged at the smaller of its two rows' Nyquist velocities: on a
+/// sectorized sweep that is the interval either gate could have folded at.
+fn jumps_rows(s: &BinnedSweep, rows: &[f32]) -> usize {
+    let v = values(s);
+    let (az, g) = (s.az_bins, s.gate_count);
+    let mut n = 0;
+    for a in 0..az {
+        let next_a = (a + 1) % az;
+        for i in 0..g {
+            let Some(x) = v[a * g + i] else { continue };
+            if let Some(y) = (i + 1 < g).then(|| v[a * g + i + 1]).flatten() {
+                n += usize::from((x - y).abs() > rows[a]);
+            }
+            if let Some(y) = v[next_a * g + i] {
+                n += usize::from((x - y).abs() > rows[a].min(rows[next_a]));
+            }
+        }
+    }
+    n
+}
+
+/// The sectorized volume (vilonia-2014, KLZK, sent at 22.24 and 26.3 m/s by sector on its lower
+/// tilts): each row unfolded at its own decoded value against the whole sweep unfolded at the
+/// largest-|v| estimate, which is what it fell back to before (ROADMAP_PARITY M3.1, per-sector
+/// Nyquist). Judged by neighbouring gates a fold apart, each pair at its own rows' interval.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running (release build)"]
+fn cached_sectorized_tilts_unfold_row_by_row() {
+    let m = corpus::manifest();
+    let f = m.fixtures.iter().find(|f| f.id == "vilonia-2014").unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let (mut sectorized, mut est_total, mut row_total) = (0, 0usize, 0usize);
+    for tilt in 0..level2::elevation_angles(&scan).len() {
+        let Ok(new) = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true) else {
+            continue;
+        };
+        if new.nyquist_source != NyquistSource::DecodedPerSector {
+            continue;
+        }
+        sectorized += 1;
+        let old = level2::bin_scan_dealiased_by_estimate(&scan, tilt).unwrap();
+        let rows = &new.row_nyquist_mps;
+        let (je, jr) = (jumps_rows(&old, rows), jumps_rows(&new, rows));
+        est_total += je;
+        row_total += jr;
+        let (vn, vo) = (values(&new), values(&old));
+        let differ = vn
+            .iter()
+            .zip(&vo)
+            .filter(|(a, b)| matches!((a, b), (Some(a), Some(b)) if (a - b).abs() > 10.0))
+            .count();
+        let filled = new.data.iter().filter(|&&c| c >= 2).count();
+        eprintln!(
+            "vilonia tilt {tilt} ({:.1}°): estimate {:.2} m/s, rows {:.2}..{:.2}; jumps estimate {je}, row by row {jr}; {differ}/{filled} gates differ by more than 10 m/s",
+            new.elevation_deg,
+            old.nyquist_ms,
+            rows.iter().copied().filter(|v| v.is_finite()).fold(f32::MAX, f32::min),
+            new.nyquist_ms,
+        );
+        assert!(
+            jr <= je + 50 + je / 10,
+            "tilt {tilt}: row by row left {jr} jumps against the estimate's {je}"
+        );
+    }
+    eprintln!("{sectorized} sectorized tilts; jumps estimate {est_total}, row by row {row_total}");
+    assert_eq!(
+        sectorized, 9,
+        "vilonia's nine lower tilts are sent at two PRFs"
+    );
+    assert!(row_total <= est_total, "{row_total} vs {est_total}");
+}

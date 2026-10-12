@@ -2248,8 +2248,17 @@ fn bin_sweep_opts_inner(
         // The decoded Nyquist when the radials carry a usable one, the largest |v| otherwise.
         let decoded: &[f32] = if estimate_only { &[] } else { &row_nyquist_mps };
         let (nyq, source) = crate::dealias::sweep_nyquist(decoded, &vel);
-        nyquist_ms = nyq;
-        nyquist_source = source;
+        // A sweep sent at different PRFs by sector unfolds each row at its own value.
+        let rows = (source == crate::dealias::NyquistSource::EstimatedVaries)
+            .then(|| crate::dealias::sector_nyquist(decoded, &vel, gate_count))
+            .flatten();
+        (nyquist_ms, nyquist_source) = match &rows {
+            Some(r) => (
+                r.iter().copied().fold(0.0, f32::max),
+                crate::dealias::NyquistSource::DecodedPerSector,
+            ),
+            None => (nyq, source),
+        };
         // Continuity: hand the previous pass over this same tilt to the dealiaser, so a storm
         // whose fastest air genuinely sits past the Nyquist velocity stays unfolded from volume
         // to volume instead of snapping to zero whenever the fast region becomes the biggest one.
@@ -2265,13 +2274,13 @@ fn bin_sweep_opts_inner(
             .min()
             .unwrap_or(0);
         let reference = take_dealias_reference(&key, at);
-        let unfolded = crate::dealias::dealias_with_reference(
-            &vel,
-            AZ_BINS,
-            gate_count,
-            nyq,
-            reference.as_ref().map(|r| r.as_slice()),
-        );
+        let reference = reference.as_ref().map(|r| r.as_slice());
+        let unfolded = match &rows {
+            Some(r) => crate::dealias::dealias_rows(&vel, AZ_BINS, gate_count, r, reference),
+            None => {
+                crate::dealias::dealias_with_reference(&vel, AZ_BINS, gate_count, nyq, reference)
+            }
+        };
         let unfolded: DealiasField = std::sync::Arc::new(unfolded);
         put_dealias_reference(key, at, unfolded.clone());
         for (i, v) in unfolded.iter().enumerate() {

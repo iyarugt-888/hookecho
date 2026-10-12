@@ -1,0 +1,12 @@
+vilonia tilt 0 (0.5°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 893, row by row 512; 146/240429 gates differ by more than 10 m/s
+vilonia tilt 1 (0.9°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 562, row by row 219; 195/237674 gates differ by more than 10 m/s
+vilonia tilt 2 (1.4°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 432, row by row 155; 246/229368 gates differ by more than 10 m/s
+vilonia tilt 3 (1.8°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 395, row by row 110; 454/207088 gates differ by more than 10 m/s
+vilonia tilt 4 (2.4°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 347, row by row 118; 164/197836 gates differ by more than 10 m/s
+vilonia tilt 5 (3.1°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 270, row by row 61; 60/191956 gates differ by more than 10 m/s
+vilonia tilt 6 (4.0°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 298, row by row 82; 78/184820 gates differ by more than 10 m/s
+vilonia tilt 7 (5.1°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 317, row by row 110; 422/161700 gates differ by more than 10 m/s
+vilonia tilt 8 (6.4°): estimate 26.50 m/s, rows 22.24..26.30; jumps estimate 378, row by row 238; 796/140964 gates differ by more than 10 m/s
+9 sectorized tilts; jumps estimate 3892, row by row 1605
+159 velocity tilts; decoded used on 150; 115 tilts unfold differently; jumps est 24868 dec 23932
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.16s

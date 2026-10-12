@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: velocity from radars that scan sectors at different speeds
+
+Some radar scan modes send the lowest tilts at two different pulse rates depending on
+direction, so the velocity folds over at a different speed in each sector. HookEcho now
+unfolds each direction at its own value instead of one guess for the whole tilt. On the
+2014 Vilonia case this leaves less than half as many wrongly folded patches.
+
 ### Added: the 3D view with nearby radars
 
 The 3D volume window has "Add nearby radars": it shows the storm in a box 80 km across around

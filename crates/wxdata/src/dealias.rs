@@ -59,9 +59,13 @@ pub enum NyquistSource {
     Decoded,
     /// Estimated as the largest raw |v|, because the radials carried no usable value.
     Estimated,
-    /// Estimated, because the decoded values differ between rows (sectors at different PRFs),
-    /// which one unfolding interval cannot represent.
+    /// Estimated, because the decoded values differ between rows (sectors at different PRFs)
+    /// and could not be used row by row (a row with velocity carried none, or a row's raw
+    /// velocities exceed its value).
     EstimatedVaries,
+    /// Decoded per azimuth sector: the sweep was sent at different PRFs by sector, and each row
+    /// was unfolded at its own decoded value ([`dealias_rows`]).
+    DecodedPerSector,
     /// Estimated, because raw velocities exceed the decoded value: whatever that value is, the
     /// field was not folded at it.
     EstimatedInconsistent,
@@ -77,6 +81,7 @@ impl NyquistSource {
             Self::EstimatedVaries => {
                 "estimated from the largest |v| (the decoded value varies by sector)"
             }
+            Self::DecodedPerSector => "decoded per sector (each azimuth at its own PRF's value)",
             Self::EstimatedInconsistent => {
                 "estimated from the largest |v| (raw values exceed the decoded one)"
             }
@@ -98,8 +103,9 @@ const NYQUIST_QUANTIZATION_MS: f32 = 1.0;
 /// The decoded value wins whenever it can be trusted. The largest observed |v| equals it on a
 /// storm whose winds reach the limit, but falls far short of it on a weak field, and dealiasing
 /// at the shortfall reads ordinary shear as folds — a 20 m/s couplet in a field peaking at
-/// ±12 m/s is "unfolded" by 24 m/s. ponytail: one value per sweep; a sweep sectorized at
-/// different PRFs falls back to the estimate rather than unfolding per sector.
+/// ±12 m/s is "unfolded" by 24 m/s. One value per sweep: a sweep sectorized at different PRFs
+/// reports [`NyquistSource::EstimatedVaries`] here, and the caller unfolds it row by row with
+/// [`sector_nyquist`] and [`dealias_rows`] when it can.
 pub fn sweep_nyquist(decoded: &[f32], raw: &[Option<f32>]) -> (f32, NyquistSource) {
     let estimate = estimate_nyquist(raw);
     let estimated = |why: NyquistSource| {
@@ -127,6 +133,73 @@ pub fn sweep_nyquist(decoded: &[f32], raw: &[Option<f32>]) -> (f32, NyquistSourc
         return estimated(NyquistSource::EstimatedInconsistent);
     }
     (value, NyquistSource::Decoded)
+}
+
+/// The per-row Nyquist velocities a sweep sectorized at different PRFs unfolds at (ROADMAP_PARITY
+/// M3.1): each row's own decoded value, when every row with velocity carries one and no row's raw
+/// |v| sits past its value by more than one quantization step. Rows with no velocity take the
+/// largest decoded value (they hold nothing to unfold). `None` when the sweep cannot be unfolded
+/// row by row; `decoded` is laid out one value per row of `raw`'s `gate_count` gates.
+pub fn sector_nyquist(decoded: &[f32], raw: &[Option<f32>], gate_count: usize) -> Option<Vec<f32>> {
+    if decoded.is_empty() || gate_count == 0 || raw.len() != decoded.len() * gate_count {
+        return None;
+    }
+    let usable = |v: f32| v.is_finite() && v > 0.0;
+    for (row, &nyq) in decoded.iter().enumerate() {
+        let gates = &raw[row * gate_count..(row + 1) * gate_count];
+        let peak = gates.iter().flatten().fold(None, |m: Option<f32>, v| {
+            Some(m.map_or(v.abs(), |m| m.max(v.abs())))
+        });
+        match (usable(nyq), peak) {
+            (false, Some(_)) => return None,
+            (true, Some(p)) if p > nyq + NYQUIST_QUANTIZATION_MS => return None,
+            _ => {}
+        }
+    }
+    let fill = decoded
+        .iter()
+        .copied()
+        .filter(|v| usable(*v))
+        .fold(f32::NAN, f32::max);
+    fill.is_finite().then(|| {
+        decoded
+            .iter()
+            .map(|&v| if usable(v) { v } else { fill })
+            .collect()
+    })
+}
+
+/// [`dealias_with_reference`] with each row at its own Nyquist velocity (a sweep sectorized at
+/// different PRFs, [`sector_nyquist`]). In units of its row's Nyquist every gate folds at ±1, and
+/// the region dealiaser measures everything in units of the interval, so the field is scaled row
+/// by row, unfolded at 1, and scaled back. A velocity continuous across a sector edge changes
+/// there by the two values' ratio in these units (0.85 for 22.24 and 26.3 m/s), a small part of
+/// the interval of 2, so boundary votes across the edge still come out whole.
+pub fn dealias_rows(
+    vel: &[Option<f32>],
+    az_bins: usize,
+    gate_count: usize,
+    row_nyquist: &[f32],
+    reference: Option<&[Option<f32>]>,
+) -> Vec<Option<f32>> {
+    if row_nyquist.len() != az_bins || vel.len() != az_bins * gate_count {
+        return vel.to_vec();
+    }
+    let row = |i: usize| row_nyquist[i / gate_count.max(1)];
+    let scaled = |field: &[Option<f32>]| -> Vec<Option<f32>> {
+        field
+            .iter()
+            .enumerate()
+            .map(|(i, v)| v.map(|v| v / row(i)))
+            .collect()
+    };
+    let unit = scaled(vel);
+    let reference = reference.filter(|r| r.len() == vel.len()).map(scaled);
+    dealias_with_reference(&unit, az_bins, gate_count, 1.0, reference.as_deref())
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| v.map(|v| v * row(i)))
+        .collect()
 }
 
 /// Bands each Nyquist interval is cut into for region finding (Py-ART's `interval_splits`).
@@ -493,6 +566,48 @@ mod tests {
         let mut one = vec![None; 12];
         one[5] = Some(7.0);
         assert_eq!(dealias(&one, 3, 4, 25.0), one);
+    }
+
+    /// A sweep sent at two PRFs by sector: a smooth wind field folded at 22.24 m/s over one
+    /// half of the azimuths and 26.3 m/s over the other unfolds back to the field when each row
+    /// is unfolded at its own value, and not when the whole sweep is unfolded at one.
+    #[test]
+    fn a_sectorized_sweep_unfolds_row_by_row() {
+        let (az, gates) = (72usize, 40usize);
+        let rows: Vec<f32> = (0..az)
+            .map(|a| if a < az / 2 { 22.24 } else { 26.3 })
+            .collect();
+        // A uniform 30 m/s wind seen along the beam: v = 30 cos(az - 45 deg), past both limits
+        // around 45 and 225 degrees, so both sectors hold folds.
+        let truth = |a: usize| 30.0 * ((a as f32 * 360.0 / az as f32 - 45.0).to_radians()).cos();
+        let fold = |v: f32, nyq: f32| ((v + nyq).rem_euclid(2.0 * nyq)) - nyq;
+        let folded: Vec<Option<f32>> = (0..az * gates)
+            .map(|i| Some(fold(truth(i / gates), rows[i / gates])))
+            .collect();
+        assert_eq!(
+            sector_nyquist(&rows, &folded, gates).as_deref(),
+            Some(rows.as_slice())
+        );
+        let out = dealias_rows(&folded, az, gates, &rows, None);
+        let wrong = out
+            .iter()
+            .enumerate()
+            .filter(|(i, v)| (v.unwrap() - truth(i / gates)).abs() > 0.5)
+            .count();
+        assert_eq!(wrong, 0, "row by row recovers the wind");
+        // One interval for the whole sweep (the larger value, as the old estimate would be)
+        // leaves the narrow sector's folds wrong.
+        let one = dealias(&folded, az, gates, 26.3);
+        let wrong_one = one
+            .iter()
+            .enumerate()
+            .filter(|(i, v)| (v.unwrap() - truth(i / gates)).abs() > 0.5)
+            .count();
+        assert!(wrong_one > 0, "one interval cannot unfold both sectors");
+        // A row whose raw speed passes its own value is not at that value: no row-by-row.
+        let mut past = folded.clone();
+        past[3] = Some(24.0);
+        assert!(sector_nyquist(&rows, &past, gates).is_none());
     }
 
     #[test]
