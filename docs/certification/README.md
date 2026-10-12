@@ -10,8 +10,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-11T23:56:11+00:00 from commit
-`564b109366fc` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-12T00:22:49+00:00 from commit
+`cdf9a23dba84` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -52,7 +52,7 @@ ledger records a physical-device run.
 | M4.4 | Restore and exchange GIS scenes reliably | D3 | 9 | 2026-10-09 | [m4.4/](m4.4/) |
 | M5.1 | Support independent link groups and source contexts | E1 | 7 | 2026-10-09 | [m5.1/](m5.1/) |
 | M5.2 | Add satellite-native one-minute playback | E2 | 3 | 2026-10-10 | [m5.2/](m5.2/) |
-| M5.3 | Broaden field inspection within supported models | E3 | 17 | 2026-10-11 | [m5.3/](m5.3/) |
+| M5.3 | Broaden field inspection within supported models | E3 | 18 | 2026-10-11 | [m5.3/](m5.3/) |
 | M5.4 | Unify rendering quality, labels, and transitions | E2, E4 | 7 | 2026-10-10 | [m5.4/](m5.4/) |
 | M6.1 | Separate preview from program output | — | 2 | 2026-10-06 | — |
 | M6.2 | Persist complete, validated scenes | F1 | 5 | 2026-10-10 | [m6.2/](m6.2/) |
