@@ -4602,7 +4602,12 @@ saw echo, they differ by
 8.7 to 11.7 dB on average, KTLX lower by 6.1 to 7.6 dB. The distant beams' height is not
 the cause: where a distant beam's centre is on the cell the bias is the same (5.6 to 7.7 dB).
 What is, is not established; a 2.3 to 2.8 km beam averaging toward the strongest echo across
-its width, and calibration differences between radars, remain. `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
+its width, and calibration differences between radars, remain. Through the afternoon
+(18:30 to 21:30 UTC, each radar fused alone over a 100 km box) KTLX read lower than all three
+at every time, by 2 to 3 dB from 19:00, and by 4 to 6 dB at 20:00 and 20:12, the two times the
+echo 1 to 5 km from KTLX averaged 30 to 38 dBZ (11 to 16 otherwise): a steady offset, with more
+when it rained at the radar, which fits calibration plus a wetted radome but does not prove
+either (`live_ktlx_against_the_distant_radars_through_the_afternoon`). `hookecho --headless-fusion SITES TIME LON,LAT out.png` draws a west-east section
 through the fused volume: the first radar alone, fused, and which radar counted most
 (`docs/certification/multi-radar/moore-section.png`). In the app, the cross-section window's
 "Add nearby radars" (reflectivity only) fuses the section with up to three other WSR-88Ds

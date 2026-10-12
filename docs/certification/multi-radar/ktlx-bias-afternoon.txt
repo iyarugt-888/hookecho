@@ -1,0 +1,10 @@
+KTLX minus each distant radar, mean over cells where both saw echo (each fused alone, 100 km box around -97.50, 35.33, 2 km columns, 1 km levels 1 to 12 km), and the rain over KTLX: the share of its lowest tilt's gates 1 to 5 km out with echo, and their mean (dBZ, averaged in Z)
+
+18:30 UTC, over KTLX 72% with echo, 16.0 dBZ: KFDR -0.28 dB (155 cells, volume -45 s) KINX -6.53 dB (80 cells, volume -142 s) KVNX -2.33 dB (160 cells, volume +52 s)
+19:00 UTC, over KTLX 72% with echo, 16.0 dBZ: KFDR -1.50 dB (920 cells, volume -49 s) KINX -2.49 dB (814 cells, volume -128 s) KVNX -1.95 dB (1149 cells, volume +73 s)
+19:30 UTC, over KTLX 65% with echo, 10.6 dBZ: KFDR -3.13 dB (2852 cells, volume -70 s) KINX -4.24 dB (3379 cells, volume +52 s) KVNX -1.99 dB (3237 cells, volume -65 s)
+20:00 UTC, over KTLX 70% with echo, 37.9 dBZ: KFDR -5.76 dB (3461 cells, volume -63 s) KINX -4.13 dB (3835 cells, volume +61 s) KVNX -4.26 dB (4689 cells, volume +41 s)
+20:12 UTC, over KTLX 65% with echo, 30.4 dBZ: KFDR -4.43 dB (3111 cells, volume -60 s) KINX -3.37 dB (3471 cells, volume +64 s) KVNX -4.24 dB (4254 cells, volume +49 s)
+20:30 UTC, over KTLX 63% with echo, 12.0 dBZ: KFDR -3.31 dB (3217 cells, volume -55 s) KINX -2.99 dB (3852 cells, volume +31 s) KVNX -3.28 dB (4201 cells, volume -5 s)
+21:00 UTC, over KTLX 56% with echo, 16.1 dBZ: KFDR -3.38 dB (3511 cells, volume -50 s) KINX -3.25 dB (3970 cells, volume +43 s) KVNX -2.97 dB (4202 cells, volume -50 s)
+21:30 UTC, over KTLX 56% with echo, 14.5 dBZ: KFDR -2.73 dB (2798 cells, volume +132 s) KINX -3.28 dB (2971 cells, volume +51 s) KVNX -2.71 dB (3455 cells, volume +52 s)

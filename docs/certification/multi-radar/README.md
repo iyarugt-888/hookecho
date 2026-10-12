@@ -66,6 +66,40 @@ averaging toward the strongest echo across its width is one candidate, calibrati
 between the radars another. Because the blend weights KTLX's thin
 beam far more, the fused value follows KTLX wherever it saw echo.
 
+### KTLX through the afternoon (2026-10-12)
+
+`live_ktlx_against_the_distant_radars_through_the_afternoon` (ignored; network) asks whether
+KTLX's low reading is a fixed offset or comes and goes. At eight times from 18:30 to 21:30 UTC it
+fuses each radar alone over a 100 km box around Moore (2 km columns, 1 km levels from 1 to
+12 km), takes KTLX minus each distant radar over the cells where both saw echo, and measures the
+echo right over KTLX: its lowest tilt's gates 1 to 5 km out
+([ktlx-bias-afternoon.txt](ktlx-bias-afternoon.txt)):
+
+| UTC | Echo 1 to 5 km from KTLX | KTLX minus KFDR | minus KINX | minus KVNX |
+| --- | --- | --- | --- | --- |
+| 18:30 | 72 %, 16.0 dBZ | −0.28 dB (155 cells) | −6.53 (80) | −2.33 (160) |
+| 19:00 | 72 %, 16.0 dBZ | −1.50 (920) | −2.49 (814) | −1.95 (1,149) |
+| 19:30 | 65 %, 10.6 dBZ | −3.13 (2,852) | −4.24 (3,379) | −1.99 (3,237) |
+| 20:00 | 70 %, **37.9 dBZ** | **−5.76** (3,461) | **−4.13** (3,835) | **−4.26** (4,689) |
+| 20:12 | 65 %, **30.4 dBZ** | **−4.43** (3,111) | **−3.37** (3,471) | **−4.24** (4,254) |
+| 20:30 | 63 %, 12.0 dBZ | −3.31 (3,217) | −2.99 (3,852) | −3.28 (4,201) |
+| 21:00 | 56 %, 16.1 dBZ | −3.38 (3,511) | −3.25 (3,970) | −2.97 (4,202) |
+| 21:30 | 56 %, 14.5 dBZ | −2.73 (2,798) | −3.28 (2,971) | −2.71 (3,455) |
+
+- KTLX read lower than every distant radar at every time, by 2 to 3 dB once there was enough
+  shared echo (from 19:00). That much is steady, as a calibration difference would be.
+- The gap was widest, 4 to 6 dB, at the two times the echo over KTLX was heavy (30 to 38 dBZ
+  averaged in Z, against 11 to 16 otherwise). That is what rain wetting KTLX's radome would do,
+  and it is the time of the 40 km box above (6 to 8 dB, closer to the core).
+- Neither is established. The 1 to 5 km measure counts ground clutter too: the 16 dBZ seen
+  there in the dry hours is likely clutter, not rain. Eight times on one day cannot separate
+  rain at the radar from where the storm was. The volume offsets, 5 to 142 s, are not
+  corrected for.
+
+| File | SHA-256 |
+| --- | --- |
+| ktlx-bias-afternoon.txt | `73167d32e284763517da920b2fc76abcbbaef92b89cad839f4ef9d1cc53b8983` |
+
 ### A section through it
 
 `hookecho --headless-fusion KTLX,KFDR,KINX,KVNX 2013-05-20T20:12 -97.50,35.33 moore-section.png`

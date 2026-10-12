@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Developer: why one radar reads lower than its neighbours
+
+A new archive test follows KTLX against three distant radars through the Moore afternoon. KTLX
+reads 2 to 3 dB lower all afternoon and 4 to 6 dB lower while heavy rain sits over it; what
+causes each part is not settled.
+
 ### Added: colour tables that stay readable with colour blindness are marked
 
 The colour-table menus now mark "CVD ok" on the built-in tables whose colours stay apart

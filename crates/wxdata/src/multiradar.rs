@@ -860,4 +860,134 @@ mod tests {
         assert!(f.dbz.iter().all(|v| v.is_nan()));
         assert!(f.observed.iter().all(|&o| o == 0));
     }
+
+    /// Why KTLX reads lower than the distant radars on the Moore case (V18): its offset from
+    /// each through the afternoon of 2013-05-20, beside the rain right over KTLX (the lowest
+    /// tilt's gates 1 to 5 km out). A calibration offset stays put through the afternoon; a
+    /// radome wetted by rain over the radar comes and goes with that rain. Each radar is fused
+    /// alone over a 100 km box around Moore and compared cell by cell where both saw echo.
+    /// Writes `target/parity-review/v18/ktlx-bias-afternoon.txt`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "network: four radars' archive volumes at eight times"]
+    async fn live_ktlx_against_the_distant_radars_through_the_afternoon() {
+        use crate::level2::{self, Moment};
+        let cache =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/feature-track");
+        std::fs::create_dir_all(&cache).unwrap();
+        let grid = Grid {
+            center: [-97.50, 35.33],
+            half_km: 50.0,
+            n: 51,
+            nz: 12,
+            bottom_km: 1.0,
+            top_km: 12.0,
+        };
+        let sites = ["KTLX", "KFDR", "KINX", "KVNX"];
+        let day = Utc.with_ymd_and_hms(2013, 5, 20, 0, 0, 0).unwrap();
+        let mut listings = Vec::new();
+        for site in sites {
+            listings.push(level2::list_volumes(site, day.date_naive()).await.unwrap());
+        }
+        let mut report = String::from(
+            "KTLX minus each distant radar, mean over cells where both saw echo (each fused alone, \
+             100 km box around -97.50, 35.33, 2 km columns, 1 km levels 1 to 12 km), and the rain \
+             over KTLX: the share of its lowest tilt's gates 1 to 5 km out with echo, and their \
+             mean (dBZ, averaged in Z)\n\n",
+        );
+        for (h, m) in [
+            (18, 30),
+            (19, 0),
+            (19, 30),
+            (20, 0),
+            (20, 12),
+            (20, 30),
+            (21, 0),
+            (21, 30),
+        ] {
+            let at = day + chrono::Duration::minutes(h * 60 + m);
+            let mut held = Vec::new();
+            for (site, ids) in sites.iter().zip(&listings) {
+                let id = ids
+                    .iter()
+                    .filter(|id| id.date_time().is_some())
+                    .min_by_key(|id| (id.date_time().unwrap() - at).num_seconds().abs())
+                    .unwrap()
+                    .clone();
+                let time = id.date_time().unwrap();
+                let scan = level2::download_scan(id, Some(cache.clone()))
+                    .await
+                    .unwrap();
+                let sweeps: Vec<BinnedSweep> = (0..level2::elevation_angles(&scan).len())
+                    .filter_map(|t| {
+                        level2::bin_scan_opts_recorded(&scan, Moment::Reflectivity, t, false).ok()
+                    })
+                    .collect();
+                let antenna_m =
+                    crate::sites::site_by_id(site).map_or(0.0, |s| f64::from(s.elevation_meters));
+                held.push((site.to_string(), time, antenna_m, sweeps));
+            }
+            let radars: Vec<RadarVolume<'_>> = held
+                .iter()
+                .map(|(site, time, antenna_m, sweeps)| RadarVolume {
+                    site: site.clone(),
+                    time: *time,
+                    antenna_m: *antenna_m,
+                    sweeps,
+                })
+                .collect();
+            // Rain over KTLX, from its lowest tilt.
+            let low = &radars[0].sweeps[0];
+            let (mut gates, mut wet, mut z_sum) = (0usize, 0usize, 0.0f64);
+            for g in 0..low.gate_count {
+                let r = low.first_gate_km + g as f32 * low.gate_interval_km;
+                if !(1.0..=5.0).contains(&r) {
+                    continue;
+                }
+                for b in 0..low.az_bins {
+                    gates += 1;
+                    let code = low.data[b * low.gate_count + g];
+                    if code >= 2 {
+                        let dbz = low.value_min
+                            + (code - 2) as f32 / 253.0 * (low.value_max - low.value_min);
+                        wet += 1;
+                        z_sum += 10f64.powf(f64::from(dbz) / 10.0);
+                    }
+                }
+            }
+            let over = if wet > 0 {
+                format!(
+                    "{:.0}% with echo, {:.1} dBZ",
+                    100.0 * wet as f64 / gates.max(1) as f64,
+                    10.0 * (z_sum / wet as f64).log10()
+                )
+            } else {
+                "no echo".to_string()
+            };
+            let ktlx = fuse(&radars[..1], at, 600, grid);
+            let mut line = format!("{:02}:{:02} UTC, over KTLX {over}:", h, m);
+            for i in 1..radars.len() {
+                let other = fuse(&radars[i..i + 1], at, 600, grid);
+                let (mut n, mut signed) = (0usize, 0.0f64);
+                for (a, b) in ktlx.dbz.iter().zip(&other.dbz) {
+                    if !a.is_nan() && !b.is_nan() {
+                        n += 1;
+                        signed += f64::from(a - b);
+                    }
+                }
+                line.push_str(&format!(
+                    " {} {:+.2} dB ({n} cells, volume {:+} s)",
+                    radars[i].site,
+                    signed / n.max(1) as f64,
+                    (radars[i].time - radars[0].time).num_seconds()
+                ));
+            }
+            eprintln!("{line}");
+            report.push_str(&line);
+            report.push('\n');
+        }
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity-review/v18");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ktlx-bias-afternoon.txt"), &report).unwrap();
+    }
 }
