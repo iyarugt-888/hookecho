@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T00:32:24+00:00",
-  "generated_from_commit": "c4c7f513527296e3b9c80a05e2e198bd06fde547",
+  "generated_utc": "2026-10-12T01:00:11+00:00",
+  "generated_from_commit": "caf89450b8ab54f848d1b39cacb4c230f5e3f230",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -209,8 +209,8 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 7,
-      "latest_entry": "2026-10-10",
+      "ledger_entries": 8,
+      "latest_entry": "2026-10-11",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
     },
@@ -274,8 +274,8 @@
   "files": [
     {
       "path": "docs/certification/a11y/README.md",
-      "sha256": "0959e5227fbe2f96c847caf9bf1dfae323201b7d9e39fa24d48c3055ea8a5657",
-      "bytes": 6561
+      "sha256": "d7a204b87b0bd6a88623ca7da36a82f50e4b956b08a0c6929e522da7e5df6f29",
+      "bytes": 7892
     },
     {
       "path": "docs/certification/a11y/tablet-touch-workstation.png",
@@ -296,6 +296,16 @@
       "path": "docs/certification/a11y/warning-tags-moore-archive-browser.jpg",
       "sha256": "76e7ca7188a44c9304ce3916dd73a9534dbb42f89593c01362f55d01da7f0015",
       "bytes": 77310
+    },
+    {
+      "path": "docs/certification/a11y/warning-tags-moore-short-browser.jpg",
+      "sha256": "b8bf4bf5dcec8cf4f35d851ae75678741b5039c8703e0d48258652d87c187542",
+      "bytes": 60294
+    },
+    {
+      "path": "docs/certification/a11y/warning-tags-moore-zoomed-browser.jpg",
+      "sha256": "36989d3b8388547b08341f04cd9614e7e01c1dced3f903db31c19ceda6e1620d",
+      "bytes": 91085
     },
     {
       "path": "docs/certification/chase/README.md",
