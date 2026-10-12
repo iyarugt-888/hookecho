@@ -144,6 +144,24 @@ Limits:
 - The GEFS is half a degree and 3-hourly, so the valid time can be up to 1.5 h from the profile.
   The window states the offset.
 - Desktop and Android only. NOMADS is not on the browser build's proxy (1010.md V12).
-- The HRRR profile under the band starts at 1000 hPa even where that is below the ground. That
-  is the model sounding's own pre-existing issue, filed separately. The band is cut at the
-  profile's first level.
+- The HRRR profile under the band started at 1000 hPa even where that is below the ground. That
+  is fixed in the section below, and the band is cut at the profile's first level.
+
+## Soundings start at the ground; no CIN without an LFC (2026-10-11)
+
+Found while reviewing the envelope render above: that HRRR profile began at 1000 hPa, which
+near Oklahoma City is below the ground, and its card read SBCIN -7370 J/kg.
+
+- **The ground.** Model soundings now also read the surface pressure and the 2 m and 10 m values
+  over it. They drop the pressure levels at or below the ground and start at the surface
+  (`sounding::cut_at_ground`). Live, Denver's HRRR 22Z f01 profile starts at 829.3 hPa
+  (`target/parity-review/f8/live-mountain.log`). The same Oklahoma City profile starts at 968 hPa.
+- **The CIN.** The huge value was not the below-ground level: it stayed after the cut. CIN was
+  summed until an LFC was found, so a parcel with none carried the whole column's negative area.
+  With no LFC it is now 0, as MetPy's `cape_cin` has it, and the card shows a dash, like LFC and
+  EL.
+
+[sounding-ground-and-cin.png](sounding-ground-and-cin.png) (SHA-256
+`b427566cf19387518049ee908315aaa2b273bce78f37a2a1f5faad44df1ea2c2`): the same review render after
+both fixes. The profile starts at 968 hPa, the cards read SBCIN, LFC and EL "—", and the GEFS
+envelope is cut at the new ground. GEFS 18Z f015 had posted by then.

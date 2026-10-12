@@ -2707,6 +2707,13 @@ Point sounding should support:
   land on it ("valid 09:00Z, -1.0 h from this profile"). A spread, not a probability. Live: HRRR
   22Z f12 near Oklahoma City under GEFS 12Z f021, 31 members, 19 levels
   (`docs/certification/m5.3/sounding-gefs-envelope.png`)
+- [x] profiles start at the ground (2026-10-11) — each model sounding also reads PRES at the
+  surface with the 2 m air and 10 m wind; pressure levels at or below the ground (the model's
+  extrapolation under the terrain) are dropped and the surface goes first
+  (`sounding::cut_at_ground`). Denver's HRRR profile now starts at 829 hPa, not at an
+  extrapolated 1000 hPa. A parcel that never becomes buoyant has no LFC and a CIN of 0 (MetPy's
+  convention), shown as a dash, instead of the whole column's negative area (it read -7370 J/kg
+  near Oklahoma City on a stable night)
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
   the Skew-T and hodograph (built earlier)
 - [x] previous model run overlay — a "Previous run" checkbox fetches the same point at the same

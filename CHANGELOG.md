@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: model soundings start at the ground
+
+A model sounding used to start at 1000 hPa wherever you clicked, even where that level is under
+the ground, as it is across the High Plains and the mountains. It now starts at the surface,
+with the model's own 2 m temperature and dew point and 10 m wind. A surface parcel that never
+becomes buoyant now shows its CIN as a dash, like its LFC, instead of a number such as
+-7370 J/kg that was really the whole column's negative area.
+
 ### Added: the GEFS ensemble's spread on the sounding
 
 The sounding window can shade the range of the 31 GEFS ensemble members' temperature and dew
