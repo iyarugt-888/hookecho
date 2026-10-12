@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T03:03:55+00:00",
-  "generated_from_commit": "d47c21b3c5589401fbcdaeba7be1b23948275c35",
+  "generated_utc": "2026-10-12T04:49:31+00:00",
+  "generated_from_commit": "0ebe4b995b2621b0120e99c3ddcd4453e557cf0d",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -329,8 +329,8 @@
     },
     {
       "path": "docs/certification/feature-track/README.md",
-      "sha256": "02a9154c020c9f928d8773e8c43855119d0ab0a872d30d3b29298e514baa4e3b",
-      "bytes": 9008
+      "sha256": "7eee8febfea04494785aa3677f7d80dedfad3a08cbf29c8c113d7d0ddc240fee",
+      "bytes": 11332
     },
     {
       "path": "docs/certification/feature-track/gate-inspector-reflectivity-follow-browser.jpg",
@@ -341,6 +341,11 @@
       "path": "docs/certification/feature-track/moore-bwer-followed-browser.jpg",
       "sha256": "b8a9b7e22633eae3cf83efeee2e40cdb294213d36bcbc812140026750ffa4bf1",
       "bytes": 114416
+    },
+    {
+      "path": "docs/certification/feature-track/moore-contour-followed-browser.jpg",
+      "sha256": "5e2a83fa66e4fa3c4736a1651ec676dd84af36d2b81b58a35bb74f04895dfcbe",
+      "bytes": 118808
     },
     {
       "path": "docs/certification/feature-track/moore-hail-core-followed-browser.jpg",
