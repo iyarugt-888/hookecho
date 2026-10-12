@@ -130,6 +130,13 @@ impl HookEchoApp {
         let keep_notes = [self.keep_estimate(keep_frames), self.keep_status()];
         #[cfg(not(target_arch = "wasm32"))]
         let mut keep_loop = false;
+        // The browser saves a loop into IndexedDB instead, as a pack it can load back.
+        #[cfg(target_arch = "wasm32")]
+        let keep_frames = self.settings.live_loop_frames;
+        #[cfg(target_arch = "wasm32")]
+        let (packs, pack_status) = (self.packs(), self.pack_status());
+        #[cfg(target_arch = "wasm32")]
+        let (mut save_pack, mut load_pack) = (false, None::<crate::webcache::Pack>);
         egui::Panel::bottom("dock_timeline")
             .exact_size(if phone { PHONE_TIMELINE_H } else { TIMELINE_H })
             .resizable(false)
@@ -297,6 +304,48 @@ impl HookEchoApp {
                                         keep_loop = true;
                                     }
                                     for msg in keep_notes.iter().flatten() {
+                                        ui.weak(msg);
+                                    }
+                                });
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let offline =
+                                ws::icon_button(ui, &t, ph::DOWNLOAD_SIMPLE, "", false)
+                                    .named("Save this loop offline");
+                            egui::Popup::menu(&offline)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                .show(|ui| {
+                                    ui.set_min_width(280.0);
+                                    if ui
+                                        .button(format!(
+                                            "Save this loop offline ({keep_frames} frames)"
+                                        ))
+                                        .on_hover_text(
+                                            "Keep this loop's volumes, up to the playhead, in the \
+                                             browser so it plays with no signal. Archived volumes \
+                                             only \u{2014} the live head is still being written.",
+                                        )
+                                        .clicked()
+                                    {
+                                        save_pack = true;
+                                    }
+                                    for p in &packs {
+                                        ui.horizontal(|ui| {
+                                            if ui.button(p.label()).clicked() {
+                                                load_pack = Some(p.clone());
+                                            }
+                                            if ui
+                                                .small_button("\u{d7}")
+                                                .on_hover_text("Delete")
+                                                .clicked()
+                                            {
+                                                load_pack = None;
+                                                crate::webcache::spawn_remove(p.key());
+                                            }
+                                        });
+                                    }
+                                    if let Some(msg) = &pack_status {
                                         ui.weak(msg);
                                     }
                                 });
@@ -503,6 +552,16 @@ impl HookEchoApp {
         if keep_loop {
             let ctx = root.ctx().clone();
             self.keep_loop_offline(&ctx, keep_frames);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if save_pack {
+                let ctx = root.ctx().clone();
+                self.save_offline_pack(&ctx, keep_frames);
+            }
+            if let Some(p) = load_pack {
+                self.load_offline_pack(&p);
+            }
         }
         if use_model {
             self.activate_model_timeline();

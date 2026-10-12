@@ -16,10 +16,27 @@ fn set_keep_status(s: String) {
 }
 
 /// The frames a kept loop holds: the last `n` up to and including the playhead.
-#[cfg(not(target_arch = "wasm32"))]
 fn loop_to_keep(frames: &[Identifier], playhead: usize, n: usize) -> Vec<Identifier> {
     let end = (playhead + 1).min(frames.len());
     frames[end.saturating_sub(n)..end].to_vec()
+}
+
+/// The frames a browser pack saves: the loop, as the desktop keeps it, less the live head while
+/// the timeline follows it (the newest object can still be uploading). Before 2026-10-12 a pack
+/// was every frame from the start of the day to the playhead, hundreds of volumes held in memory
+/// at once late in an archive day, against a 250 MB cap for all packs.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn pack_frames(
+    frames: &[Identifier],
+    playhead: usize,
+    n: usize,
+    following: bool,
+) -> Vec<Identifier> {
+    let mut ids = loop_to_keep(frames, playhead, n);
+    if following && playhead + 1 >= frames.len() {
+        ids.pop();
+    }
+    ids
 }
 
 /// What keeping a loop would download, said before it starts (ROADMAP_NEW L5 "show estimated
@@ -192,6 +209,25 @@ mod keep_tests {
         assert_eq!(keep_estimate(&[]), "No volumes in this loop yet.");
     }
 
+    /// A browser pack is the loop, not the day up to the playhead, and leaves out a live head
+    /// still being written.
+    #[test]
+    fn a_browser_pack_is_the_loop_without_the_live_head() {
+        let frames: Vec<Identifier> = (0..300)
+            .map(|i| Identifier::new(format!("KTLX20130520_{:02}{:02}00_V06", i / 60, i % 60)))
+            .collect();
+        let names = |v: Vec<Identifier>| -> Vec<String> {
+            v.iter().map(|id| id.name().to_string()).collect()
+        };
+        let archive = pack_frames(&frames, 250, 12, false);
+        assert_eq!(archive.len(), 12, "a loop, not 251 volumes");
+        assert_eq!(names(archive).last().unwrap(), "KTLX20130520_041000_V06");
+        let live = names(pack_frames(&frames, 299, 12, true));
+        assert_eq!(live.len(), 11);
+        assert_eq!(live.last().unwrap(), "KTLX20130520_045800_V06");
+        assert!(pack_frames(&frames[..1], 0, 12, true).is_empty());
+    }
+
     /// A kept loop is the last `n` frames up to the playhead, fewer near the start, none of
     /// an empty timeline.
     #[test]
@@ -311,14 +347,18 @@ impl HookEchoApp {
         crate::webcache::status()
     }
 
-    /// Save the active timeline's archived frames into an offline pack.
+    /// Save the active timeline's loop (its last `frames` volumes up to the playhead) into an
+    /// offline pack ([`pack_frames`]).
     ///
     /// The live head is skipped on purpose: the newest object can still be uploading, and half a
     /// volume kept forever is worse than one frame missing from a saved loop.
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn save_offline_pack(&mut self, ctx: &egui::Context) {
+    pub(crate) fn save_offline_pack(&mut self, ctx: &egui::Context, frames: usize) {
         let tl = &self.views[self.active].timeline;
-        let ids: Vec<_> = tl.frames.iter().take(tl.playhead + 1).cloned().collect();
+        let ids = pack_frames(&tl.frames, tl.playhead, frames, tl.following);
+        if ids.is_empty() {
+            return;
+        }
         let site = self.views[self.active].site.clone().unwrap_or_default();
         let date = tl.date.format("%Y-%m-%d").to_string();
         let ctx = ctx.clone();

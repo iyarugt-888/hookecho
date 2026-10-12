@@ -3918,8 +3918,12 @@ Show estimated pack size before download. — for a kept radar loop on the deskt
 are to fetch and about how many megabytes, at the mean size of those already on disk
 (`keep_estimate`; none on disk, it says the size is not known yet rather than guess). The
 docked timeline, the workstation's default, now has that button too (its download icon);
-before, only the floating timeline's menu offered it. Not yet: the browser's saved loops,
-and the popup opened in a running app (`docs/certification/chase/`)
+before, only the floating timeline's menu offered it. Not yet: a size before saving one of
+the browser's packs, and the desktop popup opened in a running app. In the browser the
+docked timeline now saves, lists, loads and deletes packs too, and a pack is the loop (the
+loop length, up to the playhead, less a live head still being written) rather than every
+frame from the start of the day to the playhead (`pack_frames`; browser walkthrough in
+`docs/certification/chase/`)
 
 ---
 

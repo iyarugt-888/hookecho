@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: a loop saved in the browser is the loop, not the whole day
+
+"Save this loop offline" in the browser saved every scan from the start of the day up to the
+one shown, which late in an archive day was hundreds of scans, far past the room kept for
+saved loops. It now saves the loop: as many scans as the loop length, up to the one shown.
+The timeline at the bottom of the workstation now has the button and the saved loops too
+(the download icon beside the date).
+
 ### Improved: keeping a radar loop says how much it will download
 
 On the desktop, "Keep this loop on this device" now says before you press it how many of the

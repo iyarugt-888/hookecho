@@ -418,11 +418,11 @@ impl HookEchoApp {
                             {
                                 ui.separator();
                                 if ui
-                                    .button("Save this loop offline")
+                                    .button(format!("Save this loop offline ({loop_frames} frames)"))
                                     .on_hover_text(
-                                        "Keep this loop's volumes in the browser so it plays \
-                                         with no signal. Archived volumes only \u{2014} the live \
-                                         head is still being written.",
+                                        "Keep this loop's volumes, up to the playhead, in the \
+                                         browser so it plays with no signal. Archived volumes \
+                                         only \u{2014} the live head is still being written.",
                                     )
                                     .clicked()
                                 {
@@ -561,7 +561,7 @@ impl HookEchoApp {
         #[cfg(target_arch = "wasm32")]
         {
             if save_pack {
-                self.save_offline_pack(ctx);
+                self.save_offline_pack(ctx, loop_frames);
             }
             if let Some(p) = load_pack {
                 self.load_offline_pack(&p);

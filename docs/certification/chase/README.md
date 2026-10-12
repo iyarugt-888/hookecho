@@ -144,3 +144,35 @@ date that opens the same button and the estimate (`dock/timeline.rs`).
 Not established: the popup opened and the button pressed in a running app. Clicks sent to the
 window as messages (`PostMessage`, then `SendMessage`) did not reach its input, and nothing here
 drives the real pointer. Nor the browser's saved loops, which still give no size before saving.
+
+## A browser pack is the loop (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+"Save this loop offline" in the browser saved `frames[..=playhead]`: every volume from the start
+of the day to the one shown. Late in an archive day that is hundreds of volumes, each read into
+memory before the pack is written, against the 250 MB that all packs share. A pack is now the
+loop, as the desktop keeps it: the last loop-length volumes up to the playhead, less the live
+head while the timeline follows it, which the old comment promised but the code did not do
+(`packs_soundings::pack_frames`; `a_browser_pack_is_the_loop_without_the_live_head`). The docked
+timeline, the workstation's default, had no way to save or load a pack; its download icon now
+opens the button, the saved packs (load, delete) and the progress line, as the floating
+timeline's menu does.
+
+**Browser build on WebGPU, one machine**, live, built from the working tree at `094301b` with
+this change and another session's uncommitted work, at KHTX 2026-09-10, playhead on frame 17
+(01:25 UTC), loop length 10:
+
+| Capture | What it shows |
+| --- | --- |
+| `pack-save-offered-browser.jpg` | The docked timeline's download icon open: "Save this loop offline (10 frames)". |
+| `pack-saved-browser.jpg` | After saving: "saved KHTX 2026-09-10 — 10 volumes, 86 MB", and the pack listed with its delete cross. The old code would have saved 18. |
+| `pack-loaded-browser.jpg` | The pack loaded back from IndexedDB: the loop from 00:44 to 01:25 UTC playing, buffer 6/10 a few seconds in. |
+
+| File | SHA-256 |
+| --- | --- |
+| pack-save-offered-browser.jpg | `88d5714cac25e2357189799c3661beda32a5301ff9ce874f8998fc9592d6d48f` |
+| pack-saved-browser.jpg | `f8c7172609bca9b87072742aef6eacb78f7b19b11780b3d2d5050d1504c99d57` |
+| pack-loaded-browser.jpg | `7deef6eeba25ca278b4e646eefcf7725b5b8030c7fd59af20c8cfb5ebf01b08f` |
+
+Not established: a pack played with the network off (the volumes were also in the browser's
+automatic volume cache), Android's WebView, and a size before saving; a browser pack still
+shows its size only once saved.
