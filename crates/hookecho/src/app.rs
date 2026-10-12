@@ -95,6 +95,7 @@ mod prefs_map;
 mod quality;
 mod rebuild;
 mod route_frame;
+mod feature_tracking;
 mod self_update_ui;
 mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
@@ -1642,6 +1643,8 @@ pub struct HookEchoApp {
     route_exposure: RouteExposure,
     /// HRRR forecast frames for the chosen route (ROADMAP_NEW L3), while the route window asks.
     route_forecast: route_frame::RouteForecast,
+    /// A feature the analyst picked, followed through the loop (ROADMAP_NEW R4).
+    feature_tracking: feature_tracking::FeatureTracking,
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
     previous_sounding_rx:
         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
@@ -6601,6 +6604,8 @@ impl HookEchoApp {
         // Measure tool.
         let readings = self.measure_readings(idx);
         self.paint_measure(&painter, prect, cam, vp, idx, &readings);
+        // A feature followed through the loop (ROADMAP_NEW R4).
+        self.paint_feature_track(&painter, prect, cam, vp, idx);
 
         self.region.paint(&painter, |ll| {
             let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);

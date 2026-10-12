@@ -893,16 +893,21 @@ impl HookEchoApp {
         }
         if let Some(popup) = &self.gate_popup {
             let tz = self.active_tz();
-            if !ui::gate_inspector::show(
+            let (open, follow) = ui::gate_inspector::show(
                 ctx,
                 popup,
                 tz,
                 &self.settings.udp_products,
                 &mut self.popovers,
-            ) {
+            );
+            if !open {
                 self.gate_popup = None;
             }
+            if let Some(kind) = follow {
+                self.start_feature_track(kind);
+            }
         }
+        self.feature_track_window(ctx);
         if let Some(popup) = &self.suitability_popup {
             let current_site = self.views[self.active].site.clone();
             let (keep_open, switch_to, compare_with) = ui::suitability_popup::show(

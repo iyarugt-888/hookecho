@@ -33,6 +33,10 @@ impl HookEchoApp {
             let px = (pos.x - prect.left(), pos.y - prect.top());
             let w = cam.screen_to_world(px, vp);
             let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
+            // Putting a followed feature's fix right by hand takes the click (ROADMAP_NEW R4).
+            if self.correct_feature_fix(idx, [lon, lat]) {
+                return false;
+            }
             // Your own markers win over everything else on the map: you put them at a place you
             // chose, so a tap there means that pin, not whatever the radar drew underneath.
             // Nearest wins, so clustered markers stay individually reachable.
@@ -309,6 +313,7 @@ impl HookEchoApp {
                         None => (lon, lat, None),
                     };
                     self.gate_popup = self.inspect_gate(ctx, idx, gate_lon, gate_lat, tilt);
+                    self.feature_tracking.inspected = Some((idx, [gate_lon, gate_lat]));
                     // The same point across the loop this pane holds (ROADMAP_NEW C4).
                     let display = self.map_display(idx);
                     if let Some(p) = self.gate_popup.as_mut() {

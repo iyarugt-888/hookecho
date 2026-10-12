@@ -493,6 +493,7 @@ impl HookEchoApp {
                 Default::default(),
             ),
             route_forecast: Default::default(),
+            feature_tracking: Default::default(),
             previous_sounding_rx: None,
             envelope_rx: None,
             chase_mode: false,

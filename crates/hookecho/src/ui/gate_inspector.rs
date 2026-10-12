@@ -85,8 +85,15 @@ pub fn show(
     tz: Option<wxdata::tz::Tz>,
     udp_products: &[wxdata::udp::ProductDef],
     popovers: &mut crate::ui::popover::Popovers,
-) -> bool {
+) -> (bool, Option<wxdata::feature_track::FeatureKind>) {
     let mut open = true;
+    let mut follow = None;
+    // What a click here can be followed as through the loop (ROADMAP_NEW R4).
+    let followable = match popup.moment {
+        Moment::Velocity => Some(wxdata::feature_track::FeatureKind::Rotation),
+        Moment::Reflectivity => Some(wxdata::feature_track::FeatureKind::Core),
+        _ => None,
+    };
     popovers
         .card(
             ctx,
@@ -105,8 +112,30 @@ pub fn show(
                 .corner_radius(16)
                 .inner_margin(18),
         )
-        .show(ctx, |ui| attributes(ui, popup, tz, udp_products));
-    open
+        .show(ctx, |ui| {
+            if let Some(kind) = followable {
+                let what = match kind {
+                    wxdata::feature_track::FeatureKind::Rotation => {
+                        "Follow this rotation through the loop"
+                    }
+                    wxdata::feature_track::FeatureKind::Core => "Follow this core through the loop",
+                };
+                if ui
+                    .button(what)
+                    .on_hover_text(
+                        "Finds the strongest cyclonic shear (or reflectivity) here and follows it \
+                         forward and back through the volumes the pane has decoded, with a \
+                         confidence for each, and lets you put any fix right by hand.",
+                    )
+                    .clicked()
+                {
+                    follow = Some(kind);
+                }
+                ui.add_space(4.0);
+            }
+            attributes(ui, popup, tz, udp_products)
+        });
+    (open, follow)
 }
 
 fn opt(v: Option<f32>, unit: &str, decimals: usize) -> String {
