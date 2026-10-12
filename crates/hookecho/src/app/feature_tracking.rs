@@ -36,6 +36,8 @@ pub(crate) struct FeatureTrack {
     pub waiting_levels: bool,
     /// The next map click on the pane moves the current volume's fix there.
     pub correcting: bool,
+    /// A contour's reflectivity (dBZ).
+    pub threshold: Option<f32>,
     rx: Option<std::sync::mpsc::Receiver<TrackResult>>,
 }
 
@@ -49,6 +51,7 @@ impl FeatureTrack {
             seed: self.seed.1,
             overrides: self.overrides.clone(),
             fixes: self.fixes.clone(),
+            threshold: self.threshold,
         }
     }
 
@@ -67,17 +70,44 @@ impl FeatureTrack {
             busy: false,
             waiting_levels: false,
             correcting: false,
+            threshold: c.threshold,
             rx: None,
+        }
+    }
+
+    /// What the window calls it: "rotation", or "45 dBZ contour".
+    fn title(&self) -> String {
+        match (self.kind, self.threshold) {
+            (FeatureKind::Contour, Some(t)) => format!("{t:.0} dBZ contour"),
+            (k, _) => k.label().to_string(),
         }
     }
 }
 
+/// The contour a reflectivity value picks: rounded down to 5 dBZ, and never under 20 dBZ.
+fn contour_threshold(dbz: f32) -> f32 {
+    ((dbz / 5.0).floor() * 5.0).max(20.0)
+}
+
 impl HookEchoApp {
     /// Start following the feature under the inspector's last click: rotation on velocity; a
-    /// core, a hail core or a BWER candidate on reflectivity.
+    /// core, a hail core, a BWER candidate or the echo's contour on reflectivity.
     pub(crate) fn start_feature_track(&mut self, kind: FeatureKind) {
         let Some((pane, ll)) = self.feature_tracking.inspected else {
             return;
+        };
+        let threshold = match kind {
+            FeatureKind::Contour => {
+                let Some(v) = self
+                    .gate_popup
+                    .as_ref()
+                    .and_then(|p| p.inspection.sample.value)
+                else {
+                    return;
+                };
+                Some(contour_threshold(v))
+            }
+            _ => None,
         };
         let v = &self.views[pane];
         let (Some(site), Some(time)) = (
@@ -99,6 +129,7 @@ impl HookEchoApp {
             busy: false,
             waiting_levels: false,
             correcting: false,
+            threshold,
             rx: None,
         });
         self.run_feature_track();
@@ -151,11 +182,11 @@ impl HookEchoApp {
         t.not_decoded = not_decoded;
         t.busy = true;
         t.error = None;
-        let (seed, overrides) = (t.seed, t.overrides.clone());
+        let (seed, overrides, threshold) = (t.seed, t.overrides.clone(), t.threshold);
         let (tx, rx) = std::sync::mpsc::channel();
         t.rx = Some(rx);
         self.spawner.spawn_blocking(move || {
-            let _ = tx.send(follow(kind, &frames, seed, &overrides, levels));
+            let _ = tx.send(follow(kind, &frames, seed, &overrides, levels, threshold));
         });
     }
 
@@ -232,7 +263,7 @@ impl HookEchoApp {
         let mut open = true;
         let mut clear = false;
         let unit = t.kind.unit();
-        egui::Window::new(format!("Following a {}", t.kind.label()))
+        egui::Window::new(format!("Following a {}", t.title()))
             .id(egui::Id::new("feature_track"))
             .open(&mut open)
             .default_width(340.0)
@@ -291,9 +322,10 @@ impl HookEchoApp {
                             ui.label(format!("{:.3}, {:.3}", f.ll[1], f.ll[0]));
                             ui.label(f.value.map_or("—".into(), |v| match t.kind {
                                 FeatureKind::Rotation => format!("{v:.4}"),
-                                FeatureKind::Core | FeatureKind::Hail | FeatureKind::Bwer => {
-                                    format!("{v:.0}")
-                                }
+                                FeatureKind::Core
+                                | FeatureKind::Hail
+                                | FeatureKind::Bwer
+                                | FeatureKind::Contour => format!("{v:.0}"),
                             }));
                             ui.label(if f.manual {
                                 "by hand".to_string()
@@ -394,14 +426,16 @@ impl HookEchoApp {
 /// The track through `frames` (time-ordered, decoded volumes) from `seed`, with `overrides`
 /// kept as placed: the lowest velocity tilt's LLSD shear for a rotation, the lowest reflectivity
 /// tilt for a core, every reflectivity tilt for a hail core (with `levels`, the 0 °C and −20 °C
-/// heights above the radar, m) or a BWER candidate. Also how many volumes were searched and how
-/// many could not be read.
+/// heights above the radar, m) or a BWER candidate, and the lowest reflectivity tilt for the echo
+/// inside a contour (at `threshold`, dBZ). Also how many volumes were searched and how many could
+/// not be read.
 fn follow(
     kind: FeatureKind,
     frames: &[(DateTime<Utc>, Arc<Scan>)],
     seed: (DateTime<Utc>, [f64; 2]),
     overrides: &[(DateTime<Utc>, [f64; 2])],
     levels: Option<(f64, f64)>,
+    threshold: Option<f32>,
 ) -> TrackResult {
     use wxdata::feature_track as ft;
     enum Sampled {
@@ -413,6 +447,10 @@ fn follow(
         (FeatureKind::Hail, None) => return Err("No melting level for the hail estimate".into()),
         (_, l) => l.unwrap_or((0.0, 0.0)),
     };
+    let threshold = match (kind, threshold) {
+        (FeatureKind::Contour, None) => return Err("No contour value to follow".into()),
+        (_, t) => t.unwrap_or(0.0),
+    };
     let mut times = Vec::new();
     let mut sampled = Vec::new();
     let mut unreadable = 0;
@@ -422,7 +460,7 @@ fn follow(
                 wxdata::level2::bin_scan_opts_recorded(scan, Moment::Velocity, 0, true)
                     .map(|v| Sampled::Shear(wxdata::azshear::llsd(&v, &Default::default())))
             }
-            FeatureKind::Core => {
+            FeatureKind::Core | FeatureKind::Contour => {
                 wxdata::level2::bin_scan_opts_recorded(scan, Moment::Reflectivity, 0, false)
                     .map(Sampled::Refl)
             }
@@ -471,6 +509,9 @@ fn follow(
         ft::TrackParams::for_kind(kind),
         |i, ll, r| match &sampled[i] {
             Sampled::Shear(f) => ft::rotation_peak(f, ll, r),
+            Sampled::Refl(s) if kind == FeatureKind::Contour => {
+                ft::contour_region(s, ll, r, threshold)
+            }
             Sampled::Refl(s) => ft::core_peak(s, ll, r),
             Sampled::Volume(v) if kind == FeatureKind::Hail => ft::hail_peak(v, ll, r, h0, hm20),
             Sampled::Volume(v) => ft::bwer_peak(v, ll, r),
@@ -511,12 +552,36 @@ mod tests {
                 fix(4, -97.5, true),
                 fix(8, -97.47, false),
             ],
+            threshold: None,
         };
         let json = serde_json::to_string(&saved).unwrap();
         let back = FeatureTrack::from_case(&serde_json::from_str(&json).unwrap(), 1);
         assert_eq!(back.pane, 1);
         assert_eq!(back.searched, 3);
         assert!(!back.busy && !back.correcting && back.rx.is_none() && back.error.is_none());
+        assert_eq!(back.to_case(), saved);
+        assert_eq!(back.title(), "rotation");
+    }
+
+    /// A contour is picked at the clicked reflectivity rounded down to 5 dBZ, never under 20, and
+    /// a contour track saved with a case keeps its value.
+    #[test]
+    fn a_contour_is_picked_at_the_clicked_value_rounded_down() {
+        assert_eq!(contour_threshold(47.6), 45.0);
+        assert_eq!(contour_threshold(50.0), 50.0);
+        assert_eq!(contour_threshold(12.0), 20.0);
+        let saved = crate::case::CaseFeatureTrack {
+            kind: FeatureKind::Contour,
+            site: "KTLX".into(),
+            seed_time: Utc.with_ymd_and_hms(2013, 5, 20, 20, 8, 11).unwrap(),
+            seed: [-97.5, 35.36],
+            overrides: Vec::new(),
+            fixes: Vec::new(),
+            threshold: Some(45.0),
+        };
+        let json = serde_json::to_string(&saved).unwrap();
+        let back = FeatureTrack::from_case(&serde_json::from_str(&json).unwrap(), 0);
+        assert_eq!(back.title(), "45 dBZ contour");
         assert_eq!(back.to_case(), saved);
     }
 
@@ -547,7 +612,7 @@ mod tests {
             [-97.52, 35.31],
         );
         let (fixes, searched, unreadable) =
-            follow(FeatureKind::Rotation, &frames, seed, &[], None).unwrap();
+            follow(FeatureKind::Rotation, &frames, seed, &[], None, None).unwrap();
         eprintln!(
             "{} fixes of {searched} searched, {unreadable} unreadable",
             fixes.len()
@@ -560,6 +625,7 @@ mod tests {
             &frames,
             seed,
             &[(moved_time, moved)],
+            None,
             None,
         )
         .unwrap();

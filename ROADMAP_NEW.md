@@ -4558,7 +4558,7 @@ Create persistent storm objects that combine:
 
 Expose a storm history timeline and exportable JSON/CSV.
 
-## R4. Feature tracking — mesocyclone, cores and BWER candidates, in the app (1010.md V14)
+## R4. Feature tracking — every listed kind, in the app (1010.md V14)
 
 Track analyst-selected radar features through time using optical flow/object matching:
 
@@ -4590,13 +4590,21 @@ Track analyst-selected radar features through time using optical flow/object mat
   10 dB floor; synthetic tests for an open, an open-topped and a past-the-top weak echo). Live
   on Moore: 6 of 11 volumes from 19:51 to 20:16, 22 to 42 dB, 5 to 7 km northeast of the
   mesocyclone, lost as the storm neared the radar.
-- user-selected contour
+- [x] user-selected contour — the echo inside the contour at the clicked gate's reflectivity
+  (rounded down to 5 dBZ), taken on the lowest tilt smoothed over 3 radials by 5 gates, the
+  region connected to the click followed by its centroid with its area as the value
+  (`contour_region`, 4 km² floor; saved with a case with its value). Live on Moore's 50 dBZ
+  core: 9 of 11 volumes, 4 to 57 km²; the first 20 minutes wander, likely between fragments
+  of the core (`live_the_moore_50_dbz_contour_is_followed_through_the_loop`,
+  ignored, network; `target/parity-review/v14/live-moore-contour.log`). The contour itself is not drawn, only
+  its centre's track.
 
 Always show confidence and allow manual correction. — the engine keeps each fix with its
 confidence, and a fix placed by hand is kept as placed while the track continues from it
 (`track`'s overrides; tested). In the app, "Correct this volume" and a click put the shown volume's
 fix there and follow the track again from it (seen in the browser build on the Moore archive).
-The gate inspector on reflectivity offers the core, the hail core and the BWER candidate.
+The gate inspector on reflectivity offers the core, the hail core, the BWER candidate and the
+echo's contour.
 
 ## R5. Uncertainty everywhere
 

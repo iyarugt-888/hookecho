@@ -55,6 +55,23 @@ ground height. Seeded on the strongest within 15 km of the mesocyclone at 20:12:
 Neither is checked against an independent record here: not against the storm's hail
 reports, and not against a published analysis of its BWER.
 
+### A picked contour
+
+`contour_region` follows the echo inside the contour at the clicked gate's reflectivity, rounded
+down to 5 dBZ (never under 20). It reads the lowest tilt, smoothed over 3 radials by 5 gates with
+no echo as 0 dBZ, as a drawn contour would be. The region connected to the gate over the contour
+nearest the search point is the fix. Its area-weighted centroid is the place, its area (km²) the
+value, and the floor is 4 km². Without the smoothing, Moore's 50 dBZ core broke into speckle and
+only 4 of 11 volumes were followed.
+
+Test: `a_picked_contour_is_the_connected_echo_over_its_threshold` (a 50 dBZ disc's centroid and
+area; nothing away from the storm; followed through a still loop). Live on Moore
+(`live_the_moore_50_dbz_contour_is_followed_through_the_loop`, ignored, network;
+`target/parity-review/v14/live-moore-contour.log`): picked at the main core north of the hook at
+20:08, the 50 dBZ echo was followed through 9 of 11 volumes, 4 to 57 km². Its centre wanders
+west and back from 19:51 to 20:16, likely between fragments of the core. It then moves
+northeast with the storm.
+
 ## In the app
 
 The gate inspector, on a velocity or reflectivity gate, offers "Follow this rotation (core)
@@ -130,11 +147,30 @@ on each search point, so a different click searches different points.
 | `moore-bwer-followed-browser.jpg` | `b8a9b7e22633eae3cf83efeee2e40cdb294213d36bcbc812140026750ffa4bf1` |
 | `moore-hail-core-followed-browser.jpg` | `475f1f8f3e19dadcef2b1d2defc97fa87cd9e3469899edf7fa18582bc01bb7b5` |
 
+**Contour walkthrough** in the browser build (WebGPU, one machine, 2026-10-12 about 03:35 UTC). Built
+from the working tree at `18203c3` with this change and another session's uncommitted work. KTLX
+archive, all 11 volumes from 19:51 to 20:33 UTC stepped through (the pane kept 8 decoded), at
+20:08:
+
+| Capture | What it shows |
+| --- | --- |
+| `moore-contour-followed-browser.jpg` | The gate inspector on a 48.3 dBZ gate at 35.37, -97.56 offers "Follow this echo's contour", which takes the 45 dBZ contour. "Following a 45 dBZ contour": 7 of 8 volumes searched, 3:03 to 3:29 PM CDT, 13 to 151 km², confidence 63 to 96 %. The centre jumps 12 km west from 3:03 to 3:08 PM, between two parts of the 45 dBZ echo, and then runs northeast with the storm. |
+
+| File | SHA-256 |
+| --- | --- |
+| `moore-contour-followed-browser.jpg` | `5e2a83fa66e4fa3c4736a1651ec676dd84af36d2b81b58a35bb74f04895dfcbe` |
+
+Checks in a clean worktree at `18203c3` with only this change: clippy clean, the wasm library
+check at its baseline, workspace tests 2,660 passed, 0 failed, 217 ignored
+(`target/parity-review/v14/wt-ct-*.log`).
+
 Limits:
 - Only volumes already decoded are searched, so play the loop first. The window counts the
   rest.
 - One feature at a time.
-- A rotation and a core use the lowest tilt only. Contour features are not offered.
+- A rotation, a core and a contour use the lowest tilt only.
+- A contour is followed by its centre: when its echo splits or merges the centre jumps, and the
+  contour itself is not drawn.
 - A BWER candidate is not a confirmed BWER, and the hail core's MEHS is an estimate.
 - The confidence describes the following, not the feature: it is not a tornado probability.
 - Not run in the desktop app or on Android.

@@ -5,8 +5,8 @@
 //! from each fix it predicts the next one from the feature's own motion so far, searches around
 //! the prediction for the strongest value of the feature's kind ([`rotation_peak`]: cyclonic LLSD
 //! azimuthal shear; [`core_peak`]: reflectivity; [`hail_peak`]: MEHS; [`bwer_peak`]: a weak echo
-//! walled in and capped by strong echo), and stops after two volumes in a row where nothing
-//! strong enough is there.
+//! walled in and capped by strong echo; [`contour_region`]: the echo inside a picked contour), and
+//! stops after two volumes in a row where nothing strong enough is there.
 //! A fix the analyst places by hand is kept as placed, and the track continues from it.
 //!
 //! Each fix carries a confidence from 0 to 1: how far the peak stands above the searched area
@@ -28,6 +28,9 @@ pub enum FeatureKind {
     /// A bounded weak echo region candidate: how far a mid-level weak echo sits below the strong
     /// echo walling it in and capping it (dB).
     Bwer,
+    /// The echo inside a reflectivity contour the analyst picked: followed by its centroid, its
+    /// value its area (km²).
+    Contour,
 }
 
 impl FeatureKind {
@@ -37,6 +40,7 @@ impl FeatureKind {
             FeatureKind::Core => "core",
             FeatureKind::Hail => "hail core",
             FeatureKind::Bwer => "BWER candidate",
+            FeatureKind::Contour => "contour",
         }
     }
 
@@ -47,6 +51,7 @@ impl FeatureKind {
             FeatureKind::Core => "dBZ",
             FeatureKind::Hail => "mm",
             FeatureKind::Bwer => "dB",
+            FeatureKind::Contour => "km\u{b2}",
         }
     }
 }
@@ -111,6 +116,12 @@ impl TrackParams {
                 search_km: 6.0,
                 max_speed_ms: 35.0,
                 min_value: 10.0,
+            },
+            // A contour enclosing less than 4 km² is a gate or two of noise.
+            FeatureKind::Contour => TrackParams {
+                search_km: 8.0,
+                max_speed_ms: 35.0,
+                min_value: 4.0,
             },
         }
     }
@@ -390,6 +401,106 @@ fn bwer_at(tilts: &[&BinnedSweep], radar: [f64; 2], p: [f64; 2]) -> Option<f32> 
         }
     }
     best
+}
+
+/// Most gates one contour region is filled to, so a contour around a whole squall line still ends.
+const CONTOUR_MAX_GATES: usize = 400_000;
+
+/// Radials either side, and gates along each, that a contour's echo is averaged over.
+const CONTOUR_SMOOTH: (usize, usize) = (1, 2);
+
+/// The echo at or above `threshold` on a reflectivity sweep that is connected to the gate at or
+/// above it nearest `ll` within `radius_km`: its area-weighted centroid as the place, its area
+/// (km²) as the value, and no background (0). As a drawn contour is, it is taken on the echo
+/// smoothed over a gate's neighbours (3 radials by 5 gates, no echo counting as 0 dBZ), so a
+/// speckled core is one region rather than many. Gates touch along a radial or across one.
+pub fn contour_region(
+    sweep: &BinnedSweep,
+    ll: [f64; 2],
+    radius_km: f64,
+    threshold: f32,
+) -> Option<Peak> {
+    let radar = [f64::from(sweep.radar_lon), f64::from(sweep.radar_lat)];
+    let (n_az, n_g) = (sweep.az_bins, sweep.gate_count);
+    let dbz = |az: usize, g: usize| -> f32 {
+        match sweep.data.get(az * n_g + g) {
+            Some(&code) if code >= 2 => (sweep.value_min
+                + (code - 2) as f32 / 253.0 * (sweep.value_max - sweep.value_min))
+                .max(0.0),
+            _ => 0.0,
+        }
+    };
+    let (da, dg_n) = CONTOUR_SMOOTH;
+    let above = |az: usize, g: usize| {
+        if dbz(az, g) <= 0.0 {
+            return false;
+        }
+        let (mut sum, mut n) = (0.0f32, 0u32);
+        for k in 0..=2 * da {
+            let a = (az + n_az + k - da) % n_az;
+            for gg in g.saturating_sub(dg_n)..=(g + dg_n).min(n_g - 1) {
+                sum += dbz(a, gg);
+                n += 1;
+            }
+        }
+        sum / n as f32 >= threshold
+    };
+    let (a0, g0, _) = gates_near(
+        radar,
+        n_az,
+        n_g,
+        sweep.first_gate_km,
+        sweep.gate_interval_km,
+        ll,
+        radius_km,
+    )
+    .into_iter()
+    .filter(|(a, g, _)| above(*a, *g))
+    .min_by(|x, y| dist_km(x.2, ll).total_cmp(&dist_km(y.2, ll)))?;
+    let bin_rad = std::f64::consts::TAU / n_az as f64;
+    let dg = f64::from(sweep.gate_interval_km);
+    let mut seen = vec![false; n_az * n_g];
+    let mut stack = vec![(a0, g0)];
+    seen[a0 * n_g + g0] = true;
+    let (mut area, mut sx, mut sy, mut filled) = (0.0f64, 0.0f64, 0.0f64, 0usize);
+    while let Some((a, g)) = stack.pop() {
+        let r = f64::from(sweep.first_gate_km) + (g as f64 + 0.5) * dg;
+        let az = (a as f64 + 0.5) * bin_rad;
+        let w = r * bin_rad * dg;
+        area += w;
+        sx += w * r * az.sin();
+        sy += w * r * az.cos();
+        filled += 1;
+        if filled >= CONTOUR_MAX_GATES {
+            break;
+        }
+        let mut next = vec![((a + 1) % n_az, g), ((a + n_az - 1) % n_az, g)];
+        if g + 1 < n_g {
+            next.push((a, g + 1));
+        }
+        if g > 0 {
+            next.push((a, g - 1));
+        }
+        for (na, ng) in next {
+            let i = na * n_g + ng;
+            if !seen[i] && above(na, ng) {
+                seen[i] = true;
+                stack.push((na, ng));
+            }
+        }
+    }
+    let (cx, cy) = (sx / area, sy / area);
+    let c = crate::rotation::dest(
+        radar[0],
+        radar[1],
+        cx.atan2(cy).to_degrees().rem_euclid(360.0),
+        cx.hypot(cy),
+    );
+    Some(Peak {
+        ll: [c.0, c.1],
+        value: area as f32,
+        background: 0.0,
+    })
 }
 
 /// The strongest cyclonic azimuthal shear within `radius_km` of `ll`, and the median of the
@@ -765,6 +876,39 @@ mod tests {
         );
     }
 
+    /// A picked contour is the echo connected to the click at or above the threshold: its centroid
+    /// at the storm's middle and its area near the disc's. A weaker echo nearby is not part of
+    /// it, and a click with nothing over the threshold nearby finds nothing.
+    #[test]
+    fn a_picked_contour_is_the_connected_echo_over_its_threshold() {
+        let (c, sweeps) = storm(false, false);
+        let low = &sweeps[0];
+        // The storm is 58 dBZ falling 1 dB a km: its 50 dBZ contour is a disc 8 km in radius.
+        let edge = crate::rotation::dest(c[0], c[1], 300.0, 6.0);
+        let p = contour_region(low, [edge.0, edge.1], 3.0, 50.0).expect("the 50 dBZ echo");
+        assert!(dist_km(p.ll, c) < 0.6, "{:?} vs {c:?}", p.ll);
+        let disc = std::f64::consts::PI * 8.0 * 8.0;
+        assert!(
+            (f64::from(p.value) - disc).abs() < disc * 0.2,
+            "{} vs {disc}",
+            p.value
+        );
+        // Away from the storm nothing reaches 50 dBZ.
+        let away = crate::rotation::dest(RADAR[0], RADAR[1], 180.0, 60.0);
+        assert_eq!(contour_region(low, [away.0, away.1], 8.0, 50.0), None);
+        // Followed through a loop in which the storm does not move, the track stays on it.
+        let times = times(3);
+        let fixes = track(
+            &times,
+            (1, [edge.0, edge.1]),
+            &[],
+            TrackParams::for_kind(FeatureKind::Contour),
+            |_, ll, r| contour_region(low, ll, r, 50.0),
+        );
+        assert!(fixes.iter().flatten().all(|f| dist_km(f.ll, c) < 0.6));
+        assert_eq!(fixes.iter().flatten().count(), 3);
+    }
+
     /// The gate window finds exactly the gates within the radius of a point on a polar grid.
     #[test]
     fn the_gate_window_holds_the_gates_within_the_radius() {
@@ -890,6 +1034,79 @@ mod tests {
                 times.len()
             );
         }
+    }
+
+    /// The Moore storm's 50 dBZ echo, picked at its main core north of the hook at 20:08 and followed
+    /// through the same KTLX volumes by its centre and area on the lowest tilt.
+    #[tokio::test]
+    #[ignore = "network: the KTLX archive"]
+    async fn live_the_moore_50_dbz_contour_is_followed_through_the_loop() {
+        use crate::level2::{self, Moment};
+        let date = chrono::NaiveDate::from_ymd_opt(2013, 5, 20).unwrap();
+        let from = Utc.with_ymd_and_hms(2013, 5, 20, 19, 50, 0).unwrap();
+        let to = Utc.with_ymd_and_hms(2013, 5, 20, 20, 35, 0).unwrap();
+        let cache =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/feature-track");
+        std::fs::create_dir_all(&cache).unwrap();
+        let mut times = Vec::new();
+        let mut sweeps = Vec::new();
+        for id in level2::list_volumes("KTLX", date).await.unwrap() {
+            let Some(t) = id.date_time().filter(|t| *t >= from && *t <= to) else {
+                continue;
+            };
+            let scan = level2::download_scan(id, Some(cache.clone()))
+                .await
+                .unwrap();
+            if let Ok(z) = level2::bin_scan_opts_recorded(&scan, Moment::Reflectivity, 0, false) {
+                times.push(t);
+                sweeps.push(z);
+            }
+        }
+        let at_2008 = Utc.with_ymd_and_hms(2013, 5, 20, 20, 8, 0).unwrap();
+        let seed = (0..times.len())
+            .min_by_key(|&i| (times[i] - at_2008).num_seconds().abs())
+            .unwrap();
+        // The storm's main core, north of the hook, in the 20:08 volume the browser walkthrough
+        // used. (The hook's own debris ball is a 50 dBZ blob of a few km² of its own.)
+        let core = core_peak(&sweeps[seed], [-97.53, 35.39], 4.0).unwrap();
+        eprintln!(
+            "core {:.1} dBZ at {:.3}, {:.3}",
+            core.value, core.ll[1], core.ll[0]
+        );
+        let fixes = track(
+            &times,
+            (seed, core.ll),
+            &[],
+            TrackParams::for_kind(FeatureKind::Contour),
+            |i, ll, r| contour_region(&sweeps[i], ll, r, 50.0),
+        );
+        let got: Vec<&Fix> = fixes.iter().flatten().collect();
+        for f in &got {
+            eprintln!(
+                "  {}  {:.3}, {:.3}  {:.0} km2  confidence {:.2}",
+                f.time.format("%H:%M:%S"),
+                f.ll[1],
+                f.ll[0],
+                f.value.unwrap_or(f32::NAN),
+                f.confidence
+            );
+        }
+        let (first, last) = (got[0], got[got.len() - 1]);
+        let hours = (last.time - first.time).num_seconds() as f64 / 3600.0;
+        let speed_ms = dist_km(first.ll, last.ll) * 1000.0 / (hours * 3600.0);
+        let heading = bearing_deg(first.ll, last.ll);
+        eprintln!(
+            "  {} of {} volumes; {speed_ms:.1} m/s toward {heading:.0} degrees",
+            got.len(),
+            times.len()
+        );
+        assert!(
+            got.len() * 2 >= times.len(),
+            "{} of {}",
+            got.len(),
+            times.len()
+        );
+        assert!(got.iter().all(|f| f.value.is_some_and(|a| a >= 4.0)));
     }
 
     /// The Moore tornado's mesocyclone, followed through the KTLX volumes of 2013-05-20 from

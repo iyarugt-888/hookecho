@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: follow an echo's contour through the loop
+
+On a reflectivity gate the gate inspector also offers "Follow this echo's contour". It takes
+the contour at that gate's reflectivity, rounded down to 5 dBZ, and follows the echo inside
+it by its centre and area. When two cores merge or one splits, the centre jumps with them.
+
 ### Added: follow a hail core or a BWER candidate through the loop
 
 On a reflectivity gate the gate inspector now also offers "Follow this hail core" and "Follow

@@ -85,6 +85,9 @@ pub struct CaseFeatureTrack {
     #[serde(default)]
     pub overrides: Vec<(DateTime<Utc>, [f64; 2])>,
     pub fixes: Vec<wxdata::feature_track::Fix>,
+    /// A contour's reflectivity (dBZ).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<f32>,
 }
 
 /// A note on a storm as a case keeps it.
@@ -257,6 +260,7 @@ mod tests {
                     confidence: 1.0,
                     manual: true,
                 }],
+                threshold: None,
             }),
             notes: "Moore, EF5".into(),
         }

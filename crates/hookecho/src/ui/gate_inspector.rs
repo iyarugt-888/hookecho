@@ -116,6 +116,13 @@ pub fn show(
                  bounded weak echo region candidate) here and follows it through the volumes \
                  the pane has decoded. A candidate: check it on a cross-section.",
             ),
+            (
+                wxdata::feature_track::FeatureKind::Contour,
+                "Follow this echo's contour",
+                "Takes the contour at this gate's reflectivity (rounded down to 5 dBZ) and \
+                 follows the echo inside it, by its centre and area, through the volumes the \
+                 pane has decoded.",
+            ),
         ],
         _ => &[],
     };
