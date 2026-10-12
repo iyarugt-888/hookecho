@@ -67,3 +67,24 @@ c6f6e7a4de988eb4c467254d17001227675b4fbd2b76c7df44292fe27a279f06  route-forecast
   the local budget in 1010.md §2 and 10,572 bytes under Cloudflare's 25 MiB limit. CI runs
   `wasm-opt` with an 18,000,000-byte budget, which this does not approach. The bundle question
   is 1010.md V5, which waits on the maintainer.
+
+## Rotating storm tracks along the route (2026-10-11)
+
+The same switch also fetches the HRRR's hourly maximum 2-5 km updraft helicity, the model's
+rotation tracks (`route::fetch_uh_frames`). It covers the hour windows from the one holding now
+through the one holding the horizon, from one run, cropped to the route. Each value is the
+hour's strongest, so a frame is timed at its hour's middle and stands for the whole hour
+(`forecast_along_within` with `HOURLY_FRAME_SLACK_S`, 31 minutes). Stretches at 75 m²/s² or
+more are listed: the threshold the HREF's own rotation probabilities use.
+
+- `an_hourly_window_frame_covers_its_whole_hour`: a track in the 21-22Z window, crossed 6 to 18
+  minutes after 21Z, is met with the hourly slack and missed with the 15-minute one.
+- `live_hrrr_uh_windows_cover_the_next_ninety_minutes` (ignored, network): HRRR 23Z run, two
+  windows timed 00:30 and 01:30, 51×38 cells over central Oklahoma, strongest 0 m²/s² on a
+  quiet night (`target/parity-review/l3/live-uh.log`).
+
+Not seen in the window yet: no storms were forecast near a route while this was built.
+
+Checks in a clean worktree at `bb845bb` with only this change: clippy clean, the wasm library
+check at its baseline, workspace tests 2,649 passed, 0 failed, 213 ignored
+(`target/parity-review/l3/wt-*.log`).

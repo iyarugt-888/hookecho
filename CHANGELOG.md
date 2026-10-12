@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: forecast rotating storms along your route
+
+The route window's HRRR forecast check now also looks for the model's rotating storm tracks
+(updraft helicity) where you would be on the road, hour by hour, and lists any stretch they
+cross with the times you would pass it. It is a model forecast: real storms form and move
+differently.
+
 ### Fixed: model soundings start at the ground
 
 A model sounding used to start at 1000 hPa wherever you clicked, even where that level is under

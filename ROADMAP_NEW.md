@@ -3823,8 +3823,13 @@ Sample along the route against:
   3:33 PM EDT to 3:37 PM EDT, 9 mi to 12 mi ahead; up to 47 dBZ". The window names the run and
   how far along the route it reached, and says it is a model forecast. Refetched each quarter
   hour and when the route changes; live only. Seen in the browser build on 2026-10-11 on routes
-  across eastern North Carolina under a Tornado Watch (`docs/certification/chase/`). Other model
-  fields (UH, rain) are not checked yet.
+  across eastern North Carolina under a Tornado Watch (`docs/certification/chase/`). The same
+  switch also checks the HRRR's rotating storm tracks (hourly max 2-5 km updraft helicity, 75+
+  m²/s², the HREF's own threshold): each hour window is timed at its middle and read for the
+  whole hour (`route::fetch_uh_frames`, `forecast_along_within`). A line reads "Rotating storm
+  track forecast (HRRR UH 75+ m²/s²) on the route as you pass, <time> to <time>, <distance> to
+  <distance> ahead; up to <peak>". A failure there leaves the echo check standing. Not yet seen
+  with a track on a route (a quiet night when built). Rain is not checked yet.
 
 Output should say things like:
 
