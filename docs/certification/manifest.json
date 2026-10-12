@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T18:13:49+00:00",
-  "generated_from_commit": "5a21ff5a61853f4c9987e1546b0d14711af67a71",
+  "generated_utc": "2026-10-12T18:32:37+00:00",
+  "generated_from_commit": "487eaed324c5431bc7c3fb12f62769f83d2a905a",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -324,8 +324,8 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "0a337702aa6c0ecad70a53a7ef9760a6134c563faf8984e37fcdc8d0dc04f2da",
-      "bytes": 13720
+      "sha256": "738f3542ff1fe420013330bb8286a99162c36cd282be182375d3e5583fea2784",
+      "bytes": 15834
     },
     {
       "path": "docs/certification/chase/keep-loop-button-desktop.png",
@@ -366,6 +366,21 @@
       "path": "docs/certification/chase/pack-saved-browser.jpg",
       "sha256": "f8c7172609bca9b87072742aef6eacb78f7b19b11780b3d2d5050d1504c99d57",
       "bytes": 122081
+    },
+    {
+      "path": "docs/certification/chase/placefile-offline-copy-desktop.jpg",
+      "sha256": "ed5720dce9cf2fb27feec08f6c721493c67b64201894223cbd09de7353836618",
+      "bytes": 391258
+    },
+    {
+      "path": "docs/certification/chase/placefile-offline-copy-desktop.txt",
+      "sha256": "15f83ab0d8b466bc0ba3e9b60324c81188304cdcccebd0e54491845aed4bb8dc",
+      "bytes": 335
+    },
+    {
+      "path": "docs/certification/chase/placefile-online-desktop.jpg",
+      "sha256": "a4dabe775e81335517c4ed89bd0fce08cf12453dbc421d5f528a6d479bcbc9a2",
+      "bytes": 391423
     },
     {
       "path": "docs/certification/chase/route-forecast-clear-browser.jpg",
