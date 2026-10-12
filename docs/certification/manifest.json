@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T18:41:04+00:00",
-  "generated_from_commit": "81d02c9c5836fd7c838eaea3c1f1f1a019d846ba",
+  "generated_utc": "2026-10-12T18:57:14+00:00",
+  "generated_from_commit": "ba46541dad172b527c6ecc8326c56da02bd0b901",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -324,13 +324,18 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "9d9f8fca186bd47758b9e104b75c97ed87d6b1ef79bb050b5b635be6a6721f02",
-      "bytes": 16117
+      "sha256": "c47a1079289072e646953b079463bb3cda884d78667b49562d96a53f33cb3b69",
+      "bytes": 17620
     },
     {
       "path": "docs/certification/chase/keep-loop-button-desktop.png",
       "sha256": "404c825fc9fae609691798afdbaed8352ebc7b30aa6dd1fd2e90c5b66575efc1",
       "bytes": 36272
+    },
+    {
+      "path": "docs/certification/chase/mrms-no-signal-live.txt",
+      "sha256": "d6e045e651a89fdab89e073160d71a8d17cb7bfa9dcdcc81587d6d247e3fad02",
+      "bytes": 251
     },
     {
       "path": "docs/certification/chase/offline-cached-radar-desktop.png",
