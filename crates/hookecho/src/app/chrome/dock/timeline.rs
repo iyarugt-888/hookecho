@@ -136,6 +136,8 @@ impl HookEchoApp {
         #[cfg(target_arch = "wasm32")]
         let (packs, pack_status) = (self.packs(), self.pack_status());
         #[cfg(target_arch = "wasm32")]
+        let pack_estimate = self.pack_estimate(keep_frames);
+        #[cfg(target_arch = "wasm32")]
         let (mut save_pack, mut load_pack) = (false, None::<crate::webcache::Pack>);
         egui::Panel::bottom("dock_timeline")
             .exact_size(if phone { PHONE_TIMELINE_H } else { TIMELINE_H })
@@ -330,6 +332,7 @@ impl HookEchoApp {
                                     {
                                         save_pack = true;
                                     }
+                                    ui.weak(&pack_estimate);
                                     for p in &packs {
                                         ui.horizontal(|ui| {
                                             if ui.button(p.label()).clicked() {

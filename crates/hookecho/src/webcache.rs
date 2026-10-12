@@ -574,6 +574,14 @@ async fn auto_cache_put(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
         .map_err(|e| anyhow!("{e:?}"))?;
     await_request(req).await?;
     let victims = entries_over_cap(&auto_cache_entries(&db).await, AUTO_CACHE_BYTE_CAP);
+    if let Ok(mut s) = VOLUME_SIZES.lock() {
+        if let Some(map) = s.as_mut() {
+            map.insert(name.to_string(), bytes.len() as u64);
+            for v in &victims {
+                map.remove(v);
+            }
+        }
+    }
     for name in victims {
         if let Ok(s) = store(&db, AUTO_VOLUMES, IdbTransactionMode::Readwrite) {
             if let Ok(req) = s.delete(&name.as_str().into()) {
@@ -662,6 +670,49 @@ pub fn spawn_clear_auto_cache() {
     });
 }
 
+/// The size of each volume this browser already holds, by object name: the automatic cache's
+/// entries as their bookkeeping records them, and each pack's volumes at that pack's mean. `None`
+/// until the first read lands. Read by the pack size estimate before a save.
+#[cfg(target_arch = "wasm32")]
+static VOLUME_SIZES: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(target_arch = "wasm32")]
+async fn refresh_volume_sizes() {
+    let Ok(db) = open().await else { return };
+    let mut sizes = std::collections::HashMap::new();
+    for p in packs().await {
+        let mean = p.bytes / p.volumes.len().max(1) as f64;
+        for name in &p.volumes {
+            sizes.insert(name.clone(), mean as u64);
+        }
+    }
+    for (name, meta) in auto_cache_entries(&db).await {
+        sizes.insert(name, meta.bytes as u64);
+    }
+    if let Ok(mut s) = VOLUME_SIZES.lock() {
+        *s = Some(sizes);
+    }
+}
+
+/// The size of each of `names` this browser already holds, `None` for one it does not (or
+/// before the first read, which this kicks off, has landed).
+#[cfg(target_arch = "wasm32")]
+pub fn known_volume_sizes(names: &[String]) -> Vec<Option<u64>> {
+    let Ok(mut s) = VOLUME_SIZES.lock() else {
+        return vec![None; names.len()];
+    };
+    match s.as_ref() {
+        Some(map) => names.iter().map(|n| map.get(n).copied()).collect(),
+        None => {
+            // An empty map marks the read as asked for, so it is spawned once.
+            *s = Some(std::collections::HashMap::new());
+            wasm_bindgen_futures::spawn_local(refresh_volume_sizes());
+            vec![None; names.len()]
+        }
+    }
+}
+
 /// What the UI reads: the packs on hand and the last progress line. Filled by the async saves and
 /// loads, which have nowhere else to put a result — the picker is drawn from a `&mut self` the
 /// spawned task cannot hold.
@@ -716,7 +767,11 @@ pub async fn save_timeline(site: String, date: String, ids: Vec<wxdata::level2::
     for (i, id) in ids.into_iter().enumerate() {
         let name = id.name().to_string();
         set_status(Some(format!("saving {} of {total}\u{2026}", i + 1)));
-        let bytes = match volume(&name).await {
+        let held = match volume(&name).await {
+            Some(b) => Some(b),
+            None => auto_cached_volume(&name).await,
+        };
+        let bytes = match held {
             Some(b) => b,
             None => match wxdata::level2::volume_bytes(id).await {
                 Ok(b) => b,
@@ -733,6 +788,7 @@ pub async fn save_timeline(site: String, date: String, ids: Vec<wxdata::level2::
         Err(e) => set_status(Some(format!("could not save the pack: {e}"))),
     }
     refresh().await;
+    refresh_volume_sizes().await;
 }
 
 /// Delete a pack from the picker.

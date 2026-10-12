@@ -81,6 +81,8 @@ impl HookEchoApp {
         let mut load_pack: Option<crate::webcache::Pack> = None;
         #[cfg(target_arch = "wasm32")]
         let (packs, pack_status) = (self.packs(), self.pack_status());
+        #[cfg(target_arch = "wasm32")]
+        let pack_estimate = self.pack_estimate(self.settings.live_loop_frames);
         // Soonest rain arrival and the DVR buffer depth ride the pill: both are about time, and
         // both used to sit in an always-on chip in the opposite corner.
         let rain = self
@@ -428,6 +430,7 @@ impl HookEchoApp {
                                 {
                                     save_pack = true;
                                 }
+                                ui.weak(&pack_estimate);
                                 for p in &packs {
                                     ui.horizontal(|ui| {
                                         if ui.button(p.label()).clicked() {

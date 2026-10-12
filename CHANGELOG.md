@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: saving a loop in the browser says how big it will be
+
+Before you press "Save this loop offline" in the browser, it says how many megabytes the
+saved loop will take and how much of that still has to be downloaded. Scans the browser has
+already fetched are copied into the saved loop rather than downloaded again.
+
 ### Fixed: a loop saved in the browser is the loop, not the whole day
 
 "Save this loop offline" in the browser saved every scan from the start of the day up to the

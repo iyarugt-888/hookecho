@@ -3918,8 +3918,11 @@ Show estimated pack size before download. — for a kept radar loop on the deskt
 are to fetch and about how many megabytes, at the mean size of those already on disk
 (`keep_estimate`; none on disk, it says the size is not known yet rather than guess). The
 docked timeline, the workstation's default, now has that button too (its download icon);
-before, only the floating timeline's menu offered it. Not yet: a size before saving one of
-the browser's packs, and the desktop popup opened in a running app. In the browser the
+before, only the floating timeline's menu offered it. In the browser, "Save this loop
+offline" says before it is pressed how big the pack will be and how much of it must be
+downloaded, from the sizes of the volumes the browser already holds (`pack_estimate`,
+`webcache::known_volume_sizes`), and the save reads those from the automatic cache instead
+of downloading them again. Not yet: the desktop popup opened in a running app. In the browser the
 docked timeline now saves, lists, loads and deletes packs too, and a pack is the loop (the
 loop length, up to the playhead, less a live head still being written) rather than every
 frame from the start of the day to the playhead (`pack_frames`; browser walkthrough in

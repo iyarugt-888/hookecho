@@ -71,6 +71,43 @@ fn keep_estimate(on_disk: &[Option<u64>]) -> String {
     )
 }
 
+/// What saving a browser pack would hold, said before it starts (ROADMAP_NEW L5): `held` is
+/// each of the loop's volumes' size if this browser already has it (its automatic cache or a
+/// pack), `None` if it must be downloaded. Unknown sizes are estimated at the mean of the known
+/// ones; with none known the text says so instead. Megabytes as the pack's own label counts them
+/// (2^20 bytes), so the estimate and the saved pack's line compare.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn pack_estimate(held: &[Option<u64>]) -> String {
+    let total = held.len();
+    let known: Vec<u64> = held.iter().flatten().copied().collect();
+    let missing = total - known.len();
+    let mb = |b: f64| b / 1024.0 / 1024.0;
+    if total == 0 {
+        return "No volumes in this loop yet.".into();
+    }
+    let have = known.iter().sum::<u64>() as f64;
+    if missing == 0 {
+        return format!(
+            "{total} volumes, {:.0} MB, all already in this browser: nothing to download.",
+            mb(have)
+        );
+    }
+    if known.is_empty() {
+        return format!(
+            "{total} volumes to download; their size is not known until the first arrives."
+        );
+    }
+    let mean = have / known.len() as f64;
+    format!(
+        "{total} volumes, about {:.0} MB; {missing} to download, about {:.0} MB (at the {:.1} MB \
+         mean of the {} already in this browser).",
+        mb(have + mean * missing as f64),
+        mb(mean * missing as f64),
+        mb(mean),
+        known.len()
+    )
+}
+
 /// The last estimate, and when and for which loop it was made: the menu asks every frame, and
 /// a loop's volumes are only stat'ed again after a second or when the loop changes.
 #[cfg(not(target_arch = "wasm32"))]
@@ -209,6 +246,24 @@ mod keep_tests {
         assert_eq!(keep_estimate(&[]), "No volumes in this loop yet.");
     }
 
+    /// A browser pack's size is the known volumes plus the rest at their mean, in the pack
+    /// label's megabytes, and is never invented when nothing is known.
+    #[test]
+    fn a_browser_packs_size_is_estimated_before_saving() {
+        let mb = 1024 * 1024u64;
+        assert_eq!(
+            pack_estimate(&[Some(8 * mb), None, Some(12 * mb), None]),
+            "4 volumes, about 40 MB; 2 to download, about 20 MB (at the 10.0 MB mean of the 2 \
+             already in this browser)."
+        );
+        assert_eq!(
+            pack_estimate(&[Some(9 * mb), Some(9 * mb)]),
+            "2 volumes, 18 MB, all already in this browser: nothing to download."
+        );
+        assert!(pack_estimate(&[None]).contains("not known until the first arrives"));
+        assert_eq!(pack_estimate(&[]), "No volumes in this loop yet.");
+    }
+
     /// A browser pack is the loop, not the day up to the playhead, and leaves out a live head
     /// still being written.
     #[test]
@@ -345,6 +400,18 @@ impl HookEchoApp {
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn pack_status(&self) -> Option<String> {
         crate::webcache::status()
+    }
+
+    /// What "Save this loop offline" would hold for a loop of `frames`, and how much of it would
+    /// be downloaded, before it is pressed.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn pack_estimate(&self, frames: usize) -> String {
+        let tl = &self.views[self.active].timeline;
+        let names: Vec<String> = pack_frames(&tl.frames, tl.playhead, frames, tl.following)
+            .iter()
+            .map(|id| id.name().to_string())
+            .collect();
+        pack_estimate(&crate::webcache::known_volume_sizes(&names))
     }
 
     /// Save the active timeline's loop (its last `frames` volumes up to the playhead) into an

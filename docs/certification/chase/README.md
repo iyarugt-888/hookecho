@@ -176,3 +176,34 @@ this change and another session's uncommitted work, at KHTX 2026-09-10, playhead
 Not established: a pack played with the network off (the volumes were also in the browser's
 automatic volume cache), Android's WebView, and a size before saving; a browser pack still
 shows its size only once saved.
+
+## A browser pack's size before saving (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+Before "Save this loop offline" is pressed, the browser now says what the pack would hold and
+how much of it must be downloaded (`packs_soundings::pack_estimate`, tested in
+`a_browser_packs_size_is_estimated_before_saving`). The sizes come from what this browser
+already holds: each entry of the automatic volume cache as its bookkeeping records it, and each
+saved pack's volumes at that pack's mean (`webcache::known_volume_sizes`, read once, then kept in
+step with the cache's writes and evictions and refreshed after a save). A volume of unknown size
+is counted at the mean of the known ones; with none known it says the size is not known yet.
+Megabytes are the pack label's (2^20 bytes), so the estimate and the saved line compare. The save
+now also reads a volume from the automatic cache before downloading it; it used to look only in
+the pack store, and so fetched again a volume the browser had just played.
+
+**Browser build on WebGPU, one machine**, live, built from the working tree at `673959e` with
+this change and another session's uncommitted work, at KHTX 2026-09-10, frame 22 (01:48 UTC),
+loop length 10, with the earlier pack (frames 8 to 17) still saved:
+
+| Capture | What it shows |
+| --- | --- |
+| `pack-estimate-browser.jpg` | Before saving: "10 volumes, about 93 MB; 3 to download, about 28 MB (at the 9.3 MB mean of the 7 already in this browser)." |
+| `pack-estimate-saved-browser.jpg` | After saving: "saved KHTX 2026-09-10 — 10 volumes, 96 MB"; the estimate is 3% under. The line above now reads "10 volumes, 97 MB, all already in this browser: nothing to download." (the old pack's volumes are counted at its mean, hence 97). |
+
+| File | SHA-256 |
+| --- | --- |
+| pack-estimate-browser.jpg | `54b53dc3f8d17ab93e7405e1823ed81e238f888c053bdddf04ad8858339afe54` |
+| pack-estimate-saved-browser.jpg | `72d4c3970d0421644e06686df620e1279b9b9daf2c8a487726dd3e2c54d22e64` |
+
+Saving a loop of the same radar and day replaces that day's pack, as before: here the 01:48 loop
+took the place of the 01:25 one. Not established: how many of the 7 came from the automatic
+cache rather than the old pack (nothing here counts the reads), and Android's WebView.
