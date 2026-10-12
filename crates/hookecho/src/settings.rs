@@ -893,6 +893,10 @@ pub struct Settings {
     /// minutes.
     #[serde(default)]
     pub route_forecast: bool,
+    /// The widest grid, in cells, model contours are traced on; set by the quality profile
+    /// (`quality::RenderPolicy::contour_cells`). Display only: the field is never resampled.
+    #[serde(default = "default_contour_cells")]
+    pub contour_cells: u32,
     /// Attach a picture of the radar to the ntfy push when a warning fires. Desktop only: the
     /// Android background service has no GPU surface to render from, and says so in the UI.
     #[serde(default)]
@@ -2197,6 +2201,7 @@ impl Default for Settings {
             route_engine: Default::default(),
             route_url: String::new(),
             route_forecast: false,
+            contour_cells: default_contour_cells(),
             battery_saver: false,
             wind_barbs: false,
             wind_streamlines: false,
@@ -2777,6 +2782,11 @@ fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result
     } else {
         Ok(())
     }
+}
+
+/// The Balanced profile's contour grid, which a settings file from before profiles set it reads as.
+fn default_contour_cells() -> u32 {
+    900
 }
 
 #[cfg(test)]
@@ -3681,6 +3691,7 @@ mod tests {
             route_engine: Default::default(),
             route_url: String::new(),
             route_forecast: false,
+            contour_cells: default_contour_cells(),
             battery_saver: false,
             wind_barbs: false,
             wind_streamlines: false,

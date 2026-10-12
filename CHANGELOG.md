@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: quality profiles also set contour detail
+
+Low, Balanced, High and Analysis now also decide how finely model contour lines follow the
+field: coarser and cheaper on Low, finest on Analysis. The values the map, probe and exports
+read are unchanged.
+
 ### Fixed: docking a window by touch on a tablet
 
 On a tablet, dragging a floating window onto one of the dock targets lit the target, but lifting

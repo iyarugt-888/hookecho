@@ -1,7 +1,7 @@
 //! Rendering quality profiles (ROADMAP_PARITY M5.4, 1008.md E4). Low, Balanced, High and Analysis
 //! set the drawing knobs together: how finely the 3D volume is marched (on the map and in the 3D
-//! Reflectivity window), whether radar gates and gridded cells are blended for display, and what
-//! share of the wind particles is drawn.
+//! Reflectivity window), whether radar gates and gridded cells are blended for display, what
+//! share of the wind particles is drawn, and how fine a grid model contours are traced on.
 //!
 //! A profile is a rendering contract. It never touches a product, a tilt, a threshold, a colour
 //! table, the time or anything a probe, the inspector or an export reads; Analysis turns blending
@@ -28,6 +28,10 @@ pub struct RenderPolicy {
     pub smooth: bool,
     /// Percent of the wind particles drawn (`Settings::wind_particle_pct`).
     pub particle_pct: u32,
+    /// The widest grid, in cells, a model field's contours are traced on (`Settings::contour_cells`):
+    /// a finer grid follows the field more closely and costs more to trace. The field itself, its
+    /// probe and its export are never resampled by it.
+    pub contour_cells: u32,
 }
 
 impl QualityProfile {
@@ -50,28 +54,33 @@ impl QualityProfile {
     pub fn hint(self) -> &'static str {
         match self {
             QualityProfile::Low => {
-                "Coarsest 3D, half the wind particles: for a slow device or a long session on battery"
+                "Coarsest 3D and contours, half the wind particles: for a slow device or a long \
+                 session on battery"
             }
-            QualityProfile::Balanced => "Medium 3D and three quarters of the wind particles",
-            QualityProfile::High => "Finest 3D and every wind particle",
+            QualityProfile::Balanced => {
+                "Medium 3D and contours, three quarters of the wind particles"
+            }
+            QualityProfile::High => "Finest 3D, finer contours and every wind particle",
             QualityProfile::Analysis => {
-                "Finest 3D, with gates and grid cells drawn as they are rather than blended"
+                "Finest 3D and contours, with gates and grid cells drawn as they are rather than \
+                 blended"
             }
         }
     }
 
     pub fn policy(self) -> RenderPolicy {
-        let (map3d_steps, window3d_steps, smooth, particle_pct) = match self {
-            QualityProfile::Low => (64, 96, true, 50),
-            QualityProfile::Balanced => (96, 160, true, 75),
-            QualityProfile::High => (128, 256, true, 100),
-            QualityProfile::Analysis => (128, 256, false, 100),
+        let (map3d_steps, window3d_steps, smooth, particle_pct, contour_cells) = match self {
+            QualityProfile::Low => (64, 96, true, 50, 450),
+            QualityProfile::Balanced => (96, 160, true, 75, 900),
+            QualityProfile::High => (128, 256, true, 100, 1400),
+            QualityProfile::Analysis => (128, 256, false, 100, 2000),
         };
         RenderPolicy {
             map3d_steps,
             window3d_steps,
             smooth,
             particle_pct,
+            contour_cells,
         }
     }
 

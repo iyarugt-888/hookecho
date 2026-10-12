@@ -196,14 +196,10 @@ impl FieldPick {
 pub(crate) type FieldContours = std::collections::HashMap<
     usize,
     (
-        (ModelRequest, chrono::DateTime<chrono::Utc>, u32),
+        (ModelRequest, chrono::DateTime<chrono::Utc>, u32, u32),
         std::sync::Arc<Vec<wxdata::contour::ContourLine>>,
     ),
 >;
-
-/// Contours are made on a grid no wider than this: isolines of a smooth field need nothing finer,
-/// and the HRRR's full grid is millions of cells.
-const CONTOUR_MAX_DIM: usize = 900;
 
 /// The interval the picked field is contoured at, in its own unit, from its quantity's metadata
 /// (`model_inventory::Quantity::contour`): `None` for a shaded-only quantity, and for a
@@ -225,13 +221,17 @@ pub(crate) fn contour_label(level: f32) -> String {
     }
 }
 
-/// The contour lines of `grid` every `step`, on a grid at most [`CONTOUR_MAX_DIM`] across.
+/// The contour lines of `grid` every `step`, on a grid at most `max_cells` across (the quality
+/// profile's `contour_cells`): isolines of a smooth field need nothing finer than the profile asks
+/// for, and the HRRR's full grid is millions of cells.
 pub(crate) fn field_contour_lines(
     grid: &wxdata::mrms::MrmsField,
     step: f32,
+    max_cells: u32,
 ) -> Vec<wxdata::contour::ContourLine> {
-    if grid.nx.max(grid.ny) > CONTOUR_MAX_DIM {
-        wxdata::contour::contour_lines(&grid.subsampled(CONTOUR_MAX_DIM), step)
+    let max = (max_cells as usize).max(64);
+    if grid.nx.max(grid.ny) > max {
+        wxdata::contour::contour_lines(&grid.subsampled(max), step)
     } else {
         wxdata::contour::contour_lines(grid, step)
     }
@@ -563,10 +563,11 @@ impl HookEchoApp {
             else {
                 continue;
             };
-            let key = (request, stamp.received_time, step.to_bits());
+            let cells = self.settings.contour_cells;
+            let key = (request, stamp.received_time, step.to_bits(), cells);
             keep.insert(idx);
             if self.model_field_contours.get(&idx).map(|(k, _)| *k) != Some(key) {
-                let lines = std::sync::Arc::new(field_contour_lines(grid, step));
+                let lines = std::sync::Arc::new(field_contour_lines(grid, step, cells));
                 self.model_field_contours.insert(idx, (key, lines));
             }
         }
@@ -903,7 +904,7 @@ mod tests {
             lat_south: 25.0,
             time: chrono::Utc::now(),
         };
-        let lines = field_contour_lines(&big, 5.0);
+        let lines = field_contour_lines(&big, 5.0, 900);
         let levels: std::collections::BTreeSet<i32> =
             lines.iter().map(|l| l.level as i32).collect();
         // 5, 10 and 15 cross the field; 0 is its edge, which may or may not draw.
@@ -930,7 +931,17 @@ mod tests {
             lat_south: 39.0,
             time: chrono::Utc::now(),
         };
-        assert!(field_contour_lines(&small, 1.0).is_empty());
+        assert!(field_contour_lines(&small, 1.0, 900).is_empty());
+        // A finer profile traces the same levels on a finer grid: more points along a line.
+        let coarse: usize = field_contour_lines(&big, 5.0, 450)
+            .iter()
+            .map(|l| l.pts.len())
+            .sum();
+        let fine: usize = field_contour_lines(&big, 5.0, 2000)
+            .iter()
+            .map(|l| l.pts.len())
+            .sum();
+        assert!(fine > coarse, "{fine} vs {coarse}");
     }
 
     #[test]

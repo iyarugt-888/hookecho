@@ -22,6 +22,7 @@ pub(crate) fn apply_profile(
     *window3d_steps = p.window3d_steps;
     settings.smooth_radar = p.smooth;
     settings.wind_particle_pct = p.particle_pct;
+    settings.contour_cells = p.contour_cells;
 }
 
 /// The knobs as they stand, read from pane `active` (panes set one by one may differ; the row
@@ -36,6 +37,7 @@ pub(crate) fn policy_now(
         window3d_steps,
         smooth: settings.smooth_radar,
         particle_pct: settings.wind_particle_pct,
+        contour_cells: settings.contour_cells,
     }
 }
 
@@ -123,6 +125,7 @@ mod tests {
                 crate::settings::Settings {
                     smooth_radar: before.smooth_radar,
                     wind_particle_pct: before.wind_particle_pct,
+                    contour_cells: before.contour_cells,
                     ..settings.clone()
                 },
                 before,
