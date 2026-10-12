@@ -57,13 +57,16 @@ impl HookEchoApp {
     /// Each shown warning, watch and special weather statement's kind in words on its polygon
     /// (`alerts::map_tag`), so it reads without telling colours apart (1010.md V11). Most severe
     /// first; none over another; only on a polygon big enough on screen to hold its tag, at a
-    /// point inside it (`tag_anchor`).
+    /// point inside it (`tag_anchor`). Each tag reserves its place in the frame's shared `labels`
+    /// at warning priority, before city names and every lesser label, so none of those covers it
+    /// (1008.md E4).
     pub(crate) fn paint_alert_tags(
         &self,
         painter: &egui::Painter,
         prect: egui::Rect,
         cam: crate::render::mercator::Camera,
         vp: (f32, f32),
+        labels: &mut crate::labelplace::Placer,
     ) {
         use wxdata::overlay::FeatureKind;
         let rank = |f: &wxdata::overlay::GeoFeature, a: &wxdata::overlay::AlertInfo| {
@@ -75,18 +78,23 @@ impl HookEchoApp {
             };
             kind + u32::from(wxdata::alerts::escalation(a))
         };
-        let mut tags: Vec<(u32, &wxdata::overlay::GeoFeature, String)> = self
+        let mut tags: Vec<(u32, &wxdata::overlay::GeoFeature, String, String)> = self
             .overlays
             .iter()
             .filter_map(|f| {
                 let a = f.alert.as_ref()?;
-                Some((rank(f, a), f, wxdata::alerts::map_tag(a)?))
+                let tag = wxdata::alerts::map_tag(a)?;
+                let short = wxdata::alerts::short_tag(a).unwrap_or_else(|| tag.clone());
+                Some((rank(f, a), f, tag, short))
             })
             .collect();
         tags.sort_by_key(|t| std::cmp::Reverse(t.0));
         let font = egui::FontId::proportional(11.0);
-        let mut placed: Vec<egui::Rect> = Vec::new();
-        for (_, f, tag) in tags {
+        for (_, f, tag, short) in tags {
+            let key = crate::labelplace::key(&format!(
+                "alert-tag:{}:{tag}",
+                f.alert.as_ref().map_or("", |a| a.id.as_str())
+            ));
             let Some(ring) = f.rings.first() else {
                 continue;
             };
@@ -98,16 +106,20 @@ impl HookEchoApp {
                     egui::pos2(prect.left() + sx, prect.top() + sy)
                 })
                 .collect();
-            let galley = painter.layout_no_wrap(tag, font.clone(), egui::Color32::WHITE);
-            let size = galley.size() + egui::vec2(8.0, 4.0);
-            let Some(at) = tag_anchor(&pts, prect, size) else {
+            // The full tag where it fits, else the short one: a small emergency polygon still
+            // says "TOR!!" rather than nothing.
+            let fit = |text: String| {
+                let galley = painter.layout_no_wrap(text, font.clone(), egui::Color32::WHITE);
+                let size = galley.size() + egui::vec2(8.0, 4.0);
+                tag_anchor(&pts, prect, size).map(|at| (galley, size, at))
+            };
+            let Some((galley, size, at)) = fit(tag).or_else(|| fit(short)) else {
                 continue;
             };
             let rect = egui::Rect::from_center_size(at, size);
-            if placed.iter().any(|r| r.intersects(rect)) {
+            if !labels.place(key, rect, crate::labelplace::Priority::Warning) {
                 continue;
             }
-            placed.push(rect);
             let edge = egui::Color32::from_rgb(f.stroke[0], f.stroke[1], f.stroke[2]);
             painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(210));
             painter.rect_stroke(

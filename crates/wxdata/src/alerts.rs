@@ -183,6 +183,19 @@ pub fn map_tag(a: &AlertInfo) -> Option<String> {
     Some(tag.to_string())
 }
 
+/// [`map_tag`] for a polygon too small on screen to hold it: the product's code with the alert
+/// bell's marks for the top tiers, "!!" for an emergency and "!" for PDS or destructive
+/// ("TOR!!", "TOR!", "SVR!", "FFW!!"). Without it the most severe warning, whose long tag fits
+/// least, was the one left bare while a plain warning beside it kept its "TOR".
+pub fn short_tag(a: &AlertInfo) -> Option<String> {
+    let tag = map_tag(a)?;
+    Some(match tag.split_once(' ') {
+        Some((code, "EMERGENCY")) => format!("{code}!!"),
+        Some((code, "PDS" | "DESTRUCTIVE")) => format!("{code}!"),
+        _ => tag,
+    })
+}
+
 /// (FeatureKind, base RGB) for an event; fill is this at low alpha, stroke at full.
 pub(crate) fn event_style(event: &str) -> (FeatureKind, [u8; 3]) {
     let e = event.to_ascii_lowercase();
@@ -675,6 +688,29 @@ mod tests {
         );
         assert_eq!(tag("tornado warning", None, "").as_deref(), Some("TOR"));
         assert_eq!(tag("Flood Advisory", None, "").as_deref(), None);
+        let short = |e: &str, t: Option<&str>, h: &str| short_tag(&alert(e, t, h));
+        assert_eq!(
+            short("Tornado Warning", Some("CATASTROPHIC"), "").as_deref(),
+            Some("TOR!!")
+        );
+        assert_eq!(
+            short("Tornado Warning", Some("CONSIDERABLE"), "").as_deref(),
+            Some("TOR!")
+        );
+        assert_eq!(
+            short("Severe Thunderstorm Warning", Some("DESTRUCTIVE"), "").as_deref(),
+            Some("SVR!")
+        );
+        assert_eq!(
+            short("Flash Flood Warning", None, "FLASH FLOOD EMERGENCY").as_deref(),
+            Some("FFW!!")
+        );
+        assert_eq!(short("Tornado Warning", None, "").as_deref(), Some("TOR"));
+        assert_eq!(
+            short("Tornado Watch", None, "").as_deref(),
+            Some("TOR WATCH")
+        );
+        assert_eq!(short("Flood Advisory", None, "").as_deref(), None);
         assert_eq!(tag("Hydrologic Outlook", None, "").as_deref(), None);
     }
 
