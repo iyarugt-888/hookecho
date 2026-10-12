@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T20:15:15+00:00",
-  "generated_from_commit": "7361ca60c79a161d34791bc34870edca2d5604fc",
+  "generated_utc": "2026-10-12T20:43:29+00:00",
+  "generated_from_commit": "1b60247f0d55b67128cdc126a322484c4e54fb67",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -185,8 +185,8 @@
     {
       "card": "M5.1",
       "title": "Support independent link groups and source contexts",
-      "ledger_entries": 7,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 8,
+      "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.1"
     },
@@ -1374,8 +1374,18 @@
     },
     {
       "path": "docs/certification/m5.1/README.md",
-      "sha256": "4e6d7f8eebe99896cb406da01650245c1d655dbfb025de497df235be52ee12f5",
-      "bytes": 2577
+      "sha256": "35e70daf7561e6fa823d61cc705b87e662bef79e21cc2f7c042cdf961d7e17a1",
+      "bytes": 4977
+    },
+    {
+      "path": "docs/certification/m5.1/goes-active-pane-archive-browser.jpg",
+      "sha256": "4ccdf40838e32c8f91ffdeccbfa3d78f63a73cbeb542f901866c374595def01c",
+      "bytes": 127900
+    },
+    {
+      "path": "docs/certification/m5.1/goes-other-pane-live-browser.jpg",
+      "sha256": "2c30ff7bc4dd6cc4d7658d5908ddd0e81d933d088c9173bd0bf6d50139a8c5ce",
+      "bytes": 127693
     },
     {
       "path": "docs/certification/m5.1/time-group-picker.png",
