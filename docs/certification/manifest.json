@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T10:03:08+00:00",
-  "generated_from_commit": "856256fdcab95c1cbd8aa96a712239899d61e005",
+  "generated_utc": "2026-10-12T10:12:28+00:00",
+  "generated_from_commit": "ec8f2b993a3c6af96f0f09569c2153fee8deb76b",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1744,13 +1744,23 @@
     },
     {
       "path": "docs/certification/multi-radar/README.md",
-      "sha256": "73bca3905ada6f8b842de822d5c4b91e589ddd4ae79de14e37d276117197b290",
-      "bytes": 3880
+      "sha256": "c5b2c5436a72381bf1a316bdfc0d05b1656a211fa300f5c125bcbf6ea8e1941d",
+      "bytes": 5197
     },
     {
       "path": "docs/certification/multi-radar/moore-fusion.txt",
       "sha256": "591b0d801db3f063a30b7d5ed2e5af2027a79278dfc71f472b3be9cf213cca0b",
       "bytes": 1115
+    },
+    {
+      "path": "docs/certification/multi-radar/moore-section.png",
+      "sha256": "a77c557133a5984dc44dd2815ed94a3ac2aab7f8b541054cef21fc00b2374a2f",
+      "bytes": 39310
+    },
+    {
+      "path": "docs/certification/multi-radar/moore-section.txt",
+      "sha256": "0eca4cf00ac93d638757f93965b3beb7e26e5b493a0e61974c4fb74e9e6dc6c0",
+      "bytes": 544
     },
     {
       "path": "docs/certification/raster-context.md",
