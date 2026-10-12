@@ -267,9 +267,12 @@ impl HookEchoApp {
         let label = delivery.key.frame_label();
         match self.vol3d_build.accept(delivery, actual.as_ref()) {
             Some(Ok(built)) => {
-                // Publish source, coverage, layer summaries and GPU staging together.
-                self.vol3d.half_km = built.upload.half_km;
-                self.vol3d_pending = Some(built.upload);
+                // Publish source, coverage, layer summaries and GPU staging together. A box
+                // fused from nearby radars for this volume stays on screen instead.
+                if !self.vol3d_fused_shown() {
+                    self.vol3d.half_km = built.upload.half_km;
+                    self.vol3d_pending = Some(built.upload);
+                }
                 self.vol3d_range = built.range;
                 self.vol3d.layers = built.layers;
                 self.vol3d.frame = Some((label, built.coverage));

@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the 3D view with nearby radars
+
+The 3D volume window has "Add nearby radars": it shows the storm in a box 80 km across around
+the middle of the map, built from this radar and up to three others nearby, so the storm's
+upper part that this radar's beams pass under or over is filled in. The window says which
+radars went in. Reflectivity only.
+
 ### Developer: why one radar reads lower than its neighbours
 
 A new archive test follows KTLX against three distant radars through the Moore afternoon. KTLX

@@ -4613,8 +4613,12 @@ through the fused volume: the first radar alone, fused, and which radar counted 
 "Add nearby radars" (reflectivity only) fuses the section with up to three other WSR-88Ds
 within 230 km at volumes within five minutes (`app/xsection_fuse.rs`,
 `multiradar::fuse_section`); seen in the browser build on the Moore archive, panel coverage
-29 % to 76 %. Not yet: the fused volume in the 3D view, and a check against an independent
-multi-radar analysis such as MRMS's 3D mosaic.
+29 % to 76 %. The 3D window's "Add nearby radars" shows a box 80 km across around the map's
+centre fused from the pane's radar and up to three others (1 km columns, 0.5 km levels,
+resampled onto the window's grid), in place of the single-radar volume while it is on
+(`app/volume3d_fuse.rs`); seen in the browser build on the Moore archive. Not yet: the fused
+volume on the pitched 3D map, and a check against an independent multi-radar analysis such as
+MRMS's 3D mosaic.
 
 Do **not** create a “velocity mosaic” by naïvely combining radial velocities. If multi-Doppler wind retrieval is attempted, it must use proper geometry and be labeled experimental/research.
 

@@ -155,3 +155,35 @@ Not established:
 - the fused volume in the 3D view;
 - the window on the desktop app and on Android (only the browser build was run);
 - a check against an independent multi-radar analysis, such as MRMS's 3D reflectivity mosaic.
+
+### In the app's 3D window (2026-10-12)
+
+"Add nearby radars" in the 3D volume window fuses the active pane's reflectivity with up to three
+other WSR-88Ds within 230 km of the map's centre, at volumes within five minutes of the pane's,
+over a box 80 km across around that centre (`app/volume3d_fuse.rs`, `multiradar::fuse`). The box
+has 1 km columns and 0.5 km levels from the pane radar's antenna to the window's 18 km top, and is
+resampled to the nearest cell onto the window's own 192 by 192 by 48 grid, so the renderer and
+its controls are unchanged (`the_fused_box_lands_on_the_windows_grid`). While the switch is on,
+a new single-radar build for the same volume does not replace the fused box; the box is fused
+again when the volume changes or the map's centre moves 0.05°. Off, the single-radar volume is
+rebuilt. The fetch of the other radars is shared with the cross-section's (`xsection_fuse`).
+
+**Browser build on WebGPU, one machine**, Moore archive 2013-05-20, KTLX volume at 20:12 UTC,
+built from the working tree at `d460658a` with this change and another session's uncommitted work:
+
+| Capture | What it shows |
+| --- | --- |
+| `fused-3d-browser.jpg` | The 3D window with the switch on: "80 km around 35.33, -97.50, fused with KVNX (+49 s), KFDR (-60 s), KINX (+64 s): reflectivity weighted by each beam's thickness. Layers and source below are this radar's." |
+| `fused-3d-window-on.png` | The window close up, the fused box: the storm's core standing through the box. |
+| `fused-3d-window-off.png` | The switch off again: KTLX's own volume, whose box is its whole echo extent, so the storm is drawn smaller. Not a like-for-like view. |
+
+| File | SHA-256 |
+| --- | --- |
+| fused-3d-browser.jpg | `8777ee40e8f2ae4a9358e906807de1f60246853241fab249efa8f273e0a55944` |
+| fused-3d-window-on.png | `bf64fcbdef58a50689d94167bed7905403557a6b907f5554ec376008600dbe52` |
+| fused-3d-window-off.png | `4c9b1873d74f279c6753e45f71f820409e384c05161abbb8e375498935a99d0c` |
+
+The fused box came up within the ten seconds waited; how long the fetch and fusion took in the
+browser, which runs it on its one thread, was not timed. The 6 to 8 dB by which KTLX reads below
+the distant radars (above) is in this box too. Not established: the desktop app, Android, and the
+fused volume on the pitched 3D map.

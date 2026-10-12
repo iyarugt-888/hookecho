@@ -97,6 +97,7 @@ mod quality;
 mod rebuild;
 mod route_frame;
 mod feature_tracking;
+mod volume3d_fuse;
 mod xsection_fuse;
 mod field_series;
 mod self_update_ui;
@@ -1650,6 +1651,8 @@ pub struct HookEchoApp {
     feature_tracking: feature_tracking::FeatureTracking,
     /// The cross-section's nearby radars, when its switch is on (ROADMAP_NEW R1).
     xs_fusion: xsection_fuse::XsFusion,
+    /// The 3D window's box fused from nearby radars (1010.md V18).
+    vol3d_fusion: volume3d_fuse::Vol3dFusion,
     /// A browsed model field graphed at a point over its run (ROADMAP_NEW F4).
     field_series: field_series::FieldSeries,
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).

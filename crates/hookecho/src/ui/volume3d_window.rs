@@ -49,6 +49,11 @@ pub struct Volume3dState {
     pub building: bool,
     pub error: Option<String>,
     pub retry: bool,
+    /// "Add nearby radars": the window shows a box fused from up to four radars instead
+    /// (`app/volume3d_fuse.rs`, 1010.md V18).
+    pub fuse: bool,
+    /// What the window says about it: working, which radars went in, or why none did.
+    pub fuse_status: Option<String>,
 }
 
 /// The three quality rungs, coarsest first. 256 is what the window shipped with.
@@ -77,6 +82,8 @@ impl Default for Volume3dState {
             building: false,
             error: None,
             retry: false,
+            fuse: false,
+            fuse_status: None,
         }
     }
 }
@@ -898,6 +905,15 @@ fn source_status(ui: &mut egui::Ui, st: &mut Volume3dState) -> Option<egui::Id> 
         "3D grid matches the selected scan revision."
     };
     ui.add(egui::Label::new(status).wrap());
+    ui.checkbox(&mut st.fuse, "Add nearby radars")
+        .on_hover_text(
+            "Fuse this radar's reflectivity with up to three other WSR-88Ds over a box 80 km \
+             across around the map's centre, each beam weighted by its thickness; velocities \
+             are never combined",
+        );
+    if let Some(s) = st.fuse.then_some(st.fuse_status.as_ref()).flatten() {
+        ui.add(egui::Label::new(s).wrap());
+    }
     if let Some(error) = &st.error {
         ui.add(egui::Label::new(format!("Unavailable: {error}")).wrap());
         if ui.button("Retry 3D build").clicked() {

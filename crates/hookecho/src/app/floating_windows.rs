@@ -1097,6 +1097,7 @@ impl HookEchoApp {
                 self.build_volume3d();
             }
             self.drain_volume3d(ctx);
+            self.sync_vol3d_fusion(ctx);
         }
         if self.show_3d && !self.workstation_chrome() {
             let mut open = true;
