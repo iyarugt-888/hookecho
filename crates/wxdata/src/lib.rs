@@ -35,6 +35,7 @@ pub mod eccc;
 pub mod efield;
 pub mod ensemble;
 pub mod ensemble_sounding;
+pub mod feature_track;
 pub mod ero;
 pub mod evidence;
 pub mod extrema;

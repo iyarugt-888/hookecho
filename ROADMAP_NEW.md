@@ -4558,17 +4558,30 @@ Create persistent storm objects that combine:
 
 Expose a storm history timeline and exportable JSON/CSV.
 
-## R4. Feature tracking
+## R4. Feature tracking — engine started (1010.md V14)
 
 Track analyst-selected radar features through time using optical flow/object matching:
 
-- mesocyclone marker
+- [x] mesocyclone marker — engine only so far (`wxdata::feature_track`): from the volume and
+  point the analyst picks, follow the strongest cyclonic LLSD azimuthal shear on the lowest
+  velocity tilt (`rotation_peak`) forward and back through the loop, predicting each next fix from
+  the feature's own motion and searching 6 km around it (wider until it has a motion), and
+  stopping after two volumes in a row with nothing over 0.004 s⁻¹. Each fix has a confidence (its
+  contrast with the searched area, its strength over the floor, its nearness to the prediction).
+  Live on the Moore tornado, KTLX 2013-05-20 19:51-20:33 UTC: all 11 volumes followed, shear
+  0.017-0.046 s⁻¹, from 35.278, -97.647 to 35.339, -97.408, 8.9 m/s toward 73°, along the
+  tornado's own path west of Newcastle through Moore (`live_the_moore_mesocyclone_is_followed_through_the_loop`,
+  ignored, network; `target/parity-review/v14/live-moore.log`). Not in the app yet.
 - hail core
-- reflectivity core
+- [x] reflectivity core — the same engine on the strongest reflectivity (`core_peak`, 40 dBZ
+  floor); tested synthetically only
 - bounded weak echo region candidate
 - user-selected contour
 
-Always show confidence and allow manual correction.
+Always show confidence and allow manual correction. — the engine keeps each fix with its
+confidence, and a fix placed by hand is kept as placed while the track continues from it
+(`track`'s overrides; tested). The window, the map drawing and the click that moves a fix are
+the next increment.
 
 ## R5. Uncertainty everywhere
 
