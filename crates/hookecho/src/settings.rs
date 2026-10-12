@@ -869,6 +869,13 @@ pub struct Settings {
     /// again only for a new set.
     #[serde(default)]
     pub whats_new_seen: String,
+    /// The models the forecast window's models-at-this-point section reads (`PointModel::id`);
+    /// empty for its default set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub point_models: Vec<String>,
+    /// Its common product's slug; empty for 2 m temperature.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub point_product: String,
     /// Post alerts to the platform's own notification centre, so they arrive with the window
     /// behind something else. Ignored on Android, where the alert service posts its own.
     #[serde(default)]
@@ -2206,6 +2213,8 @@ impl Default for Settings {
             hints_seen: Vec::new(),
             setup_done: false,
             whats_new_seen: String::new(),
+            point_models: Vec::new(),
+            point_product: String::new(),
             desktop_notify: false,
             chase_log: false,
             route_engine: Default::default(),
@@ -3697,6 +3706,8 @@ mod tests {
             rain_sound: AlertSound::Ding,
             setup_done: true,
             whats_new_seen: String::new(),
+            point_models: Vec::new(),
+            point_product: String::new(),
             desktop_notify: false,
             chase_log: false,
             route_engine: Default::default(),

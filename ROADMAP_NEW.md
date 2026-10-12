@@ -2570,7 +2570,9 @@ Every appropriate field should support:
   browsed field has "Graph this point over the run" in the pinned layer probe: the same
   message at every lead of the pane's run, pinned to that run, in its display units, a
   missing lead a gap (`app/field_series.rs`, 1010.md V16; browser walkthrough in
-  `docs/certification/model-fields/`)
+  `docs/certification/model-fields/`). The forecast window's "Models at this point" graphs
+  any product from up to six of fifteen models on one time axis, each matched in that
+  model's own inventory (`app/point_models.rs`; `docs/certification/point-models/`)
 
 (Checked against the code on 2026-10-12, 1010.md V20: barbs, streamlines and the probe were
 already in for browsed winds but not ticked here.)

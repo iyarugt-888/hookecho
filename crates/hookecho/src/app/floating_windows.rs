@@ -552,21 +552,6 @@ impl HookEchoApp {
                     .insert(key, (Instant::now(), station, ob));
             }
         }
-        // Model-forecast meteogram: drain the fetch, cache it under (point, model, field, period).
-        if let Some((key, rx)) = &self.model_series_rx {
-            if let Ok(res) = rx.try_recv() {
-                let key = *key;
-                self.model_series_rx = None;
-                self.model_series_state = match res {
-                    Ok(series) => {
-                        self.model_series_cache
-                            .insert(key, (Instant::now(), series.clone()));
-                        ui::forecast_window::SeriesState::Ready(series)
-                    }
-                    Err(e) => ui::forecast_window::SeriesState::Failed(e),
-                };
-            }
-        }
         // Ensemble plume: drain the fetch, cache it under (point, field, period).
         if let Some((key, rx)) = &self.plume_rx {
             if let Ok(res) = rx.try_recv() {
@@ -583,6 +568,7 @@ impl HookEchoApp {
             }
         }
         if self.forecast_open {
+            self.sync_point_models(ctx);
             let at = self.forecast_at.unwrap_or((0.0, 0.0));
             let tz = self.active_tz();
             let minute = self.minute_profile(at).map(|m| m.to_vec());
@@ -591,6 +577,7 @@ impl HookEchoApp {
                 .forecast_obs_cache
                 .get(&key)
                 .map(|(_, station, ob)| (station.as_str(), ob));
+            let (point_models, temp_unit) = (&mut self.point_models, self.settings.temp_unit);
             let result = ui::forecast_window::show(
                 ctx,
                 &self.forecast_state,
@@ -599,14 +586,10 @@ impl HookEchoApp {
                 minute.as_deref(),
                 now,
                 &mut self.popovers,
-                &mut self.model_series_ui,
-                &self.model_series_state,
+                &mut |ui: &mut egui::Ui| point_models.section(ui, at, tz, temp_unit),
                 &mut self.plume_ui,
                 &self.plume_state,
             );
-            if result.series_changed {
-                self.fetch_model_series(at.0, at.1);
-            }
             if result.plume_changed {
                 self.fetch_plume(at.0, at.1);
             }

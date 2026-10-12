@@ -509,6 +509,25 @@ async fn fetch_run(
     })
 }
 
+/// The GEFS ensemble-mean half-degree file (`pgrb2a`, the common fields) for `run` and lead `fh`.
+fn gefs_mean_base(run: DateTime<Utc>, fh: u16) -> String {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    format!(
+        "{GEFS_BUCKET}/gefs.{date}/{:02}/atmos/pgrb2ap5/geavg.t{:02}z.pgrb2a.0p50.f{fh:03}",
+        run.hour(),
+        run.hour()
+    )
+}
+
+/// The lattice an inventory field is decoded onto: the GEFS's half degree is not resampled finer.
+fn inventory_res(model: GlobalModel) -> f64 {
+    if model == GlobalModel::Gefs {
+        GEFS_RES_DEG
+    } else {
+        RES_DEG
+    }
+}
+
 /// The GFS quarter-degree file for `run` and lead `fh`.
 fn gfs_base(run: DateTime<Utc>, fh: u16) -> String {
     let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
@@ -540,11 +559,14 @@ impl GlobalModel {
     pub const BROWSABLE: [GlobalModel; 2] = [GlobalModel::Gfs, GlobalModel::Ecmwf];
 
     /// The newest lead at or before `fh` that the model publishes a file for: the GFS hourly to
-    /// F+120 then 3-hourly to F+384; the ECMWF IFS 3-hourly to F+144 then 6-hourly to F+360.
+    /// F+120 then 3-hourly to F+384; the ECMWF IFS 3-hourly to F+144 then 6-hourly to F+360; the
+    /// GEFS mean 3-hourly to F+240 then 6-hourly to F+384.
     pub fn inventory_lead(self, fh: u16) -> u16 {
         match self {
             GlobalModel::Ecmwf if fh <= 144 => fh / 3 * 3,
             GlobalModel::Ecmwf => (fh / 6 * 6).min(360),
+            GlobalModel::Gefs if fh <= 240 => fh / 3 * 3,
+            GlobalModel::Gefs => (fh / 6 * 6).min(384),
             _ if fh <= 120 => fh,
             _ => (fh / 3 * 3).min(384),
         }
@@ -556,6 +578,7 @@ fn inventory_base(model: GlobalModel, run: DateTime<Utc>, fh: u16) -> anyhow::Re
     match model {
         GlobalModel::Gfs => Ok(gfs_base(run, fh)),
         GlobalModel::Ecmwf => Ok(ecmwf_base(run, fh)),
+        GlobalModel::Gefs => Ok(gefs_mean_base(run, fh)),
         other => anyhow::bail!("{} inventories are not browsable", other.label()),
     }
 }
@@ -631,7 +654,7 @@ pub async fn fetch_global_inventory_field(
                     .ok_or_else(|| {
                         anyhow::anyhow!("no {var}:{level_text} ({}) at F+{fh}", kind.label())
                     })?;
-            let mut field = download_field(http, &base, e).await?;
+            let mut field = download_field(http, &base, e, inventory_res(model)).await?;
             for v in &mut field.values {
                 if v.is_finite() {
                     *v = quantity.to_display(*v);
@@ -653,16 +676,17 @@ pub async fn fetch_global_inventory_field(
     Err(last.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
 }
 
-/// The field one inventory entry names, decoded onto [`RES_DEG`] and scaled to its vetted
-/// quantity's native unit ([`crate::model_inventory::Entry::scale`]).
+/// The field one inventory entry names, decoded onto the `res_deg` lattice and scaled to its
+/// vetted quantity's native unit ([`crate::model_inventory::Entry::scale`]).
 async fn download_field(
     http: &reqwest::Client,
     base: &str,
     e: &crate::model_inventory::Entry,
+    res_deg: f64,
 ) -> anyhow::Result<MrmsField> {
     let raw = crate::gribcache::fetch_range(http, base, (e.offset, e.end), USER_AGENT).await?;
     let raw = crate::model_inventory::field_bytes(raw, e.sub)?;
-    let mut field = crate::task::blocking(move || decode(&raw, RES_DEG)).await??;
+    let mut field = crate::task::blocking(move || decode(&raw, res_deg)).await??;
     if e.scale != 1.0 {
         for v in &mut field.values {
             if v.is_finite() {
@@ -694,8 +718,9 @@ pub async fn fetch_global_inventory_vector(
                     .ok_or_else(|| anyhow::anyhow!("no {var}:{level_text} at F+{fh}"))
             };
             let (u_at, v_at) = (locate("UGRD")?, locate("VGRD")?);
-            let u = download_field(http, &base, u_at).await?;
-            let v = download_field(http, &base, v_at).await?;
+            let res = inventory_res(model);
+            let u = download_field(http, &base, u_at, res).await?;
+            let v = download_field(http, &base, v_at, res).await?;
             anyhow::ensure!((u.nx, u.ny) == (v.nx, v.ny), "u/v grid mismatch");
             anyhow::Ok((u, v))
         };
@@ -909,6 +934,11 @@ mod tests {
         assert_eq!(
             [0, 7, 120, 121, 124, 500].map(|h| g.inventory_lead(h)),
             [0, 7, 120, 120, 123, 384]
+        );
+        let m = GlobalModel::Gefs;
+        assert_eq!(
+            [0, 7, 240, 241, 250, 500].map(|h| m.inventory_lead(h)),
+            [0, 6, 240, 240, 246, 384]
         );
     }
 

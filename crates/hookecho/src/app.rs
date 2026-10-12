@@ -26,6 +26,7 @@ mod field_state;
 mod goes_context;
 mod goes_panes;
 mod goes_timeline;
+mod point_models;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
 mod impact_report;
@@ -1187,12 +1188,6 @@ const CONTROL_BUTTONS: usize = 6;
 /// accent.
 type ThemeApplied = Option<[u8; 3]>;
 
-/// Which point-forecast series a request or cache entry is for: `(lat_e5, lon_e5, which series)`.
-type ModelSeriesKey = (i32, i32, ui::forecast_window::ModelSeriesUi);
-
-/// One point-forecast series: a value (or a gap) per valid time.
-type ModelSeries = Vec<(chrono::DateTime<Utc>, Option<f32>)>;
-
 pub struct HookEchoApp {
     /// The native runtime, kept alive for as long as the app is. Work is spawned through
     /// `spawner`, which is the same thing natively and the browser's event loop on the web.
@@ -2097,14 +2092,8 @@ pub struct HookEchoApp {
     )>,
     forecast_obs_cache:
         std::collections::HashMap<(i32, i32), (Instant, String, wxdata::obs::Observation)>,
-    /// The forecast window's model-meteogram picker (model/field/period) and what it's holding.
-    model_series_ui: ui::forecast_window::ModelSeriesUi,
-    model_series_state: ui::forecast_window::SeriesState,
-    model_series_rx: Option<(
-        ModelSeriesKey,
-        std::sync::mpsc::Receiver<Result<ModelSeries, String>>,
-    )>,
-    model_series_cache: std::collections::HashMap<ModelSeriesKey, (Instant, ModelSeries)>,
+    /// The forecast window's models at the tapped point: the choice and each model's line.
+    point_models: point_models::PointModels,
     /// The forecast window's ensemble-plume picker and what it is holding (ROADMAP_NEW F7).
     plume_ui: ui::forecast_window::PlumeUi,
     plume_state: ui::forecast_window::PlumeState,
@@ -3278,7 +3267,6 @@ impl HookEchoApp {
         self.forecast_at = Some((lon, lat));
         self.forecast_open = true;
         self.fetch_point_obs(key, lon, lat);
-        self.fetch_model_series(lon, lat);
         self.fetch_plume(lon, lat);
         if let Some((when, f)) = self.forecast_cache.get(&key) {
             if when.elapsed().as_secs() < 900 {

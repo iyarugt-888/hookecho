@@ -106,6 +106,8 @@ impl HookEchoApp {
         let (tray_rx_init, tray_present_init) = crate::tray::spawn();
 
         let mut settings = Settings::load();
+        let mut point_models = point_models::PointModels::default();
+        point_models.restore(&settings.point_models, &settings.point_product);
         let compare_view = settings.compare_view;
         // The starter arrangements worth having before you have built any of your own. Once
         // only: the flag is what makes deleting them stick.
@@ -732,10 +734,7 @@ impl HookEchoApp {
             forecast_cache: std::collections::HashMap::new(),
             forecast_obs_rx: None,
             forecast_obs_cache: std::collections::HashMap::new(),
-            model_series_ui: ui::forecast_window::ModelSeriesUi::default(),
-            model_series_state: ui::forecast_window::SeriesState::Idle,
-            model_series_rx: None,
-            model_series_cache: std::collections::HashMap::new(),
+            point_models,
             plume_ui: ui::forecast_window::PlumeUi::default(),
             plume_state: ui::forecast_window::PlumeState::Idle,
             plume_rx: None,

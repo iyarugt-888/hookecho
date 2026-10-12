@@ -263,15 +263,31 @@ impl Timing {
         {
             return Timing::Instant { minutes: m };
         }
-        for (suffix, stat) in [
-            (" hour acc fcst", Stat::Accumulation),
-            (" hour max fcst", Stat::Max),
-            (" hour min fcst", Stat::Min),
-            (" hour ave fcst", Stat::Mean),
-        ] {
-            if let Some((a, b)) = t.strip_suffix(suffix).and_then(|s| s.split_once('-')) {
-                if let (Ok(from_h), Ok(to_h)) = (a.parse(), b.parse()) {
-                    return Timing::Interval { stat, from_h, to_h };
+        // NCEP writes a whole number of days in days: "1 day fcst", "0-2 day acc fcst".
+        if let Some(d) = t
+            .strip_suffix(" day fcst")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            return Timing::Instant {
+                minutes: d * 24 * 60,
+            };
+        }
+        for (unit, hours) in [("hour", 1), ("day", 24)] {
+            for (stat_text, stat) in [
+                ("acc", Stat::Accumulation),
+                ("max", Stat::Max),
+                ("min", Stat::Min),
+                ("ave", Stat::Mean),
+            ] {
+                let suffix = format!(" {unit} {stat_text} fcst");
+                if let Some((a, b)) = t.strip_suffix(&suffix).and_then(|s| s.split_once('-')) {
+                    if let (Ok(from), Ok(to)) = (a.parse::<u32>(), b.parse::<u32>()) {
+                        return Timing::Interval {
+                            stat,
+                            from_h: from * hours,
+                            to_h: to * hours,
+                        };
+                    }
                 }
             }
         }
@@ -889,6 +905,34 @@ mod tests {
         assert!((vetted("PRMSL").unwrap().to_display(101_325.0) - 1013.25).abs() < 1e-3);
         // A lifted index is a difference: no offset.
         assert_eq!(vetted("LFTX").unwrap().offset, 0.0);
+    }
+
+    /// At whole days NCEP's index counts in days, and a total since the run began must still
+    /// match there, or a precipitation series has a hole every 24 hours.
+    #[test]
+    fn whole_days_read_as_hours() {
+        assert_eq!(
+            Timing::parse("0-1 day acc fcst"),
+            Timing::Interval {
+                stat: Stat::Accumulation,
+                from_h: 0,
+                to_h: 24
+            }
+        );
+        assert_eq!(
+            Timing::parse("1-2 day max fcst").kind(),
+            Some(TimingKind::Window {
+                stat: Stat::Max,
+                hours: 24
+            })
+        );
+        assert_eq!(
+            Timing::parse("2 day fcst"),
+            Timing::Instant { minutes: 2880 }
+        );
+        let since = TimingKind::SinceRun(Stat::Accumulation);
+        assert!(since.matches(&Timing::parse("0-2 day acc fcst"), 48));
+        assert!(since.matches(&Timing::parse("0-47 hour acc fcst"), 47));
     }
 
     #[test]

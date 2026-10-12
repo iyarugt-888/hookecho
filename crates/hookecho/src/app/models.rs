@@ -218,37 +218,6 @@ impl HookEchoApp {
         }
     }
 
-    /// One model's forecast for one field at the tapped point, over `self.model_series_ui`'s
-    /// chosen period — the meteogram under the forecast window's "This week" NWS blend. Same
-    /// ~0.05° cache cell and 15-minute TTL as the point forecast beside it, keyed additionally by
-    /// the picker so switching model/field/period is a fresh fetch, not a stale hit.
-    pub(crate) fn fetch_model_series(&mut self, lon: f64, lat: f64) {
-        let key = (
-            (lat * 20.0).round() as i32,
-            (lon * 20.0).round() as i32,
-            self.model_series_ui,
-        );
-        if let Some((when, series)) = self.model_series_cache.get(&key) {
-            if when.elapsed().as_secs() < 900 {
-                self.model_series_state = ui::forecast_window::SeriesState::Ready(series.clone());
-                return;
-            }
-        }
-        self.model_series_state = ui::forecast_window::SeriesState::Loading;
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.model_series_rx = Some((key, rx));
-        let http = self.http.clone();
-        let ui = self.model_series_ui;
-        let hours = ui.period.hours();
-        self.spawner.spawn(async move {
-            let res =
-                wxdata::global::fetch_point_series(&http, ui.model, ui.field, lon, lat, &hours)
-                    .await
-                    .map_err(|e| e.to_string());
-            let _ = tx.send(res);
-        });
-    }
-
     /// Score the chosen run against the RTMA at each chosen lead, off the UI thread.
     pub(crate) fn fetch_model_verify(&mut self) {
         let w = &self.model_verify;

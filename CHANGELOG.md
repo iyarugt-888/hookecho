@@ -21,8 +21,8 @@ The rolling `latest` release tracks `main` and is not listed here.
   you have looked at stay on the map offline, and you can keep a loop on the device before you
   go.
 - **Every field a model publishes** — Model fields opens every field of the HRRR, RAP, NAM, GFS,
-  ECMWF and more, with contours, wind barbs, streamlines, wind particles and a graph over the
-  run.
+  ECMWF and more, with contours, barbs, streamlines and particles, and the point forecast graphs
+  any of them from six models at once.
 - **Ensembles** — HREF guidance, the GEFS spread on the sounding, postage stamps of every member
   and spaghetti plots.
 - **Satellite at its own pace** — A satellite loop that plays every scan, one a minute for the
@@ -34,6 +34,20 @@ The rolling `latest` release tracks `main` and is not listed here.
   dock by dragging, and a page like this one after each update.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
+
+### Added: every model at your point, for any product
+
+The forecast window's model graph now compares up to six models on one chart: the HRRR, RAP,
+NAM 3 km and 12 km, both HiresW runs, RRFS, HREF, NBM, GFS, ECMWF, the GEFS mean and the
+Canadian GDPS. Pick one of 15 common products (temperature, dew point, humidity, wind, gusts,
+pressure, rain since the run began, CAPE, reflectivity, cloud, visibility, precipitable water,
+850 hPa temperature, 500 hPa height, snow depth) or any field from a model's own file, over 24
+hours to 10 days. Touch or point at the graph to read every model at that hour. A model that
+does not publish the product says so instead of showing another. The models you tick and a
+common product are remembered. The GEFS now loads in the browser too, so the ensemble plume
+works there. In the browser, the RAP, GDPS, HiresW, RRFS and HREF say they are desktop and
+Android only: their files need a decoder the browser version leaves out, or come from a
+server that does not let a browser read it.
 
 ### Added: each pane shows satellite at its own time
 

@@ -1214,6 +1214,10 @@ const ALLOWED_HOSTS: &[&str] = &[
     "noaa-goes19.s3.amazonaws.com",
     "noaa-goes18.s3.amazonaws.com",
     "noaa-gfs-bdp-pds.s3.amazonaws.com",
+    // The GEFS: members, mean and spread, for the ensemble plume, its layers and the point
+    // forecast's models. (The GDPS's Datamart files are JPEG 2000, which the web build cannot
+    // decode, so its host is not here.)
+    "noaa-gefs-pds.s3.amazonaws.com",
     "data.ecmwf.int",
     "mrms.ncep.noaa.gov",
     "www.nohrsc.noaa.gov",
