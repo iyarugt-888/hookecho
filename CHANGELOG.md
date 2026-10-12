@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: the satellite loop says how fast it really plays
+
+The satellite loop's bar now shows the speed of the last pass through it, in frames a second,
+beside the speed you asked for. A frame that has not loaded holds the loop, so the two can
+differ.
+
 ### Added: a cross-section from several radars
 
 The cross-section window has "Add nearby radars" for reflectivity. It brings in up to

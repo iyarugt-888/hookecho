@@ -72,6 +72,61 @@ pub(crate) struct SatLoop {
     inflight: std::collections::HashSet<String>,
     prefetch_rx: Option<std::sync::mpsc::Receiver<(String, bool)>>,
     prefetch_tx: Option<std::sync::mpsc::Sender<(String, bool)>>,
+    /// How the passes through the loop are going (1010.md V19): the pass under way and the
+    /// last one finished.
+    pub pass: PassClock,
+}
+
+/// Playback speed as shown, pass by pass: when the current pass started, its frames so far and
+/// how many of them never appeared, and the last finished pass.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct PassClock {
+    pub number: u32,
+    started: Option<f64>,
+    frames: usize,
+    failed: usize,
+    pub last: Option<PassReport>,
+}
+
+/// One finished pass through the loop.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PassReport {
+    pub number: u32,
+    pub frames: usize,
+    pub failed: usize,
+    pub seconds: f64,
+}
+
+impl PassReport {
+    /// Frames shown per second over the pass, its end dwell included.
+    pub fn fps(&self) -> f64 {
+        self.frames as f64 / self.seconds.max(1e-6)
+    }
+}
+
+impl PassClock {
+    /// The playhead stepped at `now` onto `playhead`; `failed` if the frame it left never
+    /// appeared. A step onto frame 0 finishes the pass.
+    fn stepped(&mut self, now: f64, playhead: usize, failed: bool) -> Option<PassReport> {
+        let started = *self.started.get_or_insert(now);
+        self.frames += 1;
+        self.failed += usize::from(failed);
+        if playhead != 0 {
+            return None;
+        }
+        self.number += 1;
+        let report = PassReport {
+            number: self.number,
+            frames: self.frames,
+            failed: self.failed,
+            seconds: now - started,
+        };
+        self.last = Some(report);
+        self.started = Some(now);
+        self.frames = 0;
+        self.failed = 0;
+        Some(report)
+    }
 }
 
 impl SatLoop {
@@ -136,6 +191,7 @@ impl SatLoop {
         }
         let asked = *self.asked_at.get_or_insert(now);
         let current = self.frames[self.playhead].start;
+        self.pass.started.get_or_insert(now);
         if !shown {
             if now - asked < FRAME_WAIT_S {
                 return false;
@@ -154,6 +210,18 @@ impl SatLoop {
             return false;
         }
         self.step_by(1, now);
+        if let Some(r) = self.pass.stepped(now, self.playhead, !shown) {
+            log::info!(
+                "satellite loop: pass {}: {} frames in {:.1} s, {:.2} frames/s shown at {} asked \
+                 (the end dwell included), {} never appeared",
+                r.number,
+                r.frames,
+                r.seconds,
+                r.fps(),
+                self.fps,
+                r.failed
+            );
+        }
         true
     }
 
@@ -524,6 +592,14 @@ impl HookEchoApp {
                             .on_hover_text(
                                 "At most this fast: a frame that has not loaded yet holds the loop",
                             );
+                        if let Some(r) = l.pass.last {
+                            ui.weak(format!("last pass {:.1} fps", r.fps()))
+                                .on_hover_text(format!(
+                                    "Pass {}: {} frames shown in {:.1} s, the pause on the newest \
+                                 included; {} never appeared",
+                                    r.number, r.frames, r.seconds, r.failed
+                                ));
+                        }
                         if ui
                             .button("\u{d7}")
                             .on_hover_text("Close the satellite loop")
@@ -637,6 +713,24 @@ mod tests {
         l.playing = true;
         l.install(vec![frames(minutes)], 60);
         l
+    }
+
+    #[test]
+    fn a_pass_reports_its_frames_and_rate_when_the_loop_wraps() {
+        let mut c = PassClock::default();
+        // Four frames at 0.25 s, the last of them never appeared, then the wrap at 1.0 s.
+        assert_eq!(c.stepped(0.25, 1, false), None);
+        assert_eq!(c.stepped(0.5, 2, false), None);
+        assert_eq!(c.stepped(0.75, 3, true), None);
+        let r = c
+            .stepped(1.0, 0, false)
+            .expect("the wrap finishes the pass");
+        assert_eq!((r.number, r.frames, r.failed), (1, 4, 1));
+        assert!((r.seconds - 0.75).abs() < 1e-9 && (r.fps() - 4.0 / 0.75).abs() < 1e-9);
+        assert_eq!(c.last, Some(r));
+        // The next pass starts from the wrap.
+        let r2 = (0..4).find_map(|i| c.stepped(1.5 + f64::from(i), (i as usize + 1) % 4, false));
+        assert_eq!(r2.map(|r| (r.number, r.frames)), Some((2, 4)));
     }
 
     #[test]
