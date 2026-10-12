@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T08:25:27+00:00",
-  "generated_from_commit": "aa38e2e85040756577dc3bcab0a3dcc7e6345316",
+  "generated_utc": "2026-10-12T08:47:41+00:00",
+  "generated_from_commit": "8f1b17df9b5cff0c9854bfc7f0bd274714c751df",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -105,8 +105,8 @@
     {
       "card": "M3.1",
       "title": "Expose authoritative gate metadata",
-      "ledger_entries": 4,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 5,
+      "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (decoded Nyquist and unambiguous range, increment 1; decoded Nyquist in dealiasing, increment 2); verification: partial (independent byte-level read; Py-ART 2.3.0 comparison on 12 cached volumes).",
       "evidence_dir": null
     },
@@ -309,8 +309,18 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "0337a58d72990513dd0edb6a5a36b616475e3ab507e204ae268f6817a637126a",
-      "bytes": 6112
+      "sha256": "f7be609d49c91ab4eb9f577905d2005d67b64e97abd342e8ac7e912d313db548",
+      "bytes": 7619
+    },
+    {
+      "path": "docs/certification/chase/offline-cached-radar-desktop.png",
+      "sha256": "971e1d2f4a3d2aaa464d2ca6d377f310fb4c66e016d49e4234ec7d4fa4ab20ea",
+      "bytes": 504725
+    },
+    {
+      "path": "docs/certification/chase/offline-cached-radar-desktop.txt",
+      "sha256": "4e5f7c10b9f2c9c248975fbea5cfce8e574bba766a0242114962d2e863b04b4a",
+      "bytes": 150
     },
     {
       "path": "docs/certification/chase/route-forecast-clear-browser.jpg",
