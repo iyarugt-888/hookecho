@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T00:22:49+00:00",
-  "generated_from_commit": "cdf9a23dba84520e2314d727ec2237e6f1278247",
+  "generated_utc": "2026-10-12T00:32:24+00:00",
+  "generated_from_commit": "c4c7f513527296e3b9c80a05e2e198bd06fde547",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -299,8 +299,8 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "80d6e5d1b82d9c9ee5835af48cdb173786e5571c29f951d0f9e7958a61e69fb0",
-      "bytes": 4800
+      "sha256": "0337a58d72990513dd0edb6a5a36b616475e3ab507e204ae268f6817a637126a",
+      "bytes": 6112
     },
     {
       "path": "docs/certification/chase/route-forecast-clear-browser.jpg",
