@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T11:25:05+00:00",
-  "generated_from_commit": "04e36a0976857269814bfb0b2ff8791535758868",
+  "generated_utc": "2026-10-12T11:52:31+00:00",
+  "generated_from_commit": "b8e829edf55f2ae6a9caf7806d740c6bbb5f4435",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1689,8 +1689,8 @@
     },
     {
       "path": "docs/certification/model-fields/README.md",
-      "sha256": "bea0cf00ffad50357efa3a9879d34706a807de001907cc1e1919aa77876fdcdf",
-      "bytes": 6083
+      "sha256": "37f1eee30a57b1815fc50fd282d10c6e8ef159874de6da28bb0791cfcf56c103",
+      "bytes": 8905
     },
     {
       "path": "docs/certification/model-fields/hrrr-500hpa-height-contours-browser.jpg",
@@ -1701,6 +1701,21 @@
       "path": "docs/certification/model-fields/hrrr-850hpa-temperature-contours-browser.jpg",
       "sha256": "a8dffed7e06ecb20e9d8b22fb4d47cb55bf1ab747db91cd272629078afb4a84a",
       "bytes": 109005
+    },
+    {
+      "path": "docs/certification/model-fields/particles-hrrr-850-vs-10m-live.png",
+      "sha256": "b4153001b388a7f7204243f176227a8688adab3afb1fd33f9b74258c525dd3f4",
+      "bytes": 232648
+    },
+    {
+      "path": "docs/certification/model-fields/particles-switch-offered-browser.jpg",
+      "sha256": "12e183e17df7b58d2dbf406602be6a6ac5c292e77dacd4e73b45cfce1b73f5c9",
+      "bytes": 86565
+    },
+    {
+      "path": "docs/certification/model-fields/particles-switch-on-browser.jpg",
+      "sha256": "a02a699c200f5751c60715c546b44ab7c254aee0ac485f08adcbec97025162c5",
+      "bytes": 86080
     },
     {
       "path": "docs/certification/model-fields/point-graph-hrrr-t2m-browser.jpg",
