@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T17:51:50+00:00",
-  "generated_from_commit": "605953753807119556e6b8224a7782db611ea4bd",
+  "generated_utc": "2026-10-12T18:13:49+00:00",
+  "generated_from_commit": "5a21ff5a61853f4c9987e1546b0d14711af67a71",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -105,10 +105,10 @@
     {
       "card": "M3.1",
       "title": "Expose authoritative gate metadata",
-      "ledger_entries": 5,
+      "ledger_entries": 6,
       "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (decoded Nyquist and unambiguous range, increment 1; decoded Nyquist in dealiasing, increment 2); verification: partial (independent byte-level read; Py-ART 2.3.0 comparison on 12 cached volumes).",
-      "evidence_dir": null
+      "evidence_dir": "docs/certification/m3.1"
     },
     {
       "card": "M3.2",
@@ -1141,6 +1141,16 @@
       "path": "docs/certification/m2.4/storm-note.png",
       "sha256": "c3760a8f5bdbd48e5f2ed5557d2cfa80e42659d9886eb37e675de9bc21293bb1",
       "bytes": 26346
+    },
+    {
+      "path": "docs/certification/m3.1/README.md",
+      "sha256": "903e5957dc5eed7109269b5c2c1aa92b6f842af001d3eafeaf16de9847f1c113",
+      "bytes": 3094
+    },
+    {
+      "path": "docs/certification/m3.1/sector-nyquist-backtest.txt",
+      "sha256": "6f59de3136077dc1fc120bea9ea5fa30b050f0df38495e0e28c36ea732075a61",
+      "bytes": 1532
     },
     {
       "path": "docs/certification/m3.2/README.md",
