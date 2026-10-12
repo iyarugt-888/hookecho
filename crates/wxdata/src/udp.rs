@@ -75,6 +75,8 @@ use std::fmt;
 
 mod units;
 pub use units::{label_note, Quantity};
+mod wgsl;
+pub use wgsl::GpuProgram;
 
 /// One input an expression can read at a gate. Case-insensitive on the way in; see
 /// [`Input::parse`].

@@ -1526,7 +1526,10 @@ Preferred implementation order:
    metres MSL) and each addition, comparison, choice or fallback between different ones, or
    between the two height datums, is named in plain words beside the product. Advice, not
    refusal, since a weighted index may mean it
-3. [ ] optional AST-to-WGSL generation for parallel products
+3. [x] optional AST-to-WGSL generation for parallel products — `Expr::to_wgsl`
+   (`udp/wgsl.rs`) for per-gate formulas, run by `hookecho::udp_gpu` (1010.md V17). Column
+   formulas stay on the CPU. Not used by the app: on the Moore volume it was slower than the
+   CPU, because the inputs are gathered on the CPU either way
 4. [x] deterministic resource limits — a recursion-depth ceiling on the parser (`MAX_EXPR_DEPTH`),
    found necessary by this session's own test suite: the first version stack-overflowed the
    process on deeply nested parentheses instead of erroring
@@ -1560,7 +1563,11 @@ Use TOML/JSON/YAML-like portable definitions containing:
 
 - [x] invalid formulas cannot crash the app — unit-tested directly, including the stack-overflow
   fix above
-- [ ] same formula produces matching CPU/GPU results within tolerance — no GPU path exists yet
+- [x] same formula produces matching CPU/GPU results within tolerance — the same gates have a
+  value and values agree within 1 part in 100,000, for ten formulas over 200,003 seeded gates
+  and four over every tilt of the Moore volume (RTX 2060, Vulkan; ignored GPU tests in
+  `udp_gpu.rs`). Not to the last bit: WGSL division need only be within 2.5 ULP, and a GPU
+  compiler may fold constants in a way IEEE would not, which shows only past f32's range
 - [x] product can be saved... — [ ] ...synced and exported — saved products ride along with the
   existing whole-`Settings` export/import; there is no dedicated per-product sync or export
 - [x] user-defined product can be... sampled — [ ] ...rendered in a normal pane — sampling (the

@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Developer: user products checked on the GPU
+
+A user product's formula can now be written as a GPU compute shader that gives the same
+result as the usual evaluation, gate for gate, to 1 part in 100,000. Products are still
+worked out the usual way: on a real volume the GPU version was slower, so nothing you see
+changes.
+
 ### Added: follow an echo's contour through the loop
 
 On a reflectivity gate the gate inspector also offers "Follow this echo's contour". It takes

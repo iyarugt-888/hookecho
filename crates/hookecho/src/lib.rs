@@ -160,6 +160,8 @@ pub mod timefmt;
 pub mod timeline;
 pub mod tray;
 pub mod tropical_draw;
+/// User-defined products on the GPU (ROADMAP_NEW C1).
+pub mod udp_gpu;
 pub mod ui;
 pub mod vector_tiles;
 pub mod view;

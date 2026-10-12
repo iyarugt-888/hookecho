@@ -79,6 +79,41 @@ pub fn evaluate_tilt(
     tilt: &[Option<&BinnedSweep>; 6],
     env: Env,
 ) -> Option<(BinnedSweep, Vec<Option<f32>>)> {
+    let (base_i, reads) = grid(expr, tilt)?;
+    let base = tilt[base_i]?;
+    let mut out = vec![None; base.az_bins * base.gate_count];
+    for_each_gate(tilt, base_i, &reads, env, |i, inputs| {
+        out[i] = evaluate(expr, inputs).filter(|v| v.is_finite());
+    });
+    Some((base.clone(), out))
+}
+
+/// [`evaluate_tilt`], with the formula evaluated by `eval` over the gates where something it
+/// reads was recorded, one result per gate in order: the same formula on the GPU
+/// (`hookecho::udp_gpu`). Those gates' inputs are held at once, which [`evaluate_tilt`] avoids.
+pub fn evaluate_tilt_with(
+    expr: &Expr,
+    tilt: &[Option<&BinnedSweep>; 6],
+    env: Env,
+    eval: impl FnOnce(&[GateInputs]) -> Vec<Option<f32>>,
+) -> Option<(BinnedSweep, Vec<Option<f32>>)> {
+    let (base_i, reads) = grid(expr, tilt)?;
+    let base = tilt[base_i]?;
+    let (mut at, mut gates) = (Vec::new(), Vec::new());
+    for_each_gate(tilt, base_i, &reads, env, |i, inputs| {
+        at.push(i);
+        gates.push(*inputs);
+    });
+    let mut out = vec![None; base.az_bins * base.gate_count];
+    for (i, v) in at.into_iter().zip(eval(&gates)) {
+        out[i] = v.filter(|v| v.is_finite());
+    }
+    Some((base.clone(), out))
+}
+
+/// The sweep of `tilt` a product is evaluated on, and the moments (by [`MOMENTS`] index) it
+/// reads. `None` when the tilt has none of them.
+fn grid(expr: &Expr, tilt: &[Option<&BinnedSweep>; 6]) -> Option<(usize, Vec<usize>)> {
     let used = expr.inputs();
     let reads: Vec<usize> = (0..6)
         .filter(|&i| used.contains(&moment_input(MOMENTS[i])))
@@ -97,15 +132,26 @@ pub fn evaluate_tilt(
     if !reads.is_empty() && !reads.iter().any(|&i| tilt[i].is_some()) {
         return None;
     }
-    let base = tilt[base_i]?;
+    Some((base_i, reads))
+}
+
+/// Each gate of `tilt`'s sweep `base_i` where something in `reads` was recorded, with its index
+/// and inputs.
+fn for_each_gate(
+    tilt: &[Option<&BinnedSweep>; 6],
+    base_i: usize,
+    reads: &[usize],
+    env: Env,
+    mut visit: impl FnMut(usize, &GateInputs),
+) {
+    let Some(base) = tilt[base_i] else { return };
     let elev = base.elevation_deg;
-    let mut out = vec![None; base.az_bins * base.gate_count];
     for bin in 0..base.az_bins {
         let az = (bin as f32 + 0.5) * 360.0 / base.az_bins as f32;
         for gate in 0..base.gate_count {
             let slant = base.first_gate_km + (gate as f32 + 0.5) * base.gate_interval_km;
             let mut values = [None; 6];
-            for &i in &reads {
+            for &i in reads {
                 values[i] = if i == base_i {
                     decode(base, base.data[bin * base.gate_count + gate])
                 } else {
@@ -139,10 +185,9 @@ pub fn evaluate_tilt(
                 minus30c_height_m: env.minus30c_m,
                 minus40c_height_m: env.minus40c_m,
             };
-            out[bin * base.gate_count + gate] = evaluate(expr, &inputs).filter(|v| v.is_finite());
+            visit(bin * base.gate_count + gate, &inputs);
         }
     }
-    Some((base.clone(), out))
 }
 
 /// The range a product's values are drawn over: `range` when given, else the 2nd to 98th
