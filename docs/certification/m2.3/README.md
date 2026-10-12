@@ -14,4 +14,10 @@ and no warnings. Reviewed in the desktop browser pane on 2026-10-09.
 | --- | --- |
 | impacts-sample.html | `ffac21da2aa3bd251a77b93c0453b95d5a53cb6d417f32546dedcad886472352` |
 
-Not established: printed on paper or saved as PDF on Android; place areas for true entry times.
+Since 2026-10-12 a town is timed at the path's entry into its limits (the Census boundary,
+simplified to about 100 m), not at its centre. On the Moore storm, Moore's limits are entered at
+23 min against 31 for its centre, and Oklahoma City's at 14 min, though its centre is outside the
+path (`target/parity-review/m2.3/moore-town-limits-live.log`). The sample above predates this
+change.
+
+Not established: printed on paper or saved as PDF on Android; a town's holes and other pieces.

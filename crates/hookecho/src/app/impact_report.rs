@@ -122,6 +122,11 @@ pub(crate) fn impact_rows(
                 area(&target.name, "gis-area", &target.layer, ring);
             }
         }
+        for target in &town_list {
+            if let TargetShape::Area(ring) = &target.shape {
+                area(&target.name, "town", &target.layer, ring);
+            }
+        }
         rows.sort_by(|a, b| {
             b.in_path
                 .cmp(&a.in_path)
@@ -252,7 +257,9 @@ pub(crate) fn impacts_markdown(
          below and their uncertainty swaths, counted from each motion's own analysis time: the \
          analyst's manual motions, and for storms nobody set one on, the radar's automatic storm \
          motion (SCIT) with the default swath. Town populations are whole-town 2020 Census \
-         figures at the town's centre point; a town's edge can be reached before its centre.\n",
+         figures. A town's time is when the path enters its limits, simplified to about 100 m; \
+         a town listed at its centre came back without a boundary, and its edge can be reached \
+         sooner.\n",
         exported.format("%Y-%m-%d %H:%MZ")
     );
     if tracks.is_empty() {
@@ -583,6 +590,7 @@ mod tests {
             population: 55_081,
             lon: destination_point([-97.0, 35.0], 90.0, 20.0)[0],
             lat: destination_point([-97.0, 35.0], 90.0, 20.0)[1],
+            boundary: Vec::new(),
         }]);
         let ctx = [TrackContext {
             scit_cell: None,
@@ -632,6 +640,107 @@ mod tests {
             csv.contains("1,On path,marker,Saved places,2013-05-20T20:10:"),
             "{csv}"
         );
+    }
+
+    /// A town that came back with its limits is timed at the path's entry into them, not at its
+    /// centre, and is still a town.
+    #[test]
+    fn a_town_with_limits_is_timed_at_its_edge() {
+        let t = track();
+        // 35 to 45 km along the due-east track, 3 km either side of it; its centre is at 40 km.
+        let corner = |along: f64, north: f64| {
+            let p = destination_point([-97.0, 35.0], 90.0, along);
+            destination_point(p, if north >= 0.0 { 0.0 } else { 180.0 }, north.abs())
+        };
+        let towns = TownsState::Ready(vec![Place {
+            geoid: "2".into(),
+            name: "Newcastle city".into(),
+            population: 10_000,
+            lon: corner(40.0, 0.0)[0],
+            lat: corner(40.0, 0.0)[1],
+            boundary: vec![
+                corner(35.0, -3.0),
+                corner(35.0, 3.0),
+                corner(45.0, 3.0),
+                corner(45.0, -3.0),
+                corner(35.0, -3.0),
+            ],
+        }]);
+        let ctx = [TrackContext {
+            scit_cell: None,
+            track: &t,
+            towns: Some(&towns),
+            people: None,
+        }];
+        let rows = impact_rows(&ctx, &[], &[], &[]);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        let r = &rows[0];
+        assert_eq!(
+            (r.kind, r.source.as_str()),
+            ("town", "Census 2020, town limits")
+        );
+        assert!((r.minutes - 35.0).abs() < 0.7, "{r:?}");
+        assert!(r.in_path && !r.inside_now);
+    }
+
+    /// The Moore storm's motion (from the followed mesocyclone, 35.278, -97.647 at 19:51 UTC,
+    /// 8.9 m/s toward 73 degrees), against the towns the Census returns for its path, live: each
+    /// town with limits is timed at the path's entry, which comes before its centre wherever the
+    /// path reaches that.
+    /// `cargo test -p hookecho --lib -- --ignored moore_towns --nocapture`
+    #[tokio::test]
+    #[ignore = "network: the Census Bureau's TIGERweb service"]
+    async fn live_the_moore_storm_enters_town_limits_before_their_centres() {
+        let t0 = chrono::Utc
+            .with_ymd_and_hms(2013, 5, 20, 19, 51, 0)
+            .unwrap();
+        let origin = [-97.647, 35.278];
+        let mut t = ManualTrack::new(origin, t0);
+        // 8.9 m/s is 32 km an hour.
+        t.aim(destination_point(origin, 73.0, 32.0), false);
+        let places = wxdata::census::places_in(&reqwest::Client::new(), &[t.swath()], 25)
+            .await
+            .unwrap();
+        let mut entered = 0;
+        for p in &places {
+            let centre = t.eta([p.lon, p.lat]);
+            let limits = (p.boundary.len() >= 4)
+                .then(|| t.zone_eta(&p.boundary))
+                .flatten();
+            println!(
+                "{}: limits {} ({} points), centre {}",
+                p.name,
+                limits.map_or("not reached".into(), |z| format!(
+                    "{:.0} min{}",
+                    z.minutes,
+                    if z.grazes { ", swath edge only" } else { "" }
+                )),
+                p.boundary.len(),
+                centre.map_or("not reached".into(), |e| format!(
+                    "{:.0} min{}",
+                    e.minutes,
+                    if e.in_path {
+                        ""
+                    } else {
+                        ", closest approach outside the path"
+                    }
+                ))
+            );
+            // Where the path reaches both, the limits come first. (A centre outside the path has
+            // only a closest-approach time, which the swath's edge can reach the limits after.)
+            if let (Some(z), Some(c)) = (limits, centre.filter(|e| e.in_path)) {
+                assert!(
+                    z.minutes <= c.minutes + 0.5,
+                    "{}: limits {} after centre {}",
+                    p.name,
+                    z.minutes,
+                    c.minutes
+                );
+                entered += 1;
+            }
+        }
+        assert!(places.iter().any(|p| p.name == "Moore city"), "{places:?}");
+        assert!(entered > 0);
     }
 
     #[test]

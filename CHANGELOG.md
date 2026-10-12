@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: towns in a storm's path are timed at their limits
+
+"Towns in its path" and the impact report now time each town when the storm's path enters
+its town limits, not when it reaches the town's centre. On the Moore storm that is 8 minutes
+sooner for Moore. Oklahoma City is now listed as entered, though its centre is outside the
+path. A town the Census returns without a boundary is still timed at its centre, and says so.
+
 ### Developer: user products checked on the GPU
 
 A user product's formula can now be written as a GPU compute shader that gives the same

@@ -17,6 +17,9 @@ const PLACES: u32 = 26;
 const CDPS: u32 = 28;
 /// Most places listed.
 pub const MAX_PLACES: usize = 8;
+/// How far a town's boundary may be simplified, degrees (about 100 m): enough for an arrival
+/// time, and it keeps a city's reply to a few thousand points.
+const BOUNDARY_OFFSET_DEG: &str = "0.001";
 
 /// The people and places inside an area.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -56,20 +59,30 @@ fn signed_area(r: &[[f64; 2]]) -> f64 {
         .sum()
 }
 
+/// Query `layer` for features touching `geometry`. With `boundaries`, each feature's own
+/// geometry comes back too, in lon/lat, simplified to [`BOUNDARY_OFFSET_DEG`].
 async fn query(
     client: &reqwest::Client,
     layer: u32,
     geometry: &str,
     extra: &[(&str, &str)],
+    boundaries: bool,
 ) -> anyhow::Result<serde_json::Value> {
     let mut form: Vec<(&str, &str)> = vec![
         ("geometry", geometry),
         ("geometryType", "esriGeometryPolygon"),
         ("inSR", "4326"),
         ("spatialRel", "esriSpatialRelIntersects"),
-        ("returnGeometry", "false"),
+        ("returnGeometry", if boundaries { "true" } else { "false" }),
         ("f", "json"),
     ];
+    if boundaries {
+        form.extend_from_slice(&[
+            ("outSR", "4326"),
+            ("maxAllowableOffset", BOUNDARY_OFFSET_DEG),
+            ("geometryPrecision", "5"),
+        ]);
+    }
     form.extend_from_slice(extra);
     // POST: an alert drawn from zone shapes can run to thousands of vertices, past a URL's length.
     let v: serde_json::Value = client
@@ -121,8 +134,8 @@ pub fn parse_places(v: &serde_json::Value) -> Vec<(String, u64)> {
 }
 
 /// A Census 2020 place (incorporated place or census-designated place) as a storm target: its
-/// name, its whole-place population, and its internal point — the Census's representative point,
-/// inside the place, which is not the place's area.
+/// name, its whole-place population, its internal point (the Census's representative point,
+/// inside the place), and its boundary when the reply carried one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
     pub geoid: String,
@@ -130,10 +143,40 @@ pub struct Place {
     pub population: u64,
     pub lon: f64,
     pub lat: f64,
+    /// The largest outer ring of the place's boundary (`[lon, lat]`, simplified to about 100 m);
+    /// empty without one. A place in several pieces is its largest piece, and holes are not
+    /// kept.
+    pub boundary: Vec<[f64; 2]>,
 }
 
-/// Parse a places reply with internal points. A place without a readable point is left out
-/// rather than placed somewhere.
+/// The largest outer ring of an Esri polygon feature's `geometry`. Esri winds outer rings
+/// clockwise and holes counter-clockwise.
+fn largest_outer_ring(geometry: Option<&serde_json::Value>) -> Vec<[f64; 2]> {
+    let rings = geometry
+        .and_then(|g| g.get("rings"))
+        .and_then(|r| r.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|ring| {
+            let pts: Vec<[f64; 2]> = ring
+                .as_array()?
+                .iter()
+                .filter_map(|p| {
+                    let p = p.as_array()?;
+                    let (lon, lat) = (p.first()?.as_f64()?, p.get(1)?.as_f64()?);
+                    (lon.abs() <= 180.0 && lat.abs() <= 90.0).then_some([lon, lat])
+                })
+                .collect();
+            (pts.len() >= 4).then_some(pts)
+        });
+    rings
+        .filter(|r| signed_area(r) < 0.0)
+        .max_by(|a, b| signed_area(a).abs().total_cmp(&signed_area(b).abs()))
+        .unwrap_or_default()
+}
+
+/// Parse a places reply with internal points, and boundaries where it has them. A place without
+/// a readable point is left out rather than placed somewhere.
 pub fn parse_place_points(v: &serde_json::Value) -> Vec<Place> {
     let coord = |a: &serde_json::Value, k: &str| -> Option<f64> {
         match a.get(k)? {
@@ -143,9 +186,14 @@ pub fn parse_place_points(v: &serde_json::Value) -> Vec<Place> {
         }
         .filter(|x: &f64| x.is_finite())
     };
-    attrs(v)
-        .filter_map(|a| {
+    v.get("features")
+        .and_then(|f| f.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|f| {
+            let a = f.get("attributes")?;
             Some(Place {
+                boundary: largest_outer_ring(f.get("geometry")),
                 geoid: a
                     .get("GEOID")
                     .and_then(|g| g.as_str())
@@ -160,7 +208,8 @@ pub fn parse_place_points(v: &serde_json::Value) -> Vec<Place> {
         .collect()
 }
 
-/// The places and census-designated places touching `rings`, largest first, at most `max`.
+/// The places and census-designated places touching `rings`, largest first, at most `max`, with
+/// their boundaries.
 pub async fn places_in(
     client: &reqwest::Client,
     rings: &[Vec<[f64; 2]>],
@@ -177,8 +226,8 @@ pub async fn places_in(
         ("resultRecordCount", top.as_str()),
     ];
     let (places, cdps) = futures_util::try_join!(
-        query(client, PLACES, &geometry, &args),
-        query(client, CDPS, &geometry, &args),
+        query(client, PLACES, &geometry, &args, true),
+        query(client, CDPS, &geometry, &args, true),
     )?;
     let mut all = parse_place_points(&places);
     all.extend(parse_place_points(&cdps));
@@ -206,9 +255,9 @@ pub async fn impact(client: &reqwest::Client, rings: &[Vec<[f64; 2]>]) -> anyhow
     ];
     let block_args = [("outStatistics", stats)];
     let (totals, places, cdps) = futures_util::try_join!(
-        query(client, BLOCKS, &geometry, &block_args),
-        query(client, PLACES, &geometry, &place_args),
-        query(client, CDPS, &geometry, &place_args),
+        query(client, BLOCKS, &geometry, &block_args, false),
+        query(client, PLACES, &geometry, &place_args, false),
+        query(client, CDPS, &geometry, &place_args, false),
     )?;
     let (population, housing_units) = parse_totals(&totals);
     let mut all = parse_places(&places);
@@ -282,6 +331,31 @@ mod tests {
         assert!(parse_place_points(&bad).is_empty());
     }
 
+    /// A place's boundary is its largest outer ring: clockwise rings are outer, a
+    /// counter-clockwise one is a hole and is left out, and a smaller second piece loses to the
+    /// larger. A reply without geometry gives no boundary.
+    #[test]
+    fn a_place_boundary_is_its_largest_outer_ring() {
+        let big = [[0.0, 0.0], [0.0, 2.0], [2.0, 2.0], [2.0, 0.0], [0.0, 0.0]];
+        let hole = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5], [0.5, 0.5]];
+        let small = [[5.0, 5.0], [5.0, 5.5], [5.5, 5.5], [5.5, 5.0], [5.0, 5.0]];
+        let v = serde_json::json!({"features":[{
+            "attributes": {"GEOID":"1","NAME":"A city","POP100":10,"INTPTLAT":"1","INTPTLON":"1"},
+            "geometry": {"rings": [small, hole, big]}
+        }, {
+            "attributes": {"GEOID":"2","NAME":"B town","POP100":5,"INTPTLAT":"3","INTPTLON":"3"}
+        }]});
+        let p = parse_place_points(&v);
+        assert_eq!(p[0].boundary, big.to_vec());
+        assert!(p[1].boundary.is_empty());
+        // Only a hole: no outer ring, so no boundary.
+        let v = serde_json::json!({"features":[{
+            "attributes": {"NAME":"C","POP100":1,"INTPTLAT":"1","INTPTLON":"1"},
+            "geometry": {"rings": [hole]}
+        }]});
+        assert!(parse_place_points(&v)[0].boundary.is_empty());
+    }
+
     /// Central Oklahoma City, live.
     /// `cargo test -p wxdata census_live -- --ignored --nocapture`
     #[tokio::test]
@@ -299,7 +373,7 @@ mod tests {
         assert_eq!(i.places[0].0, "Oklahoma City city");
     }
 
-    /// Towns with centre points along a strip east of Oklahoma City, live.
+    /// Towns with centre points and limits along a strip east of Oklahoma City, live.
     /// `cargo test -p wxdata places_in_live -- --ignored --nocapture`
     #[tokio::test]
     #[ignore = "network"]
@@ -308,8 +382,19 @@ mod tests {
         let p = places_in(&reqwest::Client::new(), &[ring], 10)
             .await
             .unwrap();
-        println!("{p:#?}");
+        for x in &p {
+            println!(
+                "{} pop {} boundary {} points",
+                x.name,
+                x.population,
+                x.boundary.len()
+            );
+        }
         assert!(p.iter().any(|x| x.name == "Oklahoma City city"));
+        assert!(
+            p.iter().all(|x| x.boundary.len() >= 4),
+            "every place has its limits"
+        );
         assert!(p.windows(2).all(|w| w[0].population >= w[1].population));
     }
 }

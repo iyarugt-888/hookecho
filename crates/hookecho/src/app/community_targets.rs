@@ -1,8 +1,8 @@
 //! Towns in a storm's path (ROADMAP_PARITY M2.3): on request, the Census 2020 places touching a
-//! storm's projected swath, with whole-place populations and each place's internal point, from
-//! the same TIGERweb service the alert cards use ([`wxdata::census::places_in`]). Each becomes a
-//! point target for the storm's arrivals, labelled as its centre point, never as its area: the
-//! service gives the point, and a place's edge can be reached well before it.
+//! storm's projected swath, with whole-place populations and boundaries, from the same TIGERweb
+//! service the alert cards use ([`wxdata::census::places_in`]). Each becomes an area target, so
+//! its time is when the path enters the town limits (1008.md B2). A place that came back without
+//! a boundary is a point target at its centre instead, and says so.
 //!
 //! Looked up once per swath (its geometry is the key) and kept for the session; a lookup is the
 //! analyst's choice, since it leaves the machine.
@@ -48,16 +48,28 @@ impl TownsBook {
 }
 
 /// A place as a storm target: its name without the Census's kind suffix, its 2020 population,
-/// and that the point is its centre.
+/// and its town limits, or its centre point when there is no boundary.
 pub(crate) fn place_target(p: &Place) -> crate::app::gis_layers::Target {
+    use crate::app::gis_layers::TargetShape;
     let name = ["city", "town", "village", "borough", "CDP"]
         .iter()
         .find_map(|k| p.name.strip_suffix(&format!(" {k}")))
         .unwrap_or(&p.name);
+    let (layer, shape) = if p.boundary.len() >= 4 {
+        (
+            "Census 2020, town limits",
+            TargetShape::Area(p.boundary.clone()),
+        )
+    } else {
+        (
+            "Census 2020, town centre",
+            TargetShape::Point([p.lon, p.lat]),
+        )
+    };
     crate::app::gis_layers::Target {
         name: format!("{name}, pop. {}", super::impact::thousands(p.population)),
-        layer: "Census 2020, town centre".into(),
-        shape: crate::app::gis_layers::TargetShape::Point([p.lon, p.lat]),
+        layer: layer.into(),
+        shape,
     }
 }
 
@@ -119,19 +131,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_town_is_named_plainly_and_said_to_be_its_centre() {
-        let t = place_target(&Place {
+    fn a_town_is_named_plainly_and_is_its_limits_or_else_its_centre() {
+        let mut p = Place {
             geoid: "4019900".into(),
             name: "Del City city".into(),
             population: 21_822,
             lon: -97.44,
             lat: 35.448,
-        });
+            boundary: Vec::new(),
+        };
+        let t = place_target(&p);
         assert_eq!(t.name, "Del City, pop. 21,822");
         assert_eq!(t.layer, "Census 2020, town centre");
         assert_eq!(
             t.shape,
             crate::app::gis_layers::TargetShape::Point([-97.44, 35.448])
+        );
+        p.boundary = vec![
+            [-97.47, 35.43],
+            [-97.47, 35.47],
+            [-97.41, 35.47],
+            [-97.41, 35.43],
+            [-97.47, 35.43],
+        ];
+        let t = place_target(&p);
+        assert_eq!(t.layer, "Census 2020, town limits");
+        assert_eq!(
+            t.shape,
+            crate::app::gis_layers::TargetShape::Area(p.boundary.clone())
         );
     }
 }

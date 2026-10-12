@@ -647,7 +647,7 @@ impl HookEchoApp {
                                         }
                                         Some(Some(TownsState::Ready(_))) => {
                                             ui.label(ws::text(
-                                                "Towns: Census 2020 places its 1-hour path touches; times are to each town's centre point, and its edge can be reached sooner",
+                                                "Towns: Census 2020 places its 1-hour path touches; times are when the path enters each town's limits (a town listed at its centre had no boundary)",
                                                 10.5,
                                                 t.text_faint,
                                             ));

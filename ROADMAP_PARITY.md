@@ -926,6 +926,14 @@ Verified here: workspace tests 2,601 passed, 0 failed, 205 ignored; clippy clean
 
 **Evidence ledger — 2026-10-09, increment 5 (printable report; 1008.md B2):** the analysis export adds `impacts.html`, the readable report as a standalone page rendered from `impacts.md` itself (`impacts_html`: headings, paragraphs and tables, all escaped, no scripts or external resources), with print styles that start each motion after the first on a new page and keep table rows whole. Test `the_printable_page_is_the_readable_report` (headings, a SCIT storm's page break, escaping, the separator row dropped). Sample and hash: [`docs/certification/m2.3/`](docs/certification/m2.3/README.md), reviewed in the desktop browser pane. Open: place areas for true entry times; printing or saving as PDF on Android.
 
+**Evidence ledger — 2026-10-12, increment 6 (town limits; 1008.md B2):** the towns lookup (`census::places_in`) now also asks TIGERweb for each place's boundary, in lon/lat and simplified to about 100 m (`maxAllowableOffset` 0.001°). Each town keeps its largest outer ring: Esri's clockwise rings are outer, holes are dropped, and a town in pieces is its largest piece. A town with limits is an area target ("Census 2020, town limits"), so the Cell window and the impact report time it at the path's entry, said apart from swath-edge-only contact and "inside now". A town that came back without a boundary stays a point at its centre and says so. The block and alert queries still ask for no geometry. **Live, the Moore storm** (`live_the_moore_storm_enters_town_limits_before_their_centres`, ignored, network; motion from the followed mesocyclone, 35.278, -97.647 at 19:51 UTC, 8.9 m/s toward 73°; `target/parity-review/m2.3/moore-town-limits-live.log`):
+- Moore: its limits are entered at 23 min, its centre at 31.
+- Oklahoma City: its limits are entered at 14 min. Its centre is outside the path, so the report used to list only a closest approach at 33 min.
+- Newcastle: "inside now" (0 min).
+- Norman and Midwest City: swath edge only.
+
+A live run of `places_in_live` returned limits for all ten towns, 5 to 207 points each (`places-in-live-boundaries.log`). Tests: `a_place_boundary_is_its_largest_outer_ring`, `a_town_is_named_plainly_and_is_its_limits_or_else_its_centre`, `a_town_with_limits_is_timed_at_its_edge`. Checks in a clean worktree at `c02dbac` with only this change: clippy, wasm, workspace tests (2,665 passed, 0 failed, 220 ignored), logs in `target/parity-review/m2.3/wt-b2-*.log`. Open: holes and a town's other pieces, line targets, printing or saving as PDF on Android.
+
 #### M2.4 — Certify editing and preserve historical manual work
 
 **Priority:** P0. **Depends on:** M2.2, M2.3. **Original references:** ROADMAP_2 §§2.6, 13; ROADMAP_NEW §§K3, Q1, Q3.
