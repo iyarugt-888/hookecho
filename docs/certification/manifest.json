@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T10:52:20+00:00",
-  "generated_from_commit": "4efef301f411ba2c94c9faa217c4d8b6d91ff670",
+  "generated_utc": "2026-10-12T11:25:05+00:00",
+  "generated_from_commit": "04e36a0976857269814bfb0b2ff8791535758868",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -193,7 +193,7 @@
     {
       "card": "M5.2",
       "title": "Add satellite-native one-minute playback",
-      "ledger_entries": 4,
+      "ledger_entries": 5,
       "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (satellite-driven loop over native scan listings, increment 1); verification: partial (unit; live NOAA listing; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.2"
@@ -1689,8 +1689,8 @@
     },
     {
       "path": "docs/certification/model-fields/README.md",
-      "sha256": "024d0ab31652a1ac0336920a25847668acf36ef7f27ef2f2c3590a2cca0abc80",
-      "bytes": 4551
+      "sha256": "bea0cf00ffad50357efa3a9879d34706a807de001907cc1e1919aa77876fdcdf",
+      "bytes": 6083
     },
     {
       "path": "docs/certification/model-fields/hrrr-500hpa-height-contours-browser.jpg",
@@ -1701,6 +1701,11 @@
       "path": "docs/certification/model-fields/hrrr-850hpa-temperature-contours-browser.jpg",
       "sha256": "a8dffed7e06ecb20e9d8b22fb4d47cb55bf1ab747db91cd272629078afb4a84a",
       "bytes": 109005
+    },
+    {
+      "path": "docs/certification/model-fields/point-graph-hrrr-t2m-browser.jpg",
+      "sha256": "4e16dc65a47b1fae7009b40f536bdea9604eb2a11348c053afe66aa2471d1261",
+      "bytes": 82500
     },
     {
       "path": "docs/certification/model-panes.md",
