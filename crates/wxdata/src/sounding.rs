@@ -310,6 +310,12 @@ impl Sounding {
         if lfc_m.is_none() && cape > 0.0 {
             lfc_m = Some(0.0);
         }
+        // A parcel that never becomes buoyant has no LFC, so nothing it has to be lifted
+        // through: its CIN is zero, not the negative area of the whole column (which read
+        // -7000 J/kg on a stable night). The same convention MetPy's `cape_cin` keeps.
+        if lfc_m.is_none() {
+            cin = 0.0;
+        }
         let trace_c = self
             .levels
             .iter()
@@ -874,18 +880,36 @@ async fn fetch_run(
     // Slot 1 is moisture: dewpoint where the file has it, else relative humidity (RAP).
     const VARS: [&str; 4] = ["TMP", "DPT", "UGRD", "VGRD"];
     let mut jobs: Vec<(u32, usize, u64, Option<u64>, usize, bool)> = Vec::new();
+    let mut push = |hpa: u32, i: usize, var: &str, level: &str| {
+        let (found, is_rh) = match locate(&idx, var, level) {
+            Some(r) => (Some(r), false),
+            None if var == "DPT" => (locate(&idx, "RH", level), true),
+            None => (None, false),
+        };
+        if let Some((start, end, sub)) = found {
+            jobs.push((hpa, i, start, end, sub, is_rh));
+        }
+    };
     for &hpa in LEVELS_HPA {
         let level = format!("{hpa} mb");
         for (i, var) in VARS.iter().enumerate() {
-            let (found, is_rh) = match locate(&idx, var, &level) {
-                Some(r) => (Some(r), false),
-                None if *var == "DPT" => (locate(&idx, "RH", &level), true),
-                None => (None, false),
-            };
-            if let Some((start, end, sub)) = found {
-                jobs.push((hpa, i, start, end, sub, is_rh));
-            }
+            push(hpa, i, var, &level);
         }
+    }
+    // The ground (`SURFACE` in the level slot): its pressure, and the 2 m air and 10 m wind over
+    // it, so the profile starts where the air does rather than at a pressure level the model
+    // extrapolates below the terrain.
+    for (i, (var, level)) in [
+        ("TMP", "2 m above ground"),
+        ("DPT", "2 m above ground"),
+        ("UGRD", "10 m above ground"),
+        ("VGRD", "10 m above ground"),
+        ("PRES", "surface"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        push(SURFACE, i, var, level);
     }
     // `base` is cloned per job rather than borrowed: a borrow here makes the whole future
     // higher-ranked over the borrow's lifetime, which the app's `spawn` can't prove is `Send`.
@@ -904,43 +928,56 @@ async fn fetch_run(
         .collect()
         .await;
 
-    let mut by_level: std::collections::BTreeMap<u32, [Option<f64>; 4]> =
+    let mut by_level: std::collections::BTreeMap<u32, [Option<f64>; 5]> =
         std::collections::BTreeMap::new();
     let mut rh_levels = std::collections::BTreeSet::new();
     // The rotation grid-relative winds need, read from a wind message's own grid definition
     // (HRRR, RAP and NAM publish u/v along their Lambert grid's axes; `crate::grid_winds`).
     let mut frame = None;
     for (hpa, slot, val, is_rh, f) in results {
-        by_level.entry(hpa).or_insert([None; 4])[slot] = val;
+        by_level.entry(hpa).or_insert([None; 5])[slot] = val;
         if is_rh {
             rh_levels.insert(hpa);
         }
-        if slot >= 2 {
+        if slot == 2 || slot == 3 {
             frame = frame.or(f);
         }
     }
 
     // Assemble complete levels (surface-first = highest pressure first).
-    let mut levels: Vec<SoundingLevel> = Vec::new();
-    for (&hpa, vals) in by_level.iter().rev() {
-        if let [Some(t), Some(m), Some(u), Some(v)] = *vals {
-            let (u, v) = match frame {
-                Some(f) => f.to_earth(u, v, lon),
-                None => (u, v),
-            };
-            let temp_c = t - 273.15; // grib TMP/DPT are Kelvin
-            let dewpt_c = if rh_levels.contains(&hpa) {
-                dewpoint_from_rh(temp_c, m)
-            } else {
-                m - 273.15
-            };
-            levels.push(SoundingLevel {
-                pressure_hpa: hpa as f64,
-                temp_c,
-                dewpt_c,
-                u_ms: u,
-                v_ms: v,
-            });
+    let level_of = |hpa: u32, vals: &[Option<f64>; 5], pressure_hpa: f64| {
+        let [Some(t), Some(m), Some(u), Some(v), _] = *vals else {
+            return None;
+        };
+        let (u, v) = match frame {
+            Some(f) => f.to_earth(u, v, lon),
+            None => (u, v),
+        };
+        let temp_c = t - 273.15; // grib TMP/DPT are Kelvin
+        let dewpt_c = if rh_levels.contains(&hpa) {
+            dewpoint_from_rh(temp_c, m)
+        } else {
+            m - 273.15
+        };
+        Some(SoundingLevel {
+            pressure_hpa,
+            temp_c,
+            dewpt_c,
+            u_ms: u,
+            v_ms: v,
+        })
+    };
+    let mut levels: Vec<SoundingLevel> = by_level
+        .iter()
+        .rev()
+        .filter(|(&hpa, _)| hpa != SURFACE)
+        .filter_map(|(&hpa, vals)| level_of(hpa, vals, f64::from(hpa)))
+        .collect();
+    if let Some(ground) = by_level.get(&SURFACE) {
+        // PRES is in pascals.
+        if let Some(psfc_hpa) = ground[4].map(|pa| pa / 100.0).filter(|p| p.is_finite()) {
+            let surface = level_of(SURFACE, ground, psfc_hpa);
+            levels = cut_at_ground(levels, psfc_hpa, surface);
         }
     }
     anyhow::ensure!(levels.len() >= 3, "sounding has too few complete levels");
@@ -951,6 +988,27 @@ async fn fetch_run(
         fh,
         levels,
     })
+}
+
+/// The level-slot key for the ground's own values in [`fetch_run`]: no pressure level is 0 hPa.
+const SURFACE: u32 = 0;
+
+/// A profile cut at the ground: pressure levels at or below the surface pressure `psfc_hpa` are
+/// the model's extrapolation under the terrain, not air, and are dropped (a level within 1 hPa
+/// of the ground goes too, so the surface is not doubled); `surface`, the 2 m air and 10 m wind
+/// at the ground, goes first when the model gave it.
+pub(crate) fn cut_at_ground(
+    levels: Vec<SoundingLevel>,
+    psfc_hpa: f64,
+    surface: Option<SoundingLevel>,
+) -> Vec<SoundingLevel> {
+    let mut out: Vec<SoundingLevel> = surface.into_iter().collect();
+    out.extend(
+        levels
+            .into_iter()
+            .filter(|l| l.pressure_hpa < psfc_hpa - 1.0),
+    );
+    out
 }
 
 /// Range-GET one GRIB2 message, decode it, and return the value at the grid point nearest
@@ -1024,6 +1082,121 @@ fn sample_nearest(raw: &[u8], lon: f64, lat: f64) -> anyhow::Result<f64> {
         }
     }
     best.ok_or_else(|| anyhow::anyhow!("no finite grid point"))
+}
+
+#[cfg(test)]
+mod ground_tests {
+    use super::*;
+
+    fn level(p: f64, t: f64) -> SoundingLevel {
+        SoundingLevel {
+            pressure_hpa: p,
+            temp_c: t,
+            dewpt_c: t - 5.0,
+            u_ms: 0.0,
+            v_ms: 0.0,
+        }
+    }
+
+    /// Pressure levels under the ground are dropped and the surface goes first; one within a
+    /// hectopascal of the ground is dropped too; with no surface values the cut still holds.
+    #[test]
+    fn a_profile_starts_at_the_ground() {
+        let levels = vec![
+            level(1000.0, 30.0),
+            level(975.0, 28.0),
+            level(950.0, 26.0),
+            level(925.0, 24.0),
+            level(850.0, 18.0),
+        ];
+        let cut = cut_at_ground(levels.clone(), 968.0, Some(level(968.0, 27.0)));
+        let ps: Vec<f64> = cut.iter().map(|l| l.pressure_hpa).collect();
+        assert_eq!(ps, vec![968.0, 950.0, 925.0, 850.0]);
+        let ps: Vec<f64> = cut_at_ground(levels.clone(), 950.5, None)
+            .iter()
+            .map(|l| l.pressure_hpa)
+            .collect();
+        assert_eq!(ps, vec![925.0, 850.0]);
+        // A low-lying point keeps every level.
+        assert_eq!(
+            cut_at_ground(levels.clone(), 1013.0, None).len(),
+            levels.len()
+        );
+    }
+
+    /// The surface parcel now starts at the ground: lifting from an extrapolated, colder
+    /// below-ground level gave an absurd inhibition before.
+    #[test]
+    fn the_surface_parcel_lifts_from_the_ground() {
+        let s = |levels: Vec<SoundingLevel>| Sounding {
+            lon: -97.5,
+            lat: 35.4,
+            run: chrono::Utc::now(),
+            fh: 0,
+            levels,
+        };
+        let full: Vec<SoundingLevel> = [
+            1000.0, 975.0, 950.0, 925.0, 900.0, 850.0, 700.0, 500.0, 300.0,
+        ]
+        .into_iter()
+        .map(|p| level(p, 25.0 - (1000.0 - p) * 0.08))
+        .collect();
+        let cut = s(cut_at_ground(full, 965.0, Some(level(965.0, 23.0))));
+        assert_eq!(cut.levels[0].pressure_hpa, 965.0);
+        assert!(cut.levels.iter().skip(1).all(|l| l.pressure_hpa < 964.0));
+    }
+
+    /// A parcel that never becomes buoyant (a stable night: cool, dry surface air under warm air
+    /// aloft) has no LFC, no CAPE and no CIN, rather than the whole column's negative area.
+    #[test]
+    fn a_never_buoyant_parcel_has_no_cin() {
+        let levels: Vec<SoundingLevel> = [965.0, 925.0, 850.0, 700.0, 500.0, 300.0, 200.0]
+            .into_iter()
+            .zip([5.0, 12.0, 14.0, 4.0, -12.0, -38.0, -55.0])
+            .map(|(p, t)| SoundingLevel {
+                pressure_hpa: p,
+                temp_c: t,
+                dewpt_c: t - 25.0,
+                u_ms: 0.0,
+                v_ms: 0.0,
+            })
+            .collect();
+        let s = Sounding {
+            lon: -97.5,
+            lat: 35.4,
+            run: chrono::Utc::now(),
+            fh: 0,
+            levels,
+        };
+        let (p, _) = s.parcel_of(ParcelKind::SurfaceBased).expect("a parcel");
+        assert_eq!(p.lfc_m, None);
+        assert_eq!(p.cape, 0.0);
+        assert_eq!(p.cin, 0.0);
+    }
+
+    /// Live, at high terrain: Denver's HRRR sounding starts near its own surface pressure, far
+    /// under 1000 hPa.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_a_mountain_sounding_starts_at_its_ground() {
+        let http = reqwest::Client::new();
+        let s = fetch_model_at(&http, SoundingModel::Hrrr, -104.99, 39.74, 1)
+            .await
+            .unwrap();
+        eprintln!(
+            "HRRR {} f{:02} at Denver: first level {:.1} hPa, T {:.1} C, {} levels",
+            s.run,
+            s.fh,
+            s.levels[0].pressure_hpa,
+            s.levels[0].temp_c,
+            s.levels.len()
+        );
+        assert!((780.0..860.0).contains(&s.levels[0].pressure_hpa));
+        assert!(s
+            .levels
+            .windows(2)
+            .all(|w| w[0].pressure_hpa > w[1].pressure_hpa));
+    }
 }
 
 #[cfg(test)]

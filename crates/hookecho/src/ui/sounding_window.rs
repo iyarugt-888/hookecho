@@ -258,6 +258,8 @@ impl SoundingWindow {
                     cin_label,
                     parcel
                         .as_ref()
+                        // No LFC, no inhibition to speak of: a dash, not a misleading 0.
+                        .filter(|p| p.lfc_m.is_some())
                         .map_or("—".to_string(), |p| format!("{:.0} J/kg", p.cin)),
                 ),
                 (
@@ -895,10 +897,9 @@ mod envelope_review {
             .await
             .unwrap();
             let valid = s.run + chrono::Duration::hours(i64::from(s.fh));
-            let env =
-                wxdata::ensemble_sounding::fetch_envelope(&http, s.lon, s.lat, valid, |_| {})
-                    .await
-                    .unwrap();
+            let env = wxdata::ensemble_sounding::fetch_envelope(&http, s.lon, s.lat, valid, |_| {})
+                .await
+                .unwrap();
             (s, env)
         });
         eprintln!(
@@ -922,9 +923,14 @@ mod envelope_review {
         let destination =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
         std::fs::create_dir_all(&destination).unwrap();
-        gpu.save(&destination.join("sounding-gefs-envelope.png"), 720, 900, |ui| {
-            w.body(ui, None, false);
-        })
+        gpu.save(
+            &destination.join("sounding-gefs-envelope.png"),
+            720,
+            900,
+            |ui| {
+                w.body(ui, None, false);
+            },
+        )
         .unwrap();
     }
 }
