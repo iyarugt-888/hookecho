@@ -243,9 +243,10 @@ impl RouteWindow {
             ui.separator();
             ui.checkbox(forecast_on, "Forecast radar along the route (HRRR)")
                 .on_hover_text(
-                    "Checks the HRRR's forecast composite reflectivity where you would be along \
-                     the route, at its average pace, for up to the next two hours. Fetches about \
-                     nine HRRR files every 15 minutes while on.",
+                    "Checks the HRRR's forecast composite reflectivity and its rotating storm \
+                     tracks (2-5 km updraft helicity) where you would be along the route, at its \
+                     average pace, for up to the next two hours. Fetches about a dozen HRRR files \
+                     every 15 minutes while on.",
                 );
             if let Some(f) = &readout.forecast {
                 if let Some(s) = &f.status {

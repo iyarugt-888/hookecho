@@ -465,13 +465,29 @@ pub fn forecast_along(
     from_m: f64,
     now: chrono::DateTime<chrono::Utc>,
     frames: &[crate::mrms::MrmsField],
+    hit: impl FnMut(f32) -> bool,
+) -> ForecastCheck {
+    forecast_along_within(route, from_m, now, frames, FORECAST_FRAME_SLACK_S, hit)
+}
+
+/// How far a sample's time may be from an hourly window frame's middle: half the hour, and a
+/// minute more (the HRRR's max fields, such as updraft helicity, each cover one hour).
+pub const HOURLY_FRAME_SLACK_S: i64 = 31 * 60;
+
+/// [`forecast_along`] with frames that stand for `slack_s` seconds either side of their `time`.
+pub fn forecast_along_within(
+    route: &Route,
+    from_m: f64,
+    now: chrono::DateTime<chrono::Utc>,
+    frames: &[crate::mrms::MrmsField],
+    slack_s: i64,
     mut hit: impl FnMut(f32) -> bool,
 ) -> ForecastCheck {
     let mut out = ForecastCheck::default();
     let Some(last) = frames.iter().map(|f| f.time).max() else {
         return out;
     };
-    let slack = chrono::Duration::seconds(FORECAST_FRAME_SLACK_S);
+    let slack = chrono::Duration::seconds(slack_s);
     let cum = cumulative_m(&route.coords);
     let total = cum.last().copied().unwrap_or(0.0);
     if total <= 0.0 {
@@ -490,7 +506,7 @@ pub fn forecast_along(
         let frame = frames
             .iter()
             .min_by_key(|f| (f.time - t).num_seconds().abs())
-            .filter(|f| (f.time - t).num_seconds().abs() <= FORECAST_FRAME_SLACK_S);
+            .filter(|f| (f.time - t).num_seconds().abs() <= slack_s);
         let value = frame.and_then(|f| {
             out.covered = Some((ahead, t));
             grid_value(f, point_along(&route.coords, &cum, d))
@@ -584,6 +600,72 @@ pub async fn fetch_forecast_frames(
             .await;
         let mut frames = rest.into_iter().collect::<anyhow::Result<Vec<_>>>()?;
         frames.push(last);
+        return Ok((run, frames));
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+}
+
+/// The HRRR's hourly maximum 2-5 km updraft helicity (its rotation tracks) for the hour windows
+/// that cover the next `horizon_min` minutes, from one run, cropped to `bbox`. Each frame's `time`
+/// is the middle of its hour (read it with [`HOURLY_FRAME_SLACK_S`]), since the value is the
+/// strongest anywhere in that hour, not at an instant. The newest run that has posted the last
+/// window is used.
+pub async fn fetch_uh_frames(
+    http: &reqwest::Client,
+    now: chrono::DateTime<chrono::Utc>,
+    bbox: [f64; 4],
+    horizon_min: u16,
+) -> anyhow::Result<(chrono::DateTime<chrono::Utc>, Vec<crate::mrms::MrmsField>)> {
+    use crate::hrrr::{self, Model};
+    use chrono::Timelike;
+    use futures_util::StreamExt;
+    let end = now + chrono::Duration::minutes(i64::from(horizon_min));
+    let hours_to = |t: chrono::DateTime<chrono::Utc>, run: chrono::DateTime<chrono::Utc>| {
+        ((t - run).num_seconds() as f64 / 3600.0).ceil() as i64
+    };
+    let mut last_err = None;
+    for run in hrrr::recent_cycles(Model::Hrrr, now) {
+        // The window (h-1, h] that holds now, through the one that holds the end.
+        let (first, last) = (hours_to(now, run).max(1), hours_to(end, run));
+        if last > i64::from(Model::Hrrr.max_lead_for_cycle(run.hour())) {
+            last_err = Some(anyhow::anyhow!(
+                "the HRRR {:02}Z run does not reach that far",
+                run.hour()
+            ));
+            continue;
+        }
+        let fetch = |h: i64| {
+            let http = http.clone();
+            async move {
+                let fc = hrrr::fetch_field_at_run(
+                    &http,
+                    Model::Hrrr,
+                    run,
+                    "MXUPHL",
+                    "5000-2000 m above ground",
+                    h as u8,
+                    0.0,
+                )
+                .await?;
+                let mut f = crop_frame(fc, bbox)?;
+                f.time -= chrono::Duration::minutes(30);
+                anyhow::Ok(f)
+            }
+        };
+        let newest = match fetch(last).await {
+            Ok(f) => f,
+            Err(e) => {
+                last_err = Some(e);
+                continue;
+            }
+        };
+        let rest: Vec<anyhow::Result<crate::mrms::MrmsField>> =
+            futures_util::stream::iter((first..last).map(fetch))
+                .buffered(3)
+                .collect()
+                .await;
+        let mut frames = rest.into_iter().collect::<anyhow::Result<Vec<_>>>()?;
+        frames.push(newest);
         return Ok((run, frames));
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
@@ -848,6 +930,26 @@ mod forecast_tests {
             .is_empty());
     }
 
+    /// An hourly window frame, read with its half-hour slack, covers the whole hour: a track in
+    /// the 21-22Z window is met by a vehicle there at 21:10, which the 8.5-minute slack would miss.
+    #[test]
+    fn an_hourly_window_frame_covers_its_whole_hour() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 21, 0, 0).unwrap();
+        // UH over 97.9-97.7 W in the 21-22Z window (its middle 21:30), reached 6 to 18 min out.
+        let window = frame(now + chrono::Duration::minutes(30), |lon| {
+            (-97.9..-97.7).contains(&lon).then_some(120.0)
+        });
+        let frames = [window];
+        let hourly = forecast_along_within(&road(), 0.0, now, &frames, HOURLY_FRAME_SLACK_S, |v| {
+            v >= 75.0
+        });
+        assert_eq!(hourly.spans.len(), 1, "{hourly:?}");
+        assert_eq!(hourly.spans[0].peak, 120.0);
+        let quarter = forecast_along(&road(), 0.0, now, &frames, |v| v >= 75.0);
+        // With the short slack the frame stands only for 21:21:30-21:38:30: the track is missed.
+        assert!(quarter.spans.is_empty(), "{quarter:?}");
+    }
+
     /// Frames that stop short cover only part of the route, and say how far; no frames, nothing.
     #[test]
     fn the_check_says_how_far_the_frames_reach() {
@@ -902,6 +1004,37 @@ mod forecast_tests {
         assert!(c.lon_west <= -97.534 && c.lon_east >= -96.413);
         assert!(f.cropped(-90.0, 34.0, -89.0, 35.0).is_none());
         assert!(f.cropped(-98.0, 40.0, -97.0, 41.0).is_none());
+    }
+
+    /// The live HRRR rotation tracks: the hour windows over the next 90 minutes, from one run,
+    /// each timed at its window's middle, cropped to the box.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_hrrr_uh_windows_cover_the_next_ninety_minutes() {
+        let http = reqwest::Client::new();
+        let now = Utc::now();
+        let bbox = [-98.5, 34.5, -96.5, 36.0];
+        let (run, frames) = fetch_uh_frames(&http, now, bbox, 90).await.unwrap();
+        let strongest = frames
+            .iter()
+            .flat_map(|f| f.values.iter().copied().filter(|v| v.is_finite()))
+            .fold(0.0f32, f32::max);
+        eprintln!(
+            "HRRR {run}: {} UH windows {:?}, {}x{} cells, strongest {strongest:.0} m2/s2",
+            frames.len(),
+            frames
+                .iter()
+                .map(|f| f.time.format("%H:%M").to_string())
+                .collect::<Vec<_>>(),
+            frames[0].nx,
+            frames[0].ny
+        );
+        assert!((2..=4).contains(&frames.len()));
+        assert!(frames
+            .iter()
+            .all(|f| f.time.format("%M").to_string() == "30"));
+        let first = frames.iter().map(|f| f.time).min().unwrap();
+        assert!((first - now).num_minutes().abs() <= 31);
     }
 
     /// The live HRRR: an hour of sub-hourly frames over central Oklahoma, from one run, every 15

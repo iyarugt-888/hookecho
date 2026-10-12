@@ -888,8 +888,9 @@ pub struct Settings {
     pub route_engine: wxdata::route::Engine,
     #[serde(default)]
     pub route_url: String,
-    /// ROADMAP_NEW L3: check the HRRR's forecast reflectivity along the chosen route, where the
-    /// vehicle will be when. Off by default: it fetches about nine HRRR files every 15 minutes.
+    /// ROADMAP_NEW L3: check the HRRR's forecast reflectivity and rotation tracks along the chosen
+    /// route, where the vehicle will be when. Off by default: about a dozen HRRR files every 15
+    /// minutes.
     #[serde(default)]
     pub route_forecast: bool,
     /// Attach a picture of the radar to the ntfy push when a warning fires. Desktop only: the

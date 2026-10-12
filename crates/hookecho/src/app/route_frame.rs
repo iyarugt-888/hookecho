@@ -6,13 +6,15 @@ use super::*;
 /// Forecast composite reflectivity at or above this on the route is reported: thunderstorm echo
 /// in the HRRR (ROADMAP_NEW L3).
 const FORECAST_DBZ: f32 = 40.0;
+/// Forecast 2-5 km updraft helicity at or above this on the route is reported: a rotating storm's
+/// track in the HRRR, the threshold the HREF's own rotation probabilities use.
+const FORECAST_UH: f32 = 75.0;
 /// The forecast is checked at most this far ahead (minutes), or to the route's end if sooner.
 const FORECAST_HORIZON_MIN: u16 = 120;
 
-type ForecastResult = (
-    (u64, i64),
-    Result<(DateTime<Utc>, Vec<wxdata::mrms::MrmsField>), String>,
-);
+type Frames = Result<(DateTime<Utc>, Vec<wxdata::mrms::MrmsField>), String>;
+/// What a fetch was for, then the reflectivity frames and the rotation-track frames.
+type ForecastResult = ((u64, i64), Frames, Frames);
 
 /// The HRRR frames behind the forecast along the route, and the fetch for them.
 #[derive(Default)]
@@ -26,6 +28,10 @@ pub(crate) struct RouteForecast {
     /// Valid-time frames cropped to the route, all from `run`.
     frames: Vec<wxdata::mrms::MrmsField>,
     error: Option<String>,
+    /// The HRRR's hourly rotation tracks (max 2-5 km UH), each timed at its hour's middle.
+    uh_run: Option<DateTime<Utc>>,
+    uh_frames: Vec<wxdata::mrms::MrmsField>,
+    uh_error: Option<String>,
     /// Bumped whenever the frames or the error change, so the exposure is recomputed.
     generation: u64,
 }
@@ -60,7 +66,7 @@ impl HookEchoApp {
             }
         }
         if let Some(rx) = &self.route_forecast.rx {
-            if let Ok((key, res)) = rx.try_recv() {
+            if let Ok((key, res, uh)) = rx.try_recv() {
                 let f = &mut self.route_forecast;
                 f.rx = None;
                 f.key = Some(key);
@@ -74,6 +80,18 @@ impl HookEchoApp {
                         f.run = None;
                         f.frames.clear();
                         f.error = Some(e);
+                    }
+                }
+                match uh {
+                    Ok((run, frames)) => {
+                        f.uh_run = Some(run);
+                        f.uh_frames = frames;
+                        f.uh_error = None;
+                    }
+                    Err(e) => {
+                        f.uh_run = None;
+                        f.uh_frames.clear();
+                        f.uh_error = Some(e);
                     }
                 }
                 f.generation += 1;
@@ -129,7 +147,11 @@ impl HookEchoApp {
                     let res = wxdata::route::fetch_forecast_frames(&http, now, bbox, horizon)
                         .await
                         .map_err(|e| format!("{e:#}"));
-                    let _ = tx.send((key, res));
+                    // The rotation tracks on their own: a failure there leaves the echo check.
+                    let uh = wxdata::route::fetch_uh_frames(&http, now, bbox, horizon)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send((key, res, uh));
                 });
             }
             (None, _) if self.route_forecast.asked.is_some() => {
@@ -381,11 +403,38 @@ impl HookEchoApp {
                     line.push_str(&format!("; up to {:.0} dBZ", s.peak));
                     forecast.spans.push(line);
                 }
+                // The rotation tracks where the vehicle will be in each hour: a coarser clock than
+                // the echo's quarter hours, since each value is the hour's strongest.
+                let uh = wxdata::route::forecast_along_within(
+                    r,
+                    from,
+                    Utc::now(),
+                    &f.uh_frames,
+                    wxdata::route::HOURLY_FRAME_SLACK_S,
+                    |v| v >= FORECAST_UH,
+                );
+                for s in uh.spans.iter().take(3) {
+                    forecast.spans.push(format!(
+                        "Rotating storm track forecast (HRRR UH {FORECAST_UH:.0}+ m²/s²) on the \
+                         route as you pass, {} to {}, {} to {} ahead; up to {:.0}",
+                        clock(s.start),
+                        clock(s.end),
+                        dist(s.from_m),
+                        dist(s.to_m),
+                        s.peak
+                    ));
+                }
+                let uh_note = match (f.uh_run, uh.covered, uh.spans.is_empty()) {
+                    (Some(_), Some(_), true) => format!(
+                        " No rotating storm track (UH {FORECAST_UH:.0}+) crosses it then either."
+                    ),
+                    _ => String::new(),
+                };
                 let run = format!("HRRR {} run", run.format("%HZ"));
                 forecast.summary = Some(match check.covered {
                     Some((m, t)) if check.spans.is_empty() => format!(
                         "No {FORECAST_DBZ:.0}+ dBZ in the {run} on the route as far as it was \
-                         checked: to {}, {} ahead.",
+                         checked: to {}, {} ahead.{uh_note}",
                         clock(t),
                         dist(m)
                     ),
@@ -408,10 +457,12 @@ impl HookEchoApp {
         } else if self.route_forecast.rx.is_some() {
             Some("Fetching the HRRR forecast…".to_string())
         } else {
-            self.route_forecast
-                .error
-                .as_ref()
-                .map(|e| format!("No HRRR forecast: {e}"))
+            let f = &self.route_forecast;
+            match (&f.error, &f.uh_error) {
+                (Some(e), _) => Some(format!("No HRRR forecast: {e}")),
+                (None, Some(e)) => Some(format!("No HRRR rotation tracks: {e}")),
+                (None, None) => None,
+            }
         };
         let readout = ui::route_window::RouteReadout {
             metric: self.metric(),
