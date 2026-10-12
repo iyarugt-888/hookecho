@@ -46,3 +46,38 @@ The picker is under Pane links, below the spatial links:
 - GOES clocks and sector footprints still follow one shared satellite cursor (the focused pane's
   group drives it).
 - Source driver selection per group; comparison, ensemble and contour ownership.
+
+## GOES for each pane's own time (2026-10-12, 1010.md V15)
+
+GOES had one slot and one decoded grid per layer, scheduled for the active pane only: a pane on
+another analysis time (another time group, or with time linking off) or another sector waited,
+drawing no satellite, rather than borrow the active pane's imagery. Such a pane now has its own
+request-keyed slot (`app/goes_panes.rs`, `GoesPaneCache`): its own fetch, decoded field and
+texture, drawn through the per-pane keyed textures the renderer already used for MRMS (keys from
+2^48 up, clear of MRMS's), read by its probe and readiness (`field_state_for`,
+`goes_ready_for`), and kept from cancellation while some pane wants it. A request no pane wants
+is dropped with its texture, and comes back with a new key
+(`each_request_has_its_own_slot_and_texture`). The active pane's path is unchanged, so every
+other reader of its GOES grid is too. A reply is accepted for a pane's slot only if that slot
+asked for exactly that request.
+
+**Browser build on WebGPU, one machine**, built from the working tree at `1cbb7df4` with this
+change and another session's uncommitted work: three panes on KTLX with GOES-East IR, time
+linking off; pane 1 (active) at 12:01 UTC, pane 3 sent live.
+
+| Capture | What it shows |
+| --- | --- |
+| `goes-other-pane-live-browser.jpg` | Pane 3's pinned probe, with pane 1 active: "IR brightness temp 68.1 °F", "GOES-East, 3:32 PM CDT (Δ-47s vs radar)", valid 2026-10-12 20:32:36 UTC. |
+| `goes-active-pane-archive-browser.jpg` | Pane 1's pinned probe at the same moment: "GOES-East, 7:02 AM CDT", valid 12:02:36 UTC. |
+
+| File | SHA-256 |
+| --- | --- |
+| goes-other-pane-live-browser.jpg | `2c30ff7bc4dd6cc4d7658d5908ddd0e81d933d088c9173bd0bf6d50139a8c5ce` |
+| goes-active-pane-archive-browser.jpg | `4ccdf40838e32c8f91ffdeccbfa3d78f63a73cbeb542f901866c374595def01c` |
+
+The first build of this did not show it: an earlier reply filter discarded every GOES reply that
+was not the active pane's, so pane 3 read "IR brightness temp —". Replies for a pane's own slot
+now pass it. Not established: two time groups set from the picker (this run used time linking
+off, which gives each pane its own time by the same path), a mesoscale sector in a pane that is
+not active (it keeps the chosen box, without the active pane's footprint to fall back to CONUS
+outside it), those panes in Sources, the desktop app and Android.

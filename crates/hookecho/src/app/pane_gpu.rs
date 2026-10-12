@@ -299,28 +299,43 @@ impl HookEchoApp {
             }
             self.mrms_palette_gen = self.palettes.gen;
         }
-        let mrms_uploads = if first {
-            self.mrms_fields
-                .iter_mut()
-                .filter_map(|(request, slot)| {
-                    if slot.state.mrms_ready(&request.request()) {
-                        slot.state
-                            .pending
-                            .take()
-                            .map(|upload| (slot.texture, upload))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let drop_mrms_fields = if first {
+        let mut mrms_uploads: Vec<(crate::render::MrmsTextureKey, crate::render::MrmsUpload)> =
+            if first {
+                self.mrms_fields
+                    .iter_mut()
+                    .filter_map(|(request, slot)| {
+                        if slot.state.mrms_ready(&request.request()) {
+                            slot.state
+                                .pending
+                                .take()
+                                .map(|upload| (slot.texture, upload))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        let mut drop_mrms_fields = if first {
             std::mem::take(&mut self.mrms_drop_textures)
         } else {
             Vec::new()
         };
+        // Panes on their own GOES request draw through the same keyed textures (1010.md V15).
+        if first {
+            mrms_uploads.extend(self.goes_panes.iter_mut().filter_map(|(request, slot)| {
+                slot.ready(*request)
+                    .then(|| {
+                        slot.state
+                            .pending
+                            .take()
+                            .map(|upload| (slot.texture, upload))
+                    })
+                    .flatten()
+            }));
+            drop_mrms_fields.extend(self.goes_panes.take_dropped());
+        }
         let mrms_fields: Vec<(crate::render::FieldLayer, crate::render::MrmsTextureKey)> = self
             .views[idx]
             .fields_on
@@ -332,6 +347,11 @@ impl HookEchoApp {
                     .mrms_ready(&request.request())
                     .then_some((*layer, slot.texture))
             })
+            .chain(self.views[idx].fields_on.iter().filter_map(|layer| {
+                let request = self.goes_pane_request(idx, *layer)?;
+                let slot = self.goes_panes.get(&request)?;
+                slot.ready(request).then_some((*layer, slot.texture))
+            }))
             .collect();
         // Bottom to top, in the user's paint order: the renderer paints this list as given.
         let order = crate::render::FieldLayer::paint_order(&self.settings.field_order);
@@ -371,6 +391,8 @@ impl HookEchoApp {
                 field_draws
                     .iter()
                     .filter(|(layer, _)| super::sat_loop::goes_layer_band(*layer).is_some())
+                    // A pane on its own GOES request fades its keyed texture (above) instead.
+                    .filter(|(layer, _)| !mrms_fields.iter().any(|(keyed, _)| keyed == layer))
                     .filter_map(|(layer, _)| {
                         let count = *self.field_upload_count.get(layer)?;
                         Some((*layer, crate::render::FieldTexture::Layer(*layer, count)))

@@ -494,6 +494,12 @@ impl HookEchoApp {
             self.model_fields.get(&request).map(|slot| &slot.state)
         } else if let Some(request) = self.selected_mrms_context_for(idx, layer) {
             self.mrms_fields.get(&request).map(|slot| &slot.state)
+        } else if let Some(request) = self.goes_pane_request(idx, layer) {
+            // A pane on its own GOES request reads its own field, never the active pane's.
+            self.goes_panes
+                .get(&request)
+                .filter(|slot| slot.ready(request))
+                .map(|slot| &slot.state)
         } else if mrms_context::is_mrms(layer)
             || (goes_context::is_goes(layer) && !self.goes_ready_for(idx, layer))
         {

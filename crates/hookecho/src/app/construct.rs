@@ -409,6 +409,7 @@ impl HookEchoApp {
             diff_grid: None,
             diff_pct: None,
             goes_fields: Default::default(),
+            goes_panes: Default::default(),
             goes_footprint: None,
             goes_footprint_slot: Default::default(),
             glm_archive: None,

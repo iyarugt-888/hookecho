@@ -62,7 +62,12 @@ impl HookEchoApp {
                         }
                     }
                     if let RequestLane::Goes(request) = lane {
-                        if !self.goes_request_current(request) {
+                        // Current for the active pane, or for another pane's own slot (V15).
+                        let for_a_pane = self
+                            .goes_panes
+                            .get(&request)
+                            .is_some_and(|slot| slot.slot.requested == Some(request));
+                        if !self.goes_request_current(request) && !for_a_pane {
                             self.acquisition.discard(&lane, generation);
                             continue;
                         }
@@ -295,6 +300,21 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::GoesFootprint(..) => {}
+                OverlayMsg::GoesField(request, field)
+                    if !self.goes_request_current(request)
+                        && self.goes_panes.get(&request).is_some() =>
+                {
+                    // Another pane's own request (another time group): its own slot.
+                    if request.accepts_field(&field) {
+                        let layer = request.layer.unwrap();
+                        let upload = self.field_upload(layer, &field.data);
+                        if let Some(slot) = self.goes_panes.get_mut(&request) {
+                            if slot.slot.accept(request) {
+                                slot.state.stage(field.data, Some(field.stamp), upload);
+                            }
+                        }
+                    }
+                }
                 OverlayMsg::GoesField(request, field) => {
                     if self.goes_request_current(request) && request.accepts_field(&field) {
                         let layer = request.layer.unwrap();

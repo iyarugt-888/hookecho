@@ -323,9 +323,26 @@ impl HookEchoApp {
             }
         }
     }
+    /// Pane `idx`'s GOES request for `layer` when it is not the active pane's, so it is served by
+    /// its own slot (`goes_panes`) rather than the active pane's.
+    pub(super) fn goes_pane_request(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+    ) -> Option<GoesRequest> {
+        let request = self.selected_goes_request_for(idx, layer)?;
+        (idx != self.active && self.selected_goes_request_for(self.active, layer) != Some(request))
+            .then_some(request)
+    }
     pub(super) fn goes_ready_for(&self, idx: usize, layer: crate::render::FieldLayer) -> bool {
         if !is_goes(layer) {
             return true;
+        }
+        if let Some(request) = self.goes_pane_request(idx, layer) {
+            return self
+                .goes_panes
+                .get(&request)
+                .is_some_and(|slot| slot.ready(request));
         }
         let Some(request) = self.selected_goes_request_for(idx, layer) else {
             return false;
@@ -370,6 +387,33 @@ impl HookEchoApp {
             self.acquisition
                 .spawn_goes(ctx, request, self.field_texture_cap());
         }
+        // The other panes' own requests (another time group, another sector): each fetched into
+        // its own slot, and kept from the cancellation below.
+        let mut others = std::collections::HashSet::new();
+        for idx in 0..self.views.len() {
+            for layer in GOES_FRAME_LAYERS.into_iter().chain([
+                crate::render::FieldLayer::GoesDustDiff,
+                crate::render::FieldLayer::GoesCoolingRate,
+            ]) {
+                if !self.views[idx].fields_on.contains(&layer) {
+                    continue;
+                }
+                if let Some(request) = self.goes_pane_request(idx, layer) {
+                    others.insert(request);
+                }
+            }
+        }
+        for request in &others {
+            wanted.insert(*request);
+            let slot = self.goes_panes.ensure(*request);
+            let resident = slot.state.grid.is_some();
+            if slot.slot.due(*request, resident, now) {
+                slot.slot.begin(*request, now);
+                self.acquisition
+                    .spawn_goes(ctx, *request, self.field_texture_cap());
+            }
+        }
+        self.goes_panes.reconcile(&others);
         if let Some(request) = self
             .selected_goes_footprint_for(self.active)
             .filter(|r| r.sector.is_meso() && self.goes_layers_on())

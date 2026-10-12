@@ -35,6 +35,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: each pane shows satellite at its own time
+
+With panes on different times (a live pane beside an archive one), each now shows the GOES
+satellite image for its own time. Before, only the selected pane had satellite; the others
+waited.
+
 ### Added: save a GIF from streaming mode's controls
 
 In streaming mode on a touch screen, the controls that appear when you tap now have "Save loop

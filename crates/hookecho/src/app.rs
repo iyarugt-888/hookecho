@@ -24,6 +24,7 @@ pub(crate) use column_product::column_upload;
 mod env_levels;
 mod field_state;
 mod goes_context;
+mod goes_panes;
 mod goes_timeline;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
@@ -1474,6 +1475,9 @@ pub struct HookEchoApp {
     diff_error: Option<String>,
     /// Request and accepted identity are separate from the shared decoded GOES texture.
     goes_fields: std::collections::HashMap<crate::render::FieldLayer, goes_context::GoesSlot>,
+    /// GOES for panes whose request is not the active pane's: another time group, say
+    /// (1010.md V15).
+    goes_panes: goes_panes::GoesPaneCache,
     goes_footprint: Option<(GoesRequest, wxdata::goes_abi::Footprint)>,
     goes_footprint_slot: goes_context::GoesSlot,
     /// GLM flashes for a scrubbed-back view: the window ending at that time (ROADMAP_NEW E6).

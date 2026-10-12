@@ -1658,7 +1658,7 @@ no final source-guard changes. Claude-owned calculation work remains excluded fr
 Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,560 passed (`target/parity-review/m5.1/e1-*.log`). Open:
 
 - A multi-group operator capture and an Android run.
-- GOES clock and sector ownership per group.
+- GOES clock and sector ownership per group: done on 2026-10-12 (1010.md V15, below).
 - Per-group source drivers; comparison, ensemble and contour ownership.
 
 **M5.1 remains partial:** independent analysis-time groups, GOES decoded field/sector/catalog and
@@ -1668,6 +1668,8 @@ current-only local mosaic/snow-band drivers and selected-storm linking remain sh
 time increment must migrate GOES clocks, sector footprints and source ownership together, then
 add independent analysis-time memberships and verify operator archive-miss behavior. Tornado
 detection remains with Claude.
+
+**Evidence ledger — 2026-10-12, GOES per pane (1010.md V15):** a pane whose GOES request is not the active pane's (another time group, time linking off, another sector) gets its own request-keyed slot, fetch, decoded field and texture (`app/goes_panes.rs`), drawn through the per-pane keyed textures MRMS uses, read by its probe and readiness, and kept from cancellation while wanted; the active pane's path is unchanged. Replies are accepted only by the slot that asked for that exact request (the early reply filter now lets those through). Browser build: with pane 1 active at 12:01 UTC and pane 3 live, pane 3's probe read GOES-East valid 20:32:36 UTC while pane 1's read 12:02:36 UTC (`docs/certification/m5.1/`). Test `each_request_has_its_own_slot_and_texture`. Open: two groups set from the picker, a mesoscale sector's footprint for a pane that is not active, those panes in Sources, desktop and Android runs.
 
 #### M5.2 — Add satellite-native one-minute playback
 
