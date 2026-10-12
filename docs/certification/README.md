@@ -10,8 +10,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-12T20:08:02+00:00 from commit
-`7c29cbaf1da6` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-12T20:15:15+00:00 from commit
+`7361ca60c79a` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -57,7 +57,7 @@ ledger records a physical-device run.
 | M6.1 | Separate preview from program output | — | 2 | 2026-10-06 | — |
 | M6.2 | Persist complete, validated scenes | F1 | 5 | 2026-10-10 | [m6.2/](m6.2/) |
 | M6.3 | Harden deterministic capture and archive output | F2 | 6 | 2026-10-12 | [m6.3/](m6.3/) |
-| M6.4 | Deliver usable desktop and Android presentation | F3 | 3 | 2026-10-12 | [m6.4/](m6.4/) |
+| M6.4 | Deliver usable desktop and Android presentation | F3 | 4 | 2026-10-12 | [m6.4/](m6.4/) |
 | M7.1 | Extend soaks to the full application and resources | H2 | 4 | 2026-10-11 | [m7.1/](m7.1/) |
 | M7.2 | Certify Android lifecycle, input, and memory | H1 | 2 | 2026-10-10 | — |
 | M7.3 | Publish certification and operational documentation | H4 | 1 | 2026-10-09 | — |

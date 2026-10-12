@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T20:08:02+00:00",
-  "generated_from_commit": "7c29cbaf1da650494ffc095f0f8fe60870bc2d4a",
+  "generated_utc": "2026-10-12T20:15:15+00:00",
+  "generated_from_commit": "7361ca60c79a161d34791bc34870edca2d5604fc",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -241,7 +241,7 @@
     {
       "card": "M6.4",
       "title": "Deliver usable desktop and Android presentation",
-      "ledger_entries": 3,
+      "ledger_entries": 4,
       "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m6.4"
@@ -1704,8 +1704,8 @@
     },
     {
       "path": "docs/certification/m6.4/README.md",
-      "sha256": "3977127224b378eab9f76cd0913b7c18ec1fb100e621d6806933f910bfd8664b",
-      "bytes": 3181
+      "sha256": "0b99f8cb72c31c2db142233720cc8ed1ab5e6de9fb743ce62b8485127f191372",
+      "bytes": 3873
     },
     {
       "path": "docs/certification/m6.4/output-position-desktop.txt",
