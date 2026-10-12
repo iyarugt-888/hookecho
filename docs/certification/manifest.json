@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T20:43:29+00:00",
-  "generated_from_commit": "1b60247f0d55b67128cdc126a322484c4e54fb67",
+  "generated_utc": "2026-10-12T22:30:51+00:00",
+  "generated_from_commit": "179588041d2ce5b839f993234202b2fd7c9e697c",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1951,6 +1951,26 @@
       "path": "docs/certification/multi-radar/section-ktlx-alone-browser.jpg",
       "sha256": "03ee57f711261d2a5412101278aaaed58bd57d68e61ed99eda22f7ba1385be93",
       "bytes": 89354
+    },
+    {
+      "path": "docs/certification/point-models/README.md",
+      "sha256": "067f61eaf2b87a6a26577649a1acf317a584b9922ceb8773f36ca683c42d1ef3",
+      "bytes": 6030
+    },
+    {
+      "path": "docs/certification/point-models/any-field-helicity-browser.jpg",
+      "sha256": "2bab805699f8410a011402548d7a629ad398880236ac8ef0759cad7084cf200f",
+      "bytes": 81955
+    },
+    {
+      "path": "docs/certification/point-models/precipitation-and-browser-limits-browser.jpg",
+      "sha256": "f8aa2829f1a9c5292869a90b03064263317463d72e57df07edf62cc724769e9d",
+      "bytes": 90298
+    },
+    {
+      "path": "docs/certification/point-models/temperature-six-models-browser.jpg",
+      "sha256": "4804f411ae46a242abe6c127c7a9fe33701b358b7a9285626ef8726e1dab8e37",
+      "bytes": 82526
     },
     {
       "path": "docs/certification/raster-context.md",
