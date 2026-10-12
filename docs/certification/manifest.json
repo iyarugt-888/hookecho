@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T12:19:05+00:00",
-  "generated_from_commit": "6aa3ee4162559263193bfe0c556d2667375f037f",
+  "generated_utc": "2026-10-12T14:42:10+00:00",
+  "generated_from_commit": "a83715c3f921a4199674230291d2100cc1102c39",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -309,8 +309,8 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "ed7e80bc158d0f14fb7913f0ba276fe63ccca8a50ced0aa4fdf2904eefb3d004",
-      "bytes": 9386
+      "sha256": "2ed7bc250286427ee7803e55f38a8fe33a9c6ac61a04bc0e3bb2394eecda04c4",
+      "bytes": 11466
     },
     {
       "path": "docs/certification/chase/keep-loop-button-desktop.png",
@@ -326,6 +326,21 @@
       "path": "docs/certification/chase/offline-cached-radar-desktop.txt",
       "sha256": "4e5f7c10b9f2c9c248975fbea5cfce8e574bba766a0242114962d2e863b04b4a",
       "bytes": 150
+    },
+    {
+      "path": "docs/certification/chase/pack-loaded-browser.jpg",
+      "sha256": "7deef6eeba25ca278b4e646eefcf7725b5b8030c7fd59af20c8cfb5ebf01b08f",
+      "bytes": 111435
+    },
+    {
+      "path": "docs/certification/chase/pack-save-offered-browser.jpg",
+      "sha256": "88d5714cac25e2357189799c3661beda32a5301ff9ce874f8998fc9592d6d48f",
+      "bytes": 119655
+    },
+    {
+      "path": "docs/certification/chase/pack-saved-browser.jpg",
+      "sha256": "f8c7172609bca9b87072742aef6eacb78f7b19b11780b3d2d5050d1504c99d57",
+      "bytes": 122081
     },
     {
       "path": "docs/certification/chase/route-forecast-clear-browser.jpg",
