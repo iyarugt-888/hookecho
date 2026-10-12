@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T06:08:47+00:00",
-  "generated_from_commit": "facbff85de344aaf867396528753255fd42511b4",
+  "generated_utc": "2026-10-12T07:39:26+00:00",
+  "generated_from_commit": "3af2cef1d249a4bb4b0dc2d91adfce3cd0dbb222",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -233,8 +233,8 @@
     {
       "card": "M6.3",
       "title": "Harden deterministic capture and archive output",
-      "ledger_entries": 5,
-      "latest_entry": "2026-10-10",
+      "ledger_entries": 6,
+      "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (capture manifest, increment 1); verification: partial (unit; no repeat-run or sustained capture).",
       "evidence_dir": "docs/certification/m6.3"
     },
@@ -1469,8 +1469,13 @@
     },
     {
       "path": "docs/certification/m6.3/README.md",
-      "sha256": "61886df2c94075da0d756f6cb8ae727a47183c251398cd81c4a1fca424193977",
-      "bytes": 5421
+      "sha256": "7423690f21064d7a6512bda53b0609d748a77590584f84a0c10679d3c1063242",
+      "bytes": 8524
+    },
+    {
+      "path": "docs/certification/m6.3/gate-choice.txt",
+      "sha256": "c4a8cec78c29ef7cd5ffddccc326b9b97fd343bc11fc8e84c48aa625de19e571",
+      "bytes": 1134
     },
     {
       "path": "docs/certification/m6.3/gpu-left-software-right-crop.png",
@@ -1483,9 +1488,24 @@
       "bytes": 334015
     },
     {
+      "path": "docs/certification/m6.3/gpu-vs-software-after-fix.txt",
+      "sha256": "e1b1b5dc0151c40f21f7c066a59bdbeeed6cd9531d65888b3b7c4579e8a621d4",
+      "bytes": 1077
+    },
+    {
       "path": "docs/certification/m6.3/gpu-vs-software-frame0.png",
       "sha256": "b6d39fb486e2322ecc41fc9777fabcbae9721f3b3ba8003ac33830fa8120b91c",
       "bytes": 55142
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-vs-software-nearest-after.png",
+      "sha256": "3bcfbf3104acec85478f47298f44e716d4ea9cc98b8823a0a301f2d8d80e91b8",
+      "bytes": 84835
+    },
+    {
+      "path": "docs/certification/m6.3/gpu-vs-software-nearest-before.png",
+      "sha256": "5fa9dfd81418acdfa84c20abbfb21ea10b5897252d76f7919a1cfd83f5781f4d",
+      "bytes": 45713
     },
     {
       "path": "docs/certification/m6.3/gpu-vs-software-z10.txt",
