@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T18:57:14+00:00",
-  "generated_from_commit": "ba46541dad172b527c6ecc8326c56da02bd0b901",
+  "generated_utc": "2026-10-12T19:09:46+00:00",
+  "generated_from_commit": "4b7ba43693d543820fcbb889b95ebd942091464f",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -324,8 +324,13 @@
     },
     {
       "path": "docs/certification/chase/README.md",
-      "sha256": "c47a1079289072e646953b079463bb3cda884d78667b49562d96a53f33cb3b69",
-      "bytes": 17620
+      "sha256": "fa3d19a6d46e2da10e231128a66cca606486a7ea64a5be978cfd6d9c35f275fa",
+      "bytes": 18859
+    },
+    {
+      "path": "docs/certification/chase/goes-no-signal-live.txt",
+      "sha256": "24d61dceb92ee300b6989fbc40767771e22a01223fbaac834266e7ab7a50ea15",
+      "bytes": 241
     },
     {
       "path": "docs/certification/chase/keep-loop-button-desktop.png",
