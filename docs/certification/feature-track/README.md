@@ -38,6 +38,13 @@ On the map the track is a line with a dot per fix, sized by confidence; a hand-p
 square, and the volume shown is ringed and labelled with its time. "Correct this volume" and then
 a click on the map puts the shown volume's fix there and follows the track again from it.
 
+A saved case keeps the track: the kind, radar, picked volume and point, the hand fixes and
+every fix as it was (`CaseManifest::feature_track`, left out when there is none, so older
+builds open the case without it). Opening the case puts it back on the pane showing that
+radar, or the active pane, without searching again; "Correct this volume" follows it again
+from the volumes then decoded. Tests: `a_followed_track_round_trips_through_a_case`, and the
+case manifest's round-trip and older-case tests.
+
 **Walkthrough** in the browser build (WebGPU, one machine, 2026-10-12 about 03:30 UTC). Built from
 the working tree at `6fc646a` with this change and another session's uncommitted live-sweep work.
 KTLX archive 2013-05-20, velocity, stepped back to 19:51 so more of the loop was decoded:
@@ -68,7 +75,7 @@ Checks in a clean worktree at `6fc646a` with only this change:
 Limits:
 - Only volumes already decoded are searched, so play the loop first. The window counts the
   rest.
-- One feature at a time, and the track is not saved with a case yet.
+- One feature at a time.
 - The lowest tilt only. Hail cores, BWER candidates and contour features are not offered.
 - The confidence describes the following, not the feature: it is not a tornado probability.
 - Not run in the desktop app or on Android.

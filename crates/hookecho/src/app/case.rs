@@ -57,6 +57,11 @@ impl HookEchoApp {
                 .iter()
                 .map(crate::app::storm_notes::StormNote::to_case)
                 .collect(),
+            feature_track: self
+                .feature_tracking
+                .track
+                .as_ref()
+                .map(crate::app::feature_tracking::FeatureTrack::to_case),
             notes: String::new(),
         }
     }
@@ -155,6 +160,15 @@ impl HookEchoApp {
             + merge_by(&mut self.storm_tracks.notes, &notes, |n| {
                 (n.site.clone(), n.cell.clone(), n.scan, n.text.clone())
             });
+        // A followed feature comes back as it was saved, on the pane showing its radar.
+        if let Some(t) = &case.feature_track {
+            let pane = (0..self.views.len())
+                .find(|&i| self.views[i].site.as_deref() == Some(t.site.as_str()))
+                .unwrap_or(self.active);
+            self.feature_tracking.track = Some(
+                crate::app::feature_tracking::FeatureTrack::from_case(t, pane),
+            );
+        }
         self.settings.save();
         self.rebuild_overlays();
         let what = if added > 0 {

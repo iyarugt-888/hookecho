@@ -64,9 +64,27 @@ pub struct CaseManifest {
     /// against. Additive like `manual_tracks`; they reopen as historical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub storm_notes: Vec<CaseStormNote>,
+    /// A feature followed through the loop (ROADMAP_NEW R4), its fixes as they were, hand fixes
+    /// included. Additive like the others; it reopens as it was saved, not searched again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature_track: Option<CaseFeatureTrack>,
     /// Free text for whoever opens it next.
     #[serde(default)]
     pub notes: String,
+}
+
+/// A followed feature as a case keeps it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaseFeatureTrack {
+    pub kind: wxdata::feature_track::FeatureKind,
+    pub site: String,
+    /// The volume time and point the analyst picked.
+    pub seed_time: DateTime<Utc>,
+    pub seed: [f64; 2],
+    /// Fixes moved by hand, by volume time.
+    #[serde(default)]
+    pub overrides: Vec<(DateTime<Utc>, [f64; 2])>,
+    pub fixes: Vec<wxdata::feature_track::Fix>,
 }
 
 /// A note on a storm as a case keeps it.
@@ -226,6 +244,20 @@ mod tests {
                 at: [-97.5, 35.3],
                 written: time,
             }],
+            feature_track: Some(CaseFeatureTrack {
+                kind: wxdata::feature_track::FeatureKind::Rotation,
+                site: "KTLX".into(),
+                seed_time: time,
+                seed: [-97.52, 35.31],
+                overrides: vec![(time, [-97.55, 35.32])],
+                fixes: vec![wxdata::feature_track::Fix {
+                    time,
+                    ll: [-97.55, 35.32],
+                    value: Some(0.0455),
+                    confidence: 1.0,
+                    manual: true,
+                }],
+            }),
             notes: "Moore, EF5".into(),
         }
     }
@@ -262,12 +294,13 @@ mod tests {
             "zones",
             "strokes",
             "udp_products",
+            "feature_track",
             "notes",
         ] {
             v.as_object_mut().unwrap().remove(k);
         }
         let m = CaseManifest::from_json(&v.to_string()).unwrap();
-        assert!(m.zones.is_empty() && m.notes.is_empty());
+        assert!(m.zones.is_empty() && m.notes.is_empty() && m.feature_track.is_none());
     }
 
     #[test]

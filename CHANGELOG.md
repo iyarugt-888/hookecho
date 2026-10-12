@@ -16,7 +16,8 @@ through the volumes the pane has loaded. A window lists each volume's position, 
 confidently it was followed, and the track is drawn on the map. If it jumped to the wrong thing,
 "Correct this volume" and a click put that volume's position right, and the rest is followed
 again from there. Confidence describes how clearly one feature was followed; it is not a tornado
-probability.
+probability. A saved case keeps the track, with any positions put right by hand, and opening the
+case brings it back as it was.
 
 ### Improved: quality profiles also set contour detail
 

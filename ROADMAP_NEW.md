@@ -4574,7 +4574,8 @@ Track analyst-selected radar features through time using optical flow/object mat
   ignored, network; `target/parity-review/v14/live-moore.log`). In the app: the gate inspector's
   "Follow this rotation through the loop", a window of fixes with confidence, and the track on the
   map (`app::feature_tracking`; walkthrough in `docs/certification/feature-track/`). Only decoded
-  volumes are searched, and the track is not saved with a case yet.
+  volumes are searched. A saved case keeps the track, hand fixes included, and reopens it as it
+  was on the pane showing its radar (`CaseManifest::feature_track`, additive; tested).
 - hail core
 - [x] reflectivity core — the same engine on the strongest reflectivity (`core_peak`, 40 dBZ
   floor); tested synthetically only

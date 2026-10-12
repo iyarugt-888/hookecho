@@ -37,6 +37,38 @@ pub(crate) struct FeatureTrack {
     rx: Option<std::sync::mpsc::Receiver<TrackResult>>,
 }
 
+impl FeatureTrack {
+    /// As a case keeps it.
+    pub(crate) fn to_case(&self) -> crate::case::CaseFeatureTrack {
+        crate::case::CaseFeatureTrack {
+            kind: self.kind,
+            site: self.site.clone(),
+            seed_time: self.seed.0,
+            seed: self.seed.1,
+            overrides: self.overrides.clone(),
+            fixes: self.fixes.clone(),
+        }
+    }
+
+    /// Reopened from a case on pane `pane`: the saved fixes, not searched again.
+    pub(crate) fn from_case(c: &crate::case::CaseFeatureTrack, pane: usize) -> Self {
+        FeatureTrack {
+            kind: c.kind,
+            pane,
+            site: c.site.clone(),
+            seed: (c.seed_time, c.seed),
+            overrides: c.overrides.clone(),
+            searched: c.fixes.len(),
+            fixes: c.fixes.clone(),
+            not_decoded: 0,
+            error: None,
+            busy: false,
+            correcting: false,
+            rx: None,
+        }
+    }
+}
+
 impl HookEchoApp {
     /// Start following the feature under the inspector's last click: rotation on velocity,
     /// a core on reflectivity.
@@ -376,6 +408,38 @@ fn follow(
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    /// A followed track saved with a case reopens with its fixes and hand fixes as they were,
+    /// idle, on the pane given, and saves back the same.
+    #[test]
+    fn a_followed_track_round_trips_through_a_case() {
+        let t0 = Utc.with_ymd_and_hms(2013, 5, 20, 20, 12, 29).unwrap();
+        let fix = |m: i64, lon: f64, manual: bool| Fix {
+            time: t0 + chrono::Duration::minutes(m),
+            ll: [lon, 35.3],
+            value: Some(0.03),
+            confidence: if manual { 1.0 } else { 0.8 },
+            manual,
+        };
+        let saved = crate::case::CaseFeatureTrack {
+            kind: FeatureKind::Rotation,
+            site: "KTLX".into(),
+            seed_time: t0,
+            seed: [-97.52, 35.31],
+            overrides: vec![(t0 + chrono::Duration::minutes(4), [-97.5, 35.3])],
+            fixes: vec![
+                fix(0, -97.52, false),
+                fix(4, -97.5, true),
+                fix(8, -97.47, false),
+            ],
+        };
+        let json = serde_json::to_string(&saved).unwrap();
+        let back = FeatureTrack::from_case(&serde_json::from_str(&json).unwrap(), 1);
+        assert_eq!(back.pane, 1);
+        assert_eq!(back.searched, 3);
+        assert!(!back.busy && !back.correcting && back.rx.is_none() && back.error.is_none());
+        assert_eq!(back.to_case(), saved);
+    }
 
     /// The app's search on the Moore volumes (the archive, cached by wxdata's own test under
     /// `target/tmp/feature-track`): picked near Moore at 20:12 it follows the mesocyclone through
