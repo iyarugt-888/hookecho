@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: MRMS layers you have looked at work with no signal
+
+The national mosaic and the other MRMS layers keep what they need to find frames already
+downloaded, so with no signal (or starting with none) they show the newest frame you had,
+and archive frames you looked at, labelled with their own times.
+
 ### Improved: placefiles stay on the map with no signal
 
 A placefile loaded from a web address now keeps its last good copy. If it cannot be fetched,

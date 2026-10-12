@@ -3909,7 +3909,13 @@ Pack selection UI should optionally include:
   `a_kept_loop_is_the_frames_up_to_the_playhead`). Not yet: that button pressed in a running
   app, and a run with the network adapter itself off
 - selected GOES frames
-- selected MRMS frames
+- [ ] selected MRMS frames — not chosen ahead yet, but every MRMS frame already read stays
+  readable with no signal: each file was kept already (`objcache::MRMS`), and now each
+  product's newest key and each hour's listing are kept beside them and used when the
+  bucket does not answer (`mrms::latest_key`, `archive_candidates`), so the newest mosaic
+  read before and archived frames read before come back with their own valid times. Live
+  test through a dead proxy (`mrms_frames_read_before_still_read_with_no_signal`); not yet
+  seen in a running app
 - routing graph when implemented
 - [x] saved placefiles/GIS layers — imported GIS files are already kept with the settings.
   A URL placefile now keeps its last good copy (`objcache::PLACEFILES`, disk on the desktop,

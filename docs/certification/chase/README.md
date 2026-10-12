@@ -242,3 +242,25 @@ space. Corrected the same day: this section first said icons were not kept at al
 
 Not established: the placefile list's line seen on screen (the captures show the map), a
 placefile with icons offline, the browser, and Android.
+
+## MRMS frames with no signal (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+Every MRMS file read is kept in the object cache (`objcache::MRMS`), but finding one needs the
+bucket's listing: the newest key for the live layer, an hour's listing for an archive time. With
+no signal both failed, so the kept files could not be reached. Each product's newest key and
+each hour's listing are now kept beside the files on every read that works, and used when the
+bucket does not answer (`mrms::latest_key`, `mrms::archive_candidates`; `remember_in`,
+`recall_in`, tested in `listings_kept_for_no_signal_read_back`). A frame keeps its own valid
+time, so the layer shows it as old as it is.
+
+**Live, one machine** (`mrms_frames_read_before_still_read_with_no_signal`, ignored, its own
+test binary with an in-memory store): the newest merged reflectivity composite and a frame
+30 minutes earlier read online, then again through a client whose every request goes to a dead
+proxy, after forgetting this run's memo of the newest key as a new start would. Both came back
+with the same valid times (18:48:37 and 18:18:36 UTC); a frame three hours earlier, never read,
+did not ([mrms-no-signal-live.txt](mrms-no-signal-live.txt), SHA-256
+`d6e045e651a89fdab89e073160d71a8d17cb7bfa9dcdcc81587d6d247e3fad02`).
+
+Not established: a running app with no signal (the pane's layers are not saved at start, so
+nothing here turns an MRMS layer on without the pointer), the browser, Android, and choosing
+frames ahead for a chase pack.

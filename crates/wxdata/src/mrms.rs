@@ -471,15 +471,29 @@ async fn archive_candidates(
     }
     let lists = futures_util::future::try_join_all(hours.into_iter().map(|hour| async move {
         let prefix = archive_hour_prefix(product, hour);
-        let xml = http
-            .get(format!(
-                "{BUCKET}/?list-type=2&prefix={prefix}&max-keys=1000"
-            ))
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
+        let listed = async {
+            Ok::<_, anyhow::Error>(
+                http.get(format!(
+                    "{BUCKET}/?list-type=2&prefix={prefix}&max-keys=1000"
+                ))
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?,
+            )
+        }
+        .await;
+        let store = crate::objcache::store().map(|s| s.as_ref());
+        let record = format!("list:{prefix}");
+        let xml = match listed {
+            Ok(xml) => {
+                remember_in(store, &record, &xml).await;
+                xml
+            }
+            // No signal: the hour as it was last listed here, so frames already kept still play.
+            Err(e) => recall_in(store, &record).await.ok_or(e)?,
+        };
         anyhow::ensure!(
             !xml.contains("<IsTruncated>true</IsTruncated>"),
             "MRMS archive listing was truncated for {prefix}"
@@ -664,6 +678,15 @@ async fn fetch_key_stamped(
 static LAST_SEEN: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> =
     std::sync::Mutex::new(None);
 
+/// Forget the newest keys seen this run, as a new process starts: for a test of what a start
+/// with no signal can read.
+#[doc(hidden)]
+pub fn forget_newest_keys() {
+    if let Ok(mut g) = LAST_SEEN.lock() {
+        *g = None;
+    }
+}
+
 /// Find the newest object key (list today's UTC folder, with a yesterday fallback).
 ///
 /// MRMS writes a file every couple of minutes, so a day folder holds hundreds of keys and the
@@ -695,6 +718,12 @@ async fn latest_key(http: &reqwest::Client, product: &str) -> anyhow::Result<Str
                 g.get_or_insert_with(Default::default)
                     .insert(product.to_string(), key.clone());
             }
+            remember_in(
+                crate::objcache::store().map(|s| s.as_ref()),
+                &format!("latest:{product}"),
+                &key,
+            )
+            .await;
             return Ok(key);
         }
         // Nothing newer than what we already have.
@@ -704,7 +733,37 @@ async fn latest_key(http: &reqwest::Client, product: &str) -> anyhow::Result<Str
             }
         }
     }
+    // No signal at all (a start with none, say): the newest key listed here before, whose file
+    // the cache most likely holds. Its own valid time travels with the field, so it is shown
+    // as old as it is.
+    if let Some(key) = known.or(recall_in(
+        crate::objcache::store().map(|s| s.as_ref()),
+        &format!("latest:{product}"),
+    )
+    .await)
+    {
+        return Ok(key);
+    }
     anyhow::bail!("no MRMS objects found for today or yesterday")
+}
+
+/// Keep `text` under `record` in the MRMS space (a listing, or a product's newest key), for a
+/// later request that gets no answer. Best effort, like the cache itself.
+async fn remember_in(store: Option<&dyn crate::objcache::ObjectStore>, record: &str, text: &str) {
+    if let Some(store) = store {
+        store
+            .put(&crate::objcache::MRMS, record, text.as_bytes().to_vec())
+            .await;
+    }
+}
+
+/// What [`remember_in`] kept under `record`, if anything.
+async fn recall_in(
+    store: Option<&dyn crate::objcache::ObjectStore>,
+    record: &str,
+) -> Option<String> {
+    let bytes = store?.get(&crate::objcache::MRMS, record).await?;
+    String::from_utf8(bytes).ok().filter(|t| !t.is_empty())
 }
 
 fn gunzip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
@@ -839,6 +898,32 @@ fn last_key(xml: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A listing and a newest key kept for no signal read back as kept, and nothing is
+    /// invented where nothing was kept (or there is no store).
+    #[tokio::test]
+    async fn listings_kept_for_no_signal_read_back() {
+        let store = crate::objcache::testing::MemStore::default();
+        let s: Option<&dyn crate::objcache::ObjectStore> = Some(&store);
+        assert_eq!(
+            recall_in(s, "latest:CONUS/MergedReflectivityQCComposite_00.50").await,
+            None
+        );
+        let key = "CONUS/MergedReflectivityQCComposite_00.50/20261012/MRMS_MergedReflectivityQCComposite_00.50_20261012-181040.grib2.gz";
+        remember_in(s, "latest:CONUS/MergedReflectivityQCComposite_00.50", key).await;
+        assert_eq!(
+            recall_in(s, "latest:CONUS/MergedReflectivityQCComposite_00.50")
+                .await
+                .as_deref(),
+            Some(key)
+        );
+        remember_in(s, "list:x", "<Key>a</Key>").await;
+        assert_eq!(
+            recall_in(s, "list:x").await.as_deref(),
+            Some("<Key>a</Key>")
+        );
+        assert_eq!(recall_in(None, "list:x").await, None);
+    }
 
     /// The CONUS mosaic's GRIB grid: first point (54.995 N, 129.995 W), last (20.005 N, 60.005 W),
     /// 7000 x 3500 at 0.01°. Its edges are the round numbers, half a cell out from those points.
