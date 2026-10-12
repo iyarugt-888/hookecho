@@ -3908,7 +3908,12 @@ Pack selection UI should optionally include:
   a time, skipping any already there (`keep_loop_offline`;
   `a_kept_loop_is_the_frames_up_to_the_playhead`). Not yet: that button pressed in a running
   app, and a run with the network adapter itself off
-- selected GOES frames
+- [ ] selected GOES frames — not chosen ahead yet, but every GOES scan already read stays
+  findable with no signal: the scans were kept already (`objcache::GOES`), and each hour's
+  listing is now kept beside them and used when the bucket does not answer
+  (`goes_abi::list_hour`), so the layers and the satellite loop list and show the scans read
+  before. Live test through a dead proxy (`goes_scans_read_before_still_read_with_no_signal`);
+  not yet seen in a running app
 - [ ] selected MRMS frames — not chosen ahead yet, but every MRMS frame already read stays
   readable with no signal: each file was kept already (`objcache::MRMS`), and now each
   product's newest key and each hour's listing are kept beside them and used when the

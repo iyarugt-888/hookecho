@@ -376,6 +376,15 @@ pub(crate) fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 /// the same few hours once per frame, which without this would be three S3 listings a frame.
 type ListingCache = std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, Vec<String>)>;
 static LISTINGS: std::sync::Mutex<Option<ListingCache>> = std::sync::Mutex::new(None);
+
+/// Forget the hour listings read this run, as a new process starts: for a test of what a start
+/// with no signal can find.
+#[doc(hidden)]
+pub fn forget_listings() {
+    if let Ok(mut g) = LISTINGS.lock() {
+        *g = None;
+    }
+}
 const LISTING_CACHE_MAX: usize = 256;
 /// How long a listing of an hour that may still be filling is reused.
 const OPEN_HOUR_REUSE_SECS: i64 = 20;
@@ -433,15 +442,29 @@ async fn list_hour(
             return Ok(keys);
         }
     }
-    let xml = client
-        .get(crate::net::fetch_url(&url))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
+    let listed = async {
+        Ok::<_, anyhow::Error>(
+            client
+                .get(crate::net::fetch_url(&url))
+                .timeout(crate::net::FEED_TIMEOUT)
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?,
+        )
+    }
+    .await;
+    let store = crate::objcache::store().map(|s| s.as_ref());
+    let xml = match listed {
+        Ok(xml) => xml,
+        // No signal: the hour as it was last listed here, so the scans already kept can still be
+        // found and shown (ROADMAP_NEW L5). Not put back in the in-memory cache, so the next
+        // request asks the bucket again.
+        Err(e) => return recall_listing_in(store, &url).await.ok_or(e),
+    };
     let keys = all_keys(&xml);
+    remember_listing_in(store, &url, &keys).await;
     if let Ok(mut cache) = LISTINGS.lock() {
         let cache = cache.get_or_insert_with(Default::default);
         if cache.len() >= LISTING_CACHE_MAX {
@@ -455,6 +478,40 @@ async fn list_hour(
         cache.insert(url, (now, keys.clone()));
     }
     Ok(keys)
+}
+
+/// Keep an hour's listing (its keys) beside the scans, for a later listing that gets no answer.
+async fn remember_listing_in(
+    store: Option<&dyn crate::objcache::ObjectStore>,
+    url: &str,
+    keys: &[String],
+) {
+    if let Some(store) = store {
+        store
+            .put(
+                &crate::objcache::GOES,
+                &format!("list:{url}"),
+                keys.join("\n").into_bytes(),
+            )
+            .await;
+    }
+}
+
+/// The keys [`remember_listing_in`] kept for `url`, if any.
+async fn recall_listing_in(
+    store: Option<&dyn crate::objcache::ObjectStore>,
+    url: &str,
+) -> Option<Vec<String>> {
+    let bytes = store?
+        .get(&crate::objcache::GOES, &format!("list:{url}"))
+        .await?;
+    let text = String::from_utf8(bytes).ok()?;
+    let keys: Vec<String> = text
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!keys.is_empty()).then_some(keys)
 }
 
 /// Every CMIP key for `band` on `satellite` in the UTC hour `t` falls in — silently empty (not an
@@ -1118,6 +1175,23 @@ fn diff_fields(a: &MrmsField, b: &MrmsField) -> anyhow::Result<MrmsField> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An hour's listing kept for no signal reads back key for key, and nothing is invented
+    /// where nothing was kept.
+    #[tokio::test]
+    async fn an_hours_listing_kept_for_no_signal_reads_back() {
+        let store = crate::objcache::testing::MemStore::default();
+        let s: Option<&dyn crate::objcache::ObjectStore> = Some(&store);
+        let url = "https://noaa-goes19.s3.amazonaws.com/?list-type=2&prefix=ABI-L2-CMIPM/2026/285/16/OR_ABI-L2-CMIPM1-M";
+        assert_eq!(recall_listing_in(s, url).await, None);
+        let keys = vec![
+            "ABI-L2-CMIPM/2026/285/16/OR_ABI-L2-CMIPM1-M6C13_G19_s20262851610270_e20262851610327_c20262851610394.nc".to_string(),
+            "ABI-L2-CMIPM/2026/285/16/OR_ABI-L2-CMIPM1-M6C13_G19_s20262851611240_e20262851611297_c20262851611365.nc".to_string(),
+        ];
+        remember_listing_in(s, url, &keys).await;
+        assert_eq!(recall_listing_in(s, url).await, Some(keys));
+        assert_eq!(recall_listing_in(None, url).await, None);
+    }
 
     #[test]
     fn the_satellite_is_the_one_in_place_at_the_time() {

@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: satellite images you have looked at work with no signal
+
+GOES satellite layers and the satellite loop keep what they need to find the scans already
+downloaded, so with no signal they still show them, labelled with their own times.
+
 ### Improved: MRMS layers you have looked at work with no signal
 
 The national mosaic and the other MRMS layers keep what they need to find frames already

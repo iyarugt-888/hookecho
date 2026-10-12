@@ -264,3 +264,22 @@ did not ([mrms-no-signal-live.txt](mrms-no-signal-live.txt), SHA-256
 Not established: a running app with no signal (the pane's layers are not saved at start, so
 nothing here turns an MRMS layer on without the pointer), the browser, Android, and choosing
 frames ahead for a chase pack.
+
+## GOES scans with no signal (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+GOES scans are kept in the object cache (`objcache::GOES`), but each layer and the satellite
+loop find a scan through the bucket's hour listing, held only in memory for the run. Each hour's
+listing is now kept beside the scans when it is read, and used when the bucket does not answer
+(`goes_abi::list_hour`; `remember_listing_in`, `recall_listing_in`, tested in
+`an_hours_listing_kept_for_no_signal_reads_back`). A recalled listing is not put back in memory,
+so the next request asks the bucket again.
+
+**Live, one machine** (`goes_scans_read_before_still_read_with_no_signal`, ignored, its own test
+binary with an in-memory store): the last hour of GOES-East CONUS band 13 listed (11 scans) and
+the newest read online; then, with the run's listings forgotten as a new start would, the same
+11 scans listed and the newest (18:56:17 UTC) read again through a dead proxy. The oldest scan,
+listed but never read, could not be ([goes-no-signal-live.txt](goes-no-signal-live.txt),
+SHA-256 `24d61dceb92ee300b6989fbc40767771e22a01223fbaac834266e7ab7a50ea15`).
+
+Not established: a running app with no signal, the browser, Android, and choosing scans ahead
+for a chase pack.
