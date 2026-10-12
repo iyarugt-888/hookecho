@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T16:46:47+00:00",
-  "generated_from_commit": "04df8c4780aa049bfc10359af6361a2bb0a2d93b",
+  "generated_utc": "2026-10-12T17:11:19+00:00",
+  "generated_from_commit": "b9170286f620a6359cfa8ce95a889772e1f99b06",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -274,8 +274,18 @@
   "files": [
     {
       "path": "docs/certification/a11y/README.md",
-      "sha256": "d7a204b87b0bd6a88623ca7da36a82f50e4b956b08a0c6929e522da7e5df6f29",
-      "bytes": 7892
+      "sha256": "f275ff8781b5a10cea2bd7ced9c72fc3bf125b8386a7b01cdfcdd07419b6a4f4",
+      "bytes": 10954
+    },
+    {
+      "path": "docs/certification/a11y/palette-sweep.txt",
+      "sha256": "0169a5b73c146c979110d45de52443338d440457469e4034ec52cb7bfdb3bcf5",
+      "bytes": 10175
+    },
+    {
+      "path": "docs/certification/a11y/table-picker-cvd-mark-browser.jpg",
+      "sha256": "c970129ef3fbca66949d4cded1609020370203da4c15f410bf72e31cc7218786",
+      "bytes": 83031
     },
     {
       "path": "docs/certification/a11y/tablet-touch-workstation.png",
@@ -286,6 +296,11 @@
       "path": "docs/certification/a11y/toast-glyph-and-bell-badge.png",
       "sha256": "d485fc96f49b519354a1800fb4c40d05924b522d3e35d3ab435035c174d7578f",
       "bytes": 619964
+    },
+    {
+      "path": "docs/certification/a11y/velocity-gr3v2-browser.jpg",
+      "sha256": "2582901825edff43ba56bf4aba3dd7cb988ebb5c94382d5d098b8ee62aad48dd",
+      "bytes": 89230
     },
     {
       "path": "docs/certification/a11y/warning-tags-flood-live-browser.jpg",
