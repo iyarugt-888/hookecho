@@ -5,6 +5,11 @@
 //! styles: newer entries are `### Added: title` (or Fixed, Changed, Improved, …) with a body;
 //! older releases group bullets under a themed `### Heading`, or are bare bullets. [`parse`]
 //! reads both into [`Release`]s of [`Item`]s, so neither style needs rewriting.
+//!
+//! A release may open with `### Highlights`: one bullet per big change, `- **Title** — what it
+//! means`, in plain words. They are read apart from the entries ([`Release::highlights`]) and are
+//! what the "What's new" sheet shows on phones and tablets (`ui/whats_new.rs`). The release job
+//! prints them first, so a release page opens with them too.
 
 use egui::text::LayoutJob;
 use egui::{Color32, FontId, RichText, TextFormat};
@@ -75,6 +80,14 @@ pub(crate) struct Item {
     pub body: String,
 }
 
+/// One of a release's big changes, from its `### Highlights` list.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Highlight {
+    pub title: String,
+    /// What it means for someone using the app, one or two sentences.
+    pub text: String,
+}
+
 /// One `## ` section.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Release {
@@ -84,6 +97,29 @@ pub(crate) struct Release {
     /// The text before its first entry.
     pub intro: String,
     pub items: Vec<Item>,
+    /// Its big changes, when it lists them under `### Highlights`.
+    pub highlights: Vec<Highlight>,
+}
+
+/// A highlight bullet's title and text: `**Title** — text` (or a colon or hyphen after the
+/// bold title); a bullet with no bold title is all text, its first sentence the title.
+fn highlight(bullet: &str) -> Highlight {
+    if let Some(rest) = bullet.strip_prefix("**") {
+        if let Some((title, text)) = rest.split_once("**") {
+            let text = text
+                .trim_start()
+                .trim_start_matches(['\u{2014}', '\u{2013}', ':', '-'])
+                .trim();
+            return Highlight {
+                title: title.trim().to_string(),
+                text: text.to_string(),
+            };
+        }
+    }
+    Highlight {
+        title: first_sentence(bullet),
+        text: plain(bullet),
+    }
 }
 
 /// Read every release out of the changelog, newest first as written.
@@ -91,6 +127,8 @@ pub(crate) fn parse(md: &str) -> Vec<Release> {
     let mut out: Vec<Release> = Vec::new();
     // Bullets under a themed heading belong to it; bare bullets are entries of their own.
     let mut in_group = false;
+    // Inside a release's `### Highlights` list.
+    let mut in_highlights = false;
     for line in md.lines() {
         if let Some(h) = line.strip_prefix("## ") {
             let (name, date) = match h.split_once(" - ") {
@@ -102,14 +140,21 @@ pub(crate) fn parse(md: &str) -> Vec<Release> {
                 date,
                 intro: String::new(),
                 items: Vec::new(),
+                highlights: Vec::new(),
             });
             in_group = false;
+            in_highlights = false;
             continue;
         }
         let Some(rel) = out.last_mut() else {
             continue; // the file's own preamble
         };
         if let Some(h) = line.strip_prefix("### ") {
+            in_highlights = h.trim().eq_ignore_ascii_case("highlights");
+            if in_highlights {
+                in_group = false;
+                continue;
+            }
             let (kind, title) = match h.split_once(':') {
                 Some((w, rest)) if Kind::from_word(w).is_some() => (
                     Kind::from_word(w).expect("checked"),
@@ -123,6 +168,16 @@ pub(crate) fn parse(md: &str) -> Vec<Release> {
                 body: String::new(),
             });
             in_group = true;
+            continue;
+        }
+        if in_highlights {
+            if let Some(b) = line.strip_prefix("- ") {
+                rel.highlights.push(highlight(b));
+            } else if let (Some(h), true) = (rel.highlights.last_mut(), line.starts_with("  ")) {
+                // A wrapped highlight.
+                h.text.push(' ');
+                h.text.push_str(line.trim());
+            }
             continue;
         }
         if !in_group {
@@ -354,12 +409,13 @@ impl View {
         };
 
         if !searching {
-            // Release picker: newest first, each with how much it changed.
-            ui.horizontal(|ui| {
+            // Release picker: newest first, each with how much it changed. Wrapped, so a phone
+            // puts the Newer/Older buttons on a second line rather than off the edge.
+            ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Release").weak());
                 let r = &releases[self.release];
                 egui::ComboBox::from_id_salt("changelog_release")
-                    .width(220.0)
+                    .width(220.0f32.min(ui.available_width() - 70.0).max(140.0))
                     .selected_text(release_label(r))
                     .show_ui(ui, |ui| {
                         for (i, r) in releases.iter().enumerate() {
@@ -546,6 +602,26 @@ mod tests {
     use super::*;
 
     const MD: &str = "# Changelog\n\npreamble\n\n## Unreleased\n\n### Added: globe\n\nTurn on **Globe** and spin `it`.\n\n### Fixed: a crash\n\nGone.\n\n## 0.9.0 - 2026-08-11\n\nThe intro.\n\n### Faster\n\n- One thing.\n- Two things,\n  wrapped.\n\n## 0.8.0 - 2026-08-09\n\n- Fixed the site list. It works.\n- A new [page](https://x.y) for sites.\n";
+
+    /// A release's `### Highlights` read as its big changes, not as entries, wrapped lines and
+    /// all, whichever dash or colon follows the bold title.
+    #[test]
+    fn highlights_are_read_apart_from_the_entries() {
+        let md = "## Unreleased\n\n### Highlights\n\n- **Follow a storm** \u{2014} Pick a core and it is\n  tracked through the loop.\n- **No signal**: loops keep working.\n- Plain words only.\n\n### Added: globe\n\nSpin it.\n\n## 0.9.0 - 2026-08-11\n\n### Fixed: a crash\n\nGone.\n";
+        let r = parse(md);
+        assert_eq!(r[0].highlights.len(), 3);
+        assert_eq!(r[0].highlights[0].title, "Follow a storm");
+        assert_eq!(
+            r[0].highlights[0].text,
+            "Pick a core and it is tracked through the loop."
+        );
+        assert_eq!(r[0].highlights[1].title, "No signal");
+        assert_eq!(r[0].highlights[1].text, "loops keep working.");
+        assert_eq!(r[0].highlights[2].title, "Plain words only");
+        assert_eq!(r[0].items.len(), 1, "highlights are not entries");
+        assert_eq!(r[0].items[0].title, "Globe");
+        assert!(r[1].highlights.is_empty());
+    }
 
     #[test]
     fn both_changelog_styles_read_as_releases_of_entries() {

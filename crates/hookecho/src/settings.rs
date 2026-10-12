@@ -860,6 +860,10 @@ pub struct Settings {
     /// First-run setup completed (or dismissed). `false` shows the first-run card at startup.
     #[serde(default)]
     pub setup_done: bool,
+    /// The set of highlights the "What's new" sheet last showed (`ui::whats_new::key`): it opens
+    /// again only for a new set.
+    #[serde(default)]
+    pub whats_new_seen: String,
     /// Post alerts to the platform's own notification centre, so they arrive with the window
     /// behind something else. Ignored on Android, where the alert service posts its own.
     #[serde(default)]
@@ -2196,6 +2200,7 @@ impl Default for Settings {
             rain_sound: AlertSound::default(),
             hints_seen: Vec::new(),
             setup_done: false,
+            whats_new_seen: String::new(),
             desktop_notify: false,
             chase_log: false,
             route_engine: Default::default(),
@@ -3686,6 +3691,7 @@ mod tests {
             rain_alerts: true,
             rain_sound: AlertSound::Ding,
             setup_done: true,
+            whats_new_seen: String::new(),
             desktop_notify: false,
             chase_log: false,
             route_engine: Default::default(),

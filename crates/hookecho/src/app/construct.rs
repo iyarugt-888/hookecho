@@ -439,6 +439,7 @@ impl HookEchoApp {
             video_player: None,
             cells_window: Default::default(),
             help_hub: Default::default(),
+            whats_new: None,
             rules_window: Default::default(),
             drawer: Default::default(),
             popovers: Default::default(),

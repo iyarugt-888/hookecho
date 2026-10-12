@@ -8,6 +8,40 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Highlights
+
+- **Follow a storm through the loop** — Pick a rotation, a core, a hail core, a BWER or an
+  echo's outline in the gate inspector, and HookEcho tracks it frame by frame, with a
+  confidence you can correct by hand.
+- **Several radars at once** — Cross-sections and the 3D view can add up to three nearby
+  radars, filling in the parts of a storm that one radar's beams pass over or under.
+- **The weather along your route** — The route window gives the forecast for where you will be
+  and when, the rotating storms heading for the road, and whether the road is the way out.
+- **Keeps working with no signal** — Radar loops, satellite images, MRMS layers and placefiles
+  you have looked at stay on the map offline, and you can keep a loop on the device before you
+  go.
+- **Every field a model publishes** — Model fields opens every field of the HRRR, RAP, NAM, GFS,
+  ECMWF and more, with contours, wind barbs, streamlines, wind particles and a graph over the
+  run.
+- **Ensembles** — HREF guidance, the GEFS spread on the sounding, postage stamps of every member
+  and spaghetti plots.
+- **Satellite at its own pace** — A satellite loop that plays every scan, one a minute for the
+  mesoscale sectors, satellite images matched to the radar's time, and smooth fades between
+  frames.
+- **Easier to read at a glance** — Warnings on the map say what they are in words, alerts are
+  not told by colour alone, and the colour tables that hold up for colour blindness are marked.
+- **Built for tablets** — Tablets get the full workstation sized for fingers, with windows you
+  dock by dragging, and a page like this one after each update.
+- **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
+  where the radar scans at two speeds, so rotation stands out from the noise.
+
+### Added: what's new, on phones and tablets
+
+After an update, a phone or tablet opens on a page of the big changes, each a large card in
+plain words, with "See everything" for the full changelog and "Got it" to close. It comes up
+once for each new set of changes, never on a new install, and not over the first-run card or
+the tour. On a desktop the same list heads the Help page's "What's new".
+
 ### Improved: satellite images you have looked at work with no signal
 
 GOES satellite layers and the satellite loop keep what they need to find the scans already

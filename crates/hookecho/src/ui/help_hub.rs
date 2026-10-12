@@ -49,7 +49,19 @@ fn releases() -> &'static [crate::ui::changelog::Release] {
     R.get_or_init(|| crate::ui::changelog::parse(CHANGELOG))
 }
 
+/// The newest release in the changelog, for the "What's new" sheet.
+pub(crate) fn newest_release() -> Option<&'static crate::ui::changelog::Release> {
+    releases().first()
+}
+
 impl HelpHub {
+    /// Open the hub on the full changelog ("See everything" on the "What's new" sheet).
+    pub(crate) fn open_changelog(&mut self) {
+        self.open = true;
+        self.tab = Tab::Changelog;
+        self.query.clear();
+    }
+
     pub(crate) fn toggle(&mut self) {
         self.open = !self.open;
         if self.open {
@@ -199,6 +211,22 @@ impl HelpHub {
             if let (Some(r), false) = (newest, news.is_empty()) {
                 crate::theme::section(ui, "What's new", |ui| {
                     ui.weak(&r.name);
+                    if q.is_empty() && !r.highlights.is_empty() {
+                        for h in &r.highlights {
+                            ui.label(
+                                egui::RichText::new(crate::ui::changelog::plain(&h.title))
+                                    .strong(),
+                            );
+                            ui.add(
+                                egui::Label::new(crate::ui::changelog::plain(&h.text)).wrap(),
+                            );
+                            ui.add_space(4.0);
+                        }
+                        if ui.button("Open the full changelog").clicked() {
+                            self.tab = Tab::Changelog;
+                        }
+                        return;
+                    }
                     for i in &news {
                         let title = crate::ui::changelog::plain(&i.title);
                         if ui

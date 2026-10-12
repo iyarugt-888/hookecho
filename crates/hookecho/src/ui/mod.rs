@@ -98,6 +98,7 @@ pub mod cappi_window;
 pub mod cell_window;
 pub mod cells_window;
 pub mod changelog;
+pub(crate) mod whats_new;
 pub mod chase_replay;
 pub mod cheatsheet;
 pub mod cursor_probe;

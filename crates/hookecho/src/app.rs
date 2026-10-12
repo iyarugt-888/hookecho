@@ -1542,6 +1542,8 @@ pub struct HookEchoApp {
     video_player: Option<ui::video_window::VideoPlayer>,
     cells_window: ui::cells_window::CellsWindow,
     help_hub: ui::help_hub::HelpHub,
+    /// The "What's new" sheet: `None` until decided at launch, then whether it is up.
+    whats_new: Option<bool>,
     rules_window: ui::rules_window::RulesWindow,
     /// The one slide-over surface every browsable tool page renders into.
     drawer: ui::drawer::Drawer,
@@ -8464,6 +8466,42 @@ impl HookEchoApp {
             self.tour.advance_if_done(sig);
             let anchors = self.tour_anchors;
             self.tour.show(ctx, &anchors, sig, accent);
+        }
+
+        // "What's new" on a phone or tablet after an update (`ui::whats_new`). Decided once: a
+        // new install, still in setup, takes this release's highlights as seen, since nothing
+        // changed for them.
+        if self.whats_new.is_none() {
+            let release = ui::help_hub::newest_release();
+            let setup = self.settings.setup_done && !self.firstrun.open;
+            self.whats_new = Some(ui::whats_new::wanted(
+                release,
+                &self.settings.whats_new_seen,
+                setup,
+                ui::whats_new::touch_device(),
+            ));
+            if let (false, Some(r)) = (setup, release) {
+                let k = ui::whats_new::key(r);
+                if self.settings.whats_new_seen != k {
+                    self.settings.whats_new_seen = k;
+                    self.settings.save();
+                }
+            }
+        }
+        if self.whats_new == Some(true) && !self.firstrun.open && !self.tour.open {
+            if let Some(release) = ui::help_hub::newest_release() {
+                let accent = crate::theme::accent(self.settings.theme);
+                if let Some(choice) =
+                    ui::whats_new::show(ctx, release, crate::platform::phone_layout(), accent)
+                {
+                    self.whats_new = Some(false);
+                    self.settings.whats_new_seen = ui::whats_new::key(release);
+                    self.settings.save();
+                    if choice == ui::whats_new::Choice::SeeAll {
+                        self.help_hub.open_changelog();
+                    }
+                }
+            }
         }
 
         // One quiet check per session, once the app has settled — so a stale build tells you so
