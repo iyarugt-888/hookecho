@@ -40,9 +40,29 @@ a beam. Wherever KTLX saw echo it counted most: its beam there is about 0.4 km t
 
 | File | SHA-256 |
 | --- | --- |
-| moore-fusion.txt | `6e37e58e99b99124c26eab1f5a06a46043ea528599234a3d4f03a401490ea8e8` |
+| moore-fusion.txt | `591b0d801db3f063a30b7d5ed2e5af2027a79278dfc71f472b3be9cf213cca0b` |
+
+### How the radars agree, and reading along the storm's motion
+
+`fuse_moving` reads each radar where the storm was at its own volume's time: a cell's place moved
+by the storm's motion times that radar's offset (`a_moving_storm_lines_up_when_each_radar_is_read_where_it_was`:
+a storm moving 20 m/s, read 120 s apart, back on its axis). The live test fuses each radar alone
+and compares it with KTLX wherever both saw echo, read in place and along the followed
+mesocyclone's motion (8.9 m/s toward 73°):
+
+| Against KTLX | Cells | Mean difference, in place | KTLX minus it | Along the motion |
+| --- | --- | --- | --- | --- |
+| KFDR | 3,732 | 11.67 dB | −7.58 dB | 11.13 dB |
+| KINX | 4,125 | 10.51 dB | −7.07 dB | 11.33 dB |
+| KVNX | 4,526 | 8.73 dB | −6.06 dB | 9.25 dB |
+
+Reading along the motion did not bring them closer: the offsets of 29 to 93 s move the storm
+less than a kilometre, under one column. The radars differ by much more than that, KTLX reading
+6 to 8 dB lower than each distant radar where both saw echo. Why is not established. One
+candidate is the distant radars' 2.3 to 2.8 km beams spreading strong echo into the cells around
+it; calibration differences between radars are another. Because the blend weights KTLX's thin
+beam far more, the fused value follows KTLX wherever it saw echo.
 
 Not established:
 - anything in the app (no 3D view or cross-section of the fused volume yet);
-- advection of each volume to the common time;
 - a check against an independent multi-radar analysis, such as MRMS's 3D reflectivity mosaic.

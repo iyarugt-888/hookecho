@@ -12,6 +12,7 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 A research engine fuses the reflectivity of radars that see the same storm into one volume
 around it. Each cell records which radars saw it, and each radar's time offset is kept.
+Given the storm's motion, each radar can be read where the storm was at its own time.
 Velocities are never combined. It is not yet in the app.
 
 ### Added: keep a radar loop on the desktop before you lose signal

@@ -2,7 +2,9 @@
 //! Research-grade.
 //!
 //! Each radar's volume is chosen by its own valid time, within a tolerance of the time asked
-//! for, and its offset kept. The radars are then sampled on a common grid around the storm: x
+//! for, and its offset kept. Given the storm's motion ([`fuse_moving`]), each radar is read where
+//! the storm was at its own volume's time, so a moving storm lines up across radars whose
+//! volumes are a minute or two apart. The radars are then sampled on a common grid around the storm: x
 //! east and y north in km, z in km above sea level. A radar contributes to a cell only through
 //! a beam whose half-beamwidth covers the cell's height there, and then through the nearest such
 //! beam's gate. Nothing is filled between beams, below the lowest or above the highest. A cell's
@@ -101,6 +103,8 @@ pub struct FusedVolume {
     /// Each used radar's volume time less `time`, seconds.
     pub offsets_s: Vec<i64>,
     pub left_out: Vec<LeftOut>,
+    /// The storm motion each radar was read along, m/s east and north, if one was given.
+    pub motion_ms: Option<[f64; 2]>,
     /// Per cell (see [`Grid::index`]): the fused dBZ, NaN where no radar saw echo.
     pub dbz: Vec<f32>,
     /// Per cell, a bit per used radar that observed it (echo or below threshold).
@@ -156,12 +160,35 @@ fn look(sweeps: &[BinnedSweep], ground_km: f64, az: f64, z_km: f64) -> Look {
 }
 
 /// Fuse `radars` onto `grid` for `time`: each radar whose volume is within `max_offset_s` of
-/// it, at most 32. The others are left out and said so.
+/// it, at most 32. The others are left out and said so. Each radar is read where the grid's
+/// cells are, whatever its volume's offset; [`fuse_moving`] follows the storm instead.
 pub fn fuse(
     radars: &[RadarVolume<'_>],
     time: DateTime<Utc>,
     max_offset_s: i64,
     grid: Grid,
+) -> FusedVolume {
+    fuse_inner(radars, time, max_offset_s, grid, None)
+}
+
+/// [`fuse`], with each radar read where the storm was at its own volume's time: a cell's place
+/// moved by `motion_ms` (m/s east and north) times that radar's offset.
+pub fn fuse_moving(
+    radars: &[RadarVolume<'_>],
+    time: DateTime<Utc>,
+    max_offset_s: i64,
+    grid: Grid,
+    motion_ms: [f64; 2],
+) -> FusedVolume {
+    fuse_inner(radars, time, max_offset_s, grid, Some(motion_ms))
+}
+
+fn fuse_inner(
+    radars: &[RadarVolume<'_>],
+    time: DateTime<Utc>,
+    max_offset_s: i64,
+    grid: Grid,
+    motion_ms: Option<[f64; 2]>,
 ) -> FusedVolume {
     let mut used: Vec<&RadarVolume<'_>> = Vec::new();
     let mut left_out = Vec::new();
@@ -193,6 +220,7 @@ pub fn fuse(
         sites: used.iter().map(|r| r.site.clone()).collect(),
         offsets_s: used.iter().map(|r| (r.time - time).num_seconds()).collect(),
         left_out,
+        motion_ms,
         dbz: vec![f32::NAN; len],
         observed: vec![0; len],
         echo: vec![0; len],
@@ -201,11 +229,14 @@ pub fn fuse(
     for j in 0..grid.n {
         for i in 0..grid.n {
             let (x, y, _) = grid.cell(i, j, 0);
-            let ll = grid.lonlat(x, y);
-            // Each radar's range and azimuth to this column.
+            // Each radar's range and azimuth to this column, where the storm put it at that
+            // radar's time.
             let geometry: Vec<(f64, f64)> = used
                 .iter()
                 .map(|r| {
+                    let dt = (r.time - time).num_milliseconds() as f64 / 1000.0;
+                    let [ue, vn] = motion_ms.unwrap_or([0.0, 0.0]);
+                    let ll = grid.lonlat(x + ue * dt / 1000.0, y + vn * dt / 1000.0);
                     let s = &r.sweeps[0];
                     crate::xsection::dist_bearing(
                         f64::from(s.radar_lon),
@@ -493,6 +524,47 @@ mod tests {
         report.push_str(&format!(
             "KTLX alone: {cells_alone} cells with echo, 18.5 dBZ top {top_alone:.1} km\nfused: {cells_all} cells with echo, 18.5 dBZ top {top_all:.1} km\n"
         ));
+        // How well each distant radar agrees with KTLX where both saw echo, read in place and
+        // along the storm's motion (8.9 m/s toward 73 degrees, the followed mesocyclone's).
+        let motion = [
+            8.9 * 73f64.to_radians().sin(),
+            8.9 * 73f64.to_radians().cos(),
+        ];
+        let agreement = |moving: bool| -> Vec<(String, usize, f64, f64)> {
+            let one = |r: &[RadarVolume<'_>]| {
+                if moving {
+                    fuse_moving(r, at, 300, grid, motion)
+                } else {
+                    fuse(r, at, 300, grid)
+                }
+            };
+            let ktlx = one(&radars[..1]);
+            radars[1..]
+                .iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    let other = one(&radars[1 + i..2 + i]);
+                    let (mut n, mut sum, mut signed) = (0usize, 0.0f64, 0.0f64);
+                    for (a, b) in ktlx.dbz.iter().zip(&other.dbz) {
+                        if !a.is_nan() && !b.is_nan() {
+                            n += 1;
+                            sum += f64::from((a - b).abs());
+                            signed += f64::from(a - b);
+                        }
+                    }
+                    let n_f = n.max(1) as f64;
+                    (r.site.clone(), n, sum / n_f, signed / n_f)
+                })
+                .collect()
+        };
+        let (still, moving) = (agreement(false), agreement(true));
+        for ((site, n, d0, b0), (_, n1, d1, _)) in still.iter().zip(&moving) {
+            report.push_str(&format!(
+                "KTLX against {site}, where both saw echo: mean difference {d0:.2} dB over {n} cells \
+                 read in place (KTLX minus it, on average: {b0:+.2} dB), {d1:.2} dB over {n1} read \
+                 along the storm's motion\n"
+            ));
+        }
         print!("{report}");
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity-review/v18");
@@ -501,6 +573,60 @@ mod tests {
         assert_eq!(all.sites.len(), 4, "{:?}", all.left_out);
         assert!(cells_all > cells_alone);
         assert!(top_all > top_alone, "{top_all} vs {top_alone}");
+    }
+
+    /// A storm moving 20 m/s east, seen by the far radar 120 s after the near one: read where the
+    /// cells are, the far radar's view of the storm's axis is 2.4 km off it and reads low; read
+    /// along the storm's motion, it is on the axis again.
+    #[test]
+    fn a_moving_storm_lines_up_when_each_radar_is_read_where_it_was() {
+        let c = [-97.5, 35.3];
+        let near = crate::rotation::dest(c[0], c[1], 270.0, 15.0);
+        let far = crate::rotation::dest(c[0], c[1], 90.0, 110.0);
+        let t = Utc.with_ymd_and_hms(2013, 5, 20, 20, 10, 0).unwrap();
+        // 20 m/s for 120 s is 2.4 km east.
+        let moved = crate::rotation::dest(c[0], c[1], 90.0, 2.4);
+        let a = volume([near.0, near.1], 0.0, 40.0, storm(c));
+        let b = volume([far.0, far.1], 0.0, 140.0, storm([moved.0, moved.1]));
+        let radars = [
+            RadarVolume {
+                site: "NEAR".into(),
+                time: t,
+                antenna_m: 0.0,
+                sweeps: &a,
+            },
+            RadarVolume {
+                site: "FAR".into(),
+                time: t + chrono::Duration::seconds(120),
+                antenna_m: 0.0,
+                sweeps: &b,
+            },
+        ];
+        let grid = Grid {
+            center: c,
+            half_km: 0.0,
+            n: 1,
+            nz: 27,
+            bottom_km: 0.5,
+            top_km: 13.5,
+        };
+        // The levels only the far radar saw, on the axis.
+        let far_only = |f: &FusedVolume| -> Vec<f32> {
+            (0..grid.nz)
+                .map(|k| grid.index(0, 0, k))
+                .filter(|&at| f.echo[at] == 0b10)
+                .map(|at| f.dbz[at])
+                .collect()
+        };
+        let still = far_only(&fuse(&radars, t, 300, grid));
+        let moving = far_only(&fuse_moving(&radars, t, 300, grid, [20.0, 0.0]));
+        assert!(!still.is_empty() && !moving.is_empty());
+        let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
+        assert!(mean(&still) < 47.0, "read in place: {still:?}");
+        assert!(
+            (mean(&moving) - 50.0).abs() < 2.5,
+            "read along the motion: {moving:?}"
+        );
     }
 
     /// A radar whose volume is too far from the time asked for is left out, and said so; no
