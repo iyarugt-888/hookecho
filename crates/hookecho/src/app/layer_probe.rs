@@ -510,7 +510,7 @@ impl HookEchoApp {
             painter.circle_filled(at, 2.0, accent);
         }
         let lines = self.layer_probe_lines(idx, lon, lat);
-        let mut unpin = false;
+        let (mut unpin, mut graph) = (false, false);
         // Beside the point, on whichever side has room: left of it near the right edge, above it
         // in the lower half (where the timeline sits).
         let card_w = presentation::card_width(rect.width());
@@ -549,7 +549,7 @@ impl HookEchoApp {
                     .inner_margin(8)
                     .show(ui, |ui| {
                         crate::ui::workstation::style_scope(ui, &tokens);
-                        unpin = presentation::show(
+                        (unpin, graph) = presentation::show(
                             ui,
                             &lines,
                             pinned,
@@ -563,6 +563,9 @@ impl HookEchoApp {
             });
         if unpin {
             self.layer_probe_pin = None;
+        }
+        if graph {
+            self.start_field_series(idx, [lon, lat], &ctx);
         }
     }
 

@@ -550,10 +550,27 @@ fn series_chart(
         ui.weak("Not enough hours to draw a line.");
         return;
     }
-    let values: Vec<Option<f32>> = points
+    let shown: Vec<(DateTime<Utc>, Option<f32>)> = points
         .iter()
-        .map(|(_, v)| v.map(|v| display_value(field, v)))
+        .map(|(t, v)| (*t, v.map(|v| display_value(field, v))))
         .collect();
+    paint_series(ui, &shown, 0, tz);
+}
+
+/// A line of one value per hour, already in display units, over a time axis: gaps break the
+/// line, and the ends and extremes are labelled with `decimals` places. Shared with the browsed
+/// model field's point graph (`app/field_series.rs`).
+pub(crate) fn paint_series(
+    ui: &mut egui::Ui,
+    points: &[(DateTime<Utc>, Option<f32>)],
+    decimals: usize,
+    tz: Option<wxdata::tz::Tz>,
+) {
+    if points.len() < 2 {
+        ui.weak("Not enough hours to draw a line.");
+        return;
+    }
+    let values: Vec<Option<f32>> = points.iter().map(|(_, v)| *v).collect();
     let finite: Vec<f32> = values.iter().filter_map(|v| *v).collect();
     if finite.is_empty() {
         ui.weak("No data for this period.");
@@ -626,7 +643,7 @@ fn series_chart(
         p.text(
             egui::pos2(x_of(i), y_of(v)) - Vec2::new(0.0, 4.0),
             Align2::CENTER_BOTTOM,
-            format!("{v:.0}"),
+            format!("{v:.decimals$}"),
             font.clone(),
             Color32::from_gray(235),
         );

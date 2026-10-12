@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: graph a model field at a point over its run
+
+For a field picked in "Model fields" from HRRR, RAP, NAM or the other regional models, the
+pinned layer probe has "Graph this point over the run". It draws that field at the point for
+every hour of the run the map shows. An hour the run does not have yet leaves a gap.
+
 ### Improved: the satellite loop says how fast it really plays
 
 The satellite loop's bar now shows the speed of the last pass through it, in frames a second,

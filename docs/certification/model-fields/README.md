@@ -75,3 +75,28 @@ a8dffed7e06ecb20e9d8b22fb4d47cb55bf1ab747db91cd272629078afb4a84a  hrrr-850hpa-te
 - The local unoptimized bundle is 26,223,396 bytes raw, over Cloudflare's 25 MiB limit.
   CI and the deploy run `wasm-opt`, about 38 % smaller, against an 18,000,000-byte budget. The
   bundle question is 1010.md V5.
+
+## A browsed field at a point over its run (2026-10-12, 1010.md V16, ROADMAP_NEW F4)
+
+In the pinned layer probe, a regional model's browsed field has "Graph this point over the run"
+(`app/field_series.rs`). It fetches the same message (variable, level, timing) at every lead of
+the run the pane shows, pinned to that one run, four at a time, and graphs its value at the point
+in the field's display units (`forecast_window::paint_series`, shared with the global-model
+meteogram). A lead the run does not have is a gap in the line.
+
+**Browser build on WebGPU, one machine**, live, built from the working tree at `f0b7bdd` with
+this change and another session's uncommitted work. HRRR 2 m temperature, probe pinned at
+34.951, −95.215:
+
+| Capture | What it shows |
+| --- | --- |
+| `point-graph-hrrr-t2m-browser.jpg` | "HRRR Temperature, 2 m above ground · 34.951, -95.215 · °C · run 2026-10-12 10Z": 20 °C at 6 AM rising to 32 °C in the afternoon and 30 °C at the last lead. "19 leads, one run; 5 without a value here (gaps in the line)": the run was about an hour old, so the last leads were likely not yet posted. |
+
+| File | SHA-256 |
+| --- | --- |
+| point-graph-hrrr-t2m-browser.jpg | `4e16dc65a47b1fae7009b40f536bdea9604eb2a11348c053afe66aa2471d1261` |
+
+The first click on the button moved the probe's pin instead of pressing it; later clicks
+pressed it without moving the pin. Why is not established. Not established either: the desktop
+app, Android, and global models (refused here; the forecast window graphs them).
+

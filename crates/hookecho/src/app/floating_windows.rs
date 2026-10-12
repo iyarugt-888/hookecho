@@ -908,6 +908,7 @@ impl HookEchoApp {
             }
         }
         self.feature_track_window(ctx);
+        self.field_series_window(ctx);
         if let Some(popup) = &self.suitability_popup {
             let current_site = self.views[self.active].site.clone();
             let (keep_open, switch_to, compare_with) = ui::suitability_popup::show(

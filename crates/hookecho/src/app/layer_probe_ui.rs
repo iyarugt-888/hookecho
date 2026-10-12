@@ -18,9 +18,11 @@ pub(super) fn show(
     pane_height: f32,
     analysis_time: Option<chrono::DateTime<chrono::Utc>>,
     tolerance: chrono::Duration,
-) -> bool {
+) -> (bool, bool) {
     ui.set_width(width);
     let mut unpin = false;
+    // A browsed model field's "Graph this point over the run".
+    let mut graph = false;
     ui.horizontal_wrapped(|ui| {
         ui.label(
             egui::RichText::new(format!("{:.3}, {:.3}", point[1], point[0]))
@@ -73,7 +75,9 @@ pub(super) fn show(
                         if clicked {
                             header.toggle();
                         }
-                        header.body(|ui| show_source(ui, line, analysis_time, tolerance));
+                        header.body(|ui| {
+                            graph |= show_source(ui, line, analysis_time, tolerance);
+                        });
                     });
                 } else {
                     ui.horizontal_wrapped(|ui| {
@@ -88,18 +92,25 @@ pub(super) fn show(
                 ui.weak("Pin to inspect sources and times");
             }
         });
-    unpin
+    (unpin, graph)
 }
 
+/// A line's sources; true when its "Graph this point over the run" was clicked (a model field
+/// picked in "Model fields").
 fn show_source(
     ui: &mut egui::Ui,
     line: &ProbeLine,
     analysis_time: Option<chrono::DateTime<chrono::Utc>>,
     tolerance: chrono::Duration,
-) {
+) -> bool {
     if let Some(detail) = &line.detail {
         ui.label(detail);
     }
+    let graph = line.field == Some(crate::render::FieldLayer::ModelField)
+        && ui
+            .small_button("Graph this point over the run")
+            .on_hover_text("This field here at every lead of the run the pane shows")
+            .clicked();
     if let Some(field) = line.field.and_then(crate::render::FieldLayer::descriptor) {
         ui.label(format!(
             "Native units: {} · {:?}",
@@ -116,6 +127,7 @@ fn show_source(
     } else {
         ui.weak("Full source stamp unavailable; only retained metadata is shown.");
     }
+    graph
 }
 
 #[cfg(test)]

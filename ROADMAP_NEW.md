@@ -2561,8 +2561,11 @@ Every appropriate field should support:
 - [x] point sample — the layer probe reads a browsed field under the pointer, a wind with the
   direction it blows from (`app/layer_probe.rs`, `model_wind_from_deg`)
 - [x] time series — the forecast window graphs a global model's field at a point over its
-  forecast hours (`global::fetch_point_series`, `ui/forecast_window.rs`); not yet for the HRRR
-  family's browsed fields
+  forecast hours (`global::fetch_point_series`, `ui/forecast_window.rs`). A regional model's
+  browsed field has "Graph this point over the run" in the pinned layer probe: the same
+  message at every lead of the pane's run, pinned to that run, in its display units, a
+  missing lead a gap (`app/field_series.rs`, 1010.md V16; browser walkthrough in
+  `docs/certification/model-fields/`)
 
 (Checked against the code on 2026-10-12, 1010.md V20: barbs, streamlines and the probe were
 already in for browsed winds but not ticked here.)
