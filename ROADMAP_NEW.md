@@ -3885,8 +3885,11 @@ Pack selection UI should optionally include:
   `a_days_cached_volumes_are_listed_from_their_names`; 1010.md V9). Before, the cached
   volumes could not be reached without a listing. Shown in the Windows desktop app (debug,
   sandboxed) with every request sent to a dead proxy: KHTX 2026-09-10 played its 6 cached
-  volumes (`docs/certification/chase/`). Not yet: a way to fetch a loop ahead on purpose,
-  and a run with the network adapter itself off
+  volumes (`docs/certification/chase/`). On the desktop, the timeline menu's "Keep this loop
+  on this device" fetches the loop's volumes up to the playhead into the disk cache, two at
+  a time, skipping any already there (`keep_loop_offline`;
+  `a_kept_loop_is_the_frames_up_to_the_playhead`). Not yet: that button pressed in a running
+  app, and a run with the network adapter itself off
 - selected GOES frames
 - selected MRMS frames
 - routing graph when implemented

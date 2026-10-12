@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: keep a radar loop on the desktop before you lose signal
+
+The timeline's menu on the desktop has "Keep this loop on this device". It downloads the
+loop's radar volumes now, skipping any already there, and says how far it has got. Later,
+with no signal, the loop still plays.
+
 ### Improved: radar you already looked at plays with no signal on the desktop
 
 The desktop app keeps every past radar volume it showed. Without a connection it could not

@@ -67,7 +67,12 @@ impl HookEchoApp {
             .as_deref()
             .is_some_and(wxdata::sites::is_nexrad);
         let mut go_head = false;
-        // Offline chase packs are a browser-only idea: on desktop the volumes are already on disk.
+        // Offline chase packs live in the browser's IndexedDB. On the desktop the volumes are
+        // already on disk, and "keep this loop" fetches a loop's that are not yet.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut keep_loop = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        let keep_status = self.keep_status();
         #[cfg(target_arch = "wasm32")]
         let mut save_pack = false;
         #[cfg(target_arch = "wasm32")]
@@ -437,6 +442,23 @@ impl HookEchoApp {
                                     ui.weak(msg);
                                 }
                             }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                ui.separator();
+                                if ui
+                                    .button("Keep this loop on this device")
+                                    .on_hover_text(
+                                        "Download this loop's volumes now, so it plays with no \
+                                         signal later. Volumes already on disk are skipped.",
+                                    )
+                                    .clicked()
+                                {
+                                    keep_loop = true;
+                                }
+                                if let Some(msg) = &keep_status {
+                                    ui.weak(msg);
+                                }
+                            }
                         });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let archive = ui
@@ -530,6 +552,10 @@ impl HookEchoApp {
                 });
             });
         self.settings.live_loop_frames = loop_frames;
+        #[cfg(not(target_arch = "wasm32"))]
+        if keep_loop {
+            self.keep_loop_offline(ctx, loop_frames);
+        }
         #[cfg(target_arch = "wasm32")]
         {
             if save_pack {
