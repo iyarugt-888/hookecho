@@ -372,6 +372,7 @@ impl HookEchoApp {
                         .spaghetti
                         .enabled
                         .then(|| self.spaghetti.focus.clone().unwrap_or_default()),
+                    sat: self.sat_loop.on,
                 });
                 // A phone or a tablet has a share sheet, and pasting into a chat is what this is
                 // for; the clipboard is the fallback for everything that does not.

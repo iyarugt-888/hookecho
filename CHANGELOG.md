@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a link that opens the satellite loop
+
+A shared HookEcho link now carries the satellite loop when it is playing, and opening the
+link starts it (turning on GOES infrared if no satellite layer is shown).
+
 ### Improved: saving a loop in the browser says how big it will be
 
 Before you press "Save this loop offline" in the browser, it says how many megabytes the

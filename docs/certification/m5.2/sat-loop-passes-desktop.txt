@@ -1,0 +1,16 @@
+[2026-10-12T15:31:30Z INFO  hookecho::app::construct] gpu: NVIDIA GeForce RTX 2060 (DiscreteGpu, Vulkan) driver NVIDIA
+[2026-10-12T15:31:30Z INFO  hookecho::app::construct] perf: pipelines compiled in 13 ms
+[2026-10-12T15:31:30Z INFO  hookecho::perf] perf: first frame after 717 ms
+[2026-10-12T15:31:33Z INFO  hookecho::app::sat_loop] satellite loop: pass 1: 1 frames in 2.2 s, 0.46 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:37Z INFO  hookecho::app::sat_loop] satellite loop: pass 2: 11 frames in 4.2 s, 2.65 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:41Z INFO  hookecho::app::sat_loop] satellite loop: pass 3: 11 frames in 3.8 s, 2.89 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:45Z INFO  hookecho::app::sat_loop] satellite loop: pass 4: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:48Z INFO  hookecho::app::sat_loop] satellite loop: pass 5: 11 frames in 3.8 s, 2.89 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:52Z INFO  hookecho::app::sat_loop] satellite loop: pass 6: 11 frames in 3.9 s, 2.84 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:31:56Z INFO  hookecho::app::sat_loop] satellite loop: pass 7: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:00Z INFO  hookecho::app::sat_loop] satellite loop: pass 8: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:04Z INFO  hookecho::app::sat_loop] satellite loop: pass 9: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:07Z INFO  hookecho::app::sat_loop] satellite loop: pass 10: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:11Z INFO  hookecho::app::sat_loop] satellite loop: pass 11: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:15Z INFO  hookecho::app::sat_loop] satellite loop: pass 12: 11 frames in 3.8 s, 2.88 frames/s shown at 4 asked (the end dwell included), 0 never appeared
+[2026-10-12T15:32:19Z INFO  hookecho::app::sat_loop] satellite loop: pass 13: 11 frames in 3.8 s, 2.90 frames/s shown at 4 asked (the end dwell included), 0 never appeared

@@ -85,6 +85,7 @@ impl HookEchoApp {
                 .spaghetti
                 .enabled
                 .then(|| self.spaghetti.focus.clone().unwrap_or_default()),
+            sat: self.sat_loop.on,
         });
         link.find('#').map(|i| link[i..].to_string())
     }

@@ -2385,6 +2385,21 @@ impl HookEchoApp {
                 self.gauge_cards.queue(lid);
             }
         }
+        if g.sat {
+            // The loop needs a GOES layer to list; infrared reads day and night.
+            let goes_on = self.views[self.active]
+                .fields_on
+                .iter()
+                .any(|l| GOES_FRAME_LAYERS.contains(l));
+            if !goes_on {
+                self.views[self.active]
+                    .fields_on
+                    .insert(crate::render::FieldLayer::GoesIr);
+            }
+            if !self.sat_loop.on {
+                self.toggle_sat_loop();
+            }
+        }
         if let Some(id) = g.tropical {
             self.show_tropical = true;
             self.spaghetti.enabled = true;
@@ -4546,6 +4561,7 @@ impl HookEchoApp {
                     srv: false,
                     gauges: vec![lid],
                     tropical: None,
+                    sat: false,
                 });
                 if !crate::platform::share_link("HookEcho", &link) {
                     ctx.copy_text(link.clone());

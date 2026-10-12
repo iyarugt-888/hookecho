@@ -409,6 +409,7 @@ fn goto_link_round_trips() {
         srv: false,
         gauges: Vec::new(),
         tropical: None,
+        sat: false,
     };
     let link = goto_link(&base(Moment::Reflectivity, 0, None));
     assert!(link.starts_with("hookecho://goto/KFWS,"), "{link}");
@@ -478,4 +479,15 @@ fn draw_strokes_append_and_undo() {
     strokes.pop(); // Undo
     assert_eq!(strokes.len(), 1);
     assert_eq!(strokes[0].color, red);
+}
+
+/// `sat` opens the satellite loop, and a view with the loop playing shares it.
+#[test]
+fn goto_sat_opens_the_satellite_loop_and_round_trips() {
+    let g = parse_goto("KTLX,-97.3,35.3,7,sat").unwrap();
+    assert!(g.sat);
+    assert!(!parse_goto("KTLX,-97.3,35.3,7").unwrap().sat);
+    let link = goto_link(&Goto { sat: true, ..g });
+    assert!(link.ends_with(",sat"), "{link}");
+    assert!(parse_goto(&link).unwrap().sat);
 }

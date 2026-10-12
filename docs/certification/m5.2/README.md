@@ -100,3 +100,38 @@ So the loop keeps `PREFETCH_INFLIGHT = 2`. A frame from the cache still costs 0.
 Both rates are well under the 3.3 frames/s measured on 2026-10-10. Ten scans decoded at the
 same rate as twenty, so the GOES file cache evicting scans was not the cause. Nothing else heavy
 was running. The cause is not established.
+
+## The loop's real rate in the desktop app (2026-10-12, 1010.md V19)
+
+The loop logs each pass when its playhead wraps (`sat_loop::PassClock`). A deep link's new `sat`
+field opens the loop by itself, so the desktop app could run it with nothing pressed:
+`HOOKECHO_GOTO=KTLX,-97.3,35.3,6,sat`, which turned on GOES infrared (band 13) and started a live
+GOES-East CONUS loop of 60 minutes at the default 4 fps.
+
+**Windows desktop app, one machine:** an optimized build with debug assertions on (the sandboxed
+storage needs them), built from the working tree at `17bf42f0` with this change and another
+session's uncommitted work; RTX 2060 on Vulkan; the window on screen.
+
+| Pass | Frames | Time | Frames/s |
+| --- | --- | --- | --- |
+| 1 | 1 | 2.2 s | 0.46 (the listing arrived mid-pass) |
+| 2 | 11 | 4.2 s | 2.65 |
+| 3 to 13 | 11 each | 3.8 to 3.9 s | 2.84 to 2.90 |
+
+None of the 133 frames failed to appear. At 4 fps eleven frames take 2.75 s, and the end dwell adds
+1 s: 3.75 s a pass, 2.93 frames/s. So from the second pass on the loop plays at the rate asked,
+and the first full pass, with frames still downloading and decoding ahead two at a time, ran
+about 0.45 s slow. The map drew at 9.7 ms a frame (the debug overlay, top left of the capture).
+A debug build on the same loop managed 0.57 frames/s on its first full pass and 1.74 on its
+fifth: decode time is what holds a slow build back.
+
+| File | SHA-256 |
+| --- | --- |
+| sat-loop-passes-desktop.txt | `391ee950c20568bcfa605082c4c176286565251851ee469c6da0362a8acb5983` |
+| sat-loop-desktop.jpg | `9a85df2f9d385698c609c5402b23ec40d1b397888b28ec6b15725266f19edba6` |
+
+`sat-loop-desktop.jpg`: the loop bar reading "last pass 2.9 fps" and "GOES-East CONUS (5 min) ·
+14:36:17 UTC · 1/11 · 11/11 cached", with the infrared clouds over the West.
+
+Not established: 8 fps (the speed is only settable with the pointer, and nothing here drives it),
+a one-minute mesoscale loop, the browser with its pane shown, and Android.
