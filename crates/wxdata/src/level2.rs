@@ -1181,6 +1181,33 @@ pub fn receipt_path(cache_dir: &std::path::Path, name: &str) -> PathBuf {
         .join(format!("{name}.receipt.json"))
 }
 
+/// The volumes of `site` on `date` already in the disk cache, oldest first: what a timeline can
+/// show without the network. Read from the file names alone (`KTLX20130520_201229_V06`, with or
+/// without `.gz`); receipts, partial writes and other radars or days are left out.
+pub fn cached_volumes(
+    cache_dir: &std::path::Path,
+    site: &str,
+    date: chrono::NaiveDate,
+) -> Vec<Identifier> {
+    let prefix = format!("{}{}", site.to_ascii_uppercase(), date.format("%Y%m%d"));
+    let Ok(dir) = std::fs::read_dir(cache_dir.join("volumes")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = dir
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| n.starts_with(&prefix) && n.contains("_V"))
+        .filter(|n| !n.ends_with(".json") && !n.ends_with(".tmp") && !n.ends_with(".part"))
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .map(Identifier::new)
+        .filter(|id| id.date_time().is_some_and(|t| t.date_naive() == date))
+        .collect()
+}
+
 /// The receipt of cached volume `name`, when one was kept.
 pub fn archive_receipt(cache_dir: &std::path::Path, name: &str) -> Option<ArchiveReceipt> {
     let text = std::fs::read_to_string(receipt_path(cache_dir, name)).ok()?;
@@ -2344,6 +2371,44 @@ fn bin_sweep_opts_inner(
         row_nyquist_mps,
         row_unambiguous_km,
     })
+}
+
+#[cfg(test)]
+mod cached_volume_tests {
+    use super::*;
+
+    /// The cache's volumes of one radar and day, oldest first, read from their names; receipts,
+    /// partial writes, other radars, other days and junk are left out.
+    #[test]
+    fn a_days_cached_volumes_are_listed_from_their_names() {
+        let dir =
+            std::env::temp_dir().join(format!("hookecho-cached-volumes-{}", std::process::id()));
+        let vols = dir.join("volumes");
+        std::fs::create_dir_all(&vols).unwrap();
+        for name in [
+            "KTLX20130520_201229_V06",
+            "KTLX20130520_195111_V06.gz",
+            "KTLX20130520_201229_V06.receipt.json",
+            "KTLX20130520_203346_V06.tmp",
+            "KINX20130520_201229_V06",
+            "KTLX20130521_000100_V06",
+            "notes.txt",
+        ] {
+            std::fs::write(vols.join(name), b"x").unwrap();
+        }
+        std::fs::create_dir_all(vols.join("KTLX20130520_210000_V06")).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2013, 5, 20).unwrap();
+        let got: Vec<String> = cached_volumes(&dir, "ktlx", date)
+            .iter()
+            .map(|id| id.name().to_string())
+            .collect();
+        assert_eq!(
+            got,
+            ["KTLX20130520_195111_V06.gz", "KTLX20130520_201229_V06"]
+        );
+        assert!(cached_volumes(&dir.join("missing"), "KTLX", date).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

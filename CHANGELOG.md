@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: radar you already looked at plays with no signal on the desktop
+
+The desktop app keeps every past radar volume it showed. Without a connection it could not
+list a day's volumes, so none of them could be shown. Now, when the list cannot be fetched,
+the timeline shows the volumes of that radar and day already on your computer, and the feed
+status says it is doing so.
+
 ### Fixed: the gate inspector gives values past the colour scale as the radar sent them
 
 The map draws ZDR only from -7.9 to 7.9 dB and CC only up to 1.05, so a stronger value is

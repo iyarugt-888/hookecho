@@ -88,3 +88,30 @@ Not seen in the window yet: no storms were forecast near a route while this was 
 Checks in a clean worktree at `bb845bb` with only this change: clippy clean, the wasm library
 check at its baseline, workspace tests 2,649 passed, 0 failed, 213 ignored
 (`target/parity-review/l3/wt-*.log`).
+
+## Radar you already looked at, with no signal (2026-10-12, 1010.md V9, ROADMAP_NEW L5)
+
+The desktop app keeps every archived volume it shows or prefetches in its disk cache. Without a
+connection the day's volume listing fails, and before this change that left the timeline empty.
+Now the app lists the volumes of that radar and day already on disk (`level2::cached_volumes`)
+and says so in the feed status.
+
+**Shown in the Windows desktop app** (debug build, `HOOKECHO_SANDBOX=1`, one machine). Every
+HTTP(S) request went to a dead proxy (`HTTPS_PROXY=http://127.0.0.1:9`). The view was KHTX on
+2026-09-10 at 01:10 UTC, with six of that day's volumes copied into the sandbox's cache. The
+listing failed and the app logged:
+
+> Archive frame list: KHTX 2026-09-10: list_files(KHTX, 2026-09-10): error listing AWS S3
+> objects; showing the 6 volumes already on this device instead
+
+[offline-cached-radar-desktop.png](offline-cached-radar-desktop.png): the 01:11:41 volume on
+screen, played from disk, with its timeline. The basemap is blank because its tiles were not
+cached either; a chase pack fills that.
+
+| File | SHA-256 |
+| --- | --- |
+| offline-cached-radar-desktop.png | `971e1d2f4a3d2aaa464d2ca6d377f310fb4c66e016d49e4234ec7d4fa4ab20ea` |
+| offline-cached-radar-desktop.txt | `4e5f7c10b9f2c9c248975fbea5cfce8e574bba766a0242114962d2e863b04b4a` |
+
+Not established: the network adapter itself turned off (a dead proxy fails the same request
+another way), Android, and fetching a loop ahead on purpose.

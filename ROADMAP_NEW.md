@@ -3878,7 +3878,15 @@ Pack selection UI should optionally include:
 
 - basemap tiles
 - radar-site metadata
-- recent radar frames
+- [x] recent radar frames — in the browser, a saved loop is an offline pack in IndexedDB. On
+  the desktop every archived volume shown or prefetched stays in the disk cache, and since
+  2026-10-12 a day whose listing fails (no signal) shows the volumes of that radar and day
+  already on disk, with a feed note saying so (`level2::cached_volumes`,
+  `a_days_cached_volumes_are_listed_from_their_names`; 1010.md V9). Before, the cached
+  volumes could not be reached without a listing. Shown in the Windows desktop app (debug,
+  sandboxed) with every request sent to a dead proxy: KHTX 2026-09-10 played its 6 cached
+  volumes (`docs/certification/chase/`). Not yet: a way to fetch a loop ahead on purpose,
+  and a run with the network adapter itself off
 - selected GOES frames
 - selected MRMS frames
 - routing graph when implemented

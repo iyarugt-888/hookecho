@@ -5215,7 +5215,32 @@ impl HookEchoApp {
                     });
                     ctx.request_repaint();
                 }
-                Err(e) => note_feed_error("Archive frame list", format!("{site} {date}: {e}")),
+                Err(e) => {
+                    // No listing (no signal, say): the day's volumes already on disk still play
+                    // (ROADMAP_NEW L5), and the feed note says the list is the cache's.
+                    let cached = crate::paths::cache_dir()
+                        .map(|d| level2::cached_volumes(&d, &site, date))
+                        .unwrap_or_default();
+                    if cached.is_empty() {
+                        note_feed_error("Archive frame list", format!("{site} {date}: {e}"));
+                    } else {
+                        note_feed_error(
+                            "Archive frame list",
+                            format!(
+                                "{site} {date}: {e}; showing the {} volumes already on this \
+                                 device instead",
+                                cached.len()
+                            ),
+                        );
+                        let _ = tx.send(DataMsg::Frames {
+                            view: view_idx,
+                            site,
+                            date,
+                            frames: cached,
+                        });
+                        ctx.request_repaint();
+                    }
+                }
             }
         });
     }
