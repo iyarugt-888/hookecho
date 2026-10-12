@@ -3916,8 +3916,9 @@ Pack selection UI should optionally include:
   IndexedDB in the browser), and a fetch that fails, a start with no signal included, shows
   that copy and says how old it is (`placefile::offline_copy`, `OverlayMsg::PlacefileOffline`;
   the source still counts as failing). Shown in the Windows desktop app (debug, sandboxed)
-  with its server stopped (`docs/certification/chase/`). Not yet: a placefile's icon sheets
-  and images, which are not kept
+  with its server stopped (`docs/certification/chase/`). Its icon sheets and images are kept
+  too: on the desktop's disk (as they already were) and, since this change, in the browser's
+  object cache
 
 Show estimated pack size before download. — for a kept radar loop on the desktop: before
 "Keep this loop on this device" is pressed, its menu says how many of the loop's volumes

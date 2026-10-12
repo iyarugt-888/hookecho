@@ -7967,8 +7967,34 @@ async fn fetch_icon_sheet(http: &reqwest::Client, url: &str) -> anyhow::Result<e
     // Read-through disk cache, same shape as the basemap tiles: an icon sheet is a few KB of PNG
     // that never changes, and re-fetching every placefile's sheet at every startup is the kind of
     // traffic somebody else's web host notices. A corrupt file simply fails to decode and is
-    // refetched. Nothing on the web, where `cache_dir()` is None.
+    // refetched. On the web, where `cache_dir()` is None, the object cache keeps it instead
+    // (IndexedDB), so a placefile's icons also draw with no signal there (ROADMAP_NEW L5).
     let cached = icon_sheet_cache_path(url);
+    if cached.is_none() {
+        let bytes = wxdata::objcache::cached(
+            &wxdata::objcache::PLACEFILES,
+            url,
+            |b| image::load_from_memory(b).is_ok(),
+            async {
+                Ok(http
+                    .get(url)
+                    .header("User-Agent", crate::tiles::USER_AGENT)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .bytes()
+                    .await?
+                    .to_vec())
+            },
+        )
+        .await?;
+        let img = image::load_from_memory(&bytes)?.to_rgba8();
+        let (w, h) = img.dimensions();
+        return Ok(egui::ColorImage::from_rgba_unmultiplied(
+            [w as usize, h as usize],
+            img.as_raw(),
+        ));
+    }
     let hit = cached
         .as_ref()
         .and_then(|p| std::fs::read(p).ok())

@@ -235,6 +235,10 @@ and the text "OFFLINE COPY TEST" near Norman) was served from `http://127.0.0.1:
 | placefile-offline-copy-desktop.jpg | `ed5720dce9cf2fb27feec08f6c721493c67b64201894223cbd09de7353836618` |
 | placefile-offline-copy-desktop.txt | `15f83ab0d8b466bc0ba3e9b60324c81188304cdcccebd0e54491845aed4bb8dc` |
 
-Not established: the placefile list's line seen on screen (the captures show the map), the
-browser, Android, and a placefile's icon sheets and images, which are not kept, so a placefile
-of icons draws without them offline.
+A placefile's icon sheets and images were already kept on the desktop's disk by their own
+read-through cache (`app::fetch_icon_sheet`, `pficons/`), so a placefile of icons draws with
+them offline there. The browser had no such cache: it now keeps them in the same object-cache
+space. Corrected the same day: this section first said icons were not kept at all.
+
+Not established: the placefile list's line seen on screen (the captures show the map), a
+placefile with icons offline, the browser, and Android.

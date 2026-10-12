@@ -12,7 +12,7 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 A placefile loaded from a web address now keeps its last good copy. If it cannot be fetched,
 including when HookEcho starts with no signal, that copy is shown and the placefile list
-says how old it is. Its icon images are not kept yet.
+says how old it is. Its icon images are kept too, in the browser as on the desktop.
 
 ### Improved: velocity from radars that scan sectors at different speeds
 
