@@ -26,7 +26,8 @@ row was filed under a category the layers panel does not draw (fixed in `1b39538
 - OBS itself was not run; the guide follows the app's behaviour.
 - Remembering the program pane and held view, and a monitor chosen from a list (the window's
   position, and so its monitor, is remembered since 2026-10-12, below).
-- Android share sheet for stills and loops; GIF from the control strip; Android walkthrough.
+- Android share sheet for stills and loops; Android walkthrough. (A GIF from the control strip
+  is in since 2026-10-12, below, but not yet pressed in a running app.)
 
 ## The output window reopens where it was (2026-10-12, 1008.md F3)
 
@@ -53,3 +54,12 @@ there was a position still read (`the_output_window_reopens_as_it_was_left`).
 
 Not established: a second monitor (this machine has one), fullscreen across a restart, a monitor
 that has gone since, and OBS itself.
+
+## A GIF from the control strip (2026-10-12, 1008.md F3)
+
+Streaming mode's touch control strip (`app/presentation.rs`) gains **Save loop (GIF)** beside
+Save still. It hides the strip, as Save still does, and starts the same loop export the menus
+start (`start_loop_export(LoopFormat::Gif)`): the timeline is rewound and each frame captured as
+the window shows it, so the loop carries the streaming dressing. It is greyed out while an export
+runs. Not established: the button pressed in a running app (the strip appears on a touch, and
+nothing here touches the desktop window), and Android's share sheet for the file.

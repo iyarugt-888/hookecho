@@ -35,6 +35,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: save a GIF from streaming mode's controls
+
+In streaming mode on a touch screen, the controls that appear when you tap now have "Save loop
+(GIF)", which saves the loop as it looks on screen.
+
 ### Improved: the output window comes back where you left it
 
 The output window for OBS now reopens in the same place, so on the same monitor, and a

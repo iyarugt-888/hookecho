@@ -46,6 +46,8 @@ enum Ask {
     Exit,
     Scene(bool),
     Still,
+    /// The timeline as a looping GIF, dressed as on screen (1008.md F3).
+    Gif,
 }
 
 impl HookEchoApp {
@@ -116,6 +118,19 @@ impl HookEchoApp {
                             if ui.button("Save still").clicked() {
                                 ask = Some(Ask::Still);
                             }
+                            // One export at a time; it steps the timeline itself.
+                            if ui
+                                .add_enabled(
+                                    self.loop_export.is_none(),
+                                    egui::Button::new("Save loop (GIF)"),
+                                )
+                                .on_hover_text(
+                                    "The timeline as a looping GIF, dressed as it is on screen",
+                                )
+                                .clicked()
+                            {
+                                ask = Some(Ask::Gif);
+                            }
                         });
                     });
             });
@@ -135,6 +150,11 @@ impl HookEchoApp {
                 if let Some(path) = crate::dialog::save_path("hookecho.png", "png") {
                     self.request_capture(ctx, ShotDest::File(path));
                 }
+            }
+            Some(Ask::Gif) => {
+                // Hidden for the same reason; the export captures every frame of the loop.
+                self.presentation.shown_at = None;
+                self.start_loop_export(crate::loopexport::LoopFormat::Gif);
             }
             None => {}
         }

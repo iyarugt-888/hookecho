@@ -2003,6 +2003,8 @@ Evidence: [`docs/certification/m6.3/`](docs/certification/m6.3/). Scope: the off
 
 **Evidence ledger — 2026-10-12, increment 3 (the output window reopens where it was; 1008.md F3):** the output window's outer position is kept with its settings (`OutputPrefs::position`, not while fullscreen) and asked for at launch (`ViewportBuilder::with_position`); since fullscreen fills the monitor the window is on, this is monitor selection by placement, kept across restarts. Real desktop app (sandboxed debug build, Windows): saved at 420,260 it opened there; moved to 640,140 and closed normally, the setting read `[640,140]` and the next start opened it there (`docs/certification/m6.4/`). Test `the_output_window_reopens_as_it_was_left` (with a settings file from before the field). Open: a monitor list, a second monitor and fullscreen across a restart, Android share sheet, GIF from the control strip, OBS run.
 
+**Evidence ledger — 2026-10-12, increment 4 (a GIF from the control strip; 1008.md F3):** streaming mode's touch control strip has Save loop (GIF) beside Save still: the strip hides and the menus' loop export runs (`start_loop_export(LoopFormat::Gif)`), so the loop is captured dressed as on screen; greyed out while an export runs (`app/presentation.rs`). Builds on the desktop and the web. Open: pressed in a running app, Android's share sheet for stills and loops, a monitor list, OBS run.
+
 ### M7 — Professional certification
 
 #### M7.1 — Extend soaks to the full application and resources

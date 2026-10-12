@@ -50,7 +50,9 @@ screen**.
 - Switch scenes with **Alt+1 … Alt+9** in the operator window; the output follows.
 - **Streaming mode** (F8) dresses the operator window itself instead, for a single-screen setup;
   **F9** tours the active warnings every 12 seconds.
-- A loop for the web: **Export loop (GIF/MP4)**, with MP4 at 30 or 60 fps. If a scan does not load
+- A loop for the web: **Export loop (GIF/MP4)**, with MP4 at 30 or 60 fps. In streaming mode
+  on a touch screen, the control strip (tap the view) has **Save loop (GIF)**, which captures
+  the loop dressed as it is on screen. If a scan does not load
   within 30 seconds, the export pauses and asks what to do rather than recording the wrong scan.
 
 ## What is not supported yet
