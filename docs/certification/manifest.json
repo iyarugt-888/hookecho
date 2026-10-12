@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T14:57:01+00:00",
-  "generated_from_commit": "846df70faf5a548c3203000df0dff67d2c9cb6d3",
+  "generated_utc": "2026-10-12T15:39:20+00:00",
+  "generated_from_commit": "053cec71787396cd14091dee08163c8af2541397",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -193,7 +193,7 @@
     {
       "card": "M5.2",
       "title": "Add satellite-native one-minute playback",
-      "ledger_entries": 5,
+      "ledger_entries": 6,
       "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (satellite-driven loop over native scan listings, increment 1); verification: partial (unit; live NOAA listing; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.2"
@@ -1334,8 +1334,8 @@
     },
     {
       "path": "docs/certification/m5.2/README.md",
-      "sha256": "34e63936e46eaede2e5dfce5420c580880aff56acc90afbfae85ee1e75efe2bc",
-      "bytes": 5564
+      "sha256": "b942984f3426487bcbb5b3a9064268ab22b2c4c2c0dfb58439a6eb83a6a09da0",
+      "bytes": 7540
     },
     {
       "path": "docs/certification/m5.2/loop-decode-ahead-live-2026-10-12.txt",
@@ -1356,6 +1356,16 @@
       "path": "docs/certification/m5.2/loop-decode-par.txt",
       "sha256": "417452e0bfd864d673e7f8c60d185470bf8f25d46505b45b2f81fea4308eef98",
       "bytes": 2294
+    },
+    {
+      "path": "docs/certification/m5.2/sat-loop-desktop.jpg",
+      "sha256": "9a85df2f9d385698c609c5402b23ec40d1b397888b28ec6b15725266f19edba6",
+      "bytes": 321401
+    },
+    {
+      "path": "docs/certification/m5.2/sat-loop-passes-desktop.txt",
+      "sha256": "391ee950c20568bcfa605082c4c176286565251851ee469c6da0362a8acb5983",
+      "bytes": 2508
     },
     {
       "path": "docs/certification/m5.3/README.md",
