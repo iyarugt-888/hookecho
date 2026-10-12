@@ -786,12 +786,22 @@ impl SettingsWindow {
                     egui::ComboBox::from_id_salt(("pal_combo", key))
                         .selected_text(selected_text)
                         .show_ui(ui, |ui| {
-                            if ui.selectable_label(current.is_none(), "Default").clicked() {
+                            let item = |ui: &mut egui::Ui, on: bool, name: &str| {
+                                let (label, hover) =
+                                    crate::colormap::table_menu_label(moment, name);
+                                let r = ui.selectable_label(on, label);
+                                match hover {
+                                    Some(h) => r.on_hover_text(h),
+                                    None => r,
+                                }
+                                .clicked()
+                            };
+                            if item(ui, current.is_none(), "Default") {
                                 settings.palettes.remove(key);
                             }
                             for name in crate::colormap::alt_names(moment) {
                                 let is_sel = builtin.as_deref() == Some(name);
-                                if ui.selectable_label(is_sel, name).clicked() {
+                                if item(ui, is_sel, name) {
                                     settings.palettes.insert(
                                         key.to_string(),
                                         format!("{}{name}", crate::colormap::BUILTIN_PREFIX),

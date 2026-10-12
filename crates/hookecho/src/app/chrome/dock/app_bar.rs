@@ -1080,14 +1080,20 @@ pub(super) fn table_items(
     table_now: &str,
     pick: &mut Option<Option<String>>,
 ) {
-    if ui
-        .selectable_label(table_now == "Default", "Default")
+    let item = |ui: &mut egui::Ui, name: &str| {
+        let (label, hover) = crate::colormap::table_menu_label(moment, name);
+        let r = ui.selectable_label(table_now == name, label);
+        match hover {
+            Some(h) => r.on_hover_text(h),
+            None => r,
+        }
         .clicked()
-    {
+    };
+    if item(ui, "Default") {
         *pick = Some(None);
     }
     for name in crate::colormap::alt_names(moment) {
-        if ui.selectable_label(table_now == name, name).clicked() {
+        if item(ui, name) {
             *pick = Some(Some(format!("{}{name}", crate::colormap::BUILTIN_PREFIX)));
         }
     }

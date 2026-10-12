@@ -1,0 +1,228 @@
+Least CIE76 dE between values a fifth of the span apart (and, for tables spanning
+zero, between +v and -v), under normal vision and simulated dichromacy (Machado
+2009). Under about 10 is easily confused at a glance. A dichromacy row counts only
+pairs normal vision sees at least 10 apart (a flat part of a scale is flat for
+everyone); a normal row under 10 is such a flat or near-flat part.
+
+REF default (10 to 70), marked "CVD ok" in the picker
+  normal:  26.6 (10.0 vs 22.0)
+  protan:  15.5 (34.0 vs 46.0)
+  deutan:  24.2 (10.0 vs 22.0)
+  tritan:  27.6 (10.0 vs 22.0)
+VEL default (-61.77288 to 61.77288)
+  normal:  23.2 (24.7 vs 49.4), +v/-v 119.9 (at 30.9)
+  protan:   4.9 (-6.2 vs 18.5), +v/-v  40.6 (at 15.4)  < 10
+  deutan:   6.7 (21.6 vs 46.3), +v/-v  44.4 (at 15.4)  < 10
+  tritan:  12.7 (-40.2 vs -15.4), +v/-v  54.7 (at 30.9)
+SW default (0 to 30), marked "CVD ok" in the picker
+  normal:   0.0 (20.2 vs 26.2)  < 10
+  protan:  26.0 (24.0 vs 30.0)
+  deutan:  14.5 (24.0 vs 30.0)
+  tritan:  29.1 (4.5 vs 10.5)
+ZDR default (-7.9 to 6)
+  normal:   0.0 (-7.9 vs -5.1), +v/-v  86.5 (at 4.5)  < 10
+  protan:  18.9 (1.1 vs 3.9), +v/-v  45.3 (at 6.0)
+  deutan:   7.4 (1.5 vs 4.3), +v/-v  66.0 (at 6.0)  < 10
+  tritan:  27.6 (-4.8 vs -2.0), +v/-v  60.2 (at 1.5)
+PHI default (0 to 360)
+  normal:  57.9 (180.0 vs 252.0)
+  protan:  18.9 (180.0 vs 252.0)
+  deutan:   7.4 (234.0 vs 306.0)  < 10
+  tritan:  11.3 (126.0 vs 198.0)
+KDP default (-2 to 8)
+  normal:  40.2 (4.0 vs 6.0), +v/-v  50.4 (at 0.5)
+  protan:  18.9 (1.5 vs 3.5), +v/-v  48.1 (at 0.5)
+  deutan:   7.4 (2.0 vs 4.0), +v/-v  48.1 (at 1.0)  < 10
+  tritan:  21.1 (-2.0 vs 0.0), +v/-v  34.0 (at 0.5)
+CC default (0.2 to 1)
+  normal:  12.8 (0.2 vs 0.4)
+  protan:   8.8 (0.3 vs 0.4)  < 10
+  deutan:   9.9 (0.3 vs 0.4)  < 10
+  tritan:   5.2 (0.2 vs 0.4)  < 10
+REF Colorblind-safe (viridis) (10 to 75), marked "CVD ok" in the picker
+  normal:  28.9 (10.0 vs 23.0)
+  protan:  11.9 (55.5 vs 68.5)
+  deutan:  15.0 (55.5 vs 68.5)
+  tritan:  15.2 (60.4 vs 73.4)
+REF High contrast (reflectivity) (10 to 70), marked "CVD ok" in the picker
+  normal:  26.6 (17.5 vs 29.5)
+  protan:  18.8 (17.5 vs 29.5)
+  deutan:  14.6 (35.5 vs 47.5)
+  tritan:  11.9 (17.5 vs 29.5)
+VEL Colorblind-safe (blue/orange) (-61.77288 to 61.77288), marked "CVD ok" in the picker
+  normal:  21.3 (37.1 vs 61.8), +v/-v  81.9 (at 61.8)
+  protan:  17.3 (37.1 vs 61.8), +v/-v  68.1 (at 15.4)
+  deutan:  19.9 (37.1 vs 61.8), +v/-v  77.4 (at 15.4)
+  tritan:  20.2 (37.1 vs 61.8), +v/-v  74.8 (at 61.8)
+VEL High contrast (velocity) (-61.77288 to 61.77288), marked "CVD ok" in the picker
+  normal:  19.9 (21.6 vs 46.3), +v/-v 108.3 (at 61.8)
+  protan:  19.2 (21.6 vs 46.3), +v/-v  91.2 (at 61.8)
+  deutan:  14.0 (12.4 vs 37.1), +v/-v 110.2 (at 61.8)
+  tritan:  15.8 (21.6 vs 46.3), +v/-v  82.6 (at 61.8)
+REF Ben's BR (-10 to 100.5), marked "CVD ok" in the picker
+  normal:  55.8 (-7.2 vs 14.9), +v/-v  20.3 (at 2.5)
+  protan:  12.0 (20.4 vs 42.5), +v/-v  18.1 (at 2.5)
+  deutan:  18.0 (23.2 vs 45.2), +v/-v  18.2 (at 2.5)
+  tritan:  15.0 (34.2 vs 56.3), +v/-v  13.4 (at 2.5)
+REF Apoc's BR (-25 to 100)
+  normal:  24.4 (-25.0 vs 0.0), +v/-v  21.9 (at 6.2)
+  protan:  13.7 (62.5 vs 87.5), +v/-v  19.6 (at 6.2)
+  deutan:   4.7 (59.4 vs 84.4), +v/-v  18.7 (at 6.2)  < 10
+  tritan:  22.0 (34.4 vs 59.4), +v/-v  14.4 (at 6.2)
+REF Viper HD (0 to 100), marked "CVD ok" in the picker
+  normal:  41.0 (80.0 vs 100.0)
+  protan:  17.2 (22.5 vs 42.5)
+  deutan:  12.1 (32.5 vs 52.5)
+  tritan:  12.5 (7.5 vs 27.5)
+REF 2004 LaCrosse BR (-30 to 75)
+  normal:  12.5 (-11.6 vs 9.4), +v/-v  11.1 (at 7.5)
+  protan:  10.3 (-11.6 vs 9.4), +v/-v   7.5 (at 7.5)
+  deutan:   7.8 (38.2 vs 59.2), +v/-v   5.3 (at 7.5)  < 10
+  tritan:  10.7 (-11.6 vs 9.4), +v/-v   7.3 (at 7.5)
+REF AWIPS II Experimental (-30 to 92)
+  normal:  32.4 (3.5 vs 28.0), +v/-v  71.3 (at 22.5)
+  protan:   4.1 (3.5 vs 28.0), +v/-v  68.0 (at 22.5)  < 10
+  deutan:   5.4 (3.5 vs 28.0), +v/-v  74.2 (at 22.5)  < 10
+  tritan:  26.1 (3.5 vs 28.0), +v/-v  31.4 (at 15.0)
+REF AWIPS II Official (Mod) (-30 to 80)
+  normal:  24.6 (-24.5 vs -2.5), +v/-v  34.3 (at 7.5)
+  protan:   0.5 (22.2 vs 44.2), +v/-v  31.2 (at 7.5)  < 10
+  deutan:   4.1 (33.2 vs 55.2), +v/-v  36.6 (at 7.5)  < 10
+  tritan:  14.3 (5.8 vs 27.8), +v/-v  33.7 (at 7.5)
+REF WFO OUN (-33 to 93)
+  normal:  27.6 (-14.1 vs 11.1), +v/-v  18.4 (at 8.2)
+  protan:  14.4 (20.5 vs 45.8), +v/-v  18.0 (at 8.2)
+  deutan:   4.9 (33.2 vs 58.3), +v/-v  18.0 (at 8.2)  < 10
+  tritan:  23.3 (11.1 vs 36.3), +v/-v  17.4 (at 8.2)
+REF AWIPS NEON 2015 (-30 to 90)
+  normal:  22.8 (-12.0 vs 12.0), +v/-v  14.4 (at 7.5)
+  protan:   9.7 (-12.0 vs 12.0), +v/-v  10.5 (at 7.5)  < 10
+  deutan:   7.7 (33.0 vs 57.0), +v/-v  10.5 (at 7.5)  < 10
+  tritan:  15.0 (36.0 vs 60.0), +v/-v  15.0 (at 7.5)
+REF ABC 33/40 Max Storm (10 to 85), marked "CVD ok" in the picker
+  normal:  32.9 (55.0 vs 70.0)
+  protan:  30.3 (30.6 vs 45.6)
+  deutan:  29.6 (60.6 vs 75.6)
+  tritan:  32.5 (55.0 vs 70.0)
+REF GR3 v2 (0 to 80)
+  normal:  33.6 (8.0 vs 24.0)
+  protan:  13.0 (10.0 vs 26.0)
+  deutan:   4.4 (10.0 vs 26.0)  < 10
+  tritan:  17.5 (16.0 vs 32.0)
+VEL Alpha (-61.77288 to 61.77288)
+  normal:  23.2 (24.7 vs 49.4), +v/-v 119.9 (at 30.9)
+  protan:   4.9 (-6.2 vs 18.5), +v/-v  40.6 (at 15.4)  < 10
+  deutan:   6.7 (21.6 vs 46.3), +v/-v  44.4 (at 15.4)  < 10
+  tritan:  12.7 (-40.2 vs -15.4), +v/-v  54.7 (at 30.9)
+VEL AWIPS (Evans) (-61.77288 to 61.77288)
+  normal:  32.7 (12.4 vs 37.1), +v/-v 129.8 (at 30.9)
+  protan:   4.9 (-6.2 vs 18.5), +v/-v  54.4 (at 15.4)  < 10
+  deutan:   9.3 (-9.3 vs 15.4), +v/-v  21.6 (at 15.4)  < 10
+  tritan:  22.2 (-37.1 vs -12.4), +v/-v  80.2 (at 46.3)
+VEL Custom Velocity I (-53.643272 to 53.643272)
+  normal:  51.5 (26.8 vs 48.3), +v/-v 100.9 (at 53.6)
+  protan:  11.6 (-5.4 vs 16.1), +v/-v  46.7 (at 53.6)
+  deutan:   5.7 (24.1 vs 45.6), +v/-v  31.8 (at 13.4)  < 10
+  tritan:  22.2 (-32.2 vs -10.7), +v/-v  66.5 (at 40.2)
+VEL AWIPS (-72.06836 to 72.06836)
+  normal:  34.7 (21.6 vs 50.4), +v/-v 111.6 (at 18.0)
+  protan:   5.8 (-21.6 vs 7.2), +v/-v  33.3 (at 54.1)  < 10
+  deutan:   4.5 (-18.0 vs 10.8), +v/-v  18.1 (at 18.0)  < 10
+  tritan:   9.7 (36.0 vs 64.9), +v/-v  57.1 (at 72.1)  < 10
+VEL GR3 v2 (-53.643272 to 53.643272)
+  normal:  32.1 (26.8 vs 48.3), +v/-v 108.4 (at 26.8)
+  protan:   4.9 (-5.4 vs 16.1), +v/-v  54.4 (at 13.4)  < 10
+  deutan:   8.9 (24.1 vs 45.6), +v/-v  21.6 (at 13.4)  < 10
+  tritan:  16.0 (26.8 vs 48.3), +v/-v  62.4 (at 40.2)
+VEL MSBV (-60 to 60)
+  normal:  30.1 (-57.0 vs -33.0), +v/-v   0.0 (at 60.0)
+  protan:   7.2 (-42.0 vs -18.0), +v/-v   0.0 (at 60.0)  < 10
+  deutan:   9.1 (-39.0 vs -15.0), +v/-v   0.0 (at 60.0)  < 10
+  tritan:  16.9 (9.0 vs 33.0), +v/-v   0.0 (at 60.0)
+VEL Green/Yellow (-46.329662 to 46.329662)
+  normal:  20.0 (-27.8 vs -9.3), +v/-v  80.4 (at 11.6)
+  protan:   9.9 (-27.8 vs -9.3), +v/-v  26.5 (at 11.6)  < 10
+  deutan:   3.9 (-25.5 vs -6.9), +v/-v  28.0 (at 11.6)  < 10
+  tritan:  15.8 (13.9 vs 32.4), +v/-v  41.3 (at 34.7)
+VEL MacDonald/Emmerson (-30.88644 to 30.88644), marked "CVD ok" in the picker
+  normal:  25.1 (-15.4 vs -3.1), +v/-v  43.6 (at 30.9)
+  protan:  19.1 (-15.4 vs -3.1), +v/-v  38.0 (at 30.9)
+  deutan:  18.2 (-15.4 vs -3.1), +v/-v  38.5 (at 30.9)
+  tritan:  21.9 (-13.9 vs -1.5), +v/-v  33.5 (at 30.9)
+VEL Light Blue/Gray (-46.329662 to 46.329662)
+  normal:   9.0 (6.9 vs 25.5), +v/-v  98.0 (at 23.2)  < 10
+  protan:   8.8 (-37.1 vs -18.5), +v/-v  64.3 (at 34.7)  < 10
+  deutan:  12.2 (-20.8 vs -2.3), +v/-v  82.5 (at 34.7)
+  tritan:  18.4 (4.6 vs 23.2), +v/-v  71.8 (at 11.6)
+VEL Custom Velocity II (-77.2161 to 77.2161)
+  normal:  11.0 (-46.3 vs -15.4), +v/-v  98.1 (at 57.9)
+  protan:   2.8 (-46.3 vs -15.4), +v/-v  88.9 (at 57.9)  < 10
+  deutan:   3.3 (46.3 vs 77.2), +v/-v  86.9 (at 57.9)  < 10
+  tritan:   1.4 (-46.3 vs -15.4), +v/-v  55.0 (at 57.9)  < 10
+SW Ben's SW (0 to 20.59096), marked "CVD ok" in the picker
+  normal:  36.1 (14.9 vs 19.0)
+  protan:  16.0 (8.2 vs 12.4)
+  deutan:  15.9 (7.7 vs 11.8)
+  tritan:  18.8 (3.6 vs 7.7)
+SW NWS Chicago SW (0 to 16.472769)
+  normal:  27.7 (9.5 vs 12.8)
+  protan:  21.1 (8.6 vs 11.9)
+  deutan:  19.3 (8.6 vs 11.9)
+  tritan:   7.2 (10.3 vs 13.6)  < 10
+SW UMass SW (0 to 16.472769), marked "CVD ok" in the picker
+  normal:  17.9 (8.2 vs 11.5)
+  protan:  15.9 (9.1 vs 12.4)
+  deutan:  13.8 (9.5 vs 12.8)
+  tritan:  12.4 (1.2 vs 4.5)
+CC Ben's CC (0 to 1.05), marked "CVD ok" in the picker
+  normal:   7.5 (0.2 vs 0.4)  < 10
+  protan:  17.8 (0.2 vs 0.4)
+  deutan:  16.7 (0.2 vs 0.4)
+  tritan:  15.6 (0.3 vs 0.5)
+CC AWIPS RHO (0 to 1.05)
+  normal:   0.0 (0.0 vs 0.2)  < 10
+  protan:  10.7 (0.3 vs 0.5)
+  deutan:  11.5 (0.3 vs 0.5)
+  tritan:   5.3 (0.3 vs 0.5)  < 10
+CC Black CC (0 to 1), marked "CVD ok" in the picker
+  normal:  17.4 (0.7 vs 0.9)
+  protan:  14.1 (0.2 vs 0.4)
+  deutan:  12.9 (0.2 vs 0.4)
+  tritan:  14.5 (0.2 vs 0.4)
+CC AWIPS RHO (Altered) (0 to 1.05), marked "CVD ok" in the picker
+  normal:  43.3 (0.0 vs 0.2)
+  protan:  43.3 (0.0 vs 0.2)
+  deutan:  43.3 (0.0 vs 0.2)
+  tritan:  20.2 (0.3 vs 0.6)
+CC NWS Grand Rapids 2021 (0.2 to 1.04), marked "CVD ok" in the picker
+  normal:  19.5 (0.6 vs 0.8)
+  protan:  17.4 (0.6 vs 0.8)
+  deutan:  19.4 (0.6 vs 0.8)
+  tritan:  13.2 (0.6 vs 0.7)
+CC Kyle Noel (0.3 to 1), marked "CVD ok" in the picker
+  normal:  16.8 (0.6 vs 0.7)
+  protan:  15.2 (0.6 vs 0.7)
+  deutan:  17.0 (0.6 vs 0.7)
+  tritan:  13.0 (0.6 vs 0.7)
+CC NWS St. Louis (0.2 to 1)
+  normal:  12.8 (0.2 vs 0.4)
+  protan:   8.8 (0.3 vs 0.4)  < 10
+  deutan:   9.9 (0.3 vs 0.4)  < 10
+  tritan:   5.2 (0.2 vs 0.4)  < 10
+CC WKRN Nashville (0.05 to 1.05)
+  normal:   6.7 (0.2 vs 0.4)  < 10
+  protan:  13.4 (0.2 vs 0.4)
+  deutan:  14.3 (0.2 vs 0.4)
+  tritan:   8.2 (0.2 vs 0.4)  < 10
+CC Gag (0.2 to 1.011), marked "CVD ok" in the picker
+  normal:  16.4 (0.2 vs 0.4)
+  protan:  16.5 (0.2 vs 0.4)
+  deutan:  16.2 (0.2 vs 0.4)
+  tritan:  16.3 (0.2 vs 0.4)
+CC Russian CC (0 to 1)
+  normal:  11.6 (0.3 vs 0.5)
+  protan:   8.5 (0.2 vs 0.4)  < 10
+  deutan:  10.0 (0.3 vs 0.5)  < 10
+  tritan:  10.8 (0.1 vs 0.3)
+
+44 tables. A fifth-of-span pair under 10: normal 6; of the pairs normal vision separates, protan 15, deutan 22, tritan 7.

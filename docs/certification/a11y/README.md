@@ -117,11 +117,54 @@ each other at a glance. The figures below are the tests' own output
 Limits:
 - A model of a typical dichromat at full severity, not of anomalous trichromats or real viewers.
 - ΔE76 overstates differences between saturated colours.
-- The other built-in and community tables are not checked.
+- The other built-in and community tables were not checked then; they are below.
 
 Checks in a clean worktree at `d000a03` with only this change: clippy clean, the wasm library
 check at its baseline, workspace tests 2,637 passed, 0 failed, 208 ignored
 (`target/parity-review/v11-cvd/wt-*.log`).
+
+## Every built-in colour table (2026-10-12, ROADMAP_NEW Q3)
+
+`every_built_in_table_under_simulated_dichromacy` (ignored by default; it writes the report) runs
+the 44 built-in tables, the seven defaults and the 37 alternates, through the same simulation.
+For each, under normal vision and each dichromacy, it gives the least ΔE between two values a
+fifth of the table's span apart, and for a table spanning zero, between a speed and its
+opposite. A dichromacy is judged only on pairs normal vision sees at least ΔE 10 apart, so a part
+of a scale that is flat for everyone (past its top colour, say) is not counted against it. The
+report is [palette-sweep.txt](palette-sweep.txt).
+
+Of the pairs normal vision separates, a pair falls under ΔE 10 for 15 tables under protanopia,
+22 under deuteranopia and 7 under tritanopia. Among them are the default velocity table
+(−6.2 against 18.5 m/s, ΔE 4.9 for a protanope), the default ZDR, KDP, CC and PHI tables, and most
+community velocity tables. The colour-table menus now mark "CVD ok" on the 18 that pass under
+all three (`colormap::cvd_readable`, computed once): the default reflectivity and spectrum-width
+tables, the four colour-blind-safe and high-contrast tables, Ben's BR, Viper HD, ABC 33/40 Max
+Storm, MacDonald/Emmerson, Ben's SW, UMass SW, and six CC tables (Ben's CC, Black CC, AWIPS RHO
+(Altered), NWS Grand Rapids 2021, Kyle Noel, Gag). The mark's hover says what was checked. It is a
+screening check, not a guarantee (`the_picker_marks_tables_that_survive_dichromacy`).
+
+**Two tables shared a name.** "GR3 v2" is both a reflectivity and a velocity table, and a built-in
+was found by name alone, first match winning: choosing the velocity "GR3 v2" loaded the
+reflectivity table onto velocity. The sweep showed it as a velocity table spanning 0 to 80. A
+built-in now resolves for its own moment first, and a name only another moment has still
+resolves as before (`colormap::resolve_builtin`, `a_shared_table_name_resolves_per_moment`).
+
+**Browser build on WebGPU, one machine**, live KTLX velocity, built from the working tree at
+`e250b72e` with this change and another session's uncommitted work:
+
+| Capture | What it shows |
+| --- | --- |
+| `table-picker-cvd-mark-browser.jpg` | The velocity colour-table menu (Display, Color table): "Colorblind-safe (blue/orange) · CVD ok", "High contrast (velocity) · CVD ok", "MacDonald/Emmerson · CVD ok"; the rest unmarked. |
+| `velocity-gr3v2-browser.jpg` | Velocity with "GR3 v2" chosen: a velocity legend from −104 to 104 kt. The table was set back to Default afterwards. |
+
+| File | SHA-256 |
+| --- | --- |
+| palette-sweep.txt | `0169a5b73c146c979110d45de52443338d440457469e4034ec52cb7bfdb3bcf5` |
+| table-picker-cvd-mark-browser.jpg | `c970129ef3fbca66949d4cded1609020370203da4c15f410bf72e31cc7218786` |
+| velocity-gr3v2-browser.jpg | `2582901825edff43ba56bf4aba3dd7cb988ebb5c94382d5d098b8ee62aad48dd` |
+
+Not established: tables a user imports (not marked either way), anomalous trichromats, and any
+real viewer's judgement.
 
 ## Earlier captures
 

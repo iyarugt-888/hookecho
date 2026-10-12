@@ -367,7 +367,10 @@ pub fn run(
         None => PALETTE_NAME
             .lock()
             .ok()
-            .and_then(|p| p.as_deref().and_then(crate::colormap::builtin_alt))
+            .and_then(|p| {
+                p.as_deref()
+                    .and_then(|name| crate::colormap::builtin_alt(moment, name))
+            })
             .unwrap_or_else(|| crate::colormap::default_table(moment).clone()),
     };
 

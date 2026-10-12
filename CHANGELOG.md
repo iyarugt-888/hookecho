@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: colour tables that stay readable with colour blindness are marked
+
+The colour-table menus now mark "CVD ok" on the built-in tables whose colours stay apart
+under simulated red-green and blue-yellow colour blindness. Hover the mark for what was
+checked.
+
+### Fixed: the GR3 v2 velocity colour table
+
+Choosing "GR3 v2" for velocity loaded the reflectivity table of the same name, so velocity
+was drawn in reflectivity colours. It now loads the velocity table.
+
 ### Added: a link that opens the satellite loop
 
 A shared HookEcho link now carries the satellite loop when it is playing, and its speed when

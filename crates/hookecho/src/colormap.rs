@@ -618,6 +618,71 @@ pub const BUILTIN_PREFIX: &str = "builtin:";
 /// The marker is a prefix no real path starts with, same trick as [`BUILTIN_PREFIX`].
 pub const INLINE_PREFIX: &str = "inline:";
 
+/// Whether `table` stays readable under each simulated dichromacy (protanopia, deuteranopia,
+/// tritanopia; `wxdata::cvd`, ROADMAP_NEW Q3): every two values a fifth of its span apart that
+/// normal vision sees at least ΔE 10 apart stay at least 10 apart, and for a table spanning
+/// zero a speed and its opposite do too. A part of the scale that is flat for everyone (past its
+/// top colour, say) is not held against it. A screening check, not a guarantee.
+pub fn cvd_readable(table: &ColorTable) -> bool {
+    use wxdata::cvd::{delta_e, simulate, Deficiency};
+    const FLOOR: f64 = 10.0;
+    let (Some(first), Some(last)) = (table.stops.first(), table.stops.last()) else {
+        return false;
+    };
+    let (lo, hi) = (first.value, last.value);
+    let rgb = |v: f32| table.sample(v).map(|c| [c[0], c[1], c[2]]);
+    let n = 40usize;
+    let at = |i: usize| lo + (hi - lo) * i as f32 / n as f32;
+    let mut pairs: Vec<(f32, f32)> = (0..=n - n / 5).map(|i| (at(i), at(i + n / 5))).collect();
+    if lo < 0.0 && hi > 0.0 {
+        let top = hi.min(-lo);
+        pairs.extend((1..=4).map(|q| (top * q as f32 / 4.0, -top * q as f32 / 4.0)));
+    }
+    pairs.into_iter().all(|(a, b)| {
+        let (Some(ca), Some(cb)) = (rgb(a), rgb(b)) else {
+            return true;
+        };
+        delta_e(ca, cb) < FLOOR
+            || Deficiency::ALL
+                .iter()
+                .all(|&d| delta_e(simulate(ca, d), simulate(cb, d)) >= FLOOR)
+    })
+}
+
+/// [`cvd_readable`] for `moment`'s default table and each of its built-in alternates, worked out
+/// once: the pickers ask every frame they are open.
+static CVD_READABLE: LazyLock<std::collections::HashSet<(usize, &'static str)>> =
+    LazyLock::new(|| {
+        let mut ok = std::collections::HashSet::new();
+        for m in Moment::ALL {
+            if cvd_readable(default_table(m)) {
+                ok.insert((m.index(), "Default"));
+            }
+        }
+        for (name, idx, src) in ALT_SRC {
+            if parse_pal(src).is_ok_and(|t| cvd_readable(&t)) {
+                ok.insert((idx, name));
+            }
+        }
+        ok
+    });
+
+/// A picker's label for `moment`'s built-in table `name` ("Default" for the default), marked
+/// when it passes [`cvd_readable`], and the hover that says what the mark means.
+pub fn table_menu_label(moment: Moment, name: &str) -> (String, Option<&'static str>) {
+    if CVD_READABLE.contains(&(moment.index(), name)) {
+        (
+            format!("{name} \u{b7} CVD ok"),
+            Some(
+                "Values a fifth of the scale apart stay distinguishable under simulated \
+                 protanopia, deuteranopia and tritanopia (CIE76 \u{394}E 10 or more)",
+            ),
+        )
+    } else {
+        (name.to_string(), None)
+    }
+}
+
 /// Names of the built-in alternates offered for `moment`, in menu order.
 pub fn alt_names(moment: Moment) -> impl Iterator<Item = &'static str> {
     ALT_SRC
@@ -626,15 +691,29 @@ pub fn alt_names(moment: Moment) -> impl Iterator<Item = &'static str> {
         .map(|(name, _, _)| *name)
 }
 
-/// Parse the built-in alternate `name`, or `None` if there is no such alternate.
-pub fn builtin_alt(name: &str) -> Option<ColorTable> {
-    resolve_builtin(name)
+/// Parse `moment`'s built-in alternate `name`, or `None` if there is no such alternate.
+pub fn builtin_alt(moment: Moment, name: &str) -> Option<ColorTable> {
+    resolve_builtin(moment, name)
 }
 
-/// Parse the built-in alternate `name`, or `None` if there is no such alternate.
-pub(crate) fn resolve_builtin(name: &str) -> Option<ColorTable> {
-    let (_, _, src) = ALT_SRC.iter().find(|(n, _, _)| *n == name)?;
+/// Parse `moment`'s built-in alternate `name`, or `None` if there is no such alternate. Two
+/// moments can offer tables of the same name ("GR3 v2" is both a reflectivity and a velocity
+/// table), so the moment's own is taken first; a name only another moment has still resolves,
+/// as it did before the moment was asked. Until 2026-10-12 the first of the name won, so the
+/// velocity "GR3 v2" loaded the reflectivity table onto velocity.
+pub(crate) fn resolve_builtin(moment: Moment, name: &str) -> Option<ColorTable> {
+    let (_, _, src) = ALT_SRC
+        .iter()
+        .find(|(n, idx, _)| *n == name && *idx == moment.index())
+        .or_else(|| ALT_SRC.iter().find(|(n, _, _)| *n == name))?;
     parse_pal(src).ok()
+}
+
+/// Whether some moment has a built-in alternate called `name`.
+pub(crate) fn builtin_exists(name: &str) -> bool {
+    ALT_SRC
+        .iter()
+        .any(|(n, _, src)| *n == name && parse_pal(src).is_ok())
 }
 
 /// The built-in default table for `moment`.
@@ -653,7 +732,7 @@ pub fn effective_table(
 ) -> ColorTable {
     if crate::theme::is_high_contrast(theme) && palettes.table(moment) == default_table(moment) {
         if let Some(name) = crate::theme::high_contrast_alt_name(moment) {
-            if let Some(hc) = builtin_alt(name) {
+            if let Some(hc) = builtin_alt(moment, name) {
                 return hc;
             }
         }
@@ -699,7 +778,7 @@ impl Palettes {
                 // unknown name falls through to the default with an error, same as a bad file.
                 Some(path) if path.to_string_lossy().starts_with(BUILTIN_PREFIX) => {
                     let name = path.to_string_lossy()[BUILTIN_PREFIX.len()..].to_string();
-                    match resolve_builtin(&name) {
+                    match resolve_builtin(moment, &name) {
                         Some(t) => (t, None),
                         None => (
                             default_table(moment).clone(),
@@ -1018,7 +1097,7 @@ pub fn tint_lut(lut: &[u8; 1024], tint: PrecipTint) -> [u8; 1024] {
 #[cfg(test)]
 mod cvd_tests {
     use super::*;
-    use wxdata::cvd::{lab, simulate, Deficiency};
+    use wxdata::cvd::{delta_e, lab, simulate, Deficiency};
 
     fn rgb(t: &ColorTable, v: f32) -> [u8; 3] {
         let c = t.sample(v).expect("a colour there");
@@ -1031,7 +1110,8 @@ mod cvd_tests {
     /// lightness, so at these speeds it holds up better than its hues suggest.
     #[test]
     fn the_safe_velocity_table_keeps_inbound_and_outbound_apart() {
-        let safe = builtin_alt("Colorblind-safe (blue/orange)").expect("the table");
+        let safe =
+            builtin_alt(Moment::Velocity, "Colorblind-safe (blue/orange)").expect("the table");
         let default = default_table(Moment::Velocity);
         let worst =
             |t: &ColorTable, a: f32, b: f32| wxdata::cvd::worst_delta_e(rgb(t, a), rgb(t, b));
@@ -1058,7 +1138,8 @@ mod cvd_tests {
     /// vision and every simulated dichromacy, so "stronger" reads without hue.
     #[test]
     fn the_safe_reflectivity_table_brightens_with_dbz_for_everyone() {
-        let safe = builtin_alt("Colorblind-safe (viridis)").expect("the table");
+        let safe =
+            builtin_alt(Moment::Reflectivity, "Colorblind-safe (viridis)").expect("the table");
         let lightness = |v: f32, d: Option<Deficiency>| {
             let c = rgb(&safe, v);
             lab(d.map_or(c, |d| simulate(c, d)))[0]
@@ -1079,6 +1160,149 @@ mod cvd_tests {
             }
             assert!(lightness(70.0, d) - lightness(10.0, d) > 50.0, "{d:?}");
         }
+    }
+
+    /// Every built-in table, default and alternate, under normal vision and each simulated
+    /// dichromacy (ROADMAP_NEW Q3 "other palettes are not checked"): the least ΔE between two
+    /// values a fifth of the table's span apart, which a reader should never confuse, and for a
+    /// table spanning zero (velocity), between a speed and its opposite. Most tables are not
+    /// designed for colour-vision deficiency, so this reports rather than asserts; it writes
+    /// `target/parity-review/q3-cvd/palette-sweep.txt`.
+    #[test]
+    #[ignore = "writes the palette sweep for review"]
+    fn every_built_in_table_under_simulated_dichromacy() {
+        let visions: [(&str, Option<Deficiency>); 4] = [
+            ("normal", None),
+            ("protan", Some(Deficiency::Protanopia)),
+            ("deutan", Some(Deficiency::Deuteranopia)),
+            ("tritan", Some(Deficiency::Tritanopia)),
+        ];
+        let seen = |c: [u8; 3], d: Option<Deficiency>| d.map_or(c, |d| simulate(c, d));
+        let mut tables: Vec<(String, ColorTable)> = Moment::ALL
+            .iter()
+            .map(|m| {
+                (
+                    format!("{} default", m.short_name()),
+                    default_table(*m).clone(),
+                )
+            })
+            .collect();
+        for (name, moment, _) in ALT_SRC {
+            if let Some(t) = builtin_alt(Moment::ALL[moment], name) {
+                tables.push((format!("{} {name}", Moment::ALL[moment].short_name()), t));
+            }
+        }
+        let mut out = String::from(
+            "Least CIE76 dE between values a fifth of the span apart (and, for tables spanning\n\
+             zero, between +v and -v), under normal vision and simulated dichromacy (Machado\n\
+             2009). Under about 10 is easily confused at a glance. A dichromacy row counts only\n\
+             pairs normal vision sees at least 10 apart (a flat part of a scale is flat for\n\
+             everyone); a normal row under 10 is such a flat or near-flat part.\n\n",
+        );
+        let mut under = [0usize; 4];
+        for (name, t) in &tables {
+            let (lo, hi) = (t.stops[0].value, t.stops[t.stops.len() - 1].value);
+            let n = 40usize;
+            let at = |i: usize| lo + (hi - lo) * i as f32 / n as f32;
+            out.push_str(&format!(
+                "{name} ({lo} to {hi}){}\n",
+                if cvd_readable(t) {
+                    ", marked \"CVD ok\" in the picker"
+                } else {
+                    ""
+                }
+            ));
+            for (k, (label, d)) in visions.iter().enumerate() {
+                let mut worst = (f64::MAX, 0.0f32, 0.0f32);
+                for i in 0..=n - n / 5 {
+                    let (a, b) = (at(i), at(i + n / 5));
+                    if let (Some(ca), Some(cb)) = (rgb_opt(t, a), rgb_opt(t, b)) {
+                        // A dichromat is only judged on pairs normal vision tells apart: a
+                        // scale flat past its top colour is flat for everyone, by design.
+                        if d.is_some() && delta_e(ca, cb) < 10.0 {
+                            continue;
+                        }
+                        let e = delta_e(seen(ca, *d), seen(cb, *d));
+                        if e < worst.0 {
+                            worst = (e, a, b);
+                        }
+                    }
+                }
+                let mut line = format!(
+                    "  {label}: {:5.1} ({:.1} vs {:.1})",
+                    worst.0, worst.1, worst.2
+                );
+                if lo < 0.0 && hi > 0.0 {
+                    let top = hi.min(-lo);
+                    let mirror = (1..=4)
+                        .map(|q| top * q as f32 / 4.0)
+                        .filter_map(|v| {
+                            let (a, b) = (rgb_opt(t, v)?, rgb_opt(t, -v)?);
+                            Some((delta_e(seen(a, *d), seen(b, *d)), v))
+                        })
+                        .fold((f64::MAX, 0.0f32), |m, x| if x.0 < m.0 { x } else { m });
+                    line.push_str(&format!(", +v/-v {:5.1} (at {:.1})", mirror.0, mirror.1));
+                }
+                if worst.0 < 10.0 {
+                    under[k] += 1;
+                    line.push_str("  < 10");
+                }
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
+        out.push_str(&format!(
+            "\n{} tables. A fifth-of-span pair under 10: normal {}; of the pairs normal vision \
+             separates, protan {}, deutan {}, tritan {}.\n",
+            tables.len(),
+            under[0],
+            under[1],
+            under[2],
+            under[3]
+        ));
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/q3-cvd");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("palette-sweep.txt"), &out).unwrap();
+        eprintln!("{out}");
+    }
+
+    /// The pickers' mark: the colour-blind-safe tables pass, the default velocity table (red
+    /// and green) does not.
+    #[test]
+    fn the_picker_marks_tables_that_survive_dichromacy() {
+        assert!(cvd_readable(
+            &builtin_alt(Moment::Velocity, "Colorblind-safe (blue/orange)").unwrap()
+        ));
+        assert!(cvd_readable(
+            &builtin_alt(Moment::Reflectivity, "Colorblind-safe (viridis)").unwrap()
+        ));
+        assert!(!cvd_readable(default_table(Moment::Velocity)));
+        let (label, hover) = table_menu_label(Moment::Velocity, "Colorblind-safe (blue/orange)");
+        assert!(label.ends_with("CVD ok") && hover.is_some(), "{label}");
+        assert_eq!(
+            table_menu_label(Moment::Velocity, "Default"),
+            ("Default".into(), None)
+        );
+    }
+
+    /// A name two moments share resolves to the asking moment's own table.
+    #[test]
+    fn a_shared_table_name_resolves_per_moment() {
+        let vel = builtin_alt(Moment::Velocity, "GR3 v2").expect("velocity GR3 v2");
+        let refl = builtin_alt(Moment::Reflectivity, "GR3 v2").expect("reflectivity GR3 v2");
+        assert!(
+            vel.stops[0].value < 0.0,
+            "velocity spans inbound and outbound"
+        );
+        assert!(refl.stops[0].value >= 0.0);
+        // A name only another moment has still resolves, as before.
+        assert!(builtin_alt(Moment::SpectrumWidth, "Colorblind-safe (viridis)").is_some());
+        assert!(builtin_exists("GR3 v2") && !builtin_exists("No such table"));
+    }
+
+    fn rgb_opt(t: &ColorTable, v: f32) -> Option<[u8; 3]> {
+        t.sample(v).map(|c| [c[0], c[1], c[2]])
     }
 }
 

@@ -156,8 +156,7 @@ fn palette_key_is(key: &str, m: Moment) -> bool {
 /// stored file (`Settings::web_files`) carries its own content.
 pub(crate) fn palette_problem(value: &str, settings: &crate::settings::Settings) -> Option<String> {
     if let Some(name) = value.strip_prefix(crate::colormap::BUILTIN_PREFIX) {
-        return crate::colormap::resolve_builtin(name)
-            .is_none()
+        return (!crate::colormap::builtin_exists(name))
             .then(|| format!("built-in table \u{201c}{name}\u{201d} is not in this build"));
     }
     let text = match settings.web_files.get(value) {

@@ -4514,8 +4514,15 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   deficiency is simulated (`wxdata::cvd`, Machado 2009, CIE76 ΔE): for a deuteranope the tornado
   and flash flood warning colours drop from ΔE 152.8 to 8.9, and for a protanope severe
   thunderstorm and flash flood from 96.3 to 4.0. The colour-blind-safe velocity and reflectivity
-  tables are tested to stay apart and to brighten with dBZ under all three dichromacies. Other
-  palettes are not checked.
+  tables are tested to stay apart and to brighten with dBZ under all three dichromacies. Since
+  2026-10-12 every built-in table is checked the same way (`cvd_readable`: values a fifth of
+  the scale apart, and for velocity a speed and its opposite, stay ΔE 10 apart under each
+  dichromacy wherever normal vision sees them 10 apart), and the colour-table pickers mark the
+  18 of 44 that pass "CVD ok", with what was checked on hover. Among those that do not: the
+  default velocity, ZDR, KDP, CC and PHI tables (`docs/certification/a11y/palette-sweep.txt`).
+  The sweep also found two moments' tables named "GR3 v2" and the velocity one unreachable:
+  picking it loaded the reflectivity table; a built-in name now resolves for its own moment
+  first.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from
