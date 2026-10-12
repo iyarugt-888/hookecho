@@ -346,7 +346,6 @@ pub fn mehs_at(
 ) -> Option<f32> {
     let s0 = sweeps.first()?;
     let (lat0, lon0) = (s0.radar_lat as f64, s0.radar_lon as f64);
-    let (h0_km, hm20_km) = (h0_m / 1000.0, hm20_m / 1000.0);
     let coslat = lat.to_radians().cos().max(0.05);
     let mut samples: Vec<(f64, f32)> = Vec::with_capacity(sweeps.len());
     let mut best: Option<f32> = None;
@@ -361,14 +360,35 @@ pub fn mehs_at(
             )
         };
         let (ground_km, az) = dist_bearing(lon0, lat0, lon + dlon, lat + dlat);
-        column_samples(sweeps, ground_km, az, &mut samples);
-        if samples.len() < 2 {
+        let Some(mehs) = mehs_column(sweeps, ground_km, az, h0_m, hm20_m, &mut samples) else {
             continue;
-        }
-        let mehs = (2.54 * shi_of(&samples, h0_km, hm20_km).max(0.0).sqrt()) as f32;
+        };
         best = Some(best.map_or(mehs, |b| b.max(mehs)));
     }
     best
+}
+
+/// MEHS (mm) of the one column at `ground_km` and azimuth `az` (deg) from the radar: the
+/// integral [`mehs_at`] takes over its neighbourhood, for one column. `None` with fewer than two
+/// samples to integrate. `samples` is a reusable buffer.
+pub(crate) fn mehs_column(
+    sweeps: &[BinnedSweep],
+    ground_km: f64,
+    az: f64,
+    h0_m: f64,
+    hm20_m: f64,
+    samples: &mut Vec<(f64, f32)>,
+) -> Option<f32> {
+    column_samples(sweeps, ground_km, az, samples);
+    if samples.len() < 2 {
+        return None;
+    }
+    Some(
+        (2.54
+            * shi_of(samples, h0_m / 1000.0, hm20_m / 1000.0)
+                .max(0.0)
+                .sqrt()) as f32,
+    )
 }
 
 /// One hail core: a connected patch of the POSH grid at or above a floor, reported where it peaks.

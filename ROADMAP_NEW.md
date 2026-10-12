@@ -4558,7 +4558,7 @@ Create persistent storm objects that combine:
 
 Expose a storm history timeline and exportable JSON/CSV.
 
-## R4. Feature tracking — mesocyclone and core, in the app (1010.md V14)
+## R4. Feature tracking — mesocyclone, cores and BWER candidates, in the app (1010.md V14)
 
 Track analyst-selected radar features through time using optical flow/object matching:
 
@@ -4576,16 +4576,27 @@ Track analyst-selected radar features through time using optical flow/object mat
   map (`app::feature_tracking`; walkthrough in `docs/certification/feature-track/`). Only decoded
   volumes are searched. A saved case keeps the track, hand fixes included, and reopens it as it
   was on the pane showing its radar (`CaseManifest::feature_track`, additive; tested).
-- hail core
+- [x] hail core — the largest MEHS (Witt et al. 1998, every reflectivity tilt and the day's
+  melting level) on a 1 km lattice of columns (`hail_peak`, 13 mm floor). Live on Moore with
+  the Norman 12Z sounding: 10 of 11 volumes, 15 to 27 mm; the track runs north of the
+  mesocyclone and jumps 6 km at 20:08, likely to another core
+  (`live_the_moore_hail_core_and_bwer_are_followed_through_the_loop`, ignored, network;
+  `target/parity-review/v14/live-moore-hail-bwer.log`).
 - [x] reflectivity core — the same engine on the strongest reflectivity (`core_peak`, 40 dBZ
   floor); tested synthetically only
-- bounded weak echo region candidate
+- [x] bounded weak echo region candidate — a mid-level weak echo walled in by strong echo on a
+  3 km ring (7 of 8 points at 40 dBZ and 10 dB over it) and capped by strong echo up to 6 km
+  higher, or still walled in at the highest tilt when the radar cannot see the cap (`bwer_peak`,
+  10 dB floor; synthetic tests for an open, an open-topped and a past-the-top weak echo). Live
+  on Moore: 6 of 11 volumes from 19:51 to 20:16, 22 to 42 dB, 5 to 7 km northeast of the
+  mesocyclone, lost as the storm neared the radar.
 - user-selected contour
 
 Always show confidence and allow manual correction. — the engine keeps each fix with its
 confidence, and a fix placed by hand is kept as placed while the track continues from it
 (`track`'s overrides; tested). In the app, "Correct this volume" and a click put the shown volume's
 fix there and follow the track again from it (seen in the browser build on the Moore archive).
+The gate inspector on reflectivity offers the core, the hail core and the BWER candidate.
 
 ## R5. Uncertainty everywhere
 

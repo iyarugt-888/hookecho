@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: follow a hail core or a BWER candidate through the loop
+
+On a reflectivity gate the gate inspector now also offers "Follow this hail core" and "Follow
+this BWER candidate". A hail core is followed by its largest expected hail size, worked out
+from every tilt and the day's melting level, which is fetched first if needed. A BWER
+candidate is a weak echo at mid levels walled in by strong echo and capped by it. The window,
+the map track and the correction by hand work as they do for a rotation. A candidate is not a
+confirmed BWER: check it on a cross-section.
+
 ### Added: follow a rotation or a core through the loop
 
 In the gate inspector, on a velocity or reflectivity gate, "Follow this rotation (or core)

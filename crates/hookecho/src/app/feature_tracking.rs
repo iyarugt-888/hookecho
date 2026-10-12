@@ -32,6 +32,8 @@ pub(crate) struct FeatureTrack {
     pub not_decoded: usize,
     pub error: Option<String>,
     pub busy: bool,
+    /// A hail core waits for the day's melting level before it can be searched.
+    pub waiting_levels: bool,
     /// The next map click on the pane moves the current volume's fix there.
     pub correcting: bool,
     rx: Option<std::sync::mpsc::Receiver<TrackResult>>,
@@ -63,6 +65,7 @@ impl FeatureTrack {
             not_decoded: 0,
             error: None,
             busy: false,
+            waiting_levels: false,
             correcting: false,
             rx: None,
         }
@@ -70,8 +73,8 @@ impl FeatureTrack {
 }
 
 impl HookEchoApp {
-    /// Start following the feature under the inspector's last click: rotation on velocity,
-    /// a core on reflectivity.
+    /// Start following the feature under the inspector's last click: rotation on velocity; a
+    /// core, a hail core or a BWER candidate on reflectivity.
     pub(crate) fn start_feature_track(&mut self, kind: FeatureKind) {
         let Some((pane, ll)) = self.feature_tracking.inspected else {
             return;
@@ -94,17 +97,46 @@ impl HookEchoApp {
             not_decoded: 0,
             error: None,
             busy: false,
+            waiting_levels: false,
             correcting: false,
             rx: None,
         });
         self.run_feature_track();
     }
 
+    /// The 0 °C and −20 °C heights above pane `pane`'s radar (m), as the hail estimate takes them:
+    /// the live analysis or, on an archived volume, that day's sounding.
+    fn hail_levels(&self, pane: usize) -> Option<(f64, f64)> {
+        let radar_m = self.views[pane]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map_or(0.0, |s| f64::from(s.elevation_meters));
+        self.freezing_for(pane)
+            .map(|(h0, hm20)| (h0 - radar_m, hm20 - radar_m))
+    }
+
     /// Search the pane's decoded volumes for the track, off the UI thread.
     fn run_feature_track(&mut self) {
+        let Some((kind, pane)) = self
+            .feature_tracking
+            .track
+            .as_ref()
+            .map(|t| (t.kind, t.pane))
+        else {
+            return;
+        };
+        let levels = self.hail_levels(pane);
         let Some(t) = self.feature_tracking.track.as_mut() else {
             return;
         };
+        // A hail core needs the melting level; the window asks for it and runs the search when
+        // it comes.
+        t.waiting_levels = kind == FeatureKind::Hail && levels.is_none();
+        if t.waiting_levels {
+            t.error = None;
+            return;
+        }
         let v = &self.views[t.pane];
         let mut frames: Vec<(DateTime<Utc>, Arc<Scan>)> = Vec::new();
         let mut not_decoded = 0;
@@ -119,11 +151,11 @@ impl HookEchoApp {
         t.not_decoded = not_decoded;
         t.busy = true;
         t.error = None;
-        let (kind, seed, overrides) = (t.kind, t.seed, t.overrides.clone());
+        let (seed, overrides) = (t.seed, t.overrides.clone());
         let (tx, rx) = std::sync::mpsc::channel();
         t.rx = Some(rx);
         self.spawner.spawn_blocking(move || {
-            let _ = tx.send(follow(kind, &frames, seed, &overrides));
+            let _ = tx.send(follow(kind, &frames, seed, &overrides, levels));
         });
     }
 
@@ -174,6 +206,21 @@ impl HookEchoApp {
     /// and the correction and clear buttons.
     pub(crate) fn feature_track_window(&mut self, ctx: &egui::Context) {
         self.poll_feature_track();
+        if let Some(pane) = self
+            .feature_tracking
+            .track
+            .as_ref()
+            .filter(|t| t.waiting_levels)
+            .map(|t| t.pane)
+        {
+            if self.hail_levels(pane).is_some() {
+                self.run_feature_track();
+            } else {
+                // Throttled by the fetch itself; repaint so the answer is picked up.
+                self.fetch_freezing_levels(ctx, pane);
+                ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            }
+        }
         let tz = self.active_tz();
         let Some(t) = self.feature_tracking.track.as_mut() else {
             return;
@@ -184,10 +231,7 @@ impl HookEchoApp {
             .and_then(|id| id.date_time());
         let mut open = true;
         let mut clear = false;
-        let unit = match t.kind {
-            FeatureKind::Rotation => "s\u{207b}\u{b9}",
-            FeatureKind::Core => "dBZ",
-        };
+        let unit = t.kind.unit();
         egui::Window::new(format!("Following a {}", t.kind.label()))
             .id(egui::Id::new("feature_track"))
             .open(&mut open)
@@ -199,16 +243,20 @@ impl HookEchoApp {
                     t.site,
                     crate::timefmt::fmt_clock(t.seed.0, tz, false)
                 ));
-                if t.busy {
+                if t.busy || t.waiting_levels {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.weak("following through the loop\u{2026}");
+                        ui.weak(if t.waiting_levels {
+                            "fetching the melting level for the hail estimate\u{2026}"
+                        } else {
+                            "following through the loop\u{2026}"
+                        });
                     });
                 }
                 if let Some(e) = &t.error {
                     ui.colored_label(egui::Color32::from_rgb(230, 120, 120), e);
                 }
-                if !t.busy && t.error.is_none() {
+                if !t.busy && !t.waiting_levels && t.error.is_none() {
                     ui.weak(format!(
                         "Followed through {} of {} volumes searched{}",
                         t.fixes.len(),
@@ -243,7 +291,9 @@ impl HookEchoApp {
                             ui.label(format!("{:.3}, {:.3}", f.ll[1], f.ll[0]));
                             ui.label(f.value.map_or("—".into(), |v| match t.kind {
                                 FeatureKind::Rotation => format!("{v:.4}"),
-                                FeatureKind::Core => format!("{v:.0}"),
+                                FeatureKind::Core | FeatureKind::Hail | FeatureKind::Bwer => {
+                                    format!("{v:.0}")
+                                }
                             }));
                             ui.label(if f.manual {
                                 "by hand".to_string()
@@ -343,18 +393,26 @@ impl HookEchoApp {
 
 /// The track through `frames` (time-ordered, decoded volumes) from `seed`, with `overrides`
 /// kept as placed: the lowest velocity tilt's LLSD shear for a rotation, the lowest reflectivity
-/// tilt for a core. Also how many volumes were searched and how many could not be read.
+/// tilt for a core, every reflectivity tilt for a hail core (with `levels`, the 0 °C and −20 °C
+/// heights above the radar, m) or a BWER candidate. Also how many volumes were searched and how
+/// many could not be read.
 fn follow(
     kind: FeatureKind,
     frames: &[(DateTime<Utc>, Arc<Scan>)],
     seed: (DateTime<Utc>, [f64; 2]),
     overrides: &[(DateTime<Utc>, [f64; 2])],
+    levels: Option<(f64, f64)>,
 ) -> TrackResult {
     use wxdata::feature_track as ft;
     enum Sampled {
         Shear(wxdata::azshear::AzShearField),
         Refl(wxdata::level2::BinnedSweep),
+        Volume(Vec<wxdata::level2::BinnedSweep>),
     }
+    let (h0, hm20) = match (kind, levels) {
+        (FeatureKind::Hail, None) => return Err("No melting level for the hail estimate".into()),
+        (_, l) => l.unwrap_or((0.0, 0.0)),
+    };
     let mut times = Vec::new();
     let mut sampled = Vec::new();
     let mut unreadable = 0;
@@ -367,6 +425,25 @@ fn follow(
             FeatureKind::Core => {
                 wxdata::level2::bin_scan_opts_recorded(scan, Moment::Reflectivity, 0, false)
                     .map(Sampled::Refl)
+            }
+            // The column needs every tilt.
+            FeatureKind::Hail | FeatureKind::Bwer => {
+                let tilts: Vec<_> = (0..wxdata::level2::elevation_angles(scan).len())
+                    .filter_map(|tilt| {
+                        wxdata::level2::bin_scan_opts_recorded(
+                            scan,
+                            Moment::Reflectivity,
+                            tilt,
+                            false,
+                        )
+                        .ok()
+                    })
+                    .collect();
+                if tilts.len() >= 2 {
+                    Ok(Sampled::Volume(tilts))
+                } else {
+                    Err(anyhow::anyhow!("fewer than two reflectivity tilts"))
+                }
             }
         };
         match s {
@@ -395,6 +472,8 @@ fn follow(
         |i, ll, r| match &sampled[i] {
             Sampled::Shear(f) => ft::rotation_peak(f, ll, r),
             Sampled::Refl(s) => ft::core_peak(s, ll, r),
+            Sampled::Volume(v) if kind == FeatureKind::Hail => ft::hail_peak(v, ll, r, h0, hm20),
+            Sampled::Volume(v) => ft::bwer_peak(v, ll, r),
         },
     );
     Ok((
@@ -468,7 +547,7 @@ mod tests {
             [-97.52, 35.31],
         );
         let (fixes, searched, unreadable) =
-            follow(FeatureKind::Rotation, &frames, seed, &[]).unwrap();
+            follow(FeatureKind::Rotation, &frames, seed, &[], None).unwrap();
         eprintln!(
             "{} fixes of {searched} searched, {unreadable} unreadable",
             fixes.len()
@@ -476,8 +555,14 @@ mod tests {
         assert!(fixes.len() >= 8 && unreadable == 0);
         let moved_time = fixes[2].time;
         let moved = [fixes[2].ll[0] + 0.02, fixes[2].ll[1]];
-        let (again, ..) =
-            follow(FeatureKind::Rotation, &frames, seed, &[(moved_time, moved)]).unwrap();
+        let (again, ..) = follow(
+            FeatureKind::Rotation,
+            &frames,
+            seed,
+            &[(moved_time, moved)],
+            None,
+        )
+        .unwrap();
         let hand = again.iter().find(|f| f.time == moved_time).unwrap();
         assert!(hand.manual && hand.ll == moved);
         assert!(again.len() >= 8, "{}", again.len());

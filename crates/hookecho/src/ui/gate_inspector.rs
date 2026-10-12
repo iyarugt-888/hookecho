@@ -89,10 +89,35 @@ pub fn show(
     let mut open = true;
     let mut follow = None;
     // What a click here can be followed as through the loop (ROADMAP_NEW R4).
-    let followable = match popup.moment {
-        Moment::Velocity => Some(wxdata::feature_track::FeatureKind::Rotation),
-        Moment::Reflectivity => Some(wxdata::feature_track::FeatureKind::Core),
-        _ => None,
+    let followable: &[(wxdata::feature_track::FeatureKind, &str, &str)] = match popup.moment {
+        Moment::Velocity => &[(
+            wxdata::feature_track::FeatureKind::Rotation,
+            "Follow this rotation through the loop",
+            "Finds the strongest cyclonic shear here on the lowest tilt and follows it forward \
+             and back through the volumes the pane has decoded.",
+        )],
+        Moment::Reflectivity => &[
+            (
+                wxdata::feature_track::FeatureKind::Core,
+                "Follow this core through the loop",
+                "Finds the strongest reflectivity here on the lowest tilt and follows it forward \
+                 and back through the volumes the pane has decoded.",
+            ),
+            (
+                wxdata::feature_track::FeatureKind::Hail,
+                "Follow this hail core",
+                "Finds the largest expected hail size (MEHS, from every tilt and the day's \
+                 melting level) here and follows it through the volumes the pane has decoded.",
+            ),
+            (
+                wxdata::feature_track::FeatureKind::Bwer,
+                "Follow this BWER candidate",
+                "Finds a weak echo at mid levels walled in by strong echo and capped by it (a \
+                 bounded weak echo region candidate) here and follows it through the volumes \
+                 the pane has decoded. A candidate: check it on a cross-section.",
+            ),
+        ],
+        _ => &[],
     };
     popovers
         .card(
@@ -113,24 +138,21 @@ pub fn show(
                 .inner_margin(18),
         )
         .show(ctx, |ui| {
-            if let Some(kind) = followable {
-                let what = match kind {
-                    wxdata::feature_track::FeatureKind::Rotation => {
-                        "Follow this rotation through the loop"
+            if !followable.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    for (kind, what, why) in followable {
+                        if ui
+                            .button(*what)
+                            .on_hover_text(format!(
+                                "{why} Each volume's fix has a confidence, and any fix can be put \
+                                 right by hand."
+                            ))
+                            .clicked()
+                        {
+                            follow = Some(*kind);
+                        }
                     }
-                    wxdata::feature_track::FeatureKind::Core => "Follow this core through the loop",
-                };
-                if ui
-                    .button(what)
-                    .on_hover_text(
-                        "Finds the strongest cyclonic shear (or reflectivity) here and follows it \
-                         forward and back through the volumes the pane has decoded, with a \
-                         confidence for each, and lets you put any fix right by hand.",
-                    )
-                    .clicked()
-                {
-                    follow = Some(kind);
-                }
+                });
                 ui.add_space(4.0);
             }
             attributes(ui, popup, tz, udp_products)
