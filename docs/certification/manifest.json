@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T07:39:26+00:00",
-  "generated_from_commit": "3af2cef1d249a4bb4b0dc2d91adfce3cd0dbb222",
+  "generated_utc": "2026-10-12T08:25:27+00:00",
+  "generated_from_commit": "aa38e2e85040756577dc3bcab0a3dcc7e6345316",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -193,8 +193,8 @@
     {
       "card": "M5.2",
       "title": "Add satellite-native one-minute playback",
-      "ledger_entries": 3,
-      "latest_entry": "2026-10-10",
+      "ledger_entries": 4,
+      "latest_entry": "2026-10-12",
       "status_line": "implementation: in progress (satellite-driven loop over native scan listings, increment 1); verification: partial (unit; live NOAA listing; no interactive or device run).",
       "evidence_dir": "docs/certification/m5.2"
     },
@@ -209,8 +209,8 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 9,
-      "latest_entry": "2026-10-11",
+      "ledger_entries": 10,
+      "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
     },
@@ -1294,8 +1294,13 @@
     },
     {
       "path": "docs/certification/m5.2/README.md",
-      "sha256": "7233d741061ed65e7375b42bf07bca010e7e4a0d419b43dcf932936dc6298801",
-      "bytes": 4574
+      "sha256": "34e63936e46eaede2e5dfce5420c580880aff56acc90afbfae85ee1e75efe2bc",
+      "bytes": 5564
+    },
+    {
+      "path": "docs/certification/m5.2/loop-decode-ahead-live-2026-10-12.txt",
+      "sha256": "33004274d961fef96a7504d8edcef4656ebad3ceb3eeb73650c1a81f6bc3b916",
+      "bytes": 269
     },
     {
       "path": "docs/certification/m5.2/loop-decode-ahead-live.txt",
@@ -1364,8 +1369,23 @@
     },
     {
       "path": "docs/certification/m5.4/README.md",
-      "sha256": "4a3cdc922627615e254480423570f8c186eb70b87491406e011a153bfbb252a7",
-      "bytes": 12868
+      "sha256": "8568e1d9b9ec29e93364608ab62e8c05f3c8ab73776693d2d3b4bc8e40c3d40a",
+      "bytes": 14027
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade-mid-fade-software.png",
+      "sha256": "ee9cfd6f1daf9e8274eb69a2a93b718debf79bb938212baff1fbfb45dbe93612",
+      "bytes": 685764
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade-timing-gpu.txt",
+      "sha256": "f5fd7686d0dd14b048b226620be8094c2107e4dbeee8c9633bda4ee8a8b61398",
+      "bytes": 234
+    },
+    {
+      "path": "docs/certification/m5.4/crossfade-timing-software.txt",
+      "sha256": "b3adefce63ca66b655ea114136554366e6a68e6e12b5a1cecbc08166fde6371e",
+      "bytes": 248
     },
     {
       "path": "docs/certification/m5.4/crossfade/evidence.json",
