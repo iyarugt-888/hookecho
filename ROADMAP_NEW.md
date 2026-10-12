@@ -4535,16 +4535,30 @@ Each must use the generic product/provenance system.
 
 These are not required for initial parity, but are high-value differentiators.
 
-## R1. Multi-radar storm volume fusion
+## R1. Multi-radar storm volume fusion — engine (1010.md V18)
 
 Research-grade feature.
 
 For storms seen by overlapping WSR-88Ds:
 
-- align volumes by valid time
-- transform samples into common Cartesian volume
-- retain contributing-radar provenance
-- blend reflectivity using distance/beam-height-aware weighting
+- [x] align volumes by valid time — each radar's volume within a tolerance of the time asked
+  for, its offset kept; a radar outside it is left out and said so (`multiradar::fuse`). Volumes
+  are not advected to a common time: a storm moving 10 m/s moves 1 km in a 100 s offset
+- [x] transform samples into common Cartesian volume — a storm-centred box, x east and y north in
+  km, z in km above sea level from each antenna's own altitude
+- [x] retain contributing-radar provenance — per cell, which radars observed it (echo or below
+  threshold), which gave echo, and which counted most
+- [x] blend reflectivity using distance/beam-height-aware weighting — a radar contributes only
+  through a beam whose half-beamwidth covers the cell, by the nearest such beam's gate, weighted
+  1 / (beam thickness)²; nothing is filled between beams. Weighted mean in dBZ
+
+Live on Moore, 2013-05-20 20:12 UTC (`live_the_moore_storm_fused_from_four_radars`, ignored,
+network; `docs/certification/multi-radar/`): KTLX about 22 km away alone gave echo in 11,483 cells
+of a 40 km box, its 18.5 dBZ top at 12.5 km. KFDR, KINX and KVNX (volumes 31 to 93 s from the
+time) added the storm's upper part: 37,865 cells, the top at the box's 16.5 km ceiling, through
+beams 2.3 to 2.8 km thick, so that top is smeared upward. Not yet: anything in the app (a 3D
+view, a cross-section), advection to a common time, and a check against an independent
+multi-radar analysis such as MRMS's 3D mosaic.
 
 Do **not** create a “velocity mosaic” by naïvely combining radial velocities. If multi-Doppler wind retrieval is attempted, it must use proper geometry and be labeled experimental/research.
 

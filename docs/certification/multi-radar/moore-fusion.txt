@@ -1,0 +1,7 @@
+Moore, 2013-05-20 20:12 UTC; 40 km box around -97.50, 35.33; 1 km columns, 0.5 km levels to 16.5 km
+KTLX: volume +29 s; echo in 11483 cells, 6345 of them from it alone; counted most in 11483
+KFDR: volume -31 s; echo in 25418 cells, 938 of them from it alone; counted most in 5666
+KINX: volume +93 s; echo in 27254 cells, 1711 of them from it alone; counted most in 1742
+KVNX: volume +78 s; echo in 27274 cells, 1353 of them from it alone; counted most in 18974
+KTLX alone: 11483 cells with echo, 18.5 dBZ top 12.5 km
+fused: 37865 cells with echo, 18.5 dBZ top 16.5 km

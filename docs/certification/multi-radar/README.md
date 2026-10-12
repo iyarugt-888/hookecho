@@ -1,0 +1,48 @@
+# One storm from several radars (ROADMAP_NEW R1, 1010.md V18)
+
+Research-grade, engine only: `wxdata::multiradar::fuse`.
+
+- **Time.** Each radar's volume is taken within a tolerance of the time asked for, and its offset
+  is kept. A radar outside the tolerance is left out, with the reason. Volumes are not advected
+  to a common time.
+- **Grid.** A storm-centred box: x east and y north in km, z in km above sea level, from each
+  antenna's altitude.
+- **Sampling.** A radar contributes to a cell only through a beam whose half-beamwidth (0.95°
+  beam) covers the cell's height, by the nearest such beam's gate. Nothing is filled between
+  beams. A below-threshold gate means the radar observed the cell and saw no echo.
+- **Blending.** The weighted mean in dBZ of the radars that saw echo, each weighted by
+  1 / (its beam's thickness there)².
+- **Provenance.** Per cell: which radars observed it, which gave echo, and which counted most.
+- **Velocity.** Radial velocities are never combined.
+
+Synthetic tests: `two_radars_fill_each_others_gaps_and_say_which_saw_what` (a radar 15 km away
+sees the storm low down, one 110 km away sees its upper half; fused, the column is the storm's,
+each level labelled by who saw it, the near radar counting most where both did) and
+`a_radar_out_of_time_is_left_out_and_nothing_is_invented`.
+
+## Moore, 2013-05-20 20:12 UTC
+
+`live_the_moore_storm_fused_from_four_radars` (ignored, network), release.
+[moore-fusion.txt](moore-fusion.txt): a 40 km box around Moore, 1 km columns, 0.5 km levels to
+16.5 km.
+
+| Radar | Volume offset | Cells with its echo | From it alone | Counted most |
+| --- | --- | --- | --- | --- |
+| KTLX (about 22 km) | +29 s | 11,483 | 6,345 | 11,483 |
+| KFDR | −31 s | 25,418 | 938 | 5,666 |
+| KINX | +93 s | 27,254 | 1,711 | 1,742 |
+| KVNX | +78 s | 27,274 | 1,353 | 18,974 |
+
+KTLX alone: 11,483 cells with echo and an 18.5 dBZ top at 12.5 km. Its highest tilt passes only
+7 to 8 km over the storm's middle. Fused: 37,865 cells, the top at the box's 16.5 km ceiling. The
+distant radars' beams are 2.3 to 2.8 km thick there, so that top is smeared upward by up to half
+a beam. Wherever KTLX saw echo it counted most: its beam there is about 0.4 km thick, against the others' 2.3 to 2.8 km.
+
+| File | SHA-256 |
+| --- | --- |
+| moore-fusion.txt | `6e37e58e99b99124c26eab1f5a06a46043ea528599234a3d4f03a401490ea8e8` |
+
+Not established:
+- anything in the app (no 3D view or cross-section of the fused volume yet);
+- advection of each volume to the common time;
+- a check against an independent multi-radar analysis, such as MRMS's 3D reflectivity mosaic.

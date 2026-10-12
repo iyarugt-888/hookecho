@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Developer: one storm volume from several radars
+
+A research engine fuses the reflectivity of radars that see the same storm into one volume
+around it. Each cell records which radars saw it, and each radar's time offset is kept.
+Velocities are never combined. It is not yet in the app.
+
 ### Added: keep a radar loop on the desktop before you lose signal
 
 The timeline's menu on the desktop has "Keep this loop on this device". It downloads the

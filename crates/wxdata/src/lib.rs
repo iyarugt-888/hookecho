@@ -76,6 +76,8 @@ pub mod model_inventory;
 pub mod mosaic;
 pub mod mping;
 pub mod mrms;
+/// One storm seen by several radars, as one volume (ROADMAP_NEW R1).
+pub mod multiradar;
 pub mod ndbc;
 pub mod ndfd;
 pub mod near_flow;
