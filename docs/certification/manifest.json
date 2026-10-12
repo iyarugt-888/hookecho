@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T04:49:31+00:00",
-  "generated_from_commit": "0ebe4b995b2621b0120e99c3ddcd4453e557cf0d",
+  "generated_utc": "2026-10-12T06:08:47+00:00",
+  "generated_from_commit": "facbff85de344aaf867396528753255fd42511b4",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -89,8 +89,8 @@
     {
       "card": "M2.3",
       "title": "Extend impacts to geolocated communities and assets",
-      "ledger_entries": 5,
-      "latest_entry": "2026-10-09",
+      "ledger_entries": 6,
+      "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m2.3"
     },
@@ -113,8 +113,8 @@
     {
       "card": "M3.2",
       "title": "Complete portable, validated product definitions",
-      "ledger_entries": 3,
-      "latest_entry": "2026-10-11",
+      "ledger_entries": 4,
+      "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m3.2"
     },
@@ -1064,8 +1064,8 @@
     },
     {
       "path": "docs/certification/m2.3/README.md",
-      "sha256": "244e76b049c4076a107fdfe2f5c38e2e5d1f92a45e2eb8777689efde60ee4b3d",
-      "bytes": 894
+      "sha256": "34be06494579b0783bd2df2966c364e1ac736f72979a5d499391dc04444b025c",
+      "bytes": 1282
     },
     {
       "path": "docs/certification/m2.3/impacts-sample.html",
