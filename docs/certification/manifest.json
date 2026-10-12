@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-12T01:00:11+00:00",
-  "generated_from_commit": "caf89450b8ab54f848d1b39cacb4c230f5e3f230",
+  "generated_utc": "2026-10-12T01:56:40+00:00",
+  "generated_from_commit": "6e84eadb0d65fae71434085945e2f77f51cabdde",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -209,7 +209,7 @@
     {
       "card": "M5.4",
       "title": "Unify rendering quality, labels, and transitions",
-      "ledger_entries": 8,
+      "ledger_entries": 9,
       "latest_entry": "2026-10-11",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.4"
@@ -326,6 +326,21 @@
       "path": "docs/certification/chase/route-storms-escape-browser.jpg",
       "sha256": "286cb8fc67103abe1f0dca7fe4145b5416c5be44ddf46f4b894afe36e9a998d6",
       "bytes": 81549
+    },
+    {
+      "path": "docs/certification/feature-track/README.md",
+      "sha256": "ad3836ace9371960354bbe3463513b67a3814dc4fef7a759abcbe2759a3f671f",
+      "bytes": 4193
+    },
+    {
+      "path": "docs/certification/feature-track/moore-rotation-corrected-browser.jpg",
+      "sha256": "4cee4a5f390b8a50df927ab61203cb923df895f3998017c903bee60f7589ef66",
+      "bytes": 96340
+    },
+    {
+      "path": "docs/certification/feature-track/moore-rotation-followed-browser.jpg",
+      "sha256": "a0dd4b07db448f58051eadd7b89294d8d68d1da011d7ae6c9108a1eb643e0566",
+      "bytes": 96303
     },
     {
       "path": "docs/certification/m0.3/README.md",
