@@ -222,3 +222,26 @@ sea-level pressure. Two layers are excluded:
 
 Station plots (METAR and mesonet reports) are discrete reports at points. They are not
 interpolated or faded between times.
+
+## What the double draw costs (2026-10-12, 1010.md V19)
+
+`gpu_crossfade_frame_cost` draws a 1080 px pane of a 2000 by 1000 field (about 42 % of the pane)
+through production prepare/paint: 240 frames with one frame and 240 mid-fade, each timed from
+submit until the GPU has finished, release.
+
+| Adapter | One frame, median / p99 | Crossfading, median / p99 |
+| --- | --- | --- |
+| RTX 2060 (Vulkan) | 0.182 / 0.213 ms | 0.241 / 0.278 ms |
+| Software renderer (Dx12) | 84.7 / 85.8 ms | 168.4 / 170.3 ms |
+
+On the graphics card the second draw adds 0.06 ms. On the software renderer it doubles the
+frame. [crossfade-mid-fade-software.png](crossfade-mid-fade-software.png) is the halfway frame
+from the software run: the two patterns evenly mixed.
+
+| File | SHA-256 |
+| --- | --- |
+| crossfade-timing-gpu.txt | `f5fd7686d0dd14b048b226620be8094c2107e4dbeee8c9633bda4ee8a8b61398` |
+| crossfade-timing-software.txt | `b3adefce63ca66b655ea114136554366e6a68e6e12b5a1cecbc08166fde6371e` |
+| crossfade-mid-fade-software.png | `ee9cfd6f1daf9e8274eb69a2a93b718debf79bb938212baff1fbfb45dbe93612` |
+
+Not established: frame times in an interactive session, and on Android.

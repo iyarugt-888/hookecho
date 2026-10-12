@@ -1,0 +1,5 @@
+GOES-East CONUS band 13 -> 1200x700, 10 scans, 2026-10-12 08:11:05.724179200 UTC
+profile: release
+decoded ahead 2 at a time: 6 scans in 3.44 s, 1.7 frames/s
+decoded ahead 1 at a time: 4 scans in 3.00 s, 1.3 frames/s
+shown from the cache: p50 0.6 ms, max 0.6 ms a frame

@@ -1370,8 +1370,9 @@ mod tests {
         );
     }
 
-    /// Live (network): decode-ahead as the loop uses it. Ten CONUS band 13 scans decoded two at
-    /// a time, as the loop's prefetch runs them, then fetched as the loop shows them. Writes
+    /// Live (network): decode-ahead as the loop uses it. Ten CONUS band 13 scans: six decoded two
+    /// at a time and four one at a time (1010.md V19 asks which the loop should do), then all
+    /// fetched as the loop shows them. Writes
     /// `target/parity-review/m5.2/loop-decode-ahead-live.txt`. Run with `--release`.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "network"]
@@ -1384,7 +1385,7 @@ mod tests {
             Satellite::East,
             Sector::Conus,
             13,
-            to - chrono::Duration::minutes(60),
+            to - chrono::Duration::minutes(120),
             to,
         )
         .await
@@ -1395,20 +1396,26 @@ mod tests {
             .take(10)
             .map(|f| f.key.clone())
             .collect();
+        assert_eq!(keys.len(), 10, "ten scans in two hours");
         // Downloads first, so the timing below is the decode alone, as with a warm prefetch.
         for k in &keys {
             prefetch_key(&client, Satellite::East, k).await.unwrap();
         }
-        let t = std::time::Instant::now();
-        for pair in keys.chunks(2) {
-            let jobs = pair
-                .iter()
-                .map(|k| decode_ahead(&client, Satellite::East, k, nx, ny));
-            for r in futures_util::future::join_all(jobs).await {
-                r.unwrap();
+        // Each set is decoded once, so neither is answered from the other's cache.
+        let mut rates = Vec::new();
+        for (at_once, set) in [(2usize, &keys[..6]), (1, &keys[6..])] {
+            let t = std::time::Instant::now();
+            for group in set.chunks(at_once) {
+                let jobs = group
+                    .iter()
+                    .map(|k| decode_ahead(&client, Satellite::East, k, nx, ny));
+                for r in futures_util::future::join_all(jobs).await {
+                    r.unwrap();
+                }
             }
+            let s = t.elapsed().as_secs_f64();
+            rates.push((at_once, set.len(), s, set.len() as f64 / s));
         }
-        let ahead = t.elapsed().as_secs_f64();
         let mut shown_ms = Vec::new();
         for k in &keys {
             let t = std::time::Instant::now();
@@ -1419,15 +1426,26 @@ mod tests {
             assert!(f.values.iter().any(|v| v.is_finite()));
         }
         shown_ms.sort_by(|a, b| a.total_cmp(b));
-        let report = format!(
-            "GOES-East CONUS band 13 -> {nx}x{ny}, {} scans, {}\nprofile: {}\ndecoded ahead two at a time in {ahead:.2} s: {:.1} frames/s\nshown from the cache: p50 {:.1} ms, max {:.1} ms a frame\n",
+        let mut report = format!(
+            "GOES-East CONUS band 13 -> {nx}x{ny}, {} scans, {}\nprofile: {}\n",
             keys.len(),
             to,
-            if cfg!(debug_assertions) { "debug" } else { "release" },
-            keys.len() as f64 / ahead,
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            },
+        );
+        for (at_once, n, s, rate) in &rates {
+            report.push_str(&format!(
+                "decoded ahead {at_once} at a time: {n} scans in {s:.2} s, {rate:.1} frames/s\n"
+            ));
+        }
+        report.push_str(&format!(
+            "shown from the cache: p50 {:.1} ms, max {:.1} ms a frame\n",
             shown_ms[shown_ms.len() / 2],
             shown_ms[shown_ms.len() - 1],
-        );
+        ));
         print!("{report}");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/parity-review/m5.2");

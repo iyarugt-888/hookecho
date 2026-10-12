@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Developer: what the crossfade and satellite decoding cost
+
+Crossfading a field between frames adds 0.06 ms a frame on a graphics card, but doubles
+the frame on a software renderer (85 to 168 ms at 1080 px). The satellite loop keeps
+decoding two frames ahead at a time, which measured faster than one.
+
 ### Fixed: radar drawn in the right place by Windows' software renderer
 
 On Windows' software renderer the radar was drawn up to 0.9 km out of place: the map worked

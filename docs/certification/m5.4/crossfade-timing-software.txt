@@ -1,0 +1,4 @@
+Microsoft Basic Render Driver (Dx12), 1080 px pane, 2000x1000 field
+one frame: median 84.654 ms, p95 85.592 ms, p99 85.829 ms over 240 frames
+crossfading: median 168.378 ms, p95 169.852 ms, p99 170.259 ms over 240 frames
+median difference 83.725 ms

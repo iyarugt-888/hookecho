@@ -15,8 +15,13 @@ fn callback(key: MrmsTextureKey, fade: Option<(MrmsTextureKey, f32)>) -> MapCall
 }
 
 fn mrms_panes_callback(key: MrmsTextureKey) -> MapCallback {
-    let camera = Camera::at_lonlat(-97.0, 35.0, 7.0);
-    let viewport = (SIZE as f32, SIZE as f32);
+    mrms_panes_callback_at(key, SIZE, 7.0)
+}
+
+/// [`mrms_panes_callback`] for a `size` px square pane at `zoom`.
+fn mrms_panes_callback_at(key: MrmsTextureKey, size: u32, zoom: f64) -> MapCallback {
+    let camera = Camera::at_lonlat(-97.0, 35.0, zoom);
+    let viewport = (size as f32, size as f32);
     let (center, scale) = camera.world_to_clip_uniform(viewport);
     MapCallback {
         pane: 0,
@@ -198,4 +203,123 @@ fn gpu_a_new_field_frame_fades_in_over_the_old_one() {
         .unwrap(),
     )
     .unwrap();
+}
+
+/// A 2000 by 1000 cell field over the central US, `phase` moving its pattern so two frames
+/// differ everywhere, through a 254-step colour ramp.
+fn big_upload(phase: f32) -> crate::render::MrmsUpload {
+    let (nx, ny) = (2000usize, 1000usize);
+    let values: Vec<f32> = (0..nx * ny)
+        .map(|i| {
+            let (x, y) = ((i % nx) as f32, (i / nx) as f32);
+            ((x * 0.013 + phase).sin() * (y * 0.021 - phase).cos() + 1.0) * 126.0
+        })
+        .collect();
+    let grid = wxdata::mrms::MrmsField {
+        values,
+        nx,
+        ny,
+        lon_west: -105.0,
+        lon_east: -89.0,
+        lat_north: 41.0,
+        lat_south: 29.0,
+        time: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+    };
+    let mut lut = vec![0u8; 1024];
+    for i in 2..256 {
+        let t = (i - 2) as f32 / 253.0;
+        lut[i * 4..i * 4 + 4].copy_from_slice(&[
+            (255.0 * t) as u8,
+            (255.0 * (1.0 - (2.0 * t - 1.0).abs())) as u8,
+            (255.0 * (1.0 - t)) as u8,
+            255,
+        ]);
+    }
+    crate::app::field_index_upload(&grid, |v| (v as u8).clamp(2, 255), lut)
+}
+
+/// What the crossfade's second draw costs (1010.md V19): a 1080 px pane of a 2000 by 1000
+/// field, 240 frames drawn with one frame and 240 mid-fade, each timed from submit until the GPU
+/// has finished. Also keeps a mid-fade capture of the two frames.
+///
+/// `cargo test -p hookecho --release --lib -- --ignored gpu_crossfade_frame_cost --nocapture`
+#[test]
+#[ignore = "gpu: times the crossfade"]
+fn gpu_crossfade_frame_cost() {
+    const PANE: u32 = 1080;
+    const FRAMES: usize = 240;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (device, queue, adapter) = init_gpu(&rt).expect("GPU required for the crossfade timing");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, PANE);
+    let view = target.create_view(&Default::default());
+    let (old, new) = (MrmsTextureKey(1), MrmsTextureKey(2));
+    let at = |key, fade: Option<(MrmsTextureKey, f32)>| {
+        let mut cb = mrms_panes_callback_at(key, PANE, 6.0);
+        cb.field_fades = fade
+            .map(|(from, share)| (FieldLayer::Mesh, FieldTexture::Mrms(from), share))
+            .into_iter()
+            .collect();
+        cb
+    };
+    let mut first = at(old, None);
+    first.mrms_uploads = vec![(old, big_upload(0.0)), (new, big_upload(1.3))];
+    resources.prepare_pane(&device, &queue, &first);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+
+    let mut time = |cb: &MapCallback| -> Vec<f64> {
+        resources.prepare_pane(&device, &queue, cb);
+        let mut ms = Vec::with_capacity(FRAMES);
+        for i in 0..FRAMES + 20 {
+            let t = wxdata::clock::Instant::now();
+            resources.draw_pane(&device, &queue, &view, 0, wgpu::Color::BLACK);
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            // The first frames warm the pipeline and caches; they are not counted.
+            if i >= 20 {
+                ms.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        ms.sort_by(f64::total_cmp);
+        ms
+    };
+    let pct = |v: &[f64], q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
+    let one = time(&at(new, None));
+    let fading = time(&at(new, Some((old, 0.5))));
+    let line = |name: &str, v: &[f64]| {
+        format!(
+            "{name}: median {:.3} ms, p95 {:.3} ms, p99 {:.3} ms over {} frames",
+            pct(v, 0.5),
+            pct(v, 0.95),
+            pct(v, 0.99),
+            v.len()
+        )
+    };
+    let report = format!(
+        "{} ({:?}), {PANE} px pane, 2000x1000 field\n{}\n{}\nmedian difference {:.3} ms",
+        adapter.get_info().name,
+        adapter.get_info().backend,
+        line("one frame", &one),
+        line("crossfading", &fading),
+        pct(&fading, 0.5) - pct(&one, 0.5)
+    );
+    println!("{report}");
+
+    // The mid-fade picture, for review.
+    resources.prepare_pane(&device, &queue, &at(new, Some((old, 0.5))));
+    resources.draw_pane(&device, &queue, &view, 0, wgpu::Color::BLACK);
+    let pixels = read_target(&device, &queue, &target, PANE);
+    let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/parity-review/v19/crossfade");
+    std::fs::create_dir_all(&destination).unwrap();
+    image::RgbaImage::from_raw(PANE, PANE, pixels)
+        .unwrap()
+        .save(destination.join("mid-fade.png"))
+        .unwrap();
+    std::fs::write(destination.join("timing.txt"), report).unwrap();
+    // A sanity bound, not a budget: on a graphics card the double draw stays far under a 60 Hz
+    // frame. A software renderer draws every pixel twice on the CPU, so it is reported, not bound.
+    if adapter.get_info().device_type != wgpu::DeviceType::Cpu {
+        assert!(pct(&fading, 0.5) < 16.0, "{}", line("crossfading", &fading));
+    }
 }

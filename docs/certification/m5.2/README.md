@@ -80,3 +80,23 @@ What it means for the loop:
 
 Test: `the_decoded_frame_cache_is_bounded_and_keyed_by_size`. It covers the budget, the least
 recently used being evicted first, sizes as separate entries, and a read keeping a frame.
+
+## One decode at a time or two (2026-10-12, 1010.md V19)
+
+`loop_decode_ahead_live` times decoding ahead two at a time, as the loop does, against one at a
+time, each on its own CONUS band 13 scans (live, release, 1200 by 700). Two at a time was faster
+in each of three runs:
+
+| Run | Two at a time | One at a time |
+| --- | --- | --- |
+| 20 scans, 10 each | 1.3 frames/s | 1.2 frames/s |
+| 20 scans, 10 each | 1.6 frames/s | 1.3 frames/s |
+| 10 scans, 6 and 4 | 1.7 frames/s | 1.3 frames/s |
+
+So the loop keeps `PREFETCH_INFLIGHT = 2`. A frame from the cache still costs 0.5 to 0.6 ms
+([loop-decode-ahead-live-2026-10-12.txt](loop-decode-ahead-live-2026-10-12.txt), SHA-256
+`33004274d961fef96a7504d8edcef4656ebad3ceb3eeb73650c1a81f6bc3b916`, the last run).
+
+Both rates are well under the 3.3 frames/s measured on 2026-10-10. Ten scans decoded at the
+same rate as twenty, so the GOES file cache evicting scans was not the cause. Nothing else heavy
+was running. The cause is not established.

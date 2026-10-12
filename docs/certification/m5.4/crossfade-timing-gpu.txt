@@ -1,0 +1,4 @@
+NVIDIA GeForce RTX 2060 (Vulkan), 1080 px pane, 2000x1000 field
+one frame: median 0.182 ms, p95 0.191 ms, p99 0.213 ms over 240 frames
+crossfading: median 0.241 ms, p95 0.249 ms, p99 0.278 ms over 240 frames
+median difference 0.059 ms
