@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T02:00:31+00:00",
-  "generated_from_commit": "26f09554584df71acfb11e81cdcde75290392ce7",
+  "generated_utc": "2026-10-13T02:19:30+00:00",
+  "generated_from_commit": "bde9ec6c2da2dfc331d5cba108f2758402873007",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -321,6 +321,21 @@
       "path": "docs/certification/a11y/warning-tags-moore-zoomed-browser.jpg",
       "sha256": "36989d3b8388547b08341f04cd9614e7e01c1dced3f903db31c19ceda6e1620d",
       "bytes": 91085
+    },
+    {
+      "path": "docs/certification/browser-limits/README.md",
+      "sha256": "25f53031ff8b7d0c61b71a7cc9c2a116653b2a509556e7f04833a981dc7e6224",
+      "bytes": 3190
+    },
+    {
+      "path": "docs/certification/browser-limits/model-fields-href-prob-browser.jpg",
+      "sha256": "86451098e2c951b9b289879c08a44ba8f4f8a7354c2ba9711aa03b6ff095f0b7",
+      "bytes": 108565
+    },
+    {
+      "path": "docs/certification/browser-limits/model-panel-rap-browser.jpg",
+      "sha256": "7cfc2e5da5de321acbb605c3a3e3afab2a5e71f6ef4936747d14e9a08dcc379d",
+      "bytes": 114230
     },
     {
       "path": "docs/certification/chase/README.md",
