@@ -636,6 +636,25 @@ Checks: clippy clean, wasm 1+10 warnings (baseline), workspace 2,560 passed. The
 
 One NWS warning gave A1's received → drawn stage in a running session: 39 s sent → seen, 0.01 s to drawn, one sample. These are rolling counters as displayed, not an exported trace ([`docs/certification/m1.2/`](docs/certification/m1.2/README.md), `bb6c8972…`). Open: an Android trace, screen scan-out, and a desktop-app live trace.
 
+**Evidence ledger — 2026-10-10, increment 4 (immutable live sweep sharing; 1010.md V7):**
+the vendored `Sweep` retains radial buffers in an immutable `Arc<Vec<Radial>>`. Unchanged
+cuts in `merge_scan` and scan clones share gates; stitching creates separate storage for
+the touched cut. Consuming merges unwrap uniquely owned storage or copy shared storage
+before editing. Public slices and JSON/postcard worker sequences retain their previous shape.
+Regression controls cover immutable older snapshots, buffer reuse, delayed/duplicate/empty
+updates, unknown clocks, Doppler metadata and legacy wire compatibility.
+
+**Release measurement**, cached Moore 2013 volume, 17 sweeps / 8,280 radials, 100 copies per
+path: explicit deep-copy p50/p95 **28.2252/33.4368 ms**, shared scan-copy **0.0013/0.0020 ms**.
+Outputs compared equal; input decoding, destruction and equality are outside timing. Workspace
+builds shared the machine. This isolates snapshot-copy cost, not full merging or animation
+frame rate. [Method, results and remaining gates](docs/certification/m1.2/shared-sweeps.md).
+Baseline `d3079e7` plus the pre-existing timeline edits; only its test initializer was adjusted
+to satisfy Clippy. Clippy and WASM checks pass (existing WASM warnings); the original workspace
+test command is blocked by a running `target/debug/hookecho.exe`, with split test results
+recorded in the report. Implementation: implemented; verification: partial. Open: live streaming
+frame-time comparison, desktop interaction and physical Android performance.
+
 #### M1.3 — Prove source failover under severe-weather load
 
 **Priority:** P0. **Depends on:** M0.3, M1.1, M1.2. **Original references:** ROADMAP_2 §§1.3, 3; ROADMAP_NEW §B6.

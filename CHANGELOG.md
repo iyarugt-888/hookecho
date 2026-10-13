@@ -366,6 +366,12 @@ forward and playing the loop now show each of those scans in the order they were
 its own time, instead of only the last one of each volume. On a fast-moving storm that is a
 picture every two minutes or so at the lowest tilt instead of one every five.
 
+### Improved: less copying during live radar updates
+
+Live radar snapshots now share the data in unchanged sweeps instead of copying every gate
+when another chunk arrives. A changed sweep keeps its own data, so older playback frames
+retain their original values and times.
+
 ### Improved: alerts and notices are not told by colour alone
 
 The alert bell's count now marks how serious the worst alert in view is with more than its

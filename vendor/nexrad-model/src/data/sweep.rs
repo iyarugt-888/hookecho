@@ -1,6 +1,7 @@
 use crate::data::Radial;
 use crate::result::{Error, Result};
 use std::fmt::Display;
+use std::sync::Arc;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,10 @@ use uom::si::f32::Angle;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Sweep {
     elevation_number: u8,
-    radials: Vec<Radial>,
+    // hookecho patch: immutable radial storage is shared by live scan snapshots. Cloning an
+    // unchanged sweep must not copy every moment's gate buffers. The public slice and serde
+    // sequence stay the same; a stitched/rebuilt sweep gets a separate allocation.
+    radials: Arc<Vec<Radial>>,
 }
 
 impl Sweep {
@@ -28,7 +32,7 @@ impl Sweep {
     pub fn new(elevation_number: u8, radials: Vec<Radial>) -> Self {
         Self {
             elevation_number,
-            radials,
+            radials: Arc::new(radials),
         }
     }
 
@@ -121,7 +125,7 @@ impl Sweep {
         let mut earliest: Option<DateTime<Utc>> = None;
         let mut latest: Option<DateTime<Utc>> = None;
 
-        for radial in &self.radials {
+        for radial in self.radials.iter() {
             if let Some(time) = radial.collection_time() {
                 earliest = Some(match earliest {
                     Some(e) => e.min(time),
@@ -144,13 +148,15 @@ impl Sweep {
             return Err(Error::ElevationMismatch);
         }
 
-        let mut radials = self.radials;
-        radials.extend(other.radials);
+        // hookecho patch: consume uniquely owned storage, or copy on write when another scan
+        // still holds this sweep. Previously published snapshots remain immutable.
+        let mut radials = Arc::try_unwrap(self.radials).unwrap_or_else(|r| (*r).clone());
+        radials.extend(Arc::try_unwrap(other.radials).unwrap_or_else(|r| (*r).clone()));
         radials.sort_by_key(|radial| radial.azimuth_number());
 
         Ok(Self {
             elevation_number: self.elevation_number,
-            radials,
+            radials: Arc::new(radials),
         })
     }
 }

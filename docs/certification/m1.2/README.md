@@ -1,5 +1,9 @@
 # M1.2 correlated receipt-to-GPU trace (1008.md A3)
 
+The next CPU-copy increment is documented in [immutable live sweep sharing](shared-sweeps.md)
+(1010.md V7), with a release snapshot benchmark and regression controls. Streaming frame
+times and device evidence remain open.
+
 `gpu_correlated_latency_trace` (`crates/hookecho/src/headless_corpus.rs`) takes one real volume's
 bytes as received and times every stage after it against that single receipt clock. It runs 25
 times after 3 warm-ups, on the device the test runs on. Each CSV row is one run and names the

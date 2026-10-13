@@ -745,9 +745,8 @@ fn stitch(base: &Sweep, partial: &Sweep) -> Sweep {
 /// sweep is stitched into the base sweep with the same elevation number. Only a real change to
 /// the displayed radials is reported, keeping split cuts and the tilt list stable mid-stream.
 /// Returns the merged scan and the angles of the sweeps that changed.
-/// ponytail: `base`'s sweeps are cloned into the merged scan because `nexrad_model::Scan` has no
-/// `into_sweeps` to move them out of. Vendoring that crate for one accessor isn't worth it while
-/// this runs off the UI thread.
+/// Unchanged sweeps share immutable radial storage with previous snapshots. Only a stitched
+/// sweep copies gate buffers; retaining an old scan cannot change its values or source clocks.
 pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
     if base.coverage_pattern_number() != partial.coverage_pattern_number() {
         let changed = elevation_angles(&partial);

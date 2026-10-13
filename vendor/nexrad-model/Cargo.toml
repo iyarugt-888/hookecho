@@ -60,7 +60,8 @@ version = "0.4.3"
 
 [dependencies.serde]
 version = "1.0.228"
-features = ["derive"]
+# hookecho patch: shared immutable sweep storage serializes as the existing radial sequence.
+features = ["derive", "rc"]
 optional = true
 
 [dependencies.sha2]

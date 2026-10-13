@@ -489,11 +489,14 @@ Instead of waiting for a sweep/volume boundary:
 - [x] update GPU polar texture incrementally — `RadarGpu` retains a CPU mirror of its persistent
   polar texture, diffs it by azimuth row, coalesces adjacent changed rows, and writes only those
   spans. A live chunk normally becomes one texture write; a wedge crossing north becomes two.
-- [ ] stop cloning unchanged live sweeps — cached plain moments now update only azimuth rows whose
+- [x] stop cloning unchanged live sweeps — cached plain moments now update only azimuth rows whose
   radial acquisition timestamp advanced (`update_binned_sweep_live`), with full re-bins retained
-  for KDP and dealiased velocity because they require whole-field context. `merge_scan` still
-  deep-clones the merged scan on each emit; removing that copy requires an upstream mutable/move
-  API for `nexrad_model::Scan` and is the remaining general CPU-side cost item.
+  for KDP and dealiased velocity because they require whole-field context. The vendored `Sweep`
+  now shares immutable radial storage, so `merge_scan` and emitted scan clones retain unchanged
+  gate buffers. Stitching still rebuilds the touched cut. Snapshot immutability and legacy
+  JSON/postcard wire compatibility have regression controls in `live_shared_sweeps.rs`.
+  Release copy-cost evidence is linked from ROADMAP_PARITY M1.2; streaming animation frame
+  times and Android device performance remain open.
 - [x] preserve previous sweep underneath not-yet-updated azimuths — `stitch()` keeps the older
   radial in any azimuth the new pass has not reached (bounded to 15 min) instead of replacing the
   whole tilt and blanking the unswept sectors.

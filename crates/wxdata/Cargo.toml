@@ -86,6 +86,8 @@ tokio = { version = "1", features = ["test-util"] }
 # Benchmarks for the volume-processing hot paths (`benches/hot_paths.rs`). `default-features =
 # false` drops criterion's plotting stack — the numbers are read from the terminal here.
 [dev-dependencies]
+nexrad-model = { version = "1.0.0-rc.2", features = ["serde", "chrono"] }
+postcard = { version = "1", features = ["alloc"] }
 criterion = { version = "0.5", default-features = false }
 # An independent TIFF reader for the GeoTIFF writer's tests; already in the tree through `image`.
 tiff = "0.11"
