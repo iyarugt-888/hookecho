@@ -282,23 +282,49 @@ pub fn is_local_id(id: &str) -> bool {
 /// keeps a storm's label for as long as the new table's storm contains an observation of it (the
 /// same cell, found once per volume and cached, at the same position), and gives every other storm
 /// a label never used before in the session, so no label passes to a different storm.
+///
+/// A table lists only the storms seen in its own volume, so one the tracker carries across a
+/// volume without a cell (the Moore storm at 20:03Z on 2013-05-20) is missing from that table.
+/// The last [`Self::REMEMBERED`] tables' observations are kept, so such a storm keeps its label
+/// when it is seen again.
 #[derive(Debug, Default)]
 pub struct LocalLabels {
     issued: u64,
+    /// Each remembered table's observations and the label they were shown under, oldest first.
+    recent: std::collections::VecDeque<Vec<((u64, u64), String)>>,
 }
 
 impl LocalLabels {
+    /// Tables whose observations a storm can be recognised by: a storm absent from up to three
+    /// tables in a row (about a quarter of an hour of volumes) keeps its label.
+    pub const REMEMBERED: usize = 4;
+
     /// Label `cells`, a table just rebuilt by [`replay`], against `previous`, the table it replaces
-    /// (empty for the first). A storm takes the label of the previous storm whose track holds the
-    /// newest of its own observations; when two claim one label (a split), the one that shares the
-    /// newer observation, then the longer track, keeps it and the other is new.
+    /// (empty for the first, or after another radar's, which also forgets the tables before). A
+    /// storm takes the label under which the newest of its own observations was last shown; when
+    /// two claim one label (a split), the one that shares the newer observation, then the longer
+    /// track, keeps it and the other is new.
     pub fn relabel(&mut self, previous: &[crate::level3::Cell], cells: &mut [crate::level3::Cell]) {
         let key = |p: &(f64, f64)| (p.0.to_bits(), p.1.to_bits());
+        if previous.is_empty() {
+            self.recent.clear();
+        } else {
+            self.recent.push_back(
+                previous
+                    .iter()
+                    .flat_map(|p| p.past_track.iter().map(|point| (key(point), p.id.clone())))
+                    .collect(),
+            );
+            while self.recent.len() > Self::REMEMBERED {
+                self.recent.pop_front();
+            }
+        }
+        // Newer tables last, so an observation shown under a newer label reads that one.
         let mut seen: std::collections::HashMap<(u64, u64), &str> =
             std::collections::HashMap::new();
-        for p in previous {
-            for point in &p.past_track {
-                seen.insert(key(point), &p.id);
+        for table in &self.recent {
+            for (point, label) in table {
+                seen.insert(*point, label);
             }
         }
         // (cell index, label it continues, observations back from its newest, track length)
@@ -520,6 +546,42 @@ mod tests {
         split.push(twin);
         labels.relabel(&first, &mut split);
         assert_eq!(ids(&split), ["L-1", "L-2", "L-5"]);
+    }
+
+    /// A storm missing from a table (carried by the tracker across a volume without a cell, as
+    /// the Moore storm at 20:03Z) keeps its label when it is seen again; one missing for longer
+    /// than the remembered tables gets a new one.
+    #[test]
+    fn a_storm_missing_from_a_table_keeps_its_label() {
+        let with = |track: Vec<(f64, f64)>| crate::level3::Cell {
+            lon: track.last().unwrap().0,
+            lat: track.last().unwrap().1,
+            past_track: track,
+            ..Default::default()
+        };
+        let (a, b, c) = ((-97.6, 35.3), (-97.5, 35.3), (-97.4, 35.3));
+        let other = |i: f64| with(vec![(-90.0 - i, 30.0)]);
+        let mut labels = LocalLabels::default();
+        let mut first = vec![with(vec![a])];
+        labels.relabel(&[], &mut first);
+        assert_eq!(first[0].id, "L-1");
+        // The next table has only another storm; the one after sees the first again, its track
+        // still holding `a`.
+        let mut gap = vec![other(0.0)];
+        labels.relabel(&first, &mut gap);
+        let mut again = vec![with(vec![a, b, c])];
+        labels.relabel(&gap, &mut again);
+        assert_eq!(again[0].id, "L-1");
+        // Missing from more tables than are remembered: a new label, never "L-1" again.
+        let mut table = again;
+        for i in 1..=LocalLabels::REMEMBERED {
+            let mut next = vec![other(i as f64)];
+            labels.relabel(&table, &mut next);
+            table = next;
+        }
+        let mut late = vec![with(vec![a, b, c, (-97.3, 35.3)])];
+        labels.relabel(&table, &mut late);
+        assert_ne!(late[0].id, "L-1");
     }
 
     /// A sweep with one square-ish patch of strong echo, everything else empty.

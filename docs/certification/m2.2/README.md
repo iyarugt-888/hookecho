@@ -107,3 +107,29 @@ about one frame per step here), compare across a long replay, the desktop and An
 Trends row said "Trends draw once SCIT has tracked this cell" for a local cell too, which never
 happens in an archive: trends are SCIT's per-scan attributes, fed only by the live poll. A local
 cell's row now says it has none and why.
+
+## A real replay: the Moore storm keeps one label (2026-10-13, roadmaps/storm-analysis S1)
+
+`archive_cell_labels::the_moore_storm_keeps_one_label_through_a_replay` (wxdata, network, ignored;
+volumes cached in `target/trail-volumes`) runs the app's archive pipeline over 21 KTLX volumes,
+2013-05-20 19:00–20:30 UTC: 45 dBZ cores on the lowest tilt (`find_cells`), a 16-volume window
+(`replay`), labels carried table to table (`LocalLabels`). It steps forward through the volumes,
+so the window slides; steps back again; and at the last playhead adds the window's volumes newest
+first, as the prefetch delivers them. In each table no label names two storms
+([s1-moore-replay-labels.txt](s1-moore-replay-labels.txt), SHA-256
+`2b2cde647e652f0d11040ad1b9e681470f9f01b423960338c8c146737029b4f9`).
+
+- Replay's own ID for the Moore storm took four values as the window slid: L-48, L-47, L-46,
+  L-45. That is the defect `f548099f` fixed, on real data.
+- The first version of the fix still gave the storm a new label once. The tracker carried it
+  across 20:03Z without a cell, so no row of that table held its observations, and at 20:08Z it
+  went from L-52 to L-68. `LocalLabels` now remembers the observations of the last four tables,
+  so a storm missing from up to three tables in a row keeps its label
+  (`a_storm_missing_from_a_table_keeps_its_label`).
+- Now: L-48 from 19:59Z to 20:29Z, seven tables over 29 minutes, the same backward and with
+  newest-first decoding. Before 19:59Z the tracker holds no link to this storm: the 19:55Z table
+  has a separate 63 dBZ storm (L-24) 14.9 km away with its own five-volume track. That is the
+  tracker's association, which this lane does not tune.
+
+Not established: the same played through in the app (the debug browser build decoded too slowly to
+play the hour), compare over the replay, the desktop and Android apps.

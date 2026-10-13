@@ -1,0 +1,11 @@
+step 13 19:59Z label L-48   replay's own Some("L-48")
+step 15 20:08Z label L-48   replay's own Some("L-48")
+step 16 20:12Z label L-48   replay's own Some("L-48")
+step 17 20:16Z label L-48   replay's own Some("L-47")
+step 18 20:20Z label L-48   replay's own Some("L-47")
+step 19 20:25Z label L-48   replay's own Some("L-46")
+step 20 20:29Z label L-48   replay's own Some("L-45")
+followed over 29 min, 7 tables
+step 12 nearby: L-24 at 14.9 km, Some(62.87352) dBZ, track of 5
+replay's own IDs for the storm over the steps: {"L-48", "L-45", "L-47", "L-46"}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.23s
