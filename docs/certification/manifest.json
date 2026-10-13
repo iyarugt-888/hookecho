@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T02:29:05+00:00",
-  "generated_from_commit": "b6e3c1a1ac1094550a4c6f9bb7c21fe4a4f8e054",
+  "generated_utc": "2026-10-13T02:44:18+00:00",
+  "generated_from_commit": "003cd45624577a335425593a2a559ba41c3add7a",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -185,7 +185,7 @@
     {
       "card": "M5.1",
       "title": "Support independent link groups and source contexts",
-      "ledger_entries": 8,
+      "ledger_entries": 9,
       "latest_entry": "2026-10-12",
       "status_line": null,
       "evidence_dir": "docs/certification/m5.1"
@@ -1394,13 +1394,18 @@
     },
     {
       "path": "docs/certification/m5.1/README.md",
-      "sha256": "35e70daf7561e6fa823d61cc705b87e662bef79e21cc2f7c042cdf961d7e17a1",
-      "bytes": 4977
+      "sha256": "b439e93316be39950058be256a6fd3fb759aeff0be5e18be7d0c3f0259245ce5",
+      "bytes": 6916
     },
     {
       "path": "docs/certification/m5.1/goes-active-pane-archive-browser.jpg",
       "sha256": "4ccdf40838e32c8f91ffdeccbfa3d78f63a73cbeb542f901866c374595def01c",
       "bytes": 127900
+    },
+    {
+      "path": "docs/certification/m5.1/goes-meso-footprint-per-pane-browser.jpg",
+      "sha256": "6ca498533c7c069affdf69ad9144a390ce65edfe6ce929d3a2562f26a3dd9cc3",
+      "bytes": 82413
     },
     {
       "path": "docs/certification/m5.1/goes-other-pane-live-browser.jpg",
