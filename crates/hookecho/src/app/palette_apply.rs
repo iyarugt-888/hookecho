@@ -48,6 +48,12 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::SetModel(model) => {
+                // Picked from the command palette or a link: refused here with the reason the
+                // pickers show.
+                if let Some(why) = model.unreadable_here() {
+                    self.toast(ToastKind::Info, format!("{}: {why}", model.label()));
+                    return;
+                }
                 let next = self.views[self.active].models.model_sel.with_model(model);
                 self.commit_model_selection(next, true);
             }

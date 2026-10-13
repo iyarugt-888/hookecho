@@ -11,6 +11,43 @@ use chrono::{DateTime, Timelike, Utc};
 use wxdata::global::GlobalModel;
 use wxdata::hrrr::Model as Regional;
 
+/// Why a browser cannot read a regional model, if it cannot, on any build (see
+/// [`regional_unreadable_here`]). The RAP's `awp130` files are JPEG 2000 packed and the web
+/// build leaves that codec out. NOMADS (the HiresW, RRFS and HREF) sends no CORS headers and
+/// limits how often one address may ask, so it is not put behind the shared proxy (1010.md V12).
+pub fn regional_unreadable_in_browser(m: Regional) -> Option<&'static str> {
+    match m {
+        Regional::Rap => Some(JPEG_2000),
+        Regional::HireswArw
+        | Regional::HireswFv3
+        | Regional::Rrfs
+        | Regional::HrefPmm
+        | Regional::HrefMean
+        | Regional::HrefProb => Some(NOMADS),
+        _ => None,
+    }
+}
+
+/// [`regional_unreadable_in_browser`] for a global model: the GDPS's Datamart files are JPEG
+/// 2000 packed too.
+pub fn global_unreadable_in_browser(g: GlobalModel) -> Option<&'static str> {
+    (g == GlobalModel::Gdps).then_some(JPEG_2000)
+}
+
+const JPEG_2000: &str = "Desktop and Android only: the browser cannot decode its JPEG 2000 files";
+const NOMADS: &str = "Desktop and Android only: its server does not let a browser read it";
+
+/// Why this build cannot read the regional model, if it cannot: only the browser build has a
+/// reason.
+pub fn regional_unreadable_here(m: Regional) -> Option<&'static str> {
+    regional_unreadable_in_browser(m).filter(|_| cfg!(target_arch = "wasm32"))
+}
+
+/// [`regional_unreadable_here`] for a global model.
+pub fn global_unreadable_here(g: GlobalModel) -> Option<&'static str> {
+    global_unreadable_in_browser(g).filter(|_| cfg!(target_arch = "wasm32"))
+}
+
 /// A forecast source a person can pick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BModel {
@@ -545,6 +582,22 @@ impl BModel {
             _ => None,
         }
     }
+
+    /// Why a browser cannot read this model, on any build.
+    pub fn unreadable_in_browser(self) -> Option<&'static str> {
+        match self.engine() {
+            Engine::Regional(m) => regional_unreadable_in_browser(m),
+            Engine::Global(g) => global_unreadable_in_browser(g),
+            Engine::Sub15 | Engine::Analysis => None,
+        }
+    }
+
+    /// Why this build cannot read this model: the pickers grey it out with this reason, and
+    /// picking it some other way is refused with it.
+    pub fn unreadable_here(self) -> Option<&'static str> {
+        self.unreadable_in_browser()
+            .filter(|_| cfg!(target_arch = "wasm32"))
+    }
 }
 
 impl Product {
@@ -882,6 +935,32 @@ pub fn format_lead(minutes: u16) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The models a browser cannot read are the JPEG 2000 and NOMADS ones, and only those.
+    #[test]
+    fn the_browser_cannot_read_the_jpeg_2000_and_nomads_models() {
+        use super::BModel as B;
+        let unreadable: Vec<B> = B::ALL
+            .into_iter()
+            .filter(|m| m.unreadable_in_browser().is_some())
+            .collect();
+        assert_eq!(
+            unreadable,
+            vec![
+                B::Rap,
+                B::HireswArw,
+                B::HireswFv3,
+                B::Rrfs,
+                B::HrefPmm,
+                B::HrefMean,
+                B::Gdps
+            ]
+        );
+        assert!(B::Rap.unreadable_in_browser().unwrap().contains("JPEG 2000"));
+        assert!(B::Rrfs.unreadable_in_browser().unwrap().contains("server"));
+        #[cfg(not(target_arch = "wasm32"))]
+        assert!(B::ALL.iter().all(|m| m.unreadable_here().is_none()));
+    }
+
     #[test]
     fn model_timeline_positions_follow_all_models_and_run_specific_ranges() {
         use super::*;

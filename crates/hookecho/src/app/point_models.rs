@@ -105,22 +105,12 @@ impl PointModel {
         self != PointModel::Global(GlobalModel::Gdps)
     }
 
-    /// Why this build cannot read the model, if it cannot. The browser build leaves out the
-    /// JPEG 2000 codec, which the RAP's and the GDPS's files are packed with, and NOMADS (the
-    /// HiresW, RRFS and HREF) sends no CORS headers and limits how often one address may ask, so
-    /// it is not put behind the shared proxy.
+    /// Why this build cannot read the model, if it cannot: the reasons the map's model pickers
+    /// give (`model_browser::regional_unreadable_here`).
     pub(crate) fn unreadable_here(self) -> Option<&'static str> {
-        if !cfg!(target_arch = "wasm32") {
-            return None;
-        }
         match self {
-            PointModel::Regional(Regional::Rap) | PointModel::Global(GlobalModel::Gdps) => {
-                Some("desktop and Android only: the browser cannot decode its JPEG 2000 files")
-            }
-            PointModel::Regional(m) if from_nomads(m) => {
-                Some("desktop and Android only: its server does not let a browser read it")
-            }
-            _ => None,
+            PointModel::Regional(m) => crate::model_browser::regional_unreadable_here(m),
+            PointModel::Global(g) => crate::model_browser::global_unreadable_here(g),
         }
     }
 

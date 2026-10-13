@@ -41,6 +41,15 @@ impl Default for InventorySource {
 }
 
 impl InventorySource {
+    /// Why this build cannot read the source, if it cannot (the browser build; 1010.md V12).
+    pub(crate) fn unreadable_here(self) -> Option<&'static str> {
+        match (self, self.global()) {
+            (InventorySource::Regional(m), _) => crate::model_browser::regional_unreadable_here(m),
+            (_, Some(g)) => crate::model_browser::global_unreadable_here(g),
+            (_, None) => None,
+        }
+    }
+
     /// The global model, for a global source.
     pub(crate) fn global(self) -> Option<wxdata::global::GlobalModel> {
         match self {
@@ -516,6 +525,11 @@ impl HookEchoApp {
             return;
         }
         self.field_browser.key = Some(key);
+        if let Some(why) = source.unreadable_here() {
+            self.field_browser.state = Some(InventoryState::Failed(why.into()));
+            self.field_browser.rx = None;
+            return;
+        }
         self.field_browser.state = Some(InventoryState::Pending);
         let (tx, rx) = std::sync::mpsc::channel();
         self.field_browser.rx = Some(rx);
@@ -653,7 +667,17 @@ impl HookEchoApp {
                         .selected_text(model_label(b.model))
                         .show_ui(ui, |ui| {
                             for m in BROWSABLE {
-                                ui.selectable_value(&mut b.model, m, model_label(m));
+                                let why = m.unreadable_here();
+                                if ui
+                                    .add_enabled(
+                                        why.is_none(),
+                                        egui::Button::selectable(b.model == m, model_label(m)),
+                                    )
+                                    .on_disabled_hover_text(why.unwrap_or_default())
+                                    .clicked()
+                                {
+                                    b.model = m;
+                                }
                             }
                         });
                     ui.label(format!("F+{lead}h (the pane's lead)"));

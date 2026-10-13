@@ -571,9 +571,17 @@ impl HookEchoApp {
                                             .into_iter()
                                             .filter(|m| m.family() == family)
                                         {
+                                            let why = m.unreadable_here();
                                             if ui
-                                                .selectable_label(model_sel.model == m, m.label())
+                                                .add_enabled(
+                                                    why.is_none(),
+                                                    egui::Button::selectable(
+                                                        model_sel.model == m,
+                                                        m.label(),
+                                                    ),
+                                                )
                                                 .on_hover_text(m.blurb())
+                                                .on_disabled_hover_text(why.unwrap_or_default())
                                                 .clicked()
                                             {
                                                 actions.palette = Some(PaletteAction::SetModel(m));

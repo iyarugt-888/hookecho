@@ -37,6 +37,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: the browser version says which models it cannot show
+
+In the browser, the RAP, HiresW, RRFS, HREF and Canadian GDPS are now greyed out in the model
+menus, with the reason when you point at them, instead of failing to load. Their files either
+need a decoder the browser version leaves out or come from a server that does not let a browser
+read it. They still work in the desktop and Android apps.
+
 ### Added: tornado surveys on the map
 
 The tornado tool now shows the National Weather Service's damage surveys. Pick a day, or one of

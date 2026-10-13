@@ -79,8 +79,13 @@ fn forecast_rows(
             .width(105.0)
             .show_ui(ui, |ui| {
                 for model in BModel::ALL {
+                    let why = model.unreadable_here();
                     if ui
-                        .selectable_label(model == input.sel.model, model.label())
+                        .add_enabled(
+                            why.is_none(),
+                            egui::Button::selectable(model == input.sel.model, model.label()),
+                        )
+                        .on_disabled_hover_text(why.unwrap_or_default())
                         .clicked()
                     {
                         intent.action = Some(PaletteAction::SetModel(model));

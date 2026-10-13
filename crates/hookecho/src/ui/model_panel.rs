@@ -86,9 +86,14 @@ pub(crate) fn show(
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new(family.label()).small().weak());
             for m in BModel::ALL.into_iter().filter(|m| m.family() == family) {
+                let why = m.unreadable_here();
                 if ui
-                    .selectable_label(sel.model == m, m.label())
+                    .add_enabled(
+                        why.is_none(),
+                        egui::Button::selectable(sel.model == m, m.label()),
+                    )
                     .on_hover_text(m.blurb())
+                    .on_disabled_hover_text(why.unwrap_or_default())
                     .clicked()
                 {
                     actions.palette = Some(PaletteAction::SetModel(m));
@@ -185,7 +190,8 @@ pub(crate) fn show(
                 actions.palette = Some(PaletteAction::StepModelLead(-1));
             }
             let mut lead = *lead_min;
-            let response = crate::theme::slider(ui,
+            let response = crate::theme::slider(
+                ui,
                 egui::Slider::new(&mut lead, range.min..=range.max)
                     .step_by(f64::from(range.step))
                     .show_value(true)
