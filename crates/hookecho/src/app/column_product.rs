@@ -276,6 +276,36 @@ fn missing_levels_status(
     format!("{}; nothing is substituted", parts.join("; "))
 }
 
+/// A column height line (the samples of [`height_profile`], evenly spaced from `a` to `b`, km
+/// above the antenna) in the 3D map's frame: `(lon, lat, km MSL)`, one run per stretch with a
+/// value, broken where the column has none. The 3D cut shows it where the section panel does
+/// (roadmaps/radar-analysis R3).
+pub(crate) fn height_line_msl(
+    a: [f64; 2],
+    b: [f64; 2],
+    above_antenna_km: &[Option<f32>],
+    antenna_msl_km: f64,
+) -> Vec<Vec<(f64, f64, f64)>> {
+    let n = above_antenna_km.len();
+    let mut runs = vec![Vec::new()];
+    for (i, h) in above_antenna_km.iter().enumerate() {
+        match h {
+            Some(h) if n > 1 => {
+                let t = i as f64 / (n - 1) as f64;
+                runs.last_mut().unwrap().push((
+                    a[0] + (b[0] - a[0]) * t,
+                    a[1] + (b[1] - a[1]) * t,
+                    f64::from(*h) + antenna_msl_km,
+                ));
+            }
+            _ if runs.last().is_some_and(|r| !r.is_empty()) => runs.push(Vec::new()),
+            _ => {}
+        }
+    }
+    runs.retain(|r| !r.is_empty());
+    runs
+}
+
 /// Why the selected column product is not on the map, for the legend and the product window.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ColumnStatus {
@@ -786,6 +816,15 @@ impl HookEchoApp {
             .map(|s| &s.state)
     }
 
+    /// Pane `idx`'s radar antenna, km above sea level (ground plus tower), when its site is known.
+    pub(crate) fn antenna_msl_km(&self, idx: usize) -> Option<f64> {
+        self.views[idx]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0)
+    }
+
     /// Pane `idx`'s column product along the cross-section `line`, when its value is a height,
     /// with a caption naming it as a column reduction and the volume it came from.
     pub(crate) fn column_height_line(
@@ -795,11 +834,7 @@ impl HookEchoApp {
     ) -> Option<crate::ui::xsection_window::ColumnHeightLine> {
         let shown = self.column_shown(idx)?;
         let spec = self.column_spec(idx)?.ok()?;
-        let antenna_msl_km = self.views[idx]
-            .site
-            .as_deref()
-            .and_then(wxdata::sites::site_by_id)
-            .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0);
+        let antenna_msl_km = self.antenna_msl_km(idx);
         let above_antenna_km = height_profile(
             &shown.product,
             spec.expr.result_quantity(),
@@ -1137,6 +1172,22 @@ mod tests {
             }],
             ..Settings::default()
         }
+    }
+
+    /// In the 3D cut, the line stands on the cut's own ground, at the panel's heights put on sea
+    /// level by the antenna's altitude, broken where the column has no value.
+    #[test]
+    fn the_3d_cut_line_follows_the_cut_at_msl() {
+        let (a, b) = ([-97.0, 35.0], [-96.0, 36.0]);
+        let runs = height_line_msl(a, b, &[Some(2.0), Some(3.0), None, Some(4.0), None], 0.4);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0], [(-97.0, 35.0, 2.4), (-96.75, 35.25, 3.4)]);
+        assert_eq!(runs[1], [(-96.25, 35.75, 4.4)]);
+        assert!(height_line_msl(a, b, &[None, None], 0.4).is_empty());
+        assert!(
+            height_line_msl(a, b, &[Some(1.0)], 0.4).is_empty(),
+            "one sample has no line"
+        );
     }
 
     /// A level not yet here is a wait; a level the reading that came does not carry is said as

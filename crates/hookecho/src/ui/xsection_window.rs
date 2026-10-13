@@ -164,7 +164,7 @@ pub struct ColumnHeightLine {
 
 /// The colour a column product's height is drawn in: clear of the reflectivity palette's greens,
 /// yellows and reds, the beam-rise hues and the ground's brown.
-const COLUMN_LINE: egui::Color32 = egui::Color32::from_rgb(90, 230, 255);
+pub(crate) const COLUMN_LINE: egui::Color32 = egui::Color32::from_rgb(90, 230, 255);
 
 /// Where a column product's height is drawn on a panel `rect` whose top is `top_km` above the
 /// antenna: one run of points per stretch with a value, broken wherever the column has none or

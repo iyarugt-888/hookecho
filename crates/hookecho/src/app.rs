@@ -6567,6 +6567,9 @@ impl HookEchoApp {
         // strongest echo, the id and top, TVS red and meso yellow, and the past track on the ground.
         self.paint_3d_cell_columns(&painter, prect, cam, vp, idx);
 
+        // The cross-section's column-product height along the 3D cut (roadmaps/radar-analysis R3).
+        self.paint_3d_column_height(&painter, prect, cam, vp, idx);
+
         // Beam guides over the 3D map (ROADMAP_NEW H5): the geometry every observed gate sits on.
         self.paint_3d_beam_guides(&painter, prect, cam, vp, idx);
 

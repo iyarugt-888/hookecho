@@ -166,6 +166,53 @@ impl HookEchoApp {
         }
     }
 
+    /// The cross-section's column-product height (roadmaps/radar-analysis R3) along the 3D cut,
+    /// in the same colour and at the same heights as on the section panel, so the line read
+    /// there is found in the volume. Only with the 3D cut on, in the pane the section samples.
+    pub(crate) fn paint_3d_column_height(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+        idx: usize,
+    ) {
+        let source = self
+            .xsection_source
+            .as_ref()
+            .map_or(self.active, |s| s.pane);
+        if !self.xsection_cut_3d || !self.views[idx].map_3d.enabled || source != idx {
+            return;
+        }
+        let (Some(line), Some(antenna)) = (self.xsection_line(), self.antenna_msl_km(idx)) else {
+            return;
+        };
+        let Some(height) = self.column_height_line(idx, &line) else {
+            return;
+        };
+        let vex = self.views[idx].map_3d.vertical_exaggeration as f64;
+        let at = |p: (f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
+        let colour = crate::ui::xsection_window::COLUMN_LINE;
+        for run in
+            column_product::height_line_msl(line.a, line.b, &height.above_antenna_km, antenna)
+        {
+            let pts: Vec<egui::Pos2> = run
+                .iter()
+                .filter_map(|&(lon, lat, km)| {
+                    crate::render3d::lonlat_alt_screen(&cam, vp, lon, lat, km, vex).map(at)
+                })
+                .collect();
+            if pts.len() < 2 {
+                continue;
+            }
+            painter.add(egui::Shape::line(
+                pts.clone(),
+                egui::Stroke::new(3.5, egui::Color32::from_black_alpha(200)),
+            ));
+            painter.add(egui::Shape::line(pts, egui::Stroke::new(1.8, colour)));
+        }
+    }
+
     /// Storm cells as columns standing to their tops.
     pub(crate) fn paint_3d_cell_columns(
         &self,

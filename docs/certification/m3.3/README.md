@@ -222,3 +222,15 @@ pane's width).
 
 Not established: the retry after a busy answer actually landing in a run, the deployed worker,
 and the desktop and Android windows.
+
+## The column height in the 3D cut (2026-10-13, roadmaps/radar-analysis R3)
+
+With the section's "3D cut" on, the 3D view of the pane the section samples now draws the same
+column-product height along the cut, in the panel's cyan with a dark casing, broken where the
+column has no value (`pane_3d_overlays::paint_3d_column_height`). Its points are the panel's own
+samples, put on sea level by the antenna's altitude (`column_product::height_line_msl`, test
+`the_3d_cut_line_follows_the_cut_at_msl`). That is the smooth volume's own frame: its box runs from
+the antenna's altitude up by the volume's height, times the vertical exaggeration
+(`render3d::map_uniform`), and `render3d::lonlat_alt_screen` places an MSL height the same way.
+The metres-to-pixels scale is taken at the point's latitude rather than the radar's, under 1%
+across the box. Not seen in a run: the browser pane was hidden for this session's last runs.
