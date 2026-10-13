@@ -761,23 +761,13 @@ impl HookEchoApp {
     /// Built by folding [`wxdata::celltrack::associate`] over the timeline frames still in the
     /// decode cache, so it needs no extra downloads and silently produces nothing on a fresh boot
     /// with one volume in hand.
-    pub(crate) fn compute_local_tracks(&mut self) -> Vec<wxdata::celltrack::Track> {
-        // A bounded trailing window, not "everything from frame 0 to the playhead": association
-        // only ever looks at a track's *last* point and `fit_motion` only ever fits the last
-        // `FIT_POINTS` (6) of them, so frames older than this window contribute nothing to the
-        // answer — only cost. Recomputing the full history on every volume tick made this scale
-        // with how long the session (or the scrubbed-to archive day) had been running, freezing
-        // the UI thread for whole seconds once a live session or a deep timeline scrub had
-        // accumulated a few dozen volumes, and it never got cheaper again for the rest of the
-        // session. 16 volumes is over an hour at a typical VCP, comfortably more than
-        // `FIT_POINTS` needs.
-        const WINDOW_FRAMES: usize = 16;
-        let key = self.volume_key(self.active);
-        if let Some((k, v)) = &self.tracks_cache {
-            if *k == key {
-                return v.clone();
-            }
-        }
+    /// The reflectivity cells of up to `window` decoded frames ending at the active pane's
+    /// playhead, oldest first: what local cell tracks and an archive's storm cells are built from.
+    /// A frame not in the decode cache is skipped, so this downloads nothing.
+    fn local_cell_frames(
+        &mut self,
+        window: usize,
+    ) -> Vec<(chrono::DateTime<chrono::Utc>, Vec<wxdata::celltrack::Blob>)> {
         let playhead = self.views[self.active].timeline.playhead;
         let frames: Vec<_> = self.views[self.active]
             .timeline
@@ -785,14 +775,14 @@ impl HookEchoApp {
             .iter()
             .take(playhead + 1)
             .rev()
-            .take(WINDOW_FRAMES)
+            .take(window)
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
             .filter_map(|id| id.date_time().map(|t| (id.name().to_string(), t)))
             .filter(|(name, _)| self.scan_cache.contains(name))
             .collect();
-        let mut tracks: Vec<wxdata::celltrack::Track> = Vec::new();
+        let mut out = Vec::new();
         for (name, at) in frames {
             let cells = match self.celltrack_cache.get(&name) {
                 Some(c) => c.clone(),
@@ -812,6 +802,59 @@ impl HookEchoApp {
                     cells
                 }
             };
+            out.push((at, cells));
+        }
+        out
+    }
+
+    /// Keep the archive's storm cells current for the active pane's volume: rebuilt from the
+    /// trailing window whenever the volume changes, so the storm list, follow and compare work
+    /// on a scrubbed-to time, and a replay or a backward scrub gives the same IDs. Cleared live.
+    pub(crate) fn sync_archive_cells(&mut self) {
+        /// Over an hour of volumes: enough for a storm's identity and motion to settle.
+        const WINDOW_FRAMES: usize = 16;
+        if self.archive_bucket().is_none() {
+            self.archive_cells = None;
+            return;
+        }
+        let key = self.volume_key(self.active);
+        if self.archive_cells.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let site = self.views[self.active].site.clone().unwrap_or_default();
+        let frames = self.local_cell_frames(WINDOW_FRAMES);
+        let mut cells = wxdata::celltrack::replay(&frames, &site);
+        // Where each is from the radar, as SCIT's table gives it.
+        if let Some(radar) = wxdata::sites::site_by_id(&site) {
+            let at = [f64::from(radar.longitude), f64::from(radar.latitude)];
+            for c in &mut cells {
+                let (km, bearing) = crate::geo::great_circle(at, [c.lon, c.lat]);
+                c.range_nm = Some((km / 1.852) as f32);
+                c.az_deg = Some(bearing as f32);
+            }
+        }
+        self.archive_cells = Some((key, cells));
+    }
+
+    pub(crate) fn compute_local_tracks(&mut self) -> Vec<wxdata::celltrack::Track> {
+        // A bounded trailing window, not "everything from frame 0 to the playhead": association
+        // only ever looks at a track's *last* point and `fit_motion` only ever fits the last
+        // `FIT_POINTS` (6) of them, so frames older than this window contribute nothing to the
+        // answer — only cost. Recomputing the full history on every volume tick made this scale
+        // with how long the session (or the scrubbed-to archive day) had been running, freezing
+        // the UI thread for whole seconds once a live session or a deep timeline scrub had
+        // accumulated a few dozen volumes, and it never got cheaper again for the rest of the
+        // session. 16 volumes is over an hour at a typical VCP, comfortably more than
+        // `FIT_POINTS` needs.
+        const WINDOW_FRAMES: usize = 16;
+        let key = self.volume_key(self.active);
+        if let Some((k, v)) = &self.tracks_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        let mut tracks: Vec<wxdata::celltrack::Track> = Vec::new();
+        for (at, cells) in self.local_cell_frames(WINDOW_FRAMES) {
             tracks = wxdata::celltrack::associate(&tracks, &cells, at, 30.0);
         }
         // A track whose last point is older than the newest frame stopped being seen; drop it

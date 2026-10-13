@@ -108,6 +108,9 @@ fn paint_row_marks(p: &egui::Painter, r: Rect, flags: &str, lineage: Option<&str
 #[derive(Debug, Default)]
 pub(crate) struct StormIdentity {
     site: Option<String>,
+    /// Whether the table fed is an archive's locally tracked cells rather than SCIT's: a switch
+    /// between the two starts a new history, so neither's IDs are taken for the other's.
+    local: bool,
     fed: Option<i64>,
     history: wxdata::storm_history::StormHistory,
     /// The storm of each SCIT cell in the table last fed, by cell ID, and where it was.
@@ -159,16 +162,26 @@ fn features_hash(features: &[&[wxdata::overlay::GeoFeature]]) -> u64 {
 }
 
 impl StormIdentity {
-    /// Feed the current SCIT table, once per scan time. Another radar starts a new history; no
-    /// cells (an archive, where SCIT is not kept) feed nothing.
+    /// Feed the current storm table, once per scan time: SCIT's, or an archive's cells tracked
+    /// from its reflectivity (stable "L" IDs from `celltrack::replay`). Another radar starts a
+    /// new history; no cells feed nothing.
     pub(crate) fn feed(&mut self, site: Option<&str>, cells: &[wxdata::level3::Cell]) {
         use wxdata::storm_history::{ObservationRef, Source};
-        if self.site.as_deref() != site {
+        let local = cells
+            .iter()
+            .any(|c| wxdata::celltrack::is_local_id(&c.id));
+        if self.site.as_deref() != site || (self.local != local && !cells.is_empty()) {
             *self = StormIdentity {
                 site: site.map(str::to_string),
+                local,
                 ..Default::default()
             };
         }
+        let source = if local {
+            Source::LocalCell
+        } else {
+            Source::Scit
+        };
         let storms: Vec<&wxdata::level3::Cell> =
             cells.iter().filter(|c| !c.id.is_empty()).collect();
         let Some(time) = storms.iter().find_map(|c| c.time).map(|t| t.timestamp()) else {
@@ -182,7 +195,7 @@ impl StormIdentity {
         let observations: Vec<ObservationRef> = storms
             .iter()
             .map(|c| ObservationRef {
-                source: Source::Scit,
+                source: source.clone(),
                 site: site.clone(),
                 provider_id: Some(c.id.clone()),
                 time,
@@ -845,7 +858,8 @@ impl HookEchoApp {
                         ui.add_space(12.0);
                         ui.label(ws::text(
                             if archive {
-                                "Storm cells are live only: SCIT is not archived."
+                                "No storm cells tracked here: SCIT is not archived, so an archive's \
+                                 cells come from its own reflectivity, and none reached 45 dBZ."
                             } else {
                                 "No storm cells from this radar right now."
                             },
@@ -1301,6 +1315,18 @@ mod tests {
         assert_eq!(ids.storm_of("K3").unwrap().observations.len(), 3);
         ids.feed(Some("KOUN"), &[at("A1", -97.4, 15)]);
         assert!(ids.storm_of("K3").is_none());
+        // An archive's locally tracked cells at the same radar start their own history, recorded
+        // as local cells, and SCIT's table coming back starts another: neither's IDs carry over.
+        ids.feed(Some("KOUN"), &[at("L-1", -97.4, 20)]);
+        assert!(ids.storm_of("A1").is_none());
+        let local = ids.storm_of("L-1").expect("a local cell is tracked");
+        assert_eq!(
+            local.observations[0].source,
+            wxdata::storm_history::Source::LocalCell
+        );
+        ids.feed(Some("KOUN"), &[at("A1", -97.4, 25)]);
+        assert!(ids.storm_of("L-1").is_none());
+        assert_eq!(ids.storm_of("A1").unwrap().observations.len(), 1);
     }
 
     #[test]

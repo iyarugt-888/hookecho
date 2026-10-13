@@ -308,6 +308,7 @@ impl HookEchoApp {
             rot_shown_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             celltrack_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tracks_cache: None,
+            archive_cells: None,
             tds_tracks_cache: None,
             rot_tracks_cache: None,
             show_local_tracks: false,

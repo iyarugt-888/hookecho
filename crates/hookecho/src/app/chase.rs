@@ -209,7 +209,7 @@ impl HookEchoApp {
         // Prefer the cell the camera is following, else the nearest tracked cell within 300 km.
         let cell = match &self.follow_cell {
             Some((_, c, _)) => Some(c.clone()),
-            None => nearest_cell(self.active_storm_cells(), lon, lat, 300.0).cloned(),
+            None => nearest_cell(self.live_storm_cells(), lon, lat, 300.0).cloned(),
         };
         let Some(c) = cell else { return };
         let (km, bearing) = crate::geo::great_circle(me, [c.lon, c.lat]);

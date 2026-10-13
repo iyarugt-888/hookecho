@@ -37,6 +37,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: storm cells when you scrub back in time
+
+The radar's own storm-cell table is not kept in the archive, so the storm list was empty for any
+past time. Now an archive's storms are tracked from that day's radar images: each gets a steady
+ID ("L-3"), a direction and speed from its own track, and its distance from the radar, so the
+storm list, the cell card, follow and compare work when you scrub back. Your chase target, the
+danger meter and route warnings still use only live storms.
+
 ### Improved: clicking in the 3D view picks the echo you see
 
 In the 3D view, a click (the gate inspector, the 3D ruler) now goes to the first tilt along the

@@ -1318,6 +1318,9 @@ pub struct HookEchoApp {
     celltrack_cache: LruCache<String, Vec<wxdata::celltrack::Blob>>,
     /// The tracks themselves, with the frame list they were built from.
     tracks_cache: Option<((usize, String, usize), Vec<wxdata::celltrack::Track>)>,
+    /// An archive's storm cells, tracked from its own reflectivity since SCIT is not archived
+    /// (`wxdata::celltrack::replay`; roadmaps/storm-analysis S1), for the active pane's volume.
+    archive_cells: Option<((usize, String, usize), Vec<Cell>)>,
     /// Confidence-over-time for the active pane's debris/rotation detections (C5's "timeline of
     /// score changes"), rebuilt from `tds_shown_cache`/`rot_shown_cache` the same bounded-window
     /// way `tracks_cache` is. See `compute_tds_score_track`/`compute_rot_score_track`.
@@ -4244,7 +4247,18 @@ impl HookEchoApp {
     /// [`Self::sync_archive_lsr`]); Level 3 SCIT does not — the products are only published for the
     /// last couple of days. Leaving the live set on screen drew this afternoon's cells, tracks and
     /// arrival cones over a storm from 2011.
+    /// The storm cells for what the active pane shows: SCIT's live table, or in an archive the
+    /// cells tracked from that time's own reflectivity.
     fn active_storm_cells(&self) -> &[Cell] {
+        if self.archive_bucket().is_some() {
+            return self.archive_cells.as_ref().map_or(&[], |(_, c)| c.as_slice());
+        }
+        &self.storm_cells
+    }
+
+    /// SCIT's live cells only, empty while scrubbed: for what is about you now (the chase target,
+    /// the danger meter, storms heading for your route), which an archive's storms must not feed.
+    fn live_storm_cells(&self) -> &[Cell] {
         if self.archive_bucket().is_some() {
             return &[];
         }
@@ -8291,6 +8305,7 @@ impl HookEchoApp {
         // Time-machine warnings + storm reports: swap in archived sets while scrubbed.
         self.sync_archive_warnings(ctx);
         self.sync_archive_lsr(ctx);
+        self.sync_archive_cells();
         // Every feed and layer whose cadence or view says it is due (`app/fetch_schedule.rs`).
         self.schedule_fetches(ctx);
         // Bindings are polled once, globally: a hotkey works the same in OBS mode, on mobile, and

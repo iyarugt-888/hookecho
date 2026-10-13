@@ -167,7 +167,7 @@ impl HookEchoApp {
             self.route_window.generation,
             self.overlay_gen,
             (along.unwrap_or(0.0) / 100.0) as i64,
-            self.active_storm_cells().len(),
+            self.live_storm_cells().len(),
             // Lightning and the fields refresh by the minute.
             Utc::now().timestamp() / 60,
             (
@@ -298,7 +298,7 @@ impl HookEchoApp {
             let mut storms: Vec<(f64, String)> = Vec::new();
             if let Some(r) = route.as_ref() {
                 let from = along.unwrap_or(0.0);
-                for c in self.active_storm_cells() {
+                for c in self.live_storm_cells() {
                     let (Some(deg), Some(kt)) = (c.mvt_deg, c.mvt_kt) else {
                         continue;
                     };

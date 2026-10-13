@@ -262,10 +262,145 @@ fn fit_motion(points: &[(f64, f64, chrono::DateTime<chrono::Utc>)]) -> (f64, f64
     )
 }
 
+/// A locally tracked cell's ID: "L-3". SCIT's IDs are a letter and a digit ("L3"), so the hyphen
+/// keeps the two from ever being the same string.
+pub fn local_id(n: u64) -> String {
+    format!("L-{n}")
+}
+
+/// Whether a storm-cell row's ID is a locally tracked cell's ([`local_id`]).
+pub fn is_local_id(id: &str) -> bool {
+    id.strip_prefix("L-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// An archive's storm cells from its own reflectivity (roadmaps/storm-analysis S1): SCIT is not
+/// archived, so a scrubbed-to time has no storm table. `frames` (oldest first: each volume's time
+/// and its cells, [`find_cells`]) are folded through a fresh [`crate::storm_history::StormHistory`]
+/// as [`crate::storm_history::Source::LocalCell`] observations, and the last frame's cells come
+/// back as storm-cell rows: the history's stable ID ("L-3"), the motion fitted over each one's own
+/// track, its past positions and its strongest gate. Rebuilt from the same window, a replay (and
+/// a backward scrub, which restarts the history) gives the same IDs every time; local cells carry
+/// no provider ID, so none is recycled.
+pub fn replay(
+    frames: &[(chrono::DateTime<chrono::Utc>, Vec<Blob>)],
+    site: &str,
+) -> Vec<crate::level3::Cell> {
+    use crate::storm_history::{AssociationParams, ObservationRef, Source, StormHistory};
+    let mut history = StormHistory::new(AssociationParams::default());
+    let mut last = None;
+    for (time, blobs) in frames {
+        let observations: Vec<ObservationRef> = blobs
+            .iter()
+            .map(|b| ObservationRef {
+                source: Source::LocalCell,
+                site: site.to_string(),
+                provider_id: None,
+                time: time.timestamp(),
+                lon: b.lon,
+                lat: b.lat,
+                provider_motion_ms: None,
+            })
+            .collect();
+        let report = history.update(time.timestamp(), &observations);
+        last = Some((*time, blobs, report.storms));
+    }
+    let Some((time, blobs, ids)) = last else {
+        return Vec::new();
+    };
+    blobs
+        .iter()
+        .zip(ids)
+        .map(|(b, id)| {
+            let points: Vec<(f64, f64, chrono::DateTime<chrono::Utc>)> = history
+                .storm(id)
+                .map(|s| {
+                    s.observations
+                        .iter()
+                        .filter_map(|o| {
+                            chrono::DateTime::from_timestamp(o.time, 0).map(|t| (o.lon, o.lat, t))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (dir, kt) = fit_motion(&points);
+            let moving = points.len() >= 2;
+            let label = local_id(id.0);
+            crate::level3::Cell {
+                time: Some(time),
+                kind: crate::level3::CellKind::Storm,
+                lon: b.lon,
+                lat: b.lat,
+                id: label.clone(),
+                title: label,
+                mvt_deg: moving.then_some(dir as f32),
+                mvt_kt: moving.then_some(kt as f32),
+                max_dbz: Some(b.dbz_max),
+                past_track: points.iter().map(|p| (p.0, p.1)).collect(),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::level2::Moment;
+
+    fn at(min: i64) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(1_369_076_400 + min * 60, 0).unwrap()
+    }
+
+    fn cell(lon: f64, lat: f64) -> Blob {
+        Blob {
+            lon,
+            lat,
+            dbz_max: 60.0,
+            area_km2: 40.0,
+        }
+    }
+
+    /// Two storms moving east over four volumes keep their IDs, get a motion and a past track;
+    /// replaying the same window, or a shorter one after a backward scrub, gives the same IDs.
+    #[test]
+    fn an_archive_replay_keeps_stable_ids_and_a_motion() {
+        let frames: Vec<_> = (0..4)
+            .map(|k| {
+                let dx = 0.03 * k as f64;
+                (
+                    at(5 * k),
+                    vec![cell(-97.6 + dx, 35.3), cell(-97.0 + dx, 35.9)],
+                )
+            })
+            .collect();
+        let cells = replay(&frames, "KTLX");
+        assert_eq!(cells.len(), 2);
+        let ids: Vec<&str> = cells.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["L-1", "L-2"]);
+        assert!(ids.iter().all(|id| is_local_id(id)));
+        assert!(!is_local_id("L3"), "a SCIT ID is not a local one");
+        for c in &cells {
+            assert_eq!(c.past_track.len(), 4, "{c:?}");
+            let dir = c.mvt_deg.unwrap();
+            assert!((80.0..100.0).contains(&dir), "heading east: {dir}");
+            assert!(c.mvt_kt.unwrap() > 10.0);
+            assert_eq!(c.time, Some(at(15)));
+        }
+        assert_eq!(
+            replay(&frames, "KTLX")
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>(),
+            ids,
+            "the same window replays to the same IDs"
+        );
+        let back = replay(&frames[..2], "KTLX");
+        assert_eq!(back.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ids);
+        assert!(replay(&[], "KTLX").is_empty());
+        let lone = replay(&frames[..1], "KTLX");
+        assert_eq!(lone[0].mvt_deg, None, "no motion from one volume");
+    }
 
     /// A sweep with one square-ish patch of strong echo, everything else empty.
     fn sweep_with_cell(az_center: usize, gate_center: usize) -> BinnedSweep {

@@ -107,7 +107,7 @@ impl HookEchoApp {
             });
         let watches = yall::watches_at(&self.watch_features, alerts, lon, lat);
         let outlooks = [0, 1, 2].map(|d| yall::outlook_at(&self.yall.outlooks[d], lon, lat));
-        let tracks = yall::tracks_toward(self.active_storm_cells(), spot);
+        let tracks = yall::tracks_toward(self.live_storm_cells(), spot);
         let meter = yall::meter(&here, &watches, outlooks[0], &tracks);
         Some(YallReading {
             spot,
