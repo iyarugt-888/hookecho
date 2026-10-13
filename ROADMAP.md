@@ -45,9 +45,11 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   exercised — see the changelog. RRFS v1.0 and HREF's probability-matched
   mean are in too (`hrrr::Model`), both from NOMADS, since neither has an
   operational AWS bucket (RRFS's holds only retrospective runs, and
-  `noaa-href-pds` does not exist). Still open: HREF's neighbourhood
-  probabilities (1010.md V10), and the browser build, which cannot reach
-  NOMADS without a proxy. ICON (DWD) is the one model here with a real open
+  `noaa-href-pds` does not exist). HREF's neighbourhood probabilities are in
+  as their own model, `hrrr::Model::HrefProb`, browsed through the file
+  inventory (1010.md V10, 2026-10-12). The browser build cannot reach NOMADS
+  without a proxy, and leaves out the JPEG 2000 codec the RAP and GDPS need,
+  so it labels those models desktop and Android only (1010.md V12). ICON (DWD) is the one model here with a real open
   question rather than just unconfirmed logistics: its native grid is icosahedral (triangular cells over the
   sphere), not the regular lat/lon or Lambert grids every model this app
   reads decodes today, so `gribberish` support for that grid definition
