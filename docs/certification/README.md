@@ -1,5 +1,7 @@
 # Certification evidence (ROADMAP_PARITY M7.3, 1008.md H4)
 
+Current priorities and continuous validation tracks: [roadmaps](../../roadmaps/README.md).
+
 **Not a release certification.** This index gathers the evidence reviewed so far. Release
 readiness is **not claimed**, for these reasons:
 
@@ -10,8 +12,8 @@ readiness is **not claimed**, for these reasons:
 - Several workflows are shown by unit tests and offscreen captures only, not interactive walkthroughs.
 
 [manifest.json](manifest.json) (schema 1) lists every tracked evidence file under
-this folder with its SHA-256 and size. It was generated at 2026-10-12T22:30:51+00:00 from commit
-`179588041d2c` on `feat/wsv3-redesign`. Measurement host, unless a file says
+this folder with its SHA-256 and size. It was generated at 2026-10-13T00:56:23+00:00 from commit
+`a59ae63488bb` on `feat/wsv3-redesign`. Measurement host, unless a file says
 otherwise: Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan). Bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF.
 
 Regenerate it after adding evidence:
@@ -52,7 +54,7 @@ ledger records a physical-device run.
 | M4.4 | Restore and exchange GIS scenes reliably | D3 | 9 | 2026-10-09 | [m4.4/](m4.4/) |
 | M5.1 | Support independent link groups and source contexts | E1 | 8 | 2026-10-12 | [m5.1/](m5.1/) |
 | M5.2 | Add satellite-native one-minute playback | E2 | 7 | 2026-10-12 | [m5.2/](m5.2/) |
-| M5.3 | Broaden field inspection within supported models | E3 | 18 | 2026-10-11 | [m5.3/](m5.3/) |
+| M5.3 | Broaden field inspection within supported models | E3 | 19 | 2026-10-12 | [m5.3/](m5.3/) |
 | M5.4 | Unify rendering quality, labels, and transitions | E2, E4 | 10 | 2026-10-12 | [m5.4/](m5.4/) |
 | M6.1 | Separate preview from program output | — | 2 | 2026-10-06 | — |
 | M6.2 | Persist complete, validated scenes | F1 | 5 | 2026-10-10 | [m6.2/](m6.2/) |
