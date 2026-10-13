@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T02:44:18+00:00",
-  "generated_from_commit": "003cd45624577a335425593a2a559ba41c3add7a",
+  "generated_utc": "2026-10-13T03:29:25+00:00",
+  "generated_from_commit": "6b789fceb855ea84c55d09c087557cb421ee8d73",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1309,8 +1309,8 @@
     },
     {
       "path": "docs/certification/m3.6/README.md",
-      "sha256": "a9d91ddedc18b970a472c766c2143fb08b787b0c46ab4cc3f44a81261458be0b",
-      "bytes": 9442
+      "sha256": "3deda3e47d5759e46bb128dc34d85864bc83d5a98956e4356679c1022a651148",
+      "bytes": 10799
     },
     {
       "path": "docs/certification/m3.6/drawn-region-box.jpg",
@@ -1361,6 +1361,11 @@
       "path": "docs/certification/m3.6/ruler-3d.jpg",
       "sha256": "de0da85d6641add8851c9abc73f6ff2b24bd743be68c3bae4d72ee9c5dc531ca",
       "bytes": 142267
+    },
+    {
+      "path": "docs/certification/m3.6/ruler-end-dragged-browser.jpg",
+      "sha256": "cd5446a254e05f785d5c0d20f6d7bec3a4596a26e6000ed8052a5485673fe87f",
+      "bytes": 87144
     },
     {
       "path": "docs/certification/m4.2/README.md",
