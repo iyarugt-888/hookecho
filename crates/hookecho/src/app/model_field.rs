@@ -20,14 +20,16 @@ pub(crate) enum InventorySource {
 }
 
 /// The models whose inventories can be browsed: every regional model the app reads, the HRRR's
-/// pressure-level file for its mandatory levels, the GFS and the ECMWF IFS.
-pub(crate) const BROWSABLE: [InventorySource; 8] = [
+/// pressure-level file for its mandatory levels, the HREF's probabilities, the GFS and the ECMWF
+/// IFS.
+pub(crate) const BROWSABLE: [InventorySource; 9] = [
     InventorySource::Regional(Regional::Hrrr),
     InventorySource::Regional(Regional::HrrrPressure),
     InventorySource::Regional(Regional::Rap),
     InventorySource::Regional(Regional::NamNest),
     InventorySource::Regional(Regional::Nam),
     InventorySource::Regional(Regional::Nbm),
+    InventorySource::Regional(Regional::HrefProb),
     InventorySource::Gfs,
     InventorySource::Ecmwf,
 ];
@@ -69,6 +71,13 @@ impl InventorySource {
     /// lead the model publishes a file for.
     pub(crate) fn lead(self, models: &crate::model_pane::ModelControls) -> u16 {
         match (self, self.global()) {
+            // The NBM and the HREF post no analysis file: their first lead is 1.
+            (
+                InventorySource::Regional(
+                    Regional::Nbm | Regional::HrefPmm | Regional::HrefMean | Regional::HrefProb,
+                ),
+                _,
+            ) => u16::from(models.hrrr_fcst_hour).max(1),
             (InventorySource::Regional(_), _) => u16::from(models.hrrr_fcst_hour),
             (_, Some(g)) => g.inventory_lead(models.global_fcst_hour),
             (_, None) => unreachable!("a non-regional source is global"),
@@ -157,7 +166,7 @@ impl FieldPick {
         match wxdata::model_inventory::vetted(self.var) {
             Some(q) => format!(
                 "{} \u{b7} {level} \u{b7} {} ({})",
-                q.name,
+                wxdata::model_inventory::name(self.var),
                 self.kind.label(),
                 q.unit
             ),
@@ -171,6 +180,11 @@ impl FieldPick {
             return "kt";
         }
         wxdata::model_inventory::vetted(self.var).map_or("", |q| q.unit)
+    }
+
+    /// A probability past a threshold (the HREF's probability file), coloured over 0–100 %.
+    pub(crate) fn is_probability(self) -> bool {
+        wxdata::model_inventory::probability(self.var).is_some()
     }
 
     /// The stamp's product id: what was asked for, exactly. A difference names the model it
@@ -292,6 +306,35 @@ pub(crate) fn difference_table(m: f32) -> crate::colormap::ColorTable {
 pub(crate) fn model_difference_upload(f: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
     let m = difference_range(f).unwrap_or(1.0);
     super::column_product::column_upload(f, &difference_table(m), (-m, m))
+}
+
+/// Probabilities on one fixed scale, so 40 % is the same colour in every run and lead: greens to
+/// 30 %, yellow and orange to 70 %, reds and magenta above.
+pub(crate) fn probability_table() -> crate::colormap::ColorTable {
+    crate::colormap::parse_pal(
+        "Color: 5 120 200 120\nColor: 10 60 170 80\nColor: 30 230 220 60\nColor: 50 245 150 40\nColor: 70 220 40 40\nColor: 90 200 60 200\nColor: 100 240 170 240\n",
+    )
+    .expect("a fixed table parses")
+}
+
+/// Below this a probability is not drawn: a few percent over most of the country is noise that
+/// would tint the whole map.
+pub(crate) const PROBABILITY_FLOOR: f32 = 5.0;
+
+/// The GPU upload for a probability: [`probability_table`] over 0–100 %, under
+/// [`PROBABILITY_FLOOR`] transparent.
+pub(crate) fn probability_upload(f: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
+    super::field_index_upload(
+        f,
+        |v| {
+            if v.is_finite() && v >= PROBABILITY_FLOOR {
+                (2.0 + (v / 100.0).clamp(0.0, 1.0) * 253.0).round() as u8
+            } else {
+                0
+            }
+        },
+        crate::colormap::bake_lut(&probability_table(), (0.0, 100.0), None).to_vec(),
+    )
 }
 
 /// The GPU upload: a ramp over the field's own range, values outside clamped to its ends.
@@ -833,6 +876,28 @@ impl HookEchoApp {
                 y,
             );
         }
+        if pick.is_probability() {
+            let note = state.and_then(|s| s.stamp.as_ref()).map(|s| {
+                format!(
+                    "{} run {} \u{b7} valid {} UTC \u{b7} under {PROBABILITY_FLOOR:.0} % not drawn",
+                    model_label(pick.model),
+                    s.run_time
+                        .map_or_else(|| "?".into(), |r| r.format("%HZ").to_string()),
+                    s.valid_time.format("%m-%d %H:%M")
+                )
+            });
+            let title = pick.label();
+            return crate::ui::legend::draw_table_card(
+                painter,
+                prect,
+                title.split(" (").next().unwrap_or(&title),
+                "%",
+                &probability_table(),
+                (0.0, 100.0),
+                note.as_deref(),
+                y,
+            );
+        }
         let Some(range) = state.and_then(|s| s.grid.as_ref()).and_then(field_range) else {
             return crate::ui::legend::draw_status_card(
                 painter,
@@ -1327,6 +1392,113 @@ mod tests {
         assert_eq!(InventorySource::Ecmwf.lead(&models), 6);
         assert_eq!(InventorySource::Gfs.lead(&models), 7);
         assert_eq!(InventorySource::Ecmwf.source_id(), "ECMWF");
+    }
+
+    /// A probability is drawn on the fixed 0–100 % scale, with the noise under the floor left
+    /// transparent, and named for what it is a probability of.
+    #[test]
+    fn a_probability_is_coloured_over_zero_to_a_hundred() {
+        let pick = SavedFieldPick {
+            model: InventorySource::Regional(Regional::HrefProb),
+            var: "REFC prob >40 nbhd".into(),
+            level: "entire atmosphere (considered as a single layer)".into(),
+            kind: TimingKind::Instant,
+            vector: false,
+            minus: None,
+        }
+        .pick();
+        assert!(pick.is_probability());
+        assert_eq!(pick.unit(), "%");
+        assert!(
+            pick.label()
+                .starts_with("Probability: Composite reflectivity > 40 dBZ, neighbourhood"),
+            "{}",
+            pick.label()
+        );
+        let f = grid(vec![0.0, 4.9, 5.0, 50.0, 100.0, f32::NEG_INFINITY]);
+        // Builds without panicking over the floor, the scale's ends and a missing cell.
+        probability_upload(&f);
+        let t = probability_table();
+        assert_eq!(t.stops.first().map(|s| s.value), Some(5.0));
+        assert_eq!(t.stops.last().map(|s| s.value), Some(100.0));
+    }
+
+    /// The newest HREF run's 40 dBZ neighbourhood probability at F+6, read through the inventory
+    /// and coloured with the probabilities' own table, floor and index mapping, written to
+    /// `target/parity-review/v10/href-prob-refc40-live.png` for review.
+    /// `cargo test -p hookecho --lib href_probability_render_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network (NOMADS): writes a render for review"]
+    async fn href_probability_render_live() {
+        let http = reqwest::Client::new();
+        let (var, level) = (
+            "REFC prob >40 nbhd",
+            "entire atmosphere (considered as a single layer)",
+        );
+        let got = wxdata::hrrr::fetch_inventory_field(
+            &http,
+            Regional::HrefProb,
+            None,
+            6,
+            var,
+            level,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let f = &got.field;
+        let lut = crate::colormap::bake_lut(&probability_table(), (0.0, 100.0), None);
+        let mut rgba = Vec::with_capacity(f.nx * f.ny * 4);
+        for &v in &f.values {
+            let i = if v.is_finite() && v >= PROBABILITY_FLOOR {
+                (2.0 + (v / 100.0).clamp(0.0, 1.0) * 253.0).round() as usize
+            } else {
+                0
+            };
+            let c = &lut[i * 4..i * 4 + 4];
+            if c[3] == 0 {
+                rgba.extend_from_slice(if v.is_finite() {
+                    &[34, 36, 44, 255]
+                } else {
+                    &[12, 12, 16, 255]
+                });
+            } else {
+                rgba.extend_from_slice(&[c[0], c[1], c[2], 255]);
+            }
+        }
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity-review/v10");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("href-prob-refc40-live.png");
+        image::save_buffer(
+            &out,
+            &rgba,
+            f.nx as u32,
+            f.ny as u32,
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+        let drawn = f
+            .values
+            .iter()
+            .filter(|v| v.is_finite() && **v >= PROBABILITY_FLOOR)
+            .count();
+        let max = f
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(0.0f32, f32::max);
+        println!(
+            "{} run {} valid {}: {}x{}, {drawn} cells drawn (>= {PROBABILITY_FLOOR} %), max {max:.1} % -> {}",
+            wxdata::model_inventory::name(var),
+            got.run,
+            got.valid(),
+            f.nx,
+            f.ny,
+            out.display()
+        );
+        assert!(drawn > 0, "something to draw on a day with storms");
     }
 
     #[test]

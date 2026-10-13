@@ -35,6 +35,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: HREF neighbourhood probabilities
+
+Model fields now opens the HREF ensemble's probabilities: the chance of reflectivity over
+40 dBZ, of rotating updrafts, of heavy rain, strong wind, lightning, freezing temperatures and
+more, near each point. Each threshold is its own field, named in plain units ("Probability:
+Composite reflectivity > 40 dBZ, neighbourhood"), and drawn on one fixed 0 to 100 % scale so
+the colours mean the same thing every run. Desktop and Android; the HREF's server does not let
+the browser version read it.
+
 ### Added: every model at your point, for any product
 
 The forecast window's model graph now compares up to six models on one chart: the HRRR, RAP,

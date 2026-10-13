@@ -165,3 +165,49 @@ near Oklahoma City is below the ground, and its card read SBCIN -7370 J/kg.
 `b427566cf19387518049ee908315aaa2b273bce78f37a2a1f5faad44df1ea2c2`): the same review render after
 both fixes. The profile starts at 968 hPa, the cards read SBCIN, LFC and EL "—", and the GEFS
 envelope is cut at the new ground. GEFS 18Z f015 had posted by then.
+
+## HREF neighbourhood probabilities (2026-10-12, 1010.md V10)
+
+The HREF's ensemble probabilities are their own model, `Model::HrefProb`, read from NOMADS
+`href/prod/…/ensprod/href.tHHz.conus.prob.fNN.grib2` (00/06/12/18Z, F+01 to F+48, grid 227 like
+the PMM and mean). Every message of that file is a probability past a threshold under the
+quantity's own abbreviation and level (`REFC:entire atmosphere (considered as a single layer):6
+hour fcst:prob >40:prob fcst 0/10:Neighborhood Probability`), so:
+
+- **The idx line's threshold is part of the field.** `model_inventory::parse_idx` names a
+  probability message by the abbreviation, the line's `prob …` field and ` nbhd` for a
+  neighbourhood probability (`REFC prob >40 nbhd`). Each threshold is its own field, found by
+  that name at every lead, and saved with a pick like any other.
+- **A probability field kind.** Any such message is the vetted quantity `PROBABILITY`, in
+  percent, contoured every 10 %. It is named for what it is a probability of, with the threshold
+  in display units: "Probability: Composite reflectivity > 40 dBZ, neighbourhood",
+  "Probability: Temperature < 0 °C", the raw condition where the quantity has no vetted units
+  ("Probability: CRAIN >=1 <0"). Two probabilities, or a probability and its quantity, are not
+  comparable (`probabilities_are_fields_of_their_own`).
+- **The catalogue does not claim it.** `ModelField::grib` returns nothing for `HrefProb`: its
+  `CAPE:90-0 mb above ground` is a probability, and a catalogue key would read the percentage
+  as J/kg.
+- **Products and a palette.** Model fields browses it ("HREF probabilities 5 km"). A probability
+  is drawn on one fixed table over 0–100 % (greens to 30 %, yellow and orange to 70 %, reds and
+  magenta above) with under 5 % transparent, and its legend card says so
+  (`a_probability_is_coloured_over_zero_to_a_hundred`). The pane's lead is at least 1, since the
+  HREF posts no analysis file. The point forecast's "Any field…" offers the file too.
+
+**Live** (`href_probabilities_live`, `href_probability_render_live`, desktop test build): the
+18Z run's F+6 inventory held 108 fields, all supported: visibility under 0.4 to 6.4 km, lightning,
+1, 3 and 6 h precipitation over 12.7 to 127 mm, reflectivity, echo tops, updraft helicity, CAPE,
+CIN, helicity, freezing temperature, dew point, precipitable water, precipitation types and 10 m
+wind. The 40 dBZ neighbourhood probability decoded on the 1725×819 lattice, 481,816 cells, 0 to
+91.5 %, 85,815 at or above 5 %.
+
+[href-prob-refc40-live.png](href-prob-refc40-live.png) (SHA-256
+`a9e87a727bae1fd124a2138ebb17e96dc4c74ae1b40832cd503f5cdf9378a8a7`): that field, valid
+2026-10-13 00 UTC, coloured with the app's probability table, floor and index mapping by the
+test, on the regridded latitude/longitude lattice with no basemap. It is a render through the
+app's colouring, not a capture of the app's window. The faint hatch near the grid's northern edge
+is the regrid's known gaps on grid 227.
+
+Not established: the desktop and Android windows drawing it (synthetic clicks do not reach the
+desktop app here, and the browser build cannot reach NOMADS, so its Model fields and point
+forecast say "desktop and Android only"), the probability contours on the map, and a run with a
+pane lead of 0.

@@ -65,7 +65,7 @@ impl HookEchoApp {
         s.title = format!(
             "{} {}, {}",
             model.label(),
-            quantity.map_or(pick.var, |q| q.name),
+            wxdata::model_inventory::name(pick.var),
             pick.level
         );
         s.state = Some(ui::forecast_window::SeriesState::Loading);

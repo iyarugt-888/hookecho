@@ -70,6 +70,11 @@ pub enum Model {
     /// HREF's ensemble mean, same grid: the environment fields (CAPE, 0-3 km helicity, sea-level
     /// pressure, 2 m temperature and dewpoint), where a plain mean is the right statistic.
     HrefMean,
+    /// HREF's ensemble probabilities, CONUS (1010.md V10): neighbourhood probabilities of
+    /// reflectivity, updraft helicity, rain, wind and more past thresholds, on grid 227 like the
+    /// PMM and mean. Read only through the file inventory: every message is a probability, and
+    /// the catalogue's fields are not.
+    HrefProb,
 }
 
 impl Model {
@@ -115,6 +120,9 @@ impl Model {
             Model::HrefMean => format!(
                 "{NOMADS_HREF}/href.{date}/ensprod/href.t{cycle_hour:02}z.conus.mean.f{fh:02}.grib2"
             ),
+            Model::HrefProb => format!(
+                "{NOMADS_HREF}/href.{date}/ensprod/href.t{cycle_hour:02}z.conus.prob.f{fh:02}.grib2"
+            ),
         }
     }
 
@@ -122,7 +130,12 @@ impl Model {
     /// ever finds 404s.
     fn cycle_hours(self) -> u32 {
         match self {
-            Model::NamNest | Model::Nam | Model::Rrfs | Model::HrefPmm | Model::HrefMean => 6,
+            Model::NamNest
+            | Model::Nam
+            | Model::Rrfs
+            | Model::HrefPmm
+            | Model::HrefMean
+            | Model::HrefProb => 6,
             Model::HireswArw | Model::HireswFv3 => 12,
             _ => 1,
         }
@@ -145,7 +158,7 @@ impl Model {
             // 3 km, like the HRRR and the nest.
             Model::Rrfs => 0.04,
             // Grid 227 is 5.079 km: a 0.04 degree target left a grid of holes between its cells.
-            Model::HrefPmm | Model::HrefMean => 0.06,
+            Model::HrefPmm | Model::HrefMean | Model::HrefProb => 0.06,
         }
     }
 
@@ -162,6 +175,7 @@ impl Model {
             Model::Rrfs => "RRFS 3 km",
             Model::HrefPmm => "HREF PMM 5 km",
             Model::HrefMean => "HREF mean 5 km",
+            Model::HrefProb => "HREF probabilities 5 km",
         }
     }
 }
@@ -1835,6 +1849,71 @@ mod tests {
             recent_cycles(Model::Rrfs, at("2026-10-10T13:30:00Z"))[0].hour(),
             6
         );
+    }
+
+    #[test]
+    fn href_probabilities_point_at_nomads_ensemble_products() {
+        assert_eq!(
+            Model::HrefProb.url("20261012", 12, 6),
+            concat!(
+                "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.20261012/ensprod/",
+                "href.t12z.conus.prob.f06.grib2"
+            )
+        );
+    }
+
+    /// The newest HREF run's probability inventory and one neighbourhood probability, live: every
+    /// threshold its own field, values in percent.
+    /// `cargo test -p wxdata href_probabilities_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network (NOMADS)"]
+    async fn href_probabilities_live() {
+        use crate::model_inventory::{name, TimingKind};
+        let http = reqwest::Client::new();
+        let (run, lead, fields) = fetch_inventory(&http, Model::HrefProb, None, 6)
+            .await
+            .unwrap();
+        let probs: Vec<_> = fields.iter().filter(|f| f.supported()).collect();
+        println!(
+            "HREF prob {run} F+{lead}: {} fields, {} supported",
+            fields.len(),
+            probs.len()
+        );
+        for f in probs.iter().take(12) {
+            println!("  {}", f.label());
+        }
+        let var = "REFC prob >40 nbhd";
+        let level = "entire atmosphere (considered as a single layer)";
+        assert!(probs.iter().any(|f| f.entry.var == var), "{var} listed");
+        let got = fetch_inventory_field(
+            &http,
+            Model::HrefProb,
+            Some(run),
+            lead,
+            var,
+            level,
+            TimingKind::Instant,
+        )
+        .await
+        .unwrap();
+        let finite: Vec<f32> = got
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        let max = finite.iter().copied().fold(f32::MIN, f32::max);
+        let min = finite.iter().copied().fold(f32::MAX, f32::min);
+        let over = finite.iter().filter(|v| **v >= 5.0).count();
+        println!(
+            "{}: {}x{}, {} cells, {min}..{max} %, {over} at or above 5 %",
+            name(var),
+            got.field.nx,
+            got.field.ny,
+            finite.len()
+        );
+        assert!(min >= 0.0 && max <= 100.0, "a percentage: {min}..{max}");
     }
 
     #[test]

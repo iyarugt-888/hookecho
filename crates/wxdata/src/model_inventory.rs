@@ -145,9 +145,86 @@ pub const VETTED: &[Quantity] = &[
     q("RETOP", "Echo top", "m", "km", 0.001, 0.0),
 ];
 
-/// The vetted quantity for an abbreviation, if there is one.
+/// A probability past a threshold, in percent: every message of the HREF's probability file.
+pub static PROBABILITY: Quantity = q("PROB", "Probability", "%", "%", 1.0, 0.0).every(10.0);
+
+/// The vetted quantity for an abbreviation, if there is one. A probability message
+/// ([`probability`]) is a percentage whatever it is a probability of.
 pub fn vetted(var: &str) -> Option<&'static Quantity> {
-    VETTED.iter().find(|q| q.var == var)
+    VETTED
+        .iter()
+        .find(|q| q.var == var)
+        .or_else(|| probability(var).map(|_| &PROBABILITY))
+}
+
+/// A probability message, as [`parse_idx`] names it: the quantity's abbreviation, then the
+/// `.idx` line's threshold field, then ` nbhd` for a neighbourhood probability
+/// (`REFC prob >40 nbhd`). The threshold is in the quantity's native unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Probability<'a> {
+    pub var: &'a str,
+    /// `>`, `<`, `>=`…, or the whole condition when it is not one comparison.
+    pub op: &'a str,
+    pub threshold: Option<f32>,
+    pub neighbourhood: bool,
+}
+
+/// The parts of a probability message's name; `None` for any other.
+pub fn probability(var: &str) -> Option<Probability<'_>> {
+    let (base, rest) = var.split_once(" prob ")?;
+    let (rest, neighbourhood) = match rest.strip_suffix(" nbhd") {
+        Some(r) => (r, true),
+        None => (rest, false),
+    };
+    let at = rest
+        .find(|c: char| c.is_ascii_digit() || c == '-' || c == '.')
+        .unwrap_or(rest.len());
+    let (op, number) = rest.split_at(at);
+    let threshold = number.parse::<f32>().ok().filter(|_| !op.is_empty());
+    Some(Probability {
+        var: base,
+        op: if threshold.is_some() { op } else { rest },
+        threshold,
+        neighbourhood,
+    })
+}
+
+impl Probability<'_> {
+    /// "Probability: Composite reflectivity > 40 dBZ, neighbourhood", the threshold in the
+    /// quantity's display unit; the raw abbreviation and condition where it has no vetted units.
+    pub fn label(&self) -> String {
+        let tail = if self.neighbourhood {
+            ", neighbourhood"
+        } else {
+            ""
+        };
+        match (VETTED.iter().find(|q| q.var == self.var), self.threshold) {
+            (Some(q), Some(t)) => {
+                let v = q.to_display(t);
+                let v = if (v - v.round()).abs() < 0.05 {
+                    format!("{v:.0}")
+                } else {
+                    format!("{v:.1}")
+                };
+                format!("Probability: {} {} {v} {}{tail}", q.name, self.op, q.unit)
+            }
+            _ => format!(
+                "Probability: {} {}{}{tail}",
+                self.var,
+                self.op,
+                self.threshold.map_or(String::new(), |t| t.to_string())
+            ),
+        }
+    }
+}
+
+/// What a message is called: its vetted quantity's name, a probability's whole description, or
+/// the abbreviation itself.
+pub fn name(var: &str) -> String {
+    match probability(var) {
+        Some(p) => p.label(),
+        None => vetted(var).map_or_else(|| var.to_string(), |q| q.name.to_string()),
+    }
 }
 
 /// Where a field is, as classified from the `.idx` level text. `Other` keeps the text.
@@ -404,7 +481,20 @@ pub fn parse_idx(idx: &str) -> Vec<Entry> {
             sub: crate::grib_split::subfield_of(f[0]),
             // The next *distinct* offset: some files list several fields of one message.
             end: rows[i + 1..].iter().map(|(o, _)| *o).find(|o| o > offset),
-            var: f[3].to_string(),
+            var: match f.get(6).filter(|p| p.starts_with("prob ")) {
+                // A probability message shares the quantity's abbreviation and level; its
+                // threshold, in the seventh field, is what tells one from the next.
+                Some(p) => format!(
+                    "{} {p}{}",
+                    f[3],
+                    if f.get(8).is_some_and(|t| t.contains("Neighborhood")) {
+                        " nbhd"
+                    } else {
+                        ""
+                    }
+                ),
+                None => f[3].to_string(),
+            },
             level_text: f[4].to_string(),
             timing_text: f[5].to_string(),
             level: Level::parse(f[4]),
@@ -565,7 +655,7 @@ impl Field {
         match (self.quantity, self.entry.timing.kind()) {
             (Some(q), Some(k)) => format!(
                 "{} \u{b7} {} \u{b7} {} ({})",
-                q.name,
+                name(&self.entry.var),
                 self.entry.level.label(),
                 k.label(),
                 q.unit
@@ -580,11 +670,16 @@ impl Field {
     /// Whether `other` measures the same thing, so the two can be compared or differenced:
     /// same quantity, same level, same kind of interval of the same length.
     pub fn comparable(&self, other: &Field) -> Result<(), String> {
-        let (Some(a), Some(b)) = (self.quantity, other.quantity) else {
+        if self.quantity.is_none() || other.quantity.is_none() {
             return Err("an unsupported field cannot be compared".into());
-        };
-        if a.var != b.var {
-            return Err(format!("{} is not {}", a.name, b.name));
+        }
+        // The message's own name, not its quantity's: two probabilities are both percentages.
+        if self.entry.var != other.entry.var {
+            return Err(format!(
+                "{} is not {}",
+                name(&self.entry.var),
+                name(&other.entry.var)
+            ));
         }
         if self.entry.level != other.entry.level {
             return Err(format!(
@@ -905,6 +1000,49 @@ mod tests {
         assert!((vetted("PRMSL").unwrap().to_display(101_325.0) - 1013.25).abs() < 1e-3);
         // A lifted index is a difference: no offset.
         assert_eq!(vetted("LFTX").unwrap().offset, 0.0);
+    }
+
+    /// The HREF's probability file: one abbreviation and level per quantity, told apart by the
+    /// threshold, so each probability is its own field, in percent, named in display units.
+    #[test]
+    fn probabilities_are_fields_of_their_own() {
+        let idx = "\
+1:0:d=2026101212:REFC:entire atmosphere (considered as a single layer):6 hour fcst:prob >30:prob fcst 0/10:Neighborhood Probability
+2:100:d=2026101212:REFC:entire atmosphere (considered as a single layer):6 hour fcst:prob >40:prob fcst 0/10:Neighborhood Probability
+3:200:d=2026101212:CAPE:90-0 mb above ground:6 hour fcst:prob >1000:prob fcst 0/10
+4:300:d=2026101212:TMP:2 m above ground:6 hour fcst:prob <273.15:prob fcst 0/10
+5:400:d=2026101212:CRAIN:surface:6 hour fcst:prob >=1 <0:prob fcst 0/10
+6:500:d=2026101212:CAPE:90-0 mb above ground:6 hour fcst:
+";
+        let fields = discover(idx);
+        assert_eq!(fields.len(), 6, "every threshold is its own field");
+        let get = |var: &str| fields.iter().find(|f| f.entry.var == var).unwrap();
+        let refc40 = get("REFC prob >40 nbhd");
+        assert_eq!(refc40.quantity.map(|q| q.unit), Some("%"));
+        assert!(refc40.supported());
+        assert_eq!(
+            name("REFC prob >40 nbhd"),
+            "Probability: Composite reflectivity > 40 dBZ, neighbourhood"
+        );
+        assert_eq!(name("TMP prob <273.15"), "Probability: Temperature < 0 °C");
+        assert_eq!(name("CAPE prob >1000"), "Probability: CAPE > 1000 J/kg");
+        assert_eq!(name("CRAIN prob >=1 <0"), "Probability: CRAIN >=1 <0");
+        assert_eq!(
+            find_entry(
+                &parse_idx(idx),
+                "REFC prob >40 nbhd",
+                "entire atmosphere (considered as a single layer)",
+                TimingKind::Instant,
+                6
+            )
+            .map(|e| e.offset),
+            Some(100)
+        );
+        // CAPE itself is still CAPE, and not comparable with a probability of it.
+        let cape = fields.iter().find(|f| f.entry.var == "CAPE").unwrap();
+        assert_eq!(cape.quantity.map(|q| q.unit), Some("J/kg"));
+        assert!(cape.comparable(get("CAPE prob >1000")).is_err());
+        assert!(get("REFC prob >30 nbhd").comparable(refc40).is_err());
     }
 
     /// At whole days NCEP's index counts in days, and a total since the run began must still

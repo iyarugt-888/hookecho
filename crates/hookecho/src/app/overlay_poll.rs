@@ -358,6 +358,10 @@ impl HookEchoApp {
                             ModelRequest::Discovered(pick, ..) if pick.minus.is_some() => {
                                 super::model_field::model_difference_upload(&field.data)
                             }
+                            // A probability draws on its own fixed 0–100 % scale.
+                            ModelRequest::Discovered(pick, ..) if pick.is_probability() => {
+                                super::model_field::probability_upload(&field.data)
+                            }
                             _ => self.field_upload(layer, &field.data),
                         };
                         if let Some(slot) = self.model_fields.get_mut(&request) {

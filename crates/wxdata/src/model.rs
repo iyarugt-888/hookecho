@@ -280,6 +280,23 @@ static DEFS: &[Entry] = &[
             ensemble: Ensemble::PostProcessed,
         },
     },
+    // The probability file posts with the PMM and mean, on the same grid (NOMADS listing,
+    // 2026-10-12 12Z: `href.t12z.conus.prob.f06.grib2`).
+    Entry {
+        model: Model::HrefProb,
+        def: ModelDef {
+            id: "href-prob",
+            label: "HREF probabilities 5 km",
+            cycle_hours: 6,
+            max_lead_h: 48,
+            extended_lead_h: 48,
+            extended_cycles: &[],
+            grid_km: 5.079,
+            domain: GeographicBounds::CONUS,
+            typical_latency_min: 180,
+            ensemble: Ensemble::PostProcessed,
+        },
+    },
 ];
 
 /// A field by meaning, independent of how any one model spells it in GRIB.
@@ -365,6 +382,11 @@ impl ModelField {
         // not guessable: the NAM spells the composite-reflectivity level differently from the
         // HRRR, and the app's matcher compares the level string exactly.
         match (self, model) {
+            // Every message of the probability file is a probability past a threshold, under the
+            // same abbreviation and level as the quantity itself ("CAPE:90-0 mb above ground:...:
+            // prob >500"): a key here would read a percentage as J/kg. Its fields are browsed
+            // through the inventory, which names each probability apart.
+            (_, HrefProb) => None,
             // "entire atmosphere" vs "entire atmosphere (considered as a single layer)" — same
             // field, two spellings, and the NAM family uses the long one.
             (
@@ -473,6 +495,7 @@ pub const ALL_MODELS: &[Model] = &[
     Model::Rrfs,
     Model::HrefPmm,
     Model::HrefMean,
+    Model::HrefProb,
 ];
 
 /// Every field in the catalogue, in declaration order.

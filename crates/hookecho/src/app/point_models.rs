@@ -39,7 +39,7 @@ pub(crate) enum PointModel {
 
 /// Every model, in the order they are offered: convection-allowing regional models, the coarser
 /// regional ones and the blend, then the global models.
-pub(crate) const ALL: [PointModel; 15] = [
+pub(crate) const ALL: [PointModel; 16] = [
     PointModel::Regional(Regional::Hrrr),
     PointModel::Regional(Regional::Rap),
     PointModel::Regional(Regional::NamNest),
@@ -48,6 +48,7 @@ pub(crate) const ALL: [PointModel; 15] = [
     PointModel::Regional(Regional::Rrfs),
     PointModel::Regional(Regional::HrefMean),
     PointModel::Regional(Regional::HrefPmm),
+    PointModel::Regional(Regional::HrefProb),
     PointModel::Regional(Regional::Nam),
     PointModel::Regional(Regional::Nbm),
     PointModel::Regional(Regional::HrrrPressure),
@@ -193,6 +194,7 @@ fn from_nomads(m: Regional) -> bool {
             | Regional::Rrfs
             | Regional::HrefMean
             | Regional::HrefPmm
+            | Regional::HrefProb
     )
 }
 
@@ -379,9 +381,9 @@ impl Product {
             } => {
                 let level = Level::parse(level).label();
                 let name = if *vector {
-                    "Wind speed"
+                    "Wind speed".to_string()
                 } else {
-                    wxdata::model_inventory::vetted(var).map_or(var.as_str(), |q| q.name)
+                    wxdata::model_inventory::name(var)
                 };
                 format!("{name} \u{b7} {level} \u{b7} {}", kind.label())
             }
@@ -962,7 +964,7 @@ impl HookEchoApp {
 
 /// A distinct colour per model, stable across products.
 pub(crate) fn model_color(m: PointModel) -> egui::Color32 {
-    const COLORS: [[u8; 3]; 15] = [
+    const COLORS: [[u8; 3]; 16] = [
         [102, 194, 255],
         [255, 160, 80],
         [120, 220, 130],
@@ -978,6 +980,7 @@ pub(crate) fn model_color(m: PointModel) -> egui::Color32 {
         [255, 110, 220],
         [130, 200, 90],
         [230, 180, 140],
+        [180, 120, 90],
     ];
     let i = ALL.iter().position(|x| *x == m).unwrap_or(0);
     let [r, g, b] = COLORS[i % COLORS.len()];
