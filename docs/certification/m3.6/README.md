@@ -209,3 +209,29 @@ transparent, so the echo the analyst sees behind it was not what was picked.
 folded, as drawn), else the nearest crossing as before. Tests: `a_pick_prefers_the_nearest_measured_gate`,
 and the ray test now checks the order of crossings (`a straight drop from above` meets the steep
 cone, then the shallow one). Not seen in a run.
+
+Run, browser build on WebGPU, one machine (2026-10-13; bundle `hookecho_bg-20866391.wasm`, working
+tree with peer live-radar edits present): KPAH 2021-12-11 03:23:49Z (Mayfield), 3D Observed,
+21 tilts, pitch 50°, opacity 0.72, gate inspector. A click on the tornadic core seen from above
+reported a measured gate: 15.56°, azimuth 153.7°, slant range 40.52 km, beam height 35,946 ft,
+51.8 dBZ (code 170), with the follow actions offered
+([r5-3d-pick-measured-gate.jpg](r5-3d-pick-measured-gate.jpg), SHA-256
+`62fa94a54bfd035b863a8ae040b817091adb65a6e30fff3649ce7ed0308f7138`). This shows the pick landing
+on an echo the view draws. It does not show which nearer, empty tilt the ray crossed first, so
+the before/after comparison stays with the unit test. Not seen: the 3D ruler drag, desktop and
+Android.
+
+Same run, the 3D ruler: two ends placed on the tilts, then the first end dragged to a new point
+with the measure tool still armed. The reading followed ("@ 49° · rise −1078 ft · straight line
+40.5 mi"; first end now 8.0°, 36,484 ft MSL, 6 dBZ) while the second end kept its own values
+(15.6°, 35,405 ft MSL) ([r5-3d-ruler-end-dragged.jpg](r5-3d-ruler-end-dragged.jpg), SHA-256
+`fcfac141e17317f63d12f5b998052364122fc97d40febf3c867882eb54446f91`). That capture also shows a
+defect: the reading's card was centred on the ruler with nothing keeping it in the pane, so its
+first words, the distance and the first end's tilt, were cut off at the pane's left edge. The
+2D ruler shares the code. `measure::keep_inside` now moves the card in from the edge it crosses
+and pins a card wider than the pane to its left edge (`the_reading_stays_inside_the_pane`).
+After the fix (bundle `hookecho_bg-22dc7e96.wasm`), the same ruler's reading starts at the pane
+edge with the distance and the first end's tilt shown
+([r5-3d-ruler-reading-inside-pane.jpg](r5-3d-ruler-reading-inside-pane.jpg), SHA-256
+`28cc10f83eed2fc7983be09bbcf8596e71b44d92f8a34796026886be5a6baf1f`). A card wider than the visible map still runs under the floating 3D panel at its
+right end.

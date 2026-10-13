@@ -510,13 +510,36 @@ impl HookEchoApp {
             // On a dark card: over radar, roads and warnings, bare yellow text is unreadable.
             let mid = a + (b - a) * 0.5;
             let galley = painter.layout_no_wrap(txt, egui::FontId::proportional(12.0), col);
-            let rect = egui::Align2::CENTER_BOTTOM
-                .anchor_size(mid + egui::vec2(0.0, -10.0), galley.size())
-                .expand2(egui::vec2(6.0, 3.0));
+            let rect = keep_inside(
+                egui::Align2::CENTER_BOTTOM
+                    .anchor_size(mid + egui::vec2(0.0, -10.0), galley.size())
+                    .expand2(egui::vec2(6.0, 3.0)),
+                painter.clip_rect(),
+            );
             painter.rect_filled(rect, 4.0, egui::Color32::from_black_alpha(200));
             painter.galley(rect.min + egui::vec2(6.0, 3.0), galley, col);
         }
     }
+}
+
+/// `card` moved in from whichever edge of `bounds` it crosses. One wider or taller than the bounds
+/// is pinned to the left or top edge, so the reading's start stays on screen: a ruler near the
+/// pane's edge, or a 3D ruler's two-line reading in a narrow pane, otherwise loses its first words.
+fn keep_inside(card: egui::Rect, bounds: egui::Rect) -> egui::Rect {
+    let shift = |lo: f32, hi: f32, min: f32, max: f32| {
+        let mut d = 0.0;
+        if hi > max {
+            d = max - hi;
+        }
+        if lo + d < min {
+            d = min - lo;
+        }
+        d
+    };
+    card.translate(egui::vec2(
+        shift(card.left(), card.right(), bounds.left(), bounds.right()),
+        shift(card.top(), card.bottom(), bounds.top(), bounds.bottom()),
+    ))
 }
 
 /// The tilt `up` PgUp and `down` PgDn presses move an end to: one tilt each, held at the lowest
@@ -531,6 +554,32 @@ pub(crate) fn step_tilt(tilt: usize, tilts: usize, up: usize, down: usize) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reading's card stays in the pane: moved in from the edge it crosses, and pinned to the
+    /// left/top edge when it is wider/taller than the pane, so its first words are always shown.
+    #[test]
+    fn the_reading_stays_inside_the_pane() {
+        let pane = egui::Rect::from_min_max(egui::pos2(100.0, 50.0), egui::pos2(500.0, 400.0));
+        let card = |x0: f32, y0: f32, w: f32, h: f32| {
+            egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(w, h))
+        };
+        let inside = card(200.0, 100.0, 100.0, 30.0);
+        assert_eq!(keep_inside(inside, pane), inside);
+        assert_eq!(
+            keep_inside(card(60.0, 100.0, 100.0, 30.0), pane).min,
+            egui::pos2(100.0, 100.0)
+        );
+        assert_eq!(
+            keep_inside(card(450.0, 30.0, 100.0, 30.0), pane).min,
+            egui::pos2(400.0, 50.0)
+        );
+        assert_eq!(
+            keep_inside(card(300.0, 390.0, 100.0, 30.0), pane).min,
+            egui::pos2(300.0, 370.0)
+        );
+        let wide = keep_inside(card(20.0, 100.0, 600.0, 30.0), pane);
+        assert_eq!(wide.left(), pane.left(), "too wide: its start is shown");
+    }
 
     /// A pick passes over an empty nearer tilt to the measured gate behind it, and falls back to
     /// the nearest when none along the ray was measured.

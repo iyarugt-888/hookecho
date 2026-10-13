@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: the ruler's reading stays on screen
+
+A ruler drawn near the edge of the map, or a 3D ruler's two-line reading in a narrow pane, had
+its reading centred on the line and cut off at the pane's edge, losing the distance and the first
+end's height. The reading now stays inside the pane, starting at its left edge when it is wider.
+
 ### Fixed: a busy sounding server no longer swaps in an older balloon
 
 For an archived scan, the melting level and other isotherm heights come from the weather balloon
