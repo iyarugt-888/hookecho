@@ -43,7 +43,10 @@ The warning the product editor gives when a formula's units do not add up (addin
 velocity, a height above the radar against a height above sea level, a label that names another
 unit) now also shows when you import a product file and in the gate inspector beside the
 product's value. Products are still imported and computed exactly as written. A difference of two
-reflectivities now reads as dB, as it should, rather than being flagged.
+reflectivities now reads as dB, as it should, rather than being flagged. A product whose formula
+this version cannot read (one made in a newer version, say) is now imported as written and kept,
+with a note, instead of being turned away and lost; it shows nothing until a version that reads
+it opens it.
 
 ### Fixed: the mesoscale satellite box on a pane with its own time
 

@@ -187,9 +187,25 @@ fn validate(
             def.expression.len()
         ));
     }
-    let expr = def
-        .compile()
-        .map_err(|e| format!("its formula does not parse: {e}"))?;
+    let expr = match def.compile() {
+        Ok(expr) => expr,
+        // The compatibility policy for a formula this build cannot read (written by a newer
+        // build, or saved broken): kept exactly as written, never dropped and never rewritten,
+        // and said so. It shows its error wherever it is used, and computes again once a build
+        // that reads it opens it. Only the size limits refuse a product outright.
+        Err(e) => {
+            if def.id.is_empty() {
+                def.id = derive_id(&def);
+            }
+            return Ok((
+                def,
+                vec![format!(
+                    "its formula does not parse in this build ({e}); kept as written, and it \
+                     shows nothing until it does"
+                )],
+            ));
+        }
+    };
     if expr.node_count() > MAX_NODES {
         return Err(format!(
             "its formula has {} operations, more than {MAX_NODES}",
@@ -493,7 +509,10 @@ mod tests {
         entries[0].range = Some((5.0, 5.0));
         let text = export(&entries);
         let got = import(&text, &palettes).unwrap();
-        assert_eq!(got.products.len(), 1, "{:?}", got.diagnostics);
+        let names: Vec<&str> = got.products.iter().map(|p| p.name.as_str()).collect();
+        // A formula that does not parse is kept as written; the limits refuse.
+        assert_eq!(names, ["Good", "Broken", "Deep"], "{:?}", got.diagnostics);
+        assert_eq!(got.products[1].expression, "REF +");
         assert_eq!(got.products[0].palette, None);
         assert_eq!(got.products[0].range, None);
         let says = |who: &str, what: &str| {
@@ -507,12 +526,27 @@ mod tests {
         };
         says("Good", "not one this build has");
         says("Good", "not a range");
-        says("Broken", "does not parse");
+        says("Broken", "kept as written");
         says("Deep", "does not parse");
         says("Big", "operations");
         says("Nested", "nest 3 deep");
         says("(unnamed)", "no name");
         says("Huge", "bytes");
+    }
+
+    /// A product from a newer build, with a function this one does not know, survives a round
+    /// trip through this build unchanged rather than being refused and lost.
+    #[test]
+    fn a_formula_this_build_cannot_read_survives_a_round_trip() {
+        let newer = ProductDef {
+            id: "udp-from-a-newer-build".into(),
+            ..def("Future", "hail_size(REF, ZDR) * 2")
+        };
+        let once = import(&export(std::slice::from_ref(&newer)), &palettes).unwrap();
+        assert_eq!(once.products, vec![newer.clone()], "kept exactly");
+        assert!(once.diagnostics[0].starts_with("Future: its formula does not parse"));
+        let twice = import(&export(&once.products), &palettes).unwrap();
+        assert_eq!(twice.products, vec![newer]);
     }
 
     #[test]
