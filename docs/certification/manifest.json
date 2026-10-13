@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T06:43:27+00:00",
-  "generated_from_commit": "f3001857c67f66f254221883d40b028c23bc579a",
+  "generated_utc": "2026-10-13T20:38:35+00:00",
+  "generated_from_commit": "31e6a000e33ef9efe5691b5a54422de7e9b5ffcb",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1214,8 +1214,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "1144a87c4a802f64815007fc156150f348ec94fbd965df289abcd48a451bd742",
-      "bytes": 9423
+      "sha256": "b4a31578d61c87e11fa9ee0e149569a080be4d0f0888cade2a79dbdedb26f410",
+      "bytes": 15069
     },
     {
       "path": "docs/certification/m3.3/column-composite.png",
@@ -1233,9 +1233,19 @@
       "bytes": 1756
     },
     {
+      "path": "docs/certification/m3.3/r2-two-archived-panes-two-soundings.jpg",
+      "sha256": "f348646a2db229dbe8478804273a250f1396fb533adfba8b289530e140dfad19",
+      "bytes": 97706
+    },
+    {
       "path": "docs/certification/m3.3/r2-two-panes-two-column-products.jpg",
       "sha256": "7ad7d8998de7b8eef9d2e6a70ef80204137aab2bae9dca40b11728500c048ebe",
       "bytes": 105503
+    },
+    {
+      "path": "docs/certification/m3.3/r3-column-height-on-section.jpg",
+      "sha256": "d44c03cc18f2aa2beeba0cf464c57d16e07209fe0d31cf735aaffb561134323d",
+      "bytes": 84565
     },
     {
       "path": "docs/certification/m3.3/recorded-environment/.gitattributes",
