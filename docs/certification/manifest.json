@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T06:08:55+00:00",
-  "generated_from_commit": "a18a83e352cd7eb65eb4edc8aac7015bdcf56088",
+  "generated_utc": "2026-10-13T06:21:56+00:00",
+  "generated_from_commit": "aac1a633527fcc342dfced760af813f1522279ae",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1264,8 +1264,8 @@
     },
     {
       "path": "docs/certification/m3.4/README.md",
-      "sha256": "87f1e2422a8729de046562321f597f314eeb9379c64c9a09b4bd4e6ee22696a0",
-      "bytes": 3699
+      "sha256": "6aa121fc2c5c39696c18b281f31e7fb6fbd531c4963b27a8f053fcfb835457cd",
+      "bytes": 4832
     },
     {
       "path": "docs/certification/m3.4/moore-last-volume-ref.png",
