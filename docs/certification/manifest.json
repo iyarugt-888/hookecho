@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T03:29:25+00:00",
-  "generated_from_commit": "6b789fceb855ea84c55d09c087557cb421ee8d73",
+  "generated_utc": "2026-10-13T06:08:55+00:00",
+  "generated_from_commit": "a18a83e352cd7eb65eb4edc8aac7015bdcf56088",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1139,8 +1139,13 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "19da22293310373b3a79faafb503810c1c8e7e0c233e2a845b35c455a86599a2",
-      "bytes": 1474
+      "sha256": "acde1e009aec176b6e2b0959cd4e700c8fc7da80d2a1083b4f7781b67a581a9b",
+      "bytes": 3812
+    },
+    {
+      "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
+      "sha256": "b2fe506347c9b8b451fa9c349bc6cb0eb5618de93e2440849d5268360e6f56a0",
+      "bytes": 91293
     },
     {
       "path": "docs/certification/m2.2/radar-hint-card.png",
@@ -1309,8 +1314,8 @@
     },
     {
       "path": "docs/certification/m3.6/README.md",
-      "sha256": "3deda3e47d5759e46bb128dc34d85864bc83d5a98956e4356679c1022a651148",
-      "bytes": 10799
+      "sha256": "bcb8f7643217be76daeacbccf551e946d4a38a89ddab825d2a23b7dc43b2d012",
+      "bytes": 11583
     },
     {
       "path": "docs/certification/m3.6/drawn-region-box.jpg",
