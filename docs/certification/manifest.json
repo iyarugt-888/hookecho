@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T00:56:23+00:00",
-  "generated_from_commit": "a59ae63488bb4f40e575f4a7c752313955c3f31d",
+  "generated_utc": "2026-10-13T01:06:21+00:00",
+  "generated_from_commit": "6c32bd798eb0f2fad117424c262a75e268f0ce52",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -49,7 +49,7 @@
     {
       "card": "M1.2",
       "title": "Trace receipt through completed rendering",
-      "ledger_entries": 3,
+      "ledger_entries": 4,
       "latest_entry": "2026-10-10",
       "status_line": "implementation: in progress (GPU-completion stage, increment 1); verification: partial (software GPU only).",
       "evidence_dir": "docs/certification/m1.2"
@@ -964,8 +964,8 @@
     },
     {
       "path": "docs/certification/m1.2/README.md",
-      "sha256": "47c331c016904c836cdb34d5def7ea162bef58bd947770d4afe28d1ce79152b5",
-      "bytes": 4208
+      "sha256": "7c603fc4047cec1a2d79fb3f373b474752956253fb44001b7597afc1f58dd6e4",
+      "bytes": 4431
     },
     {
       "path": "docs/certification/m1.2/browser-live-trace-5min.jpg",
@@ -986,6 +986,11 @@
       "path": "docs/certification/m1.2/correlated-trace.txt",
       "sha256": "ac2b2b57156f5de8184550a490bd231022f49683f0c0d281be20ce8fe706acba",
       "bytes": 628
+    },
+    {
+      "path": "docs/certification/m1.2/shared-sweeps.md",
+      "sha256": "07ac36e9d2cb8ffc907f89b494c36ac357715ff75a6c748e80e8a8334eb0a205",
+      "bytes": 2961
     },
     {
       "path": "docs/certification/m1.3/alert-latency.md",
