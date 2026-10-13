@@ -37,6 +37,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: today's warnings no longer appear over an archived scan
+
+When you scrubbed back in time, the map could show today's live warnings, discussions and storm
+reports over the old scan until the archived ones arrived, or the previous few minutes' set. It
+now shows none until the right ones for that time arrive. Loop exports also list a frame
+captured before its warnings arrived.
+
 ### Fixed: a followed storm in the archive stays the same storm
 
 When you scrubbed back in time and followed a storm, stepping the loop could renumber the storm

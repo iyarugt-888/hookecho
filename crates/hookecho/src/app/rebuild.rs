@@ -126,9 +126,17 @@ impl HookEchoApp {
             );
         }
         if self.filters.show_mds {
-            // The discussions in effect at a scrubbed frame's time, or today's.
-            let archived = self.arch_md_shown.and_then(|b| self.arch_mds.peek(&b));
-            v.extend(archived.unwrap_or(&self.md_features).iter().cloned());
+            // The discussions in effect at a scrubbed frame's time (none while they load), or
+            // today's.
+            v.extend(
+                super::alerts_watch::archived_or_live(
+                    self.arch_md_shown,
+                    |b| self.arch_mds.peek(&b).map(Vec::as_slice),
+                    &self.md_features,
+                )
+                .iter()
+                .cloned(),
+            );
         }
         if self.filters.show_watches {
             v.extend(self.watch_features.iter().cloned());

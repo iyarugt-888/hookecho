@@ -457,6 +457,25 @@ impl HookEchoApp {
         radar_time: Option<DateTime<Utc>>,
     ) -> Vec<crate::capture_manifest::SourceStamp> {
         let v = &self.views[self.active];
+        // The archive-backed overlays the frame shows: its own bucket's set, empty until fetched
+        // (`alerts_watch::archived_or_live`), so a frame captured before it arrived is listed.
+        let overlays = [
+            (
+                self.filters.show_alerts,
+                "warnings",
+                archive_stamp(self.arch_warn_shown, 300, |b| self.arch_warns.contains(&b)),
+            ),
+            (
+                self.filters.show_mds,
+                "discussions",
+                archive_stamp(self.arch_md_shown, 300, |b| self.arch_mds.contains(&b)),
+            ),
+            (
+                self.show_storm_reports || self.filters.show_tornado_id,
+                "storm-reports",
+                archive_stamp(self.arch_lsr_shown, 1800, |b| self.arch_lsr.contains(&b)),
+            ),
+        ];
         crate::capture_manifest::stamps(
             radar_time,
             crate::render::FieldLayer::DRAW_ORDER
@@ -472,9 +491,26 @@ impl HookEchoApp {
                         self.mrms_ready_for(self.active, *l),
                         valid,
                     )
-                }),
+                })
+                .chain(overlays.into_iter().filter(|(on, ..)| *on).filter_map(
+                    |(_, slug, stamp)| {
+                        stamp.map(|(ready, from)| (slug.to_string(), ready, Some(from)))
+                    },
+                )),
         )
     }
+}
+
+/// An archive-backed overlay as a capture sees it: `None` live (nothing time-addressed to wait
+/// for), else whether its shown bucket (`span_s` seconds each) was fetched, and the bucket's
+/// start as its valid time.
+fn archive_stamp(
+    shown: Option<i64>,
+    span_s: i64,
+    fetched: impl FnOnce(i64) -> bool,
+) -> Option<(bool, DateTime<Utc>)> {
+    let b = shown?;
+    Some((fetched(b), DateTime::from_timestamp(b * span_s, 0)?))
 }
 
 /// The longest a loop export waits for a stepped frame to be on screen before pausing
@@ -489,6 +525,34 @@ fn frame_on_screen(shown: Option<&str>, wanted: Option<&str>, loading: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A frame's archive-backed overlay is ready only once its own bucket is fetched, stamped
+    /// with that bucket's start; live it is not stamped at all.
+    #[test]
+    fn an_overlay_still_loading_is_stamped_not_ready() {
+        assert_eq!(archive_stamp(None, 300, |_| true), None);
+        let (ready, from) = archive_stamp(Some(5_000_000), 300, |b| b == 5_000_000).unwrap();
+        assert!(ready);
+        assert_eq!(from.timestamp(), 1_500_000_000);
+        let (ready, _) = archive_stamp(Some(5_000_001), 300, |b| b == 5_000_000).unwrap();
+        assert!(!ready, "the next bucket has not arrived");
+        let stamps = crate::capture_manifest::stamps(
+            Some(from),
+            [("warnings".to_string(), false, Some(from))],
+        );
+        let record = crate::capture_manifest::FrameRecord {
+            asked: None,
+            shown: None,
+            waited_ms: 0,
+            timed_out: false,
+            sources: stamps,
+            sha256: String::new(),
+        };
+        assert_eq!(
+            crate::capture_manifest::problems(&[record]),
+            ["frame 1: not ready: warnings"]
+        );
+    }
 
     fn export(total: usize) -> LoopExport {
         LoopExport {

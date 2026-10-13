@@ -144,3 +144,25 @@ Still not established: pixel identity across adapters (the one-level colour roun
 and a second physical GPU. The MRMS shader's latitude uses the same `atan(sinh(n))` and was not
 changed; its grid cells are a kilometre, against the 40 m that error reached on the software
 adapter.
+
+## Archived warnings, discussions and reports in a capture (2026-10-13, roadmaps/broadcast B2)
+
+A loop export's manifest recorded readiness only for field layers. The archive-backed overlays
+were neither stamped nor safe to capture. Warnings and SPC discussions come per 5-minute bucket
+of the playhead, storm reports per 30 minutes. While a frame's bucket was still loading, the map
+kept the previous bucket's set. On the first scrub into the archive it showed **today's live
+warnings, discussions and storm reports over the archived scan**, and the storm card, alert list
+and associations used them. A capture of that frame recorded it as complete.
+
+Now `alerts_watch::archived_or_live` decides all three. In the archive the shown bucket is the
+playhead's own from the moment it is wanted, empty until it is fetched, and the overlays rebuild
+when it arrives. Live, the live set. The loop export stamps each shown overlay (`warnings`,
+`discussions`, `storm-reports`) with its bucket's start, ready only once that bucket is fetched
+(`loop_capture::archive_stamp`). A frame captured early lists "not ready: warnings" among the
+manifest's problems. Tests: `an_archived_scan_never_shows_live_or_another_buckets_overlay`,
+`an_overlay_still_loading_is_stamped_not_ready`. Not seen in a run: no capture was made this
+session, and the browser pane was hidden.
+
+Still open for B2: GIS layers and dressing (logos, annotations) have no time-addressed fetch to
+wait for and are not stamped. Waiting (rather than listing) on a not-ready overlay uses the
+existing pause only for the radar frame.

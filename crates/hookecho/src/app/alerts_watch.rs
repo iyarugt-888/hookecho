@@ -4,6 +4,21 @@
 
 use super::*;
 
+/// What an archive-backed overlay shows: in the archive (`bucket` is the playhead's), that
+/// bucket's features once fetched and nothing while it loads; live, the live set. Never the live
+/// set over an archived scan, nor another bucket's over this one: both read as the scan's own
+/// warnings, discussions or reports, and a loop export captured them as such.
+pub(crate) fn archived_or_live<'a, T>(
+    bucket: Option<i64>,
+    fetched: impl FnOnce(i64) -> Option<&'a [T]>,
+    live: &'a [T],
+) -> &'a [T] {
+    match bucket {
+        Some(b) => fetched(b).unwrap_or(&[]),
+        None => live,
+    }
+}
+
 impl HookEchoApp {
     /// Every alert sound goes through here, so one mute switch covers all of them (and any that
     /// get added later) instead of a guard per call site.
@@ -458,15 +473,14 @@ impl HookEchoApp {
         }
     }
 
-    /// The alert features to display right now: live alerts, or the archived set while the active
-    /// pane is scrubbed off-live to a bucket we've fetched (feature W).
+    /// The alert features to display right now: live alerts, or while the active pane is scrubbed
+    /// off-live, its bucket's archived set (feature W), empty until that bucket arrives.
     pub(crate) fn active_alert_features(&self) -> &[GeoFeature] {
-        if let Some(b) = self.arch_warn_shown {
-            if let Some(f) = self.arch_warns.peek(&b) {
-                return f;
-            }
-        }
-        &self.alert_features
+        archived_or_live(
+            self.arch_warn_shown,
+            |b| self.arch_warns.peek(&b).map(Vec::as_slice),
+            &self.alert_features,
+        )
     }
 
     /// Drive the archived-warning overlay from the active pane's playhead: fetch the bucket the
@@ -486,7 +500,9 @@ impl HookEchoApp {
                     self.arch_md_inflight = Some(b);
                     self.spawn_overlay(ctx, OverlaySource::ArchiveMds(b));
                 }
-                if cached && self.arch_md_shown != Some(b) {
+                // This bucket's from now on, empty until it arrives (`archived_or_live`); its
+                // arrival rebuilds again.
+                if self.arch_md_shown != Some(b) {
                     self.arch_md_shown = Some(b);
                     self.rebuild_overlays();
                 }
@@ -505,11 +521,30 @@ impl HookEchoApp {
                     self.arch_warn_inflight = Some(b);
                     self.spawn_overlay(ctx, OverlaySource::ArchiveWarnings(b));
                 }
-                if cached && self.arch_warn_shown != Some(b) {
+                if self.arch_warn_shown != Some(b) {
                     self.arch_warn_shown = Some(b);
                     self.rebuild_overlays();
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::archived_or_live;
+
+    /// In the archive an overlay shows its own bucket's set, nothing while that loads; it never
+    /// falls back to the live set or keeps another bucket's.
+    #[test]
+    fn an_archived_scan_never_shows_live_or_another_buckets_overlay() {
+        let live = ["live warning"];
+        let fetched = |b: i64| (b == 7).then_some(&["7's warning"][..]);
+        assert_eq!(archived_or_live(None, fetched, &live), live);
+        assert_eq!(archived_or_live(Some(7), fetched, &live), ["7's warning"]);
+        assert!(
+            archived_or_live(Some(8), fetched, &live).is_empty(),
+            "bucket 8 still loading: nothing, not the live set or bucket 7's"
+        );
     }
 }

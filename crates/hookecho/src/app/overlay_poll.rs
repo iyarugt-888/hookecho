@@ -558,11 +558,18 @@ impl HookEchoApp {
                     if self.arch_warn_inflight == Some(bucket) {
                         self.arch_warn_inflight = None;
                     }
+                    // The bucket on show was drawn empty while it loaded.
+                    if self.arch_warn_shown == Some(bucket) {
+                        self.rebuild_overlays();
+                    }
                 }
                 OverlayMsg::ArchiveMds(bucket, feats) => {
                     self.arch_mds.put(bucket, feats);
                     if self.arch_md_inflight == Some(bucket) {
                         self.arch_md_inflight = None;
+                    }
+                    if self.arch_md_shown == Some(bucket) {
+                        self.rebuild_overlays();
                     }
                 }
                 OverlayMsg::Metar(obs, tafs) => {

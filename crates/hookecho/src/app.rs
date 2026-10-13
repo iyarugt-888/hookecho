@@ -4268,12 +4268,11 @@ impl HookEchoApp {
     }
 
     fn active_storm_reports(&self) -> &[wxdata::spc::StormReport] {
-        if let Some(b) = self.arch_lsr_shown {
-            if let Some(r) = self.arch_lsr.peek(&b) {
-                return r;
-            }
-        }
-        &self.storm_reports
+        alerts_watch::archived_or_live(
+            self.arch_lsr_shown,
+            |b| self.arch_lsr.peek(&b).map(Vec::as_slice),
+            &self.storm_reports,
+        )
     }
 
     /// Drive the archived-LSR set from the active pane's playhead (mirrors
@@ -4297,9 +4296,8 @@ impl HookEchoApp {
                     self.arch_lsr_inflight = Some(b);
                     self.spawn_overlay(ctx, OverlaySource::StormReports(Some(b)));
                 }
-                if cached {
-                    self.arch_lsr_shown = Some(b);
-                }
+                // This bucket's from now on, none until it arrives (`archived_or_live`).
+                self.arch_lsr_shown = Some(b);
             }
         }
     }
