@@ -249,25 +249,34 @@ pub(crate) fn attributes(
     // editing a product in the manager updates this without needing another click.
     let udp_rows: Vec<(&str, String)> = udp_products
         .iter()
-        .map(|def| {
+        .flat_map(|def| {
             // A column formula reads the whole column under the point with the map's rules (its
             // base is the lowest sampled level, not this tilt), so the two cannot disagree; a gate
             // formula reads this gate.
-            let value = match def.compile() {
+            let (value, advice) = match def.compile() {
                 Ok(expr) => {
                     let v = if expr.uses_column() {
                         wxdata::udp_column::evaluate_column(&expr, &popup.column_inputs)
                     } else {
                         wxdata::udp::evaluate(&expr, &popup.gate_inputs)
                     };
-                    match v {
+                    let advice = wxdata::udp::unit_advice(&expr, &def.units);
+                    let value = match v {
                         Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
                         None => "—".to_string(),
-                    }
+                    };
+                    // The editor's unit and datum advice travels with the value it qualifies.
+                    let value = if advice.is_empty() {
+                        value
+                    } else {
+                        format!("{value} \u{26a0}")
+                    };
+                    (value, advice)
                 }
-                Err(e) => format!("Error: {e}"),
+                Err(e) => (format!("Error: {e}"), Vec::new()),
             };
-            (def.name.as_str(), value)
+            std::iter::once((def.name.as_str(), value))
+                .chain((!advice.is_empty()).then(|| ("\u{26a0} unit advice", advice.join("; "))))
         })
         .collect();
     let mut groups: Vec<(&str, Vec<(&str, String)>)> = vec![
@@ -1072,6 +1081,32 @@ mod tests {
         assert!(with.iter().any(|s| s == "USER-DEFINED"), "{with:?}");
         assert!(with.iter().any(|s| s == "Boosted REF"), "{with:?}");
         assert!(with.iter().any(|s| s == "52.50 dBZ"), "{with:?}");
+    }
+
+    /// The editor's unit advice travels with the value: flagged beside it, said underneath, and
+    /// the value still shown as the formula computes it (roadmaps/radar-analysis R1).
+    #[test]
+    fn unit_advice_is_shown_beside_a_products_value() {
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
+        popup.gate_inputs.reflectivity = Some(42.5);
+        let products = [wxdata::udp::ProductDef {
+            id: String::new(),
+            name: "Mislabelled".into(),
+            units: "m/s".into(),
+            expression: "REF".into(),
+            range: None,
+            palette: None,
+        }];
+        let labels = labels_for(&popup, &products);
+        assert!(
+            labels.iter().any(|s| s == "42.50 m/s \u{26a0}"),
+            "{labels:?}"
+        );
+        let at = labels
+            .iter()
+            .position(|s| s == "\u{26a0} unit advice")
+            .expect("advice row");
+        assert!(labels[at + 1].starts_with("Labelled m/s"), "{labels:?}");
     }
 
     /// A column formula reads the column under the point, based at its lowest level — what the

@@ -123,6 +123,15 @@ pub fn label_note(label: &str, computed: Quantity) -> Option<String> {
     })
 }
 
+/// Everything worth saying about a product's units, as advice: the formula's own unit and datum
+/// notes, then its units label if that names a different quantity than the formula computes.
+/// One list for the editor, file import and the gate inspector, so they never disagree
+/// (roadmaps/radar-analysis R1). Advice only: a formula is never changed for it.
+pub fn advice(expr: &super::Expr, units: &str) -> Vec<String> {
+    let label = label_note(units, expr.result_quantity());
+    expr.unit_diagnostics().into_iter().chain(label).collect()
+}
+
 /// The diagnostics for a formula, in the order the formula reads, each once.
 pub(super) fn check(node: &ExprNode) -> Vec<String> {
     let mut out = Vec::new();
@@ -163,7 +172,13 @@ fn walk(node: &ExprNode, out: &mut Vec<String>) -> Quantity {
                         };
                         out.push(mismatch(verb, qa, qb));
                     }
-                    join(qa, qb)
+                    // Two reflectivities' difference is their ratio, in dB (a core's growth over
+                    // its base, `max_vertical(REF) - REF`), not a reflectivity.
+                    if *op == BinOp::Sub && qa == Quantity::Dbz && qb == Quantity::Dbz {
+                        Quantity::Db
+                    } else {
+                        join(qa, qb)
+                    }
                 }
                 // Scaling a quantity by a coefficient is how an index weighs its terms
                 // (`(REF-50)/2 + (1-CC)*100`), so a scaled quantity is not checked further.
@@ -270,6 +285,32 @@ mod tests {
 
     fn diag(src: &str) -> Vec<String> {
         parse(src).unwrap().unit_diagnostics()
+    }
+
+    /// The editor, import and inspector read one list: the formula's notes, then the label's.
+    #[test]
+    fn advice_joins_the_formula_and_its_label() {
+        let formula = super::advice(&parse("REF + VEL").unwrap(), "");
+        assert_eq!(formula, ["Adds dBZ with m/s"]);
+        let label = super::advice(&parse("abs(VEL)").unwrap(), "dBZ");
+        assert_eq!(label.len(), 1, "{label:?}");
+        assert!(label[0].starts_with("Labelled dBZ"), "{label:?}");
+        assert!(super::advice(&parse("REF").unwrap(), "dBZ").is_empty());
+    }
+
+    /// A difference of reflectivities is in dB: labelled dB it is consistent, labelled dBZ not.
+    #[test]
+    fn a_reflectivity_difference_is_in_db() {
+        let q = |src: &str| parse(src).unwrap().result_quantity();
+        assert_eq!(q("max_vertical(REF) - REF"), super::Quantity::Db);
+        assert_eq!(
+            q("REF - 50"),
+            super::Quantity::Dbz,
+            "an offset keeps the unit"
+        );
+        let growth = parse("max_vertical(REF) - REF").unwrap();
+        assert!(super::advice(&growth, "dB").is_empty());
+        assert_eq!(super::advice(&growth, "dBZ").len(), 1);
     }
 
     #[test]

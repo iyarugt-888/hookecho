@@ -238,7 +238,11 @@ fn validate(
             entry.altitude, derived.altitude
         ));
     }
-    if derived.altitude == Altitude::Mixed {
+    // The editor's unit and datum advice, here too: imported as written, never rewritten.
+    let advice = crate::udp::unit_advice(&expr, &def.units);
+    let datum_said = advice.iter().any(|a| a.contains("antenna's altitude"));
+    notes.extend(advice.into_iter().map(|a| format!("advice: {a}")));
+    if derived.altitude == Altitude::Mixed && !datum_said {
         notes.push(
             "it compares BEAM_HEIGHT_M (above the antenna) with MSL heights; the difference is the \
              antenna's altitude"
@@ -445,6 +449,31 @@ mod tests {
         let got = import(&text, &palettes).unwrap();
         assert!(got.diagnostics.is_empty(), "{:?}", got.diagnostics);
         assert_eq!(got.products, vec![entry.def.clone()]);
+    }
+
+    /// A product whose units do not add up imports as written, with the editor's advice named.
+    #[test]
+    fn unit_advice_is_reported_on_import_and_the_formula_kept() {
+        let text = export(&[
+            def("Odd sum", "REF + VEL"),
+            ProductDef {
+                units: "m/s".into(),
+                ..def("Mislabelled", "REF")
+            },
+        ]);
+        let got = import(&text, &palettes).unwrap();
+        assert_eq!(got.products.len(), 2, "advice never refuses a product");
+        assert_eq!(got.products[0].expression, "REF + VEL", "never rewritten");
+        let odd: Vec<_> = got
+            .diagnostics
+            .iter()
+            .filter(|d| d.starts_with("Odd sum: advice: "))
+            .collect();
+        assert_eq!(odd.len(), 1, "{:?}", got.diagnostics);
+        assert!(got
+            .diagnostics
+            .iter()
+            .any(|d| d.starts_with("Mislabelled: advice: Labelled m/s")));
     }
 
     #[test]

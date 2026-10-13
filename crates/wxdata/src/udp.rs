@@ -74,7 +74,7 @@
 use std::fmt;
 
 mod units;
-pub use units::{label_note, Quantity};
+pub use units::{advice as unit_advice, label_note, Quantity};
 mod wgsl;
 pub use wgsl::GpuProgram;
 

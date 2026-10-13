@@ -37,6 +37,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: unit advice for your own products, wherever they show
+
+The warning the product editor gives when a formula's units do not add up (adding reflectivity to
+velocity, a height above the radar against a height above sea level, a label that names another
+unit) now also shows when you import a product file and in the gate inspector beside the
+product's value. Products are still imported and computed exactly as written. A difference of two
+reflectivities now reads as dB, as it should, rather than being flagged.
+
 ### Fixed: the mesoscale satellite box on a pane with its own time
 
 With panes on different times and a GOES mesoscale sector chosen, each pane now finds where that

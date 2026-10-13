@@ -209,8 +209,7 @@ impl UdpWindow {
 /// mean what it does, unlike a formula that does not parse.
 fn unit_notes(ui: &mut egui::Ui, expr: &wxdata::udp::Expr, units: &str) {
     let amber = egui::Color32::from_rgb(230, 180, 90);
-    let label = wxdata::udp::label_note(units, expr.result_quantity());
-    for note in expr.unit_diagnostics().into_iter().chain(label) {
+    for note in wxdata::udp::unit_advice(expr, units) {
         ui.add(
             egui::Label::new(egui::RichText::new(format!("\u{26a0} {note}")).color(amber)).wrap(),
         );
