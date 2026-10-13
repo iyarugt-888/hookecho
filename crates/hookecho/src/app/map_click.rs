@@ -144,12 +144,22 @@ impl HookEchoApp {
                         .cloned()
                 })
                 .flatten();
+            // A surveyed tornado's damage indicator or path, while the survey tool's window is open.
+            let survey_hit = (marker_hit.is_none()
+                && !picked_site
+                && cam_site.is_none()
+                && dat_hit.is_none()
+                && tool == MapTool::Interrogate
+                && self.climo_open)
+                .then(|| self.survey_hit(pos, prect, &cam, vp, tap_r2(10.0)))
+                .flatten();
             // A river gauge under an interrogate click, among the ones actually drawn (the
             // declutter hides some, and a click must not open one the map does not show).
             let gauge_hit = (marker_hit.is_none()
                 && !picked_site
                 && cam_site.is_none()
                 && dat_hit.is_none()
+                && survey_hit.is_none()
                 && tool == MapTool::Interrogate
                 && self.show_gauges
                 && cam.zoom >= 6.0)
@@ -212,6 +222,15 @@ impl HookEchoApp {
                     self.gate_popup = None;
                     let site = cam_site.expect("checked Some");
                     self.open_webcam(&site, ctx);
+                }
+                _ if survey_hit.is_some() => {
+                    self.cell_popup = None;
+                    self.warning_popup = None;
+                    self.gate_popup = None;
+                    match survey_hit.expect("checked Some") {
+                        Ok(p) => self.open_damage_point(&p, ctx),
+                        Err(i) => self.select_survey(i),
+                    }
                 }
                 _ if dat_hit.is_some() => {
                     self.cell_popup = None;

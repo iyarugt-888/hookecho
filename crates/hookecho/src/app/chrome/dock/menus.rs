@@ -59,7 +59,7 @@ pub(super) fn window_home(w: AppWindow) -> (Menu, &'static str, &'static str) {
         W::Cappi => (Menu::Tools, ANALYSIS, "Constant-height slice (CAPPI)"),
         W::Volume3d => (Menu::Tools, ANALYSIS, "3D volume"),
         W::UdpProducts => (Menu::Tools, ANALYSIS, "User-defined products"),
-        W::Climatology => (Menu::Tools, ANALYSIS, "Tornado climatology"),
+        W::Climatology => (Menu::Tools, ANALYSIS, "Tornado surveys"),
         W::Verify => (Menu::Tools, ANALYSIS, "Warning verification"),
         W::ModelVerify => (Menu::Tools, ANALYSIS, "Model verification"),
         W::Site => (Menu::Tools, DATA, "Radar site"),

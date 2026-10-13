@@ -45,6 +45,9 @@ pub struct DamagePoint {
     /// URL of a survey photo, when one was attached.
     pub image: Option<String>,
     pub storm: Option<chrono::DateTime<chrono::Utc>>,
+    /// The surveyed path this indicator belongs to (the path's `globalid`), when the survey
+    /// linked it; many points carry an all-zero id instead, and are matched by distance.
+    pub path_id: Option<String>,
 }
 
 /// A surveyed tornado path.
@@ -62,6 +65,8 @@ pub struct DamageTrack {
     pub wfo: String,
     pub comments: Option<String>,
     pub storm: Option<chrono::DateTime<chrono::Utc>>,
+    /// The path's `globalid`, which its damage points name in `path_guid`.
+    pub id: String,
 }
 
 /// The rating as a 0–5 number, or `None` when the survey didn't rate it. Surveys write the scale
@@ -92,8 +97,20 @@ fn opt_text(p: &serde_json::Value, k: &str) -> Option<String> {
 
 fn num(p: &serde_json::Value, k: &str) -> Option<f64> {
     let v = p.get(k)?;
-    // Numeric columns come back as numbers; `windspeed` is a string of digits.
-    v.as_f64().or_else(|| v.as_str()?.trim().parse().ok())
+    // Numeric columns come back as numbers; `windspeed` is a string of digits. The service
+    // writes -99 for a value the survey left out (a path's width, its peak wind).
+    v.as_f64()
+        .or_else(|| v.as_str()?.trim().parse().ok())
+        .filter(|x| *x > -98.0)
+}
+
+/// A GUID column, normalised for comparison; `None` for the all-zero GUID the service writes
+/// for "no link".
+fn guid(p: &serde_json::Value, k: &str) -> Option<String> {
+    let g = text(p, k)
+        .trim_matches(|c| c == '{' || c == '}')
+        .to_ascii_uppercase();
+    (!g.is_empty() && g.chars().any(|c| c != '0' && c != '-')).then_some(g)
 }
 
 /// Epoch-millisecond columns → UTC.
@@ -125,6 +142,7 @@ pub fn parse_points(json: &str) -> anyhow::Result<Vec<DamagePoint>> {
             comments: opt_text(&props, "comments"),
             image: opt_text(&props, "image"),
             storm: stamp(&props, "stormdate"),
+            path_id: guid(&props, "path_guid"),
         });
     })?;
     Ok(out)
@@ -160,6 +178,7 @@ pub fn parse_tracks(json: &str) -> anyhow::Result<Vec<DamageTrack>> {
                 wfo: text(&props, "wfo"),
                 comments: opt_text(&props, "comments"),
                 storm: stamp(&props, "stormdate"),
+                id: guid(&props, "globalid").unwrap_or_default(),
             });
         }
     })?;
@@ -291,6 +310,242 @@ pub async fn fetch_cached(
     Ok((points, tracks))
 }
 
+/// The whole country, for a query by date alone: the lower 48, Alaska, Hawaii and Puerto Rico.
+pub const NATION: (f64, f64, f64, f64) = (-180.0, 15.0, -60.0, 72.0);
+
+/// SPC's convective day `day`: 12 UTC that day to 12 UTC the next, so an evening outbreak's
+/// after-midnight tornadoes stay with the day they belong to.
+pub fn convective_day(
+    day: chrono::NaiveDate,
+) -> (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) {
+    let start = day.and_hms_opt(12, 0, 0).expect("noon exists").and_utc();
+    (start, start + chrono::Duration::hours(24))
+}
+
+/// One surveyed event: a path and the damage indicators along it, or indicators no path claims.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurveyEvent {
+    pub track: Option<DamageTrack>,
+    /// Strongest first.
+    pub points: Vec<DamagePoint>,
+}
+
+impl SurveyEvent {
+    /// The strongest rating: the path's, or its strongest indicator's when the path was left
+    /// unrated (a re-analysed path can carry "N/A" while its points carry the EF5).
+    pub fn rating(&self) -> Option<u8> {
+        let track = self.track.as_ref().and_then(|t| ef_number(&t.efscale));
+        let points = self
+            .points
+            .iter()
+            .filter_map(|p| ef_number(&p.efscale))
+            .max();
+        track.max(points)
+    }
+
+    /// When it happened: the path's storm time, else its earliest indicator's.
+    pub fn time(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.track
+            .as_ref()
+            .and_then(|t| t.storm)
+            .or_else(|| self.points.iter().filter_map(|p| p.storm).min())
+    }
+
+    /// The surveying office.
+    pub fn office(&self) -> &str {
+        match &self.track {
+            Some(t) if !t.wfo.is_empty() => &t.wfo,
+            _ => self.points.first().map_or("", |p| p.office.as_str()),
+        }
+    }
+
+    /// `(west, south, east, north)` around the path and its indicators.
+    pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        let coords = self
+            .track
+            .iter()
+            .flat_map(|t| t.path.iter().copied())
+            .chain(self.points.iter().map(|p| [p.lon, p.lat]));
+        coords.fold(None, |acc, [lon, lat]| {
+            Some(match acc {
+                None => (lon, lat, lon, lat),
+                Some((w, s, e, n)) => (w.min(lon), s.min(lat), e.max(lon), n.max(lat)),
+            })
+        })
+    }
+
+    /// Deaths: the path's count, or its indicators' sum without a path.
+    pub fn deaths(&self) -> i32 {
+        match &self.track {
+            Some(t) => t.fatalities,
+            None => self.points.iter().map(|p| p.deaths).sum(),
+        }
+    }
+}
+
+/// How far from a path an unlinked indicator may be and still be its damage.
+const MATCH_KM: f64 = 3.0;
+/// How far apart in time an unlinked indicator and a path may be.
+const MATCH_HOURS: i64 = 12;
+
+/// Distance in km from a point to a path, on a local flat projection (fine at path scale).
+fn km_to_path(lon: f64, lat: f64, path: &[[f64; 2]]) -> f64 {
+    let kx = 111.32 * lat.to_radians().cos();
+    let ky = 110.57;
+    let to = |p: &[f64; 2]| ((p[0] - lon) * kx, (p[1] - lat) * ky);
+    path.windows(2)
+        .map(|w| {
+            let (a, b) = (to(&w[0]), to(&w[1]));
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (-(a.0 * dx + a.1 * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a.0 + t * dx).hypot(a.1 + t * dy)
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+impl DamageTrack {
+    /// The path as it can be drawn: split wherever one segment is far longer than the whole
+    /// recorded path (more than twice its length and over 10 km). A few digitised paths carry a
+    /// stray vertex tens of miles off, which would draw a 1-mile EF0 across a state.
+    pub fn drawable_runs(&self) -> Vec<&[[f64; 2]]> {
+        let limit_km = self
+            .length_mi
+            .map_or(f64::INFINITY, |mi| (mi * 1.609_344 * 2.0).max(10.0));
+        let seg_km = |a: &[f64; 2], b: &[f64; 2]| {
+            let kx = 111.32 * ((a[1] + b[1]) / 2.0).to_radians().cos();
+            ((b[0] - a[0]) * kx).hypot((b[1] - a[1]) * 110.57)
+        };
+        let mut runs = Vec::new();
+        let mut start = 0;
+        for i in 1..self.path.len() {
+            if seg_km(&self.path[i - 1], &self.path[i]) > limit_km {
+                if i - start >= 2 {
+                    runs.push(&self.path[start..i]);
+                }
+                start = i;
+            }
+        }
+        if self.path.len() - start >= 2 {
+            runs.push(&self.path[start..]);
+        }
+        runs
+    }
+}
+
+/// Group damage indicators with the paths they belong to: by the survey's own link when there
+/// is one, else to the nearest path within 3 km and 12 hours. Indicators no path claims become
+/// one event per office (straight-line wind, or a path not yet drawn). Events are in time order,
+/// each one's indicators strongest first.
+pub fn group(points: Vec<DamagePoint>, tracks: Vec<DamageTrack>) -> Vec<SurveyEvent> {
+    let mut events: Vec<SurveyEvent> = tracks
+        .into_iter()
+        .map(|t| SurveyEvent {
+            track: Some(t),
+            points: Vec::new(),
+        })
+        .collect();
+    let mut loose: std::collections::BTreeMap<String, Vec<DamagePoint>> = Default::default();
+    for p in points {
+        let linked = p.path_id.as_ref().and_then(|id| {
+            events
+                .iter()
+                .position(|e| e.track.as_ref().is_some_and(|t| &t.id == id))
+        });
+        let near = || {
+            events
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| {
+                    let t = e.track.as_ref()?;
+                    let close_in_time = match (p.storm, t.storm) {
+                        (Some(a), Some(b)) => (a - b).num_hours().abs() <= MATCH_HOURS,
+                        _ => true,
+                    };
+                    let d = km_to_path(p.lon, p.lat, &t.path);
+                    (close_in_time && d <= MATCH_KM).then_some((i, d))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i)
+        };
+        match linked.or_else(near) {
+            Some(i) => events[i].points.push(p),
+            None => loose.entry(p.office.clone()).or_default().push(p),
+        }
+    }
+    events.extend(loose.into_values().map(|points| SurveyEvent {
+        track: None,
+        points,
+    }));
+    for e in &mut events {
+        e.points
+            .sort_by_key(|p| std::cmp::Reverse(ef_number(&p.efscale)));
+    }
+    events.sort_by_key(|e| e.time());
+    events
+}
+
+/// Every survey for SPC's convective day `day`, nationwide, grouped into events.
+pub async fn fetch_day(
+    client: &reqwest::Client,
+    day: chrono::NaiveDate,
+) -> anyhow::Result<Vec<SurveyEvent>> {
+    let (start, end) = convective_day(day);
+    let (points, tracks) = fetch(client, NATION, start, end).await?;
+    Ok(group(points, tracks))
+}
+
+/// The surveyed paths within `radius_km` of a point, over `[start, end]`, newest first, without
+/// their indicators (see [`fetch_event`]).
+pub async fn fetch_paths_near(
+    client: &reqwest::Client,
+    lon: f64,
+    lat: f64,
+    radius_km: f64,
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<Vec<DamageTrack>> {
+    let dlat = radius_km / 110.57;
+    let dlon = radius_km / (111.32 * lat.to_radians().cos().max(0.1));
+    let bbox = (lon - dlon, lat - dlat, lon + dlon, lat + dlat);
+    let mut tracks = Vec::new();
+    for page in fetch_layer(client, 1, bbox, start, end).await? {
+        tracks.extend(parse_tracks(&page)?);
+    }
+    tracks.retain(|t| km_to_path(lon, lat, &t.path) <= radius_km);
+    tracks.sort_by_key(|t| std::cmp::Reverse(t.storm));
+    Ok(tracks)
+}
+
+/// A path's own event: the indicators around it on its day, grouped with it alone.
+pub async fn fetch_event(
+    client: &reqwest::Client,
+    track: DamageTrack,
+) -> anyhow::Result<SurveyEvent> {
+    let probe = SurveyEvent {
+        track: Some(track.clone()),
+        points: Vec::new(),
+    };
+    let (w, s, e, n) = probe.bounds().unwrap_or(NATION);
+    let pad = 0.05;
+    let at = track.storm.unwrap_or_else(chrono::Utc::now);
+    let (start, end) = (
+        at - chrono::Duration::hours(MATCH_HOURS),
+        at + chrono::Duration::hours(MATCH_HOURS),
+    );
+    let mut points = Vec::new();
+    for page in fetch_layer(client, 0, (w - pad, s - pad, e + pad, n + pad), start, end).await? {
+        points.extend(parse_points(&page)?);
+    }
+    let mut events = group(points, vec![track]);
+    events.retain(|e| e.track.is_some());
+    Ok(events.pop().unwrap_or(probe))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +648,171 @@ mod tests {
             date_where(s, e),
             "stormdate BETWEEN timestamp '2013-05-20 00:00:00' AND timestamp '2013-05-21 00:00:00'"
         );
+    }
+
+    fn point(lon: f64, lat: f64, ef: &str, path_id: Option<&str>) -> DamagePoint {
+        DamagePoint {
+            lon,
+            lat,
+            efscale: ef.into(),
+            damage: String::new(),
+            dod: String::new(),
+            windspeed: None,
+            deaths: 0,
+            injuries: 0,
+            office: "OUN".into(),
+            comments: None,
+            image: None,
+            storm: chrono::DateTime::from_timestamp(1_369_076_640, 0),
+            path_id: path_id.map(str::to_string),
+        }
+    }
+
+    fn track(id: &str, path: Vec<[f64; 2]>, ef: &str) -> DamageTrack {
+        DamageTrack {
+            path,
+            efscale: ef.into(),
+            length_mi: None,
+            width_yd: None,
+            max_wind: None,
+            fatalities: 0,
+            injuries: 0,
+            wfo: "OUN".into(),
+            comments: None,
+            storm: chrono::DateTime::from_timestamp(1_369_076_640, 0),
+            id: id.into(),
+        }
+    }
+
+    /// Indicators join the path the survey linked them to, else the nearest path within 3 km;
+    /// the rest are grouped apart. An unrated path takes its strongest indicator's rating.
+    #[test]
+    fn indicators_join_their_path() {
+        let a = track("A", vec![[-97.60, 35.30], [-97.40, 35.34]], "N/A");
+        let b = track("B", vec![[-97.00, 35.00], [-96.90, 35.05]], "EF1");
+        let points = vec![
+            point(-97.50, 35.321, "EF5", None),
+            point(-97.45, 35.33, "EF2", None),
+            point(-96.95, 35.03, "EF1", Some("A")),
+            point(-96.20, 34.00, "EF0", None),
+        ];
+        let events = group(points, vec![a, b]);
+        assert_eq!(events.len(), 3);
+        let moore = events
+            .iter()
+            .find(|e| e.track.as_ref().is_some_and(|t| t.id == "A"))
+            .unwrap();
+        assert_eq!(moore.points.len(), 3, "two near it and one linked by id");
+        assert_eq!(moore.points[0].efscale, "EF5", "strongest first");
+        assert_eq!(moore.rating(), Some(5));
+        let b = events
+            .iter()
+            .find(|e| e.track.as_ref().is_some_and(|t| t.id == "B"))
+            .unwrap();
+        assert!(b.points.is_empty(), "the linked point went to its own path");
+        let loose = events.iter().find(|e| e.track.is_none()).unwrap();
+        assert_eq!(loose.points.len(), 1);
+        assert_eq!(loose.office(), "OUN");
+    }
+
+    /// A stray vertex far off a short path is not drawn as a line across the map.
+    #[test]
+    fn a_stray_vertex_breaks_the_drawn_path() {
+        let mut t = track(
+            "S",
+            vec![
+                [-97.50, 35.30],
+                [-97.49, 35.30],
+                [-96.00, 36.50],
+                [-97.48, 35.31],
+                [-97.47, 35.31],
+            ],
+            "EF0",
+        );
+        t.length_mi = Some(1.1);
+        let runs = t.drawable_runs();
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert!(runs.iter().all(|r| r.len() == 2));
+        t.length_mi = None;
+        assert_eq!(
+            t.drawable_runs().len(),
+            1,
+            "without a recorded length, drawn as published"
+        );
+    }
+
+    #[test]
+    fn a_convective_day_runs_noon_to_noon_utc() {
+        let (s, e) = convective_day(chrono::NaiveDate::from_ymd_opt(2013, 5, 20).unwrap());
+        assert_eq!(s.to_rfc3339(), "2013-05-20T12:00:00+00:00");
+        assert_eq!(e.to_rfc3339(), "2013-05-21T12:00:00+00:00");
+    }
+
+    #[test]
+    fn missing_values_and_unlinked_guids_are_none() {
+        let props = serde_json::json!({
+            "width": -99.0, "maxwind": -99, "length": 17.51,
+            "path_guid": "{00000000-0000-0000-0000-000000000000}",
+            "globalid": "{86fce1a3-917e-4413-8b68-8efc23092575}"
+        });
+        assert_eq!(num(&props, "width"), None);
+        assert_eq!(num(&props, "maxwind"), None);
+        assert_eq!(num(&props, "length"), Some(17.51));
+        assert_eq!(guid(&props, "path_guid"), None);
+        assert_eq!(
+            guid(&props, "globalid").as_deref(),
+            Some("86FCE1A3-917E-4413-8B68-8EFC23092575")
+        );
+    }
+
+    /// Moore, 2013-05-20, live: the day's surveys nationwide, and the Moore path with its
+    /// indicators, found by distance to the path near Moore.
+    /// `cargo test -p wxdata moore_survey_day_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network (NWS DAT)"]
+    async fn moore_survey_day_live() {
+        let http = reqwest::Client::new();
+        let day = chrono::NaiveDate::from_ymd_opt(2013, 5, 20).unwrap();
+        let events = fetch_day(&http, day).await.unwrap();
+        let paths = events.iter().filter(|e| e.track.is_some()).count();
+        let points: usize = events.iter().map(|e| e.points.len()).sum();
+        println!(
+            "{day}: {} events, {paths} paths, {points} indicators",
+            events.len()
+        );
+        for e in &events {
+            println!(
+                "  EF{:?} {} {:?} {} pts, {:.1} mi",
+                e.rating(),
+                e.office(),
+                e.time(),
+                e.points.len(),
+                e.track.as_ref().and_then(|t| t.length_mi).unwrap_or(0.0)
+            );
+        }
+        let near = fetch_paths_near(
+            &http,
+            -97.49,
+            35.33,
+            10.0,
+            chrono::DateTime::from_timestamp(1_356_998_400, 0).unwrap(),
+            chrono::Utc::now(),
+        )
+        .await
+        .unwrap();
+        println!("paths within 10 km of Moore since 2013: {}", near.len());
+        let moore = near
+            .iter()
+            .find(|t| t.storm.is_some_and(|s| s.date_naive() == day));
+        let event = fetch_event(&http, moore.expect("the 2013 path").clone())
+            .await
+            .unwrap();
+        println!(
+            "Moore: EF{:?}, {} indicators",
+            event.rating(),
+            event.points.len()
+        );
+        assert_eq!(event.rating(), Some(5));
     }
 
     #[test]

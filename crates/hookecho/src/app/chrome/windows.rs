@@ -3,8 +3,8 @@
 use super::*;
 
 impl HookEchoApp {
-    /// The tornado-climatology results window: a magnitude histogram + strongest-first list of
-    /// historical tornadoes near the clicked point.
+    /// The tornado tool's window: NWS surveys by day or near a clicked spot
+    /// (`app/tornado_surveys.rs`), and near a spot the SPC record and warning history too.
     pub(crate) fn show_climatology_window(&mut self, ctx: &egui::Context) {
         if !self.climo_open {
             return;
@@ -12,18 +12,35 @@ impl HookEchoApp {
         let mut open = self.climo_open;
         let Some(window) = self.drawer.page(
             ctx,
-            "Tornado climatology",
+            "Tornado surveys",
             &mut open,
             false,
-            egui::Window::new("Tornado climatology"),
+            egui::Window::new("Tornado surveys").default_width(460.0),
         ) else {
             self.climo_open = open;
             return;
         };
         window.show(ctx, |ui| {
-            if let Some((lon, lat)) = self.climo_center {
-                ui.label(format!("Within 25 mi of {lat:.3}, {lon:.3}"));
+            self.surveys_ui(ui);
+            if self.surveys.mode != super::tornado_surveys::SurveyMode::Near
+                || self.climo_center.is_none()
+            {
+                return;
             }
+            ui.separator();
+            egui::CollapsingHeader::new("SPC record, 1950\u{2013}2022 (start and end points)")
+                .id_salt("climo_spc")
+                .show(ui, |ui| self.spc_record_ui(ui));
+            egui::CollapsingHeader::new("Warning history")
+                .id_salt("climo_warn")
+                .show(ui, |ui| self.warning_history_ui(ui));
+        });
+        self.climo_open = open;
+    }
+
+    /// The SPC tornado database near the clicked spot: a rating count and the strongest first.
+    fn spc_record_ui(&mut self, ui: &mut egui::Ui) {
+        {
             if self.climo_loading {
                 ui.horizontal(|ui| {
                     ui.spinner();
@@ -86,8 +103,12 @@ impl HookEchoApp {
                         }
                     });
             }
-            ui.separator();
-            ui.strong("Warning history");
+        }
+    }
+
+    /// How often the clicked spot's county has been warned.
+    fn warning_history_ui(&mut self, ui: &mut egui::Ui) {
+        {
             ui.weak("How often this spot's county has been warned (IEM, 1986–present).");
             match (&self.climo_warn, self.climo_warn_rx.is_some()) {
                 (Some(s), _) if s.total == 0 => {
@@ -120,8 +141,7 @@ impl HookEchoApp {
                     ui.weak("Warning history unavailable.");
                 }
             }
-        });
-        self.climo_open = open;
+        }
     }
 
     /// Offer back the report from a run that panicked. Once, with a Copy button — the point is

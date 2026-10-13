@@ -514,6 +514,7 @@ impl HookEchoApp {
             climo_hits: Vec::new(),
             climo_center: None,
             climo_open: false,
+            surveys: Default::default(),
             climo_loading: false,
             climo_error: None,
             climo_pending_query: None,

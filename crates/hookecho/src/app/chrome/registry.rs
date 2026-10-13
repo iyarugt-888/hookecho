@@ -1665,7 +1665,7 @@ impl HookEchoApp {
             ),
             (
                 MapTool::Climatology,
-                "Tool: Tornado climatology",
+                "Tool: Tornado surveys",
                 "How often tornadoes have hit this spot historically",
                 false,
             ),
@@ -1814,7 +1814,7 @@ impl HookEchoApp {
             ),
             (
                 W::Climatology,
-                "Tornado climatology…",
+                "Tornado surveys…",
                 "Historical tornado tracks for this area",
                 false,
             ),

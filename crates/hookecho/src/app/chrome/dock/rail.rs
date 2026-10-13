@@ -45,7 +45,7 @@ pub(super) const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
     &[
         (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
         (MapTool::Forecast, ph::CLOUD_SUN, "Point forecast"),
-        (MapTool::Climatology, ph::TORNADO, "Tornado climatology"),
+        (MapTool::Climatology, ph::TORNADO, "Tornado surveys"),
         (
             MapTool::Chase,
             ph::NAVIGATION_ARROW,

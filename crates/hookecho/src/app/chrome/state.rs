@@ -36,7 +36,9 @@ pub(crate) fn window_for_page(title: &str) -> Option<AppWindow> {
         "Warning Verification" => AppWindow::Verify,
         "Model Verification" => AppWindow::ModelVerify,
         "3D Reflectivity" => AppWindow::Volume3d,
-        "Tornado climatology" => AppWindow::Climatology,
+        // The tool was "Tornado climatology" before it read the NWS surveys; saved chrome keeps
+        // the old name.
+        "Tornado surveys" | "Tornado climatology" => AppWindow::Climatology,
         "Data source health" => AppWindow::DataHealth,
         _ => return None,
     })

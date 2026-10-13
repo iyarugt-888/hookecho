@@ -27,6 +27,7 @@ mod goes_context;
 mod goes_panes;
 mod goes_timeline;
 mod point_models;
+mod tornado_surveys;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
 mod impact_report;
@@ -1688,6 +1689,8 @@ pub struct HookEchoApp {
     climo_hits: Vec<wxdata::torclimo::TornadoTrack>,
     climo_center: Option<(f64, f64)>,
     climo_open: bool,
+    /// The tornado tool's NWS surveys: a day's or a spot's, and the picked event.
+    surveys: tornado_surveys::Surveys,
     climo_loading: bool,
     climo_error: Option<String>,
     climo_pending_query: Option<(f64, f64)>,
@@ -4024,6 +4027,7 @@ impl HookEchoApp {
         const RADIUS_KM: f64 = 40.0; // ~25 mi
         self.climo_open = true;
         self.climo_error = None;
+        self.query_surveys_near(lon, lat);
         self.query_warning_history(lon, lat);
         if let Some(tracks) = self.climo_tracks.clone() {
             self.climo_hits = wxdata::torclimo::near(&tracks, lon, lat, RADIUS_KM);
@@ -6719,27 +6723,38 @@ impl HookEchoApp {
             }
         }
 
-        // Historical tornado tracks from the last climatology query (magnitude-colored segments).
-        if self.climo_open && !self.climo_hits.is_empty() {
+        // Historical tornado tracks from the last climatology query (magnitude-colored segments),
+        // beside the surveys near the clicked spot.
+        if self.climo_open
+            && self.surveys.mode == tornado_surveys::SurveyMode::Near
+            && !self.climo_hits.is_empty()
+        {
             let screen = |lon: f64, lat: f64| {
                 let w = crate::render::mercator::lonlat_to_world(lon, lat);
                 let (sx, sy) = cam.world_to_screen(w, vp);
                 egui::pos2(prect.left() + sx, prect.top() + sy)
             };
             for t in &self.climo_hits {
-                let col = tornado_mag_color(t.mag);
+                // Faint and thin: the SPC record is a start and an end point, drawn under the
+                // surveyed paths so the two are not read as the same kind of line.
+                let col = tornado_mag_color(t.mag).gamma_multiply(0.45);
                 let a = screen(t.slon, t.slat);
                 let b = screen(t.elon, t.elat);
                 if !prect.contains(a) && !prect.contains(b) {
                     continue;
                 }
-                painter.line_segment([a, b], egui::Stroke::new(2.0, col));
-                painter.circle_filled(a, 2.5, col);
+                painter.line_segment([a, b], egui::Stroke::new(1.2, col));
+                painter.circle_filled(a, 1.8, col);
             }
             if let Some((lon, lat)) = self.climo_center {
                 let c = screen(lon, lat);
                 painter.circle_stroke(c, 5.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
             }
+        }
+
+        // NWS tornado surveys: the day's or the spot's paths and their damage indicators.
+        if self.climo_open {
+            self.paint_surveys(&painter, prect, &cam, vp);
         }
 
         // Alert spotlight: while an alert's card is open, dim the map outside its polygon. Under

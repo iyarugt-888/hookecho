@@ -32,8 +32,20 @@ The rolling `latest` release tracks `main` and is not listed here.
   not told by colour alone, and the colour tables that hold up for colour blindness are marked.
 - **Built for tablets** — Tablets get the full workstation sized for fingers, with windows you
   dock by dragging, and a page like this one after each update.
+- **Tornado surveys on the map** — Any day's NWS damage surveys: each tornado's path and every
+  damage point the crews rated, with the radar from that moment.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
+
+### Added: tornado surveys on the map
+
+The tornado tool now shows the National Weather Service's damage surveys. Pick a day, or one of
+ten notable days such as Moore 2013 or Mayfield 2021, and every surveyed tornado that day is
+drawn: its path coloured by rating, and each damage point the survey crews rated. Pick a tornado
+to see its length, width, peak wind and survey notes, step through its damage points strongest
+first (each opens its card with what was damaged, how badly, the estimated wind and any photo),
+and jump the radar to that moment. Click the map with the tool to list the surveyed paths near
+that spot, with the older SPC record and the warning history beside them.
 
 ### Added: HREF neighbourhood probabilities
 
