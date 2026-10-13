@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T02:19:30+00:00",
-  "generated_from_commit": "bde9ec6c2da2dfc331d5cba108f2758402873007",
+  "generated_utc": "2026-10-13T02:29:05+00:00",
+  "generated_from_commit": "b6e3c1a1ac1094550a4c6f9bb7c21fe4a4f8e054",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -324,8 +324,8 @@
     },
     {
       "path": "docs/certification/browser-limits/README.md",
-      "sha256": "25f53031ff8b7d0c61b71a7cc9c2a116653b2a509556e7f04833a981dc7e6224",
-      "bytes": 3190
+      "sha256": "0b7b6fa9d6403e12f58b091800109f7685c3d42d7f32e0f2ba4688a56c32e97b",
+      "bytes": 3538
     },
     {
       "path": "docs/certification/browser-limits/model-fields-href-prob-browser.jpg",
