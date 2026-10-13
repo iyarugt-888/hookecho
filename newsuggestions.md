@@ -1,3 +1,5 @@
+> **Planning authority: roadmaps/** — [master index](roadmaps/README.md) and [audit](roadmaps/audit.md) supersede this document's task ordering. This file retains historical requirements and evidence; completed/superseded items and remaining-work dispositions are preserved in [the archive](roadmaps/archive/README.md). Certification runs alongside implementation.
+
 # New suggestions — high value, low effort
 
 A pass over `ROADMAP_NEW.md` looking for one specific thing: work that would **noticeably improve

@@ -1,0 +1,1608 @@
+# Detection Improvement Roadmap
+
+Target branch: `feat/wsv3-redesign`
+
+Primary code areas:
+- `crates/wxdata/src/rotation.rs`
+- `crates/wxdata/src/tds.rs`
+- `crates/wxdata/src/tornado_id.rs`
+- `crates/wxdata/src/detverify.rs`
+- `crates/hookecho/src/app/detectors.rs`
+- `crates/hookecho/src/app.rs`
+- `crates/hookecho/src/settings.rs`
+
+## Progress
+
+- **Phase 0, done** (`d82778b`, `05d01e2`). `hookecho --headless-backtest-file docs/backtest-events.txt --export DIR` writes `candidates.csv` and `summary.json`; two consecutive runs are byte-identical (3021 candidates). Soundings are cached and named per event in the summary, because a failed sounding download silently changed every hail candidate. Damage surveys are now cached too (`dat::fetch_cached`; a survey-service outage dropped three events' paths from one run). Each event's chosen sounding is pinned (`choice-SITE-TIME.json`), because a fallback launch could differ between runs. Two runs of a subset are byte-identical again (`503aa91`).
+- **Phase 1, done** (`d1ce635`, and the UI rename after Phase 7). Tornado ID reads raw detector scores and fuses them once as named terms that sum exactly to the score. `COLLOCATION_SHARE = 1.0`: 0.5 cut false alarms scoring ≥ 0.9 from 7 to 1 but dropped the Washington, IL tornado (KILX 2013-11-17) out of Likely. Every detector score a person sees reads out of 100 (`wxdata::evidence::out_of_100`), never as a percentage. That covers the map markers and hovers, the alert banners, the Cell dock, the AI storm brief, the score breakdowns, and the Detectors sliders ("Minimum score … /100", checked in a 280 px capture).
+- **Phase 2, field done** (`azshear.rs`). LLSD AzShear with a 2.5 km × 750 m physical kernel and a Tukey-biweighted fit started from the median plane. Huber weighting was tried and fails on a single bad radial once the kernel is three radials wide (beyond ~90 km): it read half the radial's step as 0.014 s⁻¹. Nothing consumes the field yet. Lowest-tilt results: Moore 2013 peak cyclonic 0.039 s⁻¹, Mayfield 2021 0.028 s⁻¹, 35–51 ms per tilt in release. The clear-air control has 0.19% of gates at |shear| ≥ 0.006 before any screening.
+
+- **Phase 3, objects done** (`rotation_objects.rs`). Same-sense connected objects on the polar grid, with hysteresis (seed 0.006 s⁻¹, grow 0.004) and the plan's object properties. Every object is kept and its artifacts are named: too small (also under half the kernel's footprint), single radial, elongated, ragged (fills < 30% of its length × width), fold seam, poor fit, not significant, flank. Gates need storm context in their kernel: ≥ 25% of it at ≥ 20 dBZ.
+  - Lowest tilt, pinned corpus: Moore has a credible 0.039 s⁻¹ cyclonic object at the tornado (significance 39.5). Mayfield has credible 0.019 and 0.017 s⁻¹ objects beside it. The clear-air control has no credible object.
+  - Side by side in the backtest export (`rotation_llsd`, lowest tilt, 15–150 km, unscored): 2366 candidates vs the legacy detector's 663. At matched POD (~0.6) the false-alarm ratio is similar (0.68 vs 0.66), but there are 9.8 false alarms per radar-hour against 5.9. At the strongest end the LLSD objects keep POD 0.59 where the legacy score keeps 0.06. The existing detectors' output is unchanged, row for row.
+
+- **Phase 4, columns done** (`rotation_columns.rs`). Credible objects are associated up through the tilts by complete linkage: compatible with *every* member, within 3 km + 1 km per km of height, same sense, shear within 6×, one object per tilt. Columns report base and top height, depth, rooted, strongest shear in the 0–2, 2–3 and 3–6 km layers, height-integrated shear, and lean (only when at least 0.5 km deep). `columns_with_support` lets a column take, on a tilt it is missing, an object found without the echo screen (flagged `NoEcho`), marked `weak_echo`. Support never starts a column.
+  - Pinned corpus: Moore is a rooted cyclonic column through 4 tilts (0.3–0.9 km, 0.039 s⁻¹). Mayfield's rooted cyclonic column (0.5–1.4 km, 0.032 s⁻¹) needs a weak-echo member. Its strongest column (0.041 s⁻¹ at 0.7–0.9 km) stays unrooted, because the lowest-tilt circulation is in pieces 3–4 km apart.
+  - Backtest (`rotation_llsd` is now one candidate per column over the lowest four velocity tilts). At peak AzShear ≥ 0.018 s⁻¹, rooted, ≥ 2 tilts and cyclonic: 117 candidates, 46 verified, precision 0.39, 7.2 false per radar-hour, 7/9 events. Legacy at score ≥ 0.5: 88, 30, 0.34, 5.9 per hour, 7/9. With weak-echo support: 192, 71, 0.37, 12.3 per hour, 7/9. Rooting, depth and sense each raise precision at every shear cut.
+
+- **Phase 5, tracking done** (`rotation_tracks.rs`). `Tracker::update` continues columns from volume to volume by gated nearest neighbour, greedy by cost. The cost is distance from the track's motion-predicted position, plus shear and depth dissimilarity. Sense must match. Reach is 3 km from the prediction, or 3 km plus 35 m/s of travel for a track with no motion yet. Bounded: 12 points per track, and a track ends after 12 minutes unmatched. Each tracked column reports track id, age in volumes and seconds, motion, position jump from the prediction, and least-squares trends per 10 minutes in peak shear, low-level shear and depth.
+  - Backtest: median track speeds of 11–18 m/s per event, and the longest tracks span 6–8 of each event's 8 volumes. Cyclonic, rooted, ≥ 2 tilts, ≥ 0.018 s⁻¹: any age 192 / 71 verified / 12.3 false per hour / 7 of 9 events; seen in 2+ volumes 115 / 45 / 7.1 / 7 of 9; 3+ volumes 52 / 18 / 3.5 / 6 of 9. Persistence roughly halves false alarms per hour but barely moves precision (0.37 → 0.39), because many false alarms persist too (non-tornadic mesocyclones). The legacy score ≥ 0.6 tier is still the most precise (0.50, 2.2 per hour, 6 of 9). Persistence has to be fused with the other evidence (Phase 7), not used as a filter on its own.
+
+- **Phase 6, classification done** (`debris_class.rs`). Each `tds` signature is classified using its own polarimetric evidence (the existing fuzzy CC/Z/ZDR/size/contrast/range terms, `raw_confidence`), the volume's LLSD columns and hail cores:
+  - **Polarimetric anomaly:** evidence under 0.5, or hail-like with no rotation.
+  - **Debris candidate:** credible, but no rotation beside it.
+  - **Tornado debris signature:** credible, with a cyclonic column of ≥ 0.01 s⁻¹ low-level shear within 3 km plus two beam widths.
+
+  Hail signs are ZDR ≤ −0.5 dB and a POSH ≥ 50% core within 3 km. Very high reflectivity is deliberately not a hail sign, because verified debris had higher peak Z (median 61 dBZ) than the Denver hail anomalies (53).
+  - Backtest:
+
+    | Subset | Candidates | Verified | Precision | False per radar-hour | Events | Denver hail |
+    |---|---|---|---|---|---|---|
+    | Tornado debris signature | 52 | 28 | 0.54 | 2.4 | 6 of 9 | 2 |
+    | Same, rooted | 39 | 24 | 0.62 | 1.5 | 6 of 9 | 2 |
+    | Legacy debris, display ≥ 0.5 | 90 | 29 | 0.32 | 6.2 | 6 of 9 | 5 |
+    | App's Tornado ID "Tornado debris" tier | 55 | 27 | 0.49 | 2.8 | 6 of 9 | 0 |
+    | Debris candidates | 106 | 5 | 0.05 | — | — | — |
+
+    Unrotated low-CC signatures almost never verify.
+
+- **Phase 7 and Phase 8 stage A, the fusion layer exists; not promoted** (`tornado_fusion.rs`, `scripts/fusion/fit.py`).
+  - **Features.** 12 per tracked LLSD column, each counted once: low-level and peak shear, depth, tilts, rooted, cyclonic, persistence, shear trend, a collocated tornado debris signature's polarimetric evidence, its hail signs, range, and weak-echo rooting. Reports and warnings are not features.
+  - **Score.** The logistic of a sum of named log-odds terms, so the explanation reproduces it exactly. It is an evidence score, never a probability.
+  - **Fit.** L2 logistic regression held out by whole event (leave-one-event-out). A free fit learned corpus quirks: range negative and largest; hail beside debris *for* a tornado; correlated shear features with opposite signs. The shipped fit holds each weight to its physical sign and leaves range out. Shear trend, hail and weak-echo rooting were dropped for coming out wrong-signed; weak-echo rooting wanted a *positive* weight, worth revisiting with more events.
+  - **Held out by event.** Verified rows in the top 50, 100 and 200 (of 7783):
+
+    | Ranking | Top 50 | Top 100 | Top 200 | AUC |
+    |---|---|---|---|---|
+    | Constrained fusion | 29 | 59 | 102 | 0.68 |
+    | Peak shear alone | 26 | 46 | 85 | 0.70 |
+    | Free fit | 23 | 50 | 99 | 0.73 |
+
+    The fusion's top 50 reach 5 of 8 tornadic events, against 7 for peak shear.
+  - **In-sample against the app's Tornado ID, at matched false alarms per radar-hour.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.6 per hour | POD 0.33, FAR 0.28, CSI 0.25 | POD 0.45, FAR 0.39, CSI 0.34 |
+    | ~4–5 per hour | POD 0.47–0.51, FAR 0.33–0.37 | POD 0.63, FAR 0.56 |
+
+    The fusion's detections are more often right, but they cover fewer distinct tornadoes and its CSI is worse. Per Phase 13 it is not promoted; the app keeps its Tornado ID.
+
+- **Phase 11, verification matrix done** (`detbaseline.rs`, `detverify::lead_minutes`). Every threshold row now has POD, FAR, CSI, precision, recall, F1, false alarms per radar-hour and per volume, and median lead time with its count. The range bands are the plan's 0–30, 30–60, 60–100, 100–150 and 150+ km; with the beam-height bands they report POD, FAR and CSI at 0.5, each band's detections scored against the event's whole truth. Storm type is not broken down: the corpus has no storm-type labels.
+- **Phase 10, path truth done** (`detverify::PathTruth`). A surveyed track is matched along its path, not at its midpoint: a detection verifies within the radius of the stretch the tornado can have been on at that time, moving at 8–30 m/s from its surveyed start (the survey has no end time), widened by the window. A path is one event however long. The backtest console tables keep the midpoints; the export uses paths.
+  - Effect on this corpus: Tornado ID ≥ 0.6 goes from 33 to 35 verified (POD 0.63 → 0.67, FAR 0.56 → 0.53). LLSD columns ≥ 0.5 go from 367 to 411 verified, and their 0–30 km FAR from 0.41 to 0.28. About 40 detections on surveyed paths, away from the midpoints, had been counted as false.
+
+- **Phases 12 and 13, analyst preview done** (`llsd_analyst.rs`, the Detectors setting "LLSD rotation (analyst preview)", off by default). `rotation_columns::from_sweeps` is the shared per-volume pipeline the app and the backtest both call. The app tracks columns forward in time, classifies the debris beside them and fuses each one. It draws a cyan ring with a headline, and the hover gives every member's measurements and QC, the track, the debris and every evidence term (checked in a GPU capture on Moore 2013). It raises no alert and feeds nothing else.
+- **Phase 9, corpus doubled to 16 events** (`docs/backtest-events.txt`, each checked against the IEM LSR archive). The new events are a night outbreak (Dayton 2019), a violent far-range tornado (Rolling Fork 2023), an outbreak (Easter 2020), two tropical cases (Ida 2021, Harvey 2017), a giant-hail supercell (Denton 2016) and a clear-air morning.
+  - **Detection on the new events.** The LLSD columns find tornadoes the legacy detectors miss entirely: Dayton 5 of 6 verified, Easter 5 of 9, both with nothing from legacy. Rolling Fork 15 of 16. Clear air: nothing from any detector.
+  - **Debris on 16 events.**
+
+    | Subset | Candidates | Verified | Precision | False per hour | Events |
+    |---|---|---|---|---|---|
+    | Tornado debris signature | 66 | 43 | 0.65 | 1.4 | 9 of 16 |
+    | Same, rooted | 49 | 35 | 0.71 | 0.9 | 9 of 16 |
+    | Legacy debris, display ≥ 0.5 | 102 | 41 | 0.40 | 3.8 | 8 of 16 |
+    | Tornado ID debris tier | 64 | 34 | 0.53 | 1.9 | 8 of 16 |
+
+  - **Hail.** The giant-hail supercells still promote 8 false signatures (Denton 6, Denver 2). Every one is marginal on both axes: a promoting column of 0.010–0.013 s⁻¹ against a verified median of 0.02, polarimetric evidence 0.53–0.59 against 0.74, and mostly one tilt. Promoting only at ≥ 0.015 s⁻¹ would leave 2 of them and keep 39 of 43 verified in the same 9 events. Measured but not adopted: two hail events are too few to set it by, and the fused score below already rejects them.
+  - **Fusion refit (fusion-2, step-shaped persistence).** Held out by event, its top 50, 100 and 200 rows hold 31, 72 and 125 verified, against 29, 49 and 93 for peak shear. The weights barely moved from the 9-event fit, and 3+ volumes now weighs more than 2.
+  - **Against Tornado ID at matched false alarms (in-sample).**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~2.7 per hour | ≥ 0.5: POD 0.48, FAR 0.27, CSI 0.33 | ≥ 0.6: POD 0.49, FAR 0.50, CSI 0.34 |
+    | ~1.1–1.4 per hour | ≥ 0.7: POD 0.36, FAR 0.24 | ≥ 0.7: POD 0.39, FAR 0.35 |
+
+    FAR at 0.5 beyond 60 km is 0.24 and 0.09 for the fusion, against 0.68 and 0.76 for Tornado ID. At ≥ 0.7 the fusion has no detection in any hard-negative event. Same POD with half the false-alarm ratio is the plan's goal. Promotion is a user-visible change and is left to a decision (Phase 13).
+
+- **Validation round before promotion** (decision: validate more first). The corpus is now 21 events, with five more hard negatives: giant hail at San Marcos 2021, Omaha 2014 and St. Louis 2012, wind-farm clutter around Dodge City on a quiet night, and a bird-migration night at Houston. The export records which reports and paths each candidate matched (`matched_truths`) and each event's truth counts, so `fit.py` can verify held-out scores at the report level.
+  - **Hard negatives.** Across the nine, the app's Tornado ID at ≥ 0.6 makes 41 false detections: 14 on the wind-farm night and 16 in the Omaha hailstorm. Fusion at ≥ 0.7 makes 2. Migration and clear air produce nothing from any detector.
+  - **Held out by event, report level, against Tornado ID at matched false-alarm rates.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.5 per hour | ≥ 0.6: POD 0.36, FAR 0.32, CSI 0.27 | ≥ 0.7: POD 0.39, FAR 0.47, CSI 0.30 |
+    | ~3 per hour | ≥ 0.5: POD 0.37, FAR 0.38 | ≥ 0.6: POD 0.49, FAR 0.64 |
+
+    Out of sample the fusion is more often right but finds fewer tornadoes. The in-sample POD parity was optimistic. **Not promoted:** the plan does not accept a lower FAR that loses tornadoes.
+  - **Hail.** With the hail cases, hail beside debris fits at −1.05, the sign physics expects (on 9 events it fitted positive and was dropped). The shipped weights are this 21-event fit.
+
+- **Round two, 25 events, fusion-3.**
+  - **Corpus additions.** Rotation-only and QLCS tornadoes (the December 2021 Iowa derecho, a Naperville night QLCS, Mangum on the 2019 Oklahoma high-risk day) and a rotating non-tornadic hard negative (KTLX on that day, no report within 150 km for the whole window).
+  - **The `stationary` feature.** A track seen in 3+ volumes moving under 3 m/s; wind-farm tracks moved a median 1.9 m/s, verified ones 13.4. It fits against a tornado (−0.51). On this corpus its measurable effect is small: the refit had already brought the wind-farm night down to 1 false detection at ≥ 0.5, and slow tracks are not only clutter (11 of 109 verified).
+  - **Held out by event, report level, against Tornado ID at matched false-alarm rates.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.5 per hour | ≥ 0.6: POD 0.32, FAR 0.34, CSI 0.24 | ≥ 0.7: POD 0.28, FAR 0.48, CSI 0.23 |
+    | ~3–4 per hour | ≥ 0.4: POD 0.42, FAR 0.44 | ≥ 0.6: POD 0.45, FAR 0.62 |
+
+    At a strict setting the fusion now finds more tornadoes and is far more often right; at a looser one Tornado ID still finds slightly more.
+  - **Per event.** The rotating non-tornadic day costs Tornado ID 4 false detections and the fusion none. On the December derecho Tornado ID finds 12 reports and paths, the fusion 6: debris-less QLCS tornadoes are the fusion's weak spot, for the same reason it rejects rotating storms that make no tornado.
+
+- **Promoted: the fusion is Tornado ID's default** (decision after round two). The Detectors setting "Tornado ID: Fused (default) / Original" keeps the legacy one selectable, and old settings files load with the fusion. `llsd_analyst::identify` and `circulations` turn analysed columns into Tornado ID's own types, so the markers, the merged one-per-tornado view, the Cell dock and the storm brief all read it unchanged.
+  - **Tiers.** Confirmed when a tornado report (or an observed warning, over a detection) confirms it. Debris at evidence ≥ 0.6 with a tornado debris signature beside it. Likely at ≥ 0.6. Possible from 0.4. An observed warning alone cannot make a detection.
+  - **Unchanged.** The rotation and debris layers and their alerts.
+  - **Cost, kept off the UI thread.** On Moore 2013 in a release build the fused columns take 329 ms per volume, against 12 ms for the legacy couplets and 43 ms for legacy debris. They are computed on a background thread per new full volume, which asks for a repaint when done. Until then, and for light loop frames (one tilt, while the fusion's evidence is a column through several), Tornado ID shows the original's verdict, so the markers never blink out. The browser build has no threads and computes it in line.
+
+- **End-to-end regression tests** (`crates/wxdata/tests/detection_regressions.rs`). The plan's non-negotiable cases run through exactly the app's Tornado ID pipeline on synthetic three-tilt volumes:
+  - **Positive:** a vortex with debris on it is a Debris-tier tornado where it is; a short-lived extreme circulation is not held back for lack of persistence; a persisting circulation gains evidence; a strong persisting circulation without debris still shows.
+  - **Negative:** a wild gate, a leftover fold, a radial seam and a gust front are not tornadoes.
+  - **Invariants:** duplicate debris does not raise the score; the verdict is deterministic.
+  - **Clutter and hail:** a dense migration night (12–28 dBZ, so it passes the echo screen; CC 0.3–0.6; scattered velocity) over four volumes, a stationary wind farm (50 dBZ, low CC, ±25 m/s blade scatter) and a 65 dBZ low-CC hail core with no rotation all make no detection. The migration makes ~390 lowest-tilt objects and the farm 9, all rejected as small, single-radial, poorly fitted or not significant, so the tests do not pass by having nothing reach the pipeline. The real wind-farm night still made one fused false detection, so real clutter is less random than this.
+
+  A diagnostic shows *why* the seam and fold produce nothing: the biweight discards the minority side of a one-sided step, so the field's shear there is exactly 0. Vortices narrower than the radial spacing still form columns (a 0.3 km core reads ~0.027 s⁻¹ after LLSD smoothing).
+- **Possible-tier floor lowered from 0.4 to 0.3.** At 0.4 a strong, deep circulation with no debris (40–50 m/s, three tilts, scoring 0.29–0.34) did not show at all, where the legacy Tornado ID read it as Likely. Held out by event, everything at ≥ 0.3 still beats everything the legacy Tornado ID shows: POD 0.54 against 0.49, FAR 0.53 against 0.77, 7.7 false per hour against 10.1. Likely stays at 0.6.
+
+- **Round three, 35 events: the shipped weights tested on events they never saw** (`docs/backtest-events.txt`, export `p9g-35`). Ten events were added, each checked against the IEM LSR archive within 150 km:
+  - **Tornadoes that carry little debris:** the Chicago derecho QLCS (KLOT 2020-08-10), brief tornadoes ahead of the 3/31/2023 outbreak (KILX), and four tropical cases: Beryl (KSHV), Milton (KMLB, 90–140 km out), Debby at night (KRAX) and Helene's outer bands at night (KCAE).
+  - **Giant-hail supercells with no tornado report within 150 km from two hours before to three after:** Norman 2020 (KTLX, 12–42 km), Granbury 2023 (KFWS), San Antonio 2016 (KEWX) and Kanorado 2014 (KGLD). These were found by a search of 2014–2024 LSRs for bursts of ≥ 2 in hail.
+  - **Out of sample.** fusion-3 was fitted on the other 25 events, so these 10 are fully held out. Report level, 85 tornado reports and paths, ~9 radar-hours:
+
+    | Matched rate | Fusion (shipped) | Tornado ID (original) |
+    |---|---|---|
+    | ~1.5–1.9 per hour | ≥ 0.4: POD 0.29, FAR 0.21, CSI 0.25 | ≥ 0.7: POD 0.15, FAR 0.64, CSI 0.13 |
+    | App floors | Possible ≥ 0.3: POD 0.29, FAR 0.37 | ≥ 0.3: POD 0.33, FAR 0.72 |
+    | Likely | ≥ 0.6: POD 0.20, FAR 0.07 | ≥ 0.6: POD 0.19, FAR 0.68 |
+
+    On the four hail storms, at Likely, the fusion makes 2 false detections and the original 25.
+  - **Refit not adopted.** Each new event was scored by a constrained fit on the 34 others and compared with the shipped scores on the same 5,338 rows. The refit ranks worse (AUC 0.569 against 0.638) and has a higher FAR at every threshold, for about the same POD. fusion-3's weights stand; the full 35-event fit is in `target/detection-baseline-p9g-fit.txt`.
+  - **The QLCS and tropical gap is weighting, not detection, again.** 21 of the 22 KLOT truths and 23 of 28 KMLB truths have an LLSD column on them. The columns are rotation-only: median 0.017 s⁻¹ through 2 tilts, rooted, persisting, no debris. They fuse at 0.08–0.26, under the Possible floor. The original Tornado ID finds 4 of 22 at KLOT at the cost of 19 false; the fusion finds 2 with 2 false. The hail-only storms make columns in the same shear range, so neither a lower floor nor more weight on shear separates them. What is missing is evidence about the circulation itself that a hail storm's mesocyclone lacks, for example storm mode (embedded in a line) or a rear-inflow/notch signature. That is a new feature to design, not a threshold to tune.
+
+- **Storm mode tried: connected-echo shape does not separate a line from a cell** (`storm_mode.rs`, export `p10-echo`). Each column now carries the ground shape of the ≥ 40 dBZ object under its base on the lowest tilt, or of the strongest object within 5 km. The shape is the area and principal-axis length and width, from one labelling pass per volume that costs 1.4–3.6 ms in release. It is exported as `echo_length_100km` and `echo_aspect` at weight 0, and shipped scores are unchanged row for row.
+  - **Five pinned storms.** Moore's tornadic column sits in a 37 × 7 km 40 dBZ region (aspect 5.4: the hook and forward flank joined). The derecho's echo is one 142 × 66 km region (aspect 2.2). Across 30–50 dBZ thresholds, the supercells read 1.3–2.3, the derecho 1.7–2.6 and Denver hail 1.1–3.5.
+  - **35 events, columns with ≥ 0.012 s⁻¹ low-level shear.**
+
+    | Group | Median aspect | No core within 5 km |
+    |---|---|---|
+    | QLCS/tropical, verified | 2.3 | 3% |
+    | QLCS/tropical, false | 3.6 | 12% |
+    | Hail storms, false | 1.9 | 25% |
+    | Supercell days, verified | 2.9 | 4% |
+    | Supercell days, false | 2.6 | 9% |
+
+  - **Held out by event** (constrained fit, each sign tried):
+    - Aspect and length, either sign: the fit gives them zero weight, and results are identical to the shipped features (AUC 0.597; QLCS events 0.607).
+    - "No core within 5 km", against a tornado: a small gain. AUC 0.602 (QLCS 0.610), and POD 0.40 against 0.37 at ≥ 0.4 at the same FAR (0.43) and false-alarm rate (4.8 per hour).
+  - **Not adopted.** The no-core gain is within what a different corpus could take back, and the last refit already scored worse than fusion-3 on unseen events. The measurement stays as instrumentation.
+  - **For the QLCS gap, the next candidate is velocity evidence around the circulation rather than echo shape.** The three-ingredients view of QLCS tornadogenesis (line-normal low-level shear, a surging rear-inflow jet, a mesovortex on the leading edge) predicts strong near-ground inbound flow beside the vortex. A hail storm's mesocyclone need not have it.
+  - **Determinism note.** This run differs from `p9g-35` only in the hail detector at the new KLOT event (157 rows against 155): the earlier run fell back to the 00Z Lincoln sounding where this one got 12Z. The summary records each run's sounding label, as Phase 0 intended.
+
+- **Velocity beside the circulation: a couplet signal that ranks better but does not survive the Likely tier** (`near_flow.rs`, exports `p11-flow` and `p12-vrot`). Every valid gate within 5 km of a column's base on the lowest dealiased velocity tilt gives four measurements, each exported at weight 0; shipped scores are unchanged row for row:
+  - the 90th-percentile radial speed
+  - the strongest inbound and outbound flow
+  - Vrot, half their sum
+  - the couplet minimum, the weaker of the two
+  - **By class** (columns with ≥ 0.012 s⁻¹ low-level shear):
+
+    | Group | p90 speed | Strongest inbound | Couplet minimum |
+    |---|---|---|---|
+    | QLCS/tropical, verified | 20.6 | 26.6 | 14.6 |
+    | QLCS/tropical, false | — | — | 9.5 |
+    | Hail storms, false | 21.6 | 27.6 | 8.5 |
+    | Derecho, false | 30.6 | 31.1 | **0.0** |
+    | Rotating storms with no tornado, false | — | — | 19.6 |
+    | Supercell days, verified | — | 30.6 | 27.6 |
+    | Supercell days, false | — | 16.6 | 4.5 |
+
+    Speeds are medians, m/s. Speed alone does not separate a QLCS tornado from a hail storm. A couplet needs strong flow both ways, and straight-line wind has only one.
+  - **Held out by event, 35 events:**
+    - p90 speed: no effect.
+    - Inbound: AUC 0.617, but the derecho goes from 0 to 13 false detections at ≥ 0.5.
+    - Vrot: AUC 0.605.
+    - Couplet minimum: AUC 0.626, with the derecho at 0.
+    - Couplet minimum with no core: AUC 0.632, with weights of +0.38 per 10 m/s and −0.61. POD/FAR improve at every threshold, for example at ≥ 0.4 POD 0.43 and FAR 0.40 against 0.37 and 0.42 at a similar false-alarm rate.
+    - The QLCS events' own AUC barely moves (0.612): it is a general gain, not the QLCS fix.
+  - **The deciding test: both feature sets trained on the original 25 events and scored on the 10 round-three events.** The shipped features trained this way reproduce fusion-3 exactly (AUC 0.638), which validates the method. With the couplet minimum and no core, AUC rises to 0.659, but the scores shift. With each tier re-derived to keep fusion-3's false-alarm rate on the training events, the unseen events give:
+    - Possible: POD 0.28 against 0.29, same FAR (a wash).
+    - Likely: POD 0.08 against 0.20.
+  - **Not adopted.** A better ranking that loses tornadoes at the tier readers act on fails the plan's rule. The four measurements stay exported as instrumentation for a larger corpus, where calibration (Phase 14) can set the tiers with the weights.
+
+- **Lead time, measured along the storm's track** (`docs/backtest-leadtime.txt`, `scripts/fusion/lead_time.py`, export `p13-lead`). The main corpus could not measure lead. Each event starts a few minutes before its first report, and a detection counted only inside the 15-minute window at the report's own place, so lead could never exceed 15 minutes.
+  - **Setup.** The lead-time manifest starts the 20 tornado events 30 minutes earlier and runs 16 volumes each. The summary now records every tornado truth's minute (`tornado_truth_minutes`). For the fused Tornado ID, a found truth's lead runs from the first volume in which a track that matched it was already at the threshold. The original has no tracks, so it gets the window-limited lead.
+  - **All 254 reports and paths.** Fused along its track: median 4 minutes at ≥ 0.3, with 31% at 10 minutes or more (max 40). This overstates lead, because a report made partway along an ongoing tornado's path is credited from earlier in the same track.
+  - **The honest measure: the 100 surveyed paths, from their surveyed start.**
+
+    | | ≥ 0.3: median | ≥ 0.3: ≥ 10 min | ≥ 0.6: median | ≥ 0.6: ≥ 10 min |
+    |---|---|---|---|---|
+    | Fused, along its track | +1 min (n 44) | 16% (max 33) | −4 min (n 23) | 9% |
+    | Fused, window-limited | +1 min | 9% | −4 min | 4% |
+    | Original, window-limited | +1 min (n 46) | 4% | −1.5 min (n 34) | 3% |
+
+  - **Both Tornado IDs mostly confirm a tornado around touchdown rather than warn ahead of it.** At Possible, the fused one gives 10+ minutes of lead four times as often as the original. At Likely it arrives later: most of its weight is debris, and debris follows touchdown. Survey start times are themselves estimates, often radar-derived, so these are within a few minutes. This is a property of the evidence, not a defect to tune away. Lead would come from precursor evidence (mesocyclone intensification, trends), which the constrained fit currently zeroes (`shear_trend`).
+
+- **Precursors and track continuity** (from `p13-lead` and `p12-vrot`).
+  - **5–30 minutes before a surveyed touchdown**, columns on tracks that later produce the tornado (720 rows) differ only slightly from columns on tracks that never verify (18,056). Each feature's AUC: low-level shear 0.61, peak shear 0.60, depth 0.59, couplet minimum 0.59, shear trend 0.53. The fused score itself is 0.61. The radar evidence here holds little precursor signal.
+  - **Tracking is fragmented along tornadoes.** On 91 surveyed paths matched in 3+ volumes:
+    - the strongest matching column changes track in 87% of consecutive volumes
+    - a median of 18 track ids touch one path
+    - the longest track on a path is a median 2 volumes old
+    - 90% of all fused rows are on tracks 1–2 volumes old
+
+    A replay of the tracker on the export (dropped: it reproduced only 62% of the exported ages, since minute timestamps carry a kilometre of prediction error) showed widening the gate barely moves the switching, 0.91 to 0.85 even at 8 km. The cause is that one circulation is several simultaneous column pieces, each with its own track.
+  - **Circulation persistence does not help either.** Rebuilt as the oldest same-sense track within 5 km in the same volume, it doubles the rows on 3+ volume tracks (14% to 30%). Held out by event, AUC goes from 0.597 to 0.598, and POD only at ≥ 0.4 (0.37 to 0.40). Persistence is weak evidence, as Phase 5 found, because non-tornadic mesocyclones persist too. Fragmentation is real, but it is not what limits the score or the lead time.
+
+- **Round four, 45 events: five line-tornado days and five non-tornadic lines** (export `p14-45`). The events were found by searching 2014–2024 LSRs within 150 km of each radar and checked line by line.
+  - **Line tornadoes:** ≥ 3 tornado reports among ≥ 20 wind reports in 90 minutes. Minnesota 2018-09-20 (KMPX), Ohio Valley 2020-04-09 (KILN), Mississippi Valley 2024-07-15 (KDVN), eastern North Carolina 2020-04-13 (KMHX) and a morning southern-Illinois QLCS 2024-04-02 (KPAH).
+  - **Non-tornadic lines:** ≥ 30 wind reports in 90 minutes, no tornado within 150 km from two hours before to three after. The Indiana derecho 2023-06-29 (224 wind reports), KDVN 2024-05-21, KILX 2023-05-08, KIWX 2024-06-13 and KLOT 2022-08-29.
+  - **Unseen by every fit so far.** 96 tornado reports and paths:
+    - The fused Tornado ID makes 3 detections at ≥ 0.3 (2 verified, POD 0.03) and none at ≥ 0.6. It makes **0** false detections on the five lines.
+    - The original makes 38 at ≥ 0.3 (POD 0.05, FAR 0.95), 23 of them false on the lines (11 on KILX, 9 on KLOT).
+  - **Neither finds line tornadoes. The reason is sensing, not weighting.** The fused columns on these tornadoes are mostly not rooted, with median bases of 1.4–2.3 km at median ranges of 72–102 km, and weak: median peak shear 0.008–0.0095 s⁻¹, below the 0.012 s⁻¹ that marks strong low-level rotation elsewhere. Even the median low-level shear on truths is 0 at KILN, KPAH and KDVN.
+    - A shallow QLCS mesovortex of 1–2 km spans only a few radials at 70–100 km.
+    - The LLSD kernel (2.5 km across the beam) smooths it further.
+    - Beyond ~100 km the lowest beam is above where it rotates.
+  - **Data note.** KDVN 2024-05-21 and 2024-07-15 had only 3 and 4 volumes in the archive window.
+  - **Next experiment.** Better QLCS POD needs the field to resolve smaller vortices: a narrower azimuthal kernel at range, or the plan's adaptive neighbourhood. Any change to the field changes every feature, so it needs the full refit and the clean held-out test.
+
+- **A narrower LLSD kernel does not resolve line tornadoes; it amplifies noise** (export `p15-k15`, the 45 events with `HOOKECHO_LLSD_AZIMUTHAL_KM=1.5`, against the 2.5 km default in `p14-45`).
+
+  | Measure | 2.5 km | 1.5 km |
+  |---|---|---|
+  | Line-tornado truths' low-level shear (90th percentile) | 1.44 | 1.51 |
+  | False columns' low-level shear (90th percentile) | 1.05 | 1.33 |
+  | False columns' low-level shear (99th percentile) | 1.87 | 2.26 |
+  | Fused rows | 27,402 | 41,190 |
+  | Line-tornado truths with a ≥ 0.012 s⁻¹ low-level column | 49 | 48 |
+
+  Shear is in 0.01 s⁻¹. The same pattern holds on the QLCS/tropical, hail and supercell groups. The kernel stays at 2.5 km; no refit was needed to reject it.
+
+- **TDWR feasibility, and a binning bug it exposed** (`tests/tdwr_feasibility.rs`, `tdwr::fetch_volume_at`). The same LLSD field on the lowest velocity tilt of O'Hare's TDWR (TORD) and of KLOT, at six Chicago derecho tornado reports on 2020-08-10. Strongest cyclonic shear within 3 km, s⁻¹:
+
+  | Report | TORD (range) | KLOT (range) |
+  |---|---|---|
+  | Wheaton | 0.0076 (22 km) | 0.0135 (29 km) |
+  | Lombard | 0.0224 (16 km) | 0.0188 (32 km) |
+  | Midlothian | 0.0047 (22 km) | 0.0197 (30 km) |
+  | Park Forest | 0.0211 (38 km) | 0.0190 (36 km) |
+  | West Ridge | 0.0034 (27 km) | 0.0095 (55 km) |
+  | Plainfield | no data | sparse |
+
+  - **TDWR is not a reliable gain here.** It is stronger at two reports and much weaker at three, consistent with C-band attenuation in the derecho's heavy rain.
+  - **The QLCS conclusion is refined.** KLOT already reads 0.013–0.020 s⁻¹ at four of these near-range tornadoes, so within ~40 km the miss is weighting (rotation-only, no debris), not sensing. The sensing limit applies beyond ~70 km, as round four found.
+  - **Bug fixed.** Level 3 radials carry no clocks, so binning gave a TDWR sweep a per-bin time vector of zeros. `rotation::scanned_together` reads zero as "no radial landed", so the LLSD field and the couplet detector refused every kernel on a TDWR: no rotation detection at all on TDWR sites in the app. A sweep with no clocked radial now bins with timing unknown (an empty vector, as `BinnedSweep` documents). Every other reader already treated zero as unknown, so nothing else changes. The TDWR synthesis test pins it.
+  - **The detectors stay off on TDWR, deliberately.** With the bug fixed, the fused Tornado ID would have run on TDWR with weights fitted only on WSR-88D. On TORD through the derecho hour (20:00–21:00Z) it would show 78 Possible markers, only 2 near a tornado report, and 1 Likely (not near one): the 150 m C-band gates read routinely higher shear, about 0.03 s⁻¹. Rotation, Tornado ID and the analyst preview are therefore not run on TDWR sites, which is what the bug had done silently. The Detectors panel now says so. Running them there would need a TDWR corpus and its own fit.
+
+- **Near-ground low-level shear does not separate either** (offline on `p14-45`). The feature is the 0–2 km shear when the column's base beam is under 1 km above the radar, else 0: close-range, low-tilt rotation, the operational cue. Held out by event on all 45, it fits to almost nothing. AUC goes from 0.596 to 0.594, and POD and FAR are unchanged at every threshold, for example at ≥ 0.6 POD 0.21 and FAR 0.30 against 0.20 and 0.32. On round four the shipped fusion finds 3% at Possible, so there is nothing for it to recover there. The near-range miss is not about where the shear was measured: rotation-only columns of 0.013–0.020 s⁻¹ simply look like the many that never produce a tornado.
+
+- **Per-stage cost** (`scientific_corpus::cached_fused_pipeline_stage_timings`). The pinned Moore 2013 volume, lowest four velocity tilts, 67 columns, 18 debris signatures. Release build, median of 5, on an AMD Ryzen 7 2700 (8 cores, 16 threads):
+
+  | Stage | Time |
+  |---|---|
+  | LLSD field | 151 ms (38 ms per tilt; rows in parallel) |
+  | Objects, the credible pass and the weak-echo support pass | 108 ms |
+  | Echo shape and near-ground flow | 3.3 ms |
+  | Vertical association | 0.17 ms |
+  | Tracking | 0.03 ms |
+  | Debris classification and fusion | 0.08 ms |
+  | `from_sweeps` end to end | 277 ms |
+
+  The field and the two object passes are 94% of the cost; everything after them is negligible. The app runs this once per new full volume on a background thread, so it never blocks a frame. The object passes are the first place to look if a slower device needs it: the support pass re-segments the same field. Low-end desktop and Android timings are not measured.
+
+- **Round five, 55 events: supercell tornadoes and more hail, unseen by every fit** (export `p16-55`).
+  - **Supercell tornado days:** Andover/Wichita 2022 (KICT), Little Rock 2023 (KLZK, 12 km), Selma 2023 (KBMX), Newnan 2021 at night (KFFC) and Arabi/New Orleans 2022 (KLIX).
+  - **Giant-hail supercells with no tornado:** northeast Kansas 2016 (KTWX), Hill Country 2024 (KGRK, 6.25 in), Dallas–Fort Worth 2024 (KFWS), Bridge Creek 2021 (KTLX) and Heidelberg 2021 (KMPX).
+  - **Results.** 54 tornado reports and paths:
+
+    | Tier | Fusion (shipped) | Original Tornado ID |
+    |---|---|---|
+    | Possible (≥ 0.3) | POD 0.41, FAR 0.39, CSI 0.30, 2.5 false/h | POD 0.39, FAR 0.67, CSI 0.25, 3.6 false/h |
+    | Likely (≥ 0.6) | POD 0.28, FAR 0.11, CSI 0.27, 0.2 false/h | POD 0.26, FAR 0.62, CSI 0.21, 1.6 false/h |
+
+    On the five hail storms, at Likely, the fusion makes 2 false detections and the original 12. At Little Rock the fusion finds 6 of 10 at Likely with no false detection; the original finds 1 of 10.
+  - **More data still does not beat fusion-3.** The shipped feature set refitted on the first 45 events, with tiers set to fusion-3's training false-alarm rates (Possible 0.350, Likely 0.655), ranks round five identically (AUC 0.651 both). At Possible it is a wash: POD 0.41, FAR 0.37 against 0.41, 0.39. At Likely it loses: POD 0.17 against 0.28 at the same false-alarm rate. Its weights barely move (debris 2.77, max shear 0.66, low-level 0.21, hail −1.70, stationary −0.48), but they put the Likely boundary in a worse place. This is the third refit to lose out of sample, so fusion-3 stays.
+
+- **Round six, 65 events: Southeast and Mid-Atlantic line tornadoes, and five more wind lines** (export `p17-65`).
+  - **Line-tornado days:** Alabama at night 2022-03-31 (KBMX), Mississippi 2019-04-18 (KGWX), Virginia/North Carolina 2019-04-19 (KAKQ), South Carolina/Georgia 2022-04-05 (KCLX) and Georgia 2023-01-12 (KJGX).
+  - **Wind lines with no tornado within 150 km:** KCAE 2019-06-20, KHTX 2020-05-03, KFFC 2017-06-15, KMKX 2021-08-10 and KJGX 2023-08-07.
+  - **Unseen by every fit.** 128 tornado reports and paths, most first reported 100–150 km out:
+
+    | Tier | Fusion | Original |
+    |---|---|---|
+    | Possible (≥ 0.3) | POD 0.13, FAR 0.19, 0.6 false/h | POD 0.18, FAR 0.79, 3.4 false/h |
+    | Likely (≥ 0.6) | POD 0.09, FAR 0.00 | POD 0.10, FAR 0.50 |
+
+    On the five wind lines the fusion makes 0 false detections and the original 10. The one near-range line day, KCLX (67 km), is found by both: 14 and 11 of 27 at Possible, 11 each at Likely. Far-range line tornadoes stay mostly unfound by either, as round four found.
+
+- **Phase 14 groundwork: the fused score's reliability out of sample** (`p17-65`). This is the share of fused rows that verify, by score band, on fusion-3's 25 training events and on the 40 events it never saw:
+
+  | Score | Training: rows | Training: verified | Unseen: rows | Unseen: verified |
+  |---|---|---|---|---|
+  | 0.0–0.1 | 12,378 | 0.07 | 15,015 | 0.09 |
+  | 0.1–0.2 | 2,970 | 0.13 | 2,936 | 0.18 |
+  | 0.2–0.3 | 325 | 0.27 | 249 | 0.41 |
+  | 0.3–0.4 | 108 | 0.34 | 63 | 0.41 |
+  | 0.4–0.5 | 54 | 0.44 | 29 | 0.59 |
+  | 0.5–0.6 | 45 | 0.56 | 35 | 0.69 |
+  | 0.6–0.7 | 32 | 0.62 | 25 | 0.84 |
+  | 0.7–0.8 | 46 | 0.80 | 18 | 1.00 |
+  | 0.8–1.0 | 46 | 0.72 | 14 | 1.00 |
+
+  In sample the score tracks the verified share, as a logistic fit does. On unseen events it understates it at every band: the evidence score is conservative out of sample and does not over-claim.
+  - **This is not calibration.** "Verified" means a report or surveyed path within the matching radius and window, not a tornado probability. The share depends on the corpus's base rate, and rounds three to six lean tornadic, which inflates it.
+  - **What calibration still needs:** a corpus sampled to represent how often each kind of storm occurs, so the base rate is meaningful. Until then the tiers stay evidence scores out of 100.
+
+- **A random sample of ordinary severe days** (`scripts/fusion/sample_days.py`, `docs/backtest-sample-2023.txt`, export `s1-2023`). Every hand-picked event fixes the base rate by design. Here 20 radar windows were drawn at random (seed 2023) from the 1,672 radar-days of March–August 2023 with any severe report within 150 km. Each window starts 20 minutes before one of that day's reports.
+  - **Results.** 13.2 radar-hours; one tornado report in the whole sample, found by neither detector.
+
+    | Tier | Fusion, false | Original, false |
+    |---|---|---|
+    | Possible (≥ 0.3) | 15 (1.1 per radar-hour, on 4 of 20 windows) | 27 (2.1 per hour, on 10) |
+    | Likely (≥ 0.6) | 2 (0.15 per hour, on 1) | 11 (0.84 per hour, on 3) |
+
+  - **What the false detections are.** 12 of the fusion's 15 are debris-driven: credible low-CC signatures (polarimetric 0.61–0.80, no hail sign) beside weak rotation 99–125 km out, mostly at night.
+    - Against the corpus's verified far-range debris detections (25 of 29 verified, Rolling Fork, Milton and Moore), these have weaker rotation (low-level 0.009 against 0.020 s⁻¹, couplet minimum 21 against 28 m/s) and stronger-looking debris (0.73 against 0.65).
+    - Debris needed only 0.010 s⁻¹ of low-level rotation beside it.
+  - **Debris now needs 0.012 s⁻¹ (debris-class-2).** Simulated first by rescoring with fusion-3's weights, which reproduces the shipped scores to 1e-4, and dropping debris where the column's low-level shear is under the bar:
+
+    | Set | POD | False at ≥ 0.3 | False at ≥ 0.6 |
+    |---|---|---|---|
+    | Unseen 40 events | unchanged (0.18, 0.12) | 64 → 34 | 4 → 3 |
+    | Training 25 | unchanged | 155 → 127 | — |
+    | Random sample | — | 15 → 5 | 2 → 0 |
+
+    0.015 removes a few more false alarms but costs training POD (0.54 to 0.52). The weights are unchanged; the debris feature means the same, more strictly. A full backtest validates the change (next entry).
+
+- **debris-class-2 validated by full backtests** (exports `p18-dc2`, `s1-2023-dc2`, against `p17-65`, `s1-2023`).
+
+  | Set | Before | After |
+  |---|---|---|
+  | Unseen 40, Possible | POD 0.18, FAR 0.35, 64 false | POD 0.18, FAR 0.22, 34 false |
+  | Unseen 40, Likely | 4 false | 3 false |
+  | Random sample, Possible | 15 false | 12 false |
+  | Random sample, Likely | 2 false | 0 false |
+  | Training 25, Likely | 34 false | 36 false |
+
+  - **The random sample falls less than simulated (15 to 12, against 5).** Raising the bar changes which signatures are debris for every column within the radius, not only the column that promoted them.
+  - **The training 25 showed POD 0.54 to 0.52 and 0.32 to 0.30. That was not the change.** The damage-survey service answered three events' queries with HTTP 400 during that run (Washington IL 2013, Vilonia 2014, Nashville 2020), so their surveyed paths were missing from its truth. All three tornadoes were still found at Likely through their point reports, and no truth present in both runs was lost.
+  - **The surveys are now cached** like the soundings (`dat::fetch_cached`), so a later outage cannot change the truth between runs.
+
+- **The random sample widened to 59 windows (2022, 2023, 2024; 40 radar-hours)**, with `docs/backtest-sample-2022.txt` and `-2024.txt` and debris-class-2 throughout. One 2022 window had no data.
+  - **False detections on ordinary severe days:**
+
+    | Tier | Fusion | Original |
+    |---|---|---|
+    | Possible | 0.98 per radar-hour | 2.03 per radar-hour |
+    | Likely | 0.03 per radar-hour (once in 40 hours) | 0.63 per radar-hour |
+
+  - **Neither found any of the sample's tornadoes** (four windows, 26 reports and paths). The 2024 ones are rotation-only with strong low-level shear: Davenport 2024-05-24 read 0.028 s⁻¹ at 83 km, Omaha 2024-04-16 0.019 at 63 km, Minneapolis 2024-08-05 0.017 at 98 km. With no debris they fused at 0.22–0.25, under the Possible floor. The original had no detection on them at all.
+- **A decision for the maintainer: let strong rotation alone reach Possible?** Lifting a rooted, cyclonic, debris-free column to Possible once its low-level shear passes a bar:
+
+  | Bar | Corpus: tornadoes gained | Corpus: false added | Random: gained | Random: false added |
+  |---|---|---|---|---|
+  | ≥ 0.018 s⁻¹ | +59 (of 137 found now) | +221 (3.2 → 7.3 per hour) | +8 (of 0 found now) | +0.95 per hour |
+  | ≥ 0.020 s⁻¹ | +26 | +117 | +3 | +0.43 per hour |
+  | ≥ 0.022 s⁻¹ | +11 | +59 | 0 | +0.28 per hour |
+
+  - **The case for it.** At 0.018 the fused Possible tier on random days would make 1.9 false per radar-hour, the original's own rate, while finding tornadoes the original misses.
+  - **The cost.** The lifted columns verify about 20% of the time, against about 44% for today's Possible tier, so "Tornado possible" would mean much less.
+  - **Not adopted unilaterally.** It changes what the lowest tier promises, and the plan's rule about losing tornadoes for a lower FAR does not settle the reverse trade.
+  - **Built as an opt-in, off by default** (`llsd_analyst::Analysed::tornado_id_with`, setting `detectors.rotation_only_possible`). The Detectors panel offers Off, 0.022, 0.020 and 0.018 s⁻¹. A lifted marker keeps its evidence score, and its first reason says it is shown for strong low-level rotation without debris, under Possible on evidence alone. The default and every shipped verdict are unchanged until the maintainer chooses a bar.
+
+- **One feature on the map: Tornado detection.** Rotation couplets, debris signatures and Tornado ID were separate layers, plus a "one detection per tornado" switch, all feeding the same markers. They are now one layer, Tornado detection (`OverlayToggle::TornadoId`, `filters.show_tornado_id`).
+  - **What it draws.** One marker per tornado (Tornado ID's verdict, fused by default), which opens into the web of the rotation and debris detections it ties together.
+  - **What it no longer draws.** Rotation and debris tied to no verdict, which is what the fusion weighed and set aside.
+  - **Unchanged.** Alert rules that watch rotation or debris still drive their detectors with the layer off. The Detectors section keeps the two evidence floors, which now decide what enters a tornado's web, the original Tornado ID and the rotation and debris alerts.
+  - **Old saves.** A settings file, workspace or scene saved with the rotation or debris layer on restores with Tornado detection on (`OverlayToggle::from_slug` aliases). The merge setting is gone (always merged). A test pins the aliases.
+  - **One marker per tornado, for real.** The merged view tied the original detectors' couplets and debris to each fused verdict, but never merged verdicts with each other. A tornado's low-level circulation is often several rotation columns a few km apart, so Mayfield 2021 drew 2–5 markers on every scan (all within 6 km), more with rotation-only Possible. `circulations_with` now keeps the strongest verdict (highest tier, then score) and folds any other within `MERGE_KM` (15 km, the radius that already ties couplets and debris) into it. The lead's first reason says how many columns it folded.
+    - **Mayfield.** The pinned volume goes from 4 verdicts to 1 marker (`cached_mayfield_is_one_tornado_marker`). All 8 backtest scans go to 1 each.
+    - A unit test pins that 3 km apart is one tornado and 30 km apart is two.
+  - **One alert.** Debris and rotation used to raise their own banner, notification and sound on any raw detection over its floor, even where no tornado marker was drawn. Tornado detection now alerts on its verdicts (`tornado_alert_decision`):
+    - when the best verdict reaches Likely or higher (Likely, Debris, Confirmed), or rises to a higher tier
+    - never on Possible, which was wrong about once per radar-hour on the random sample, where Likely was wrong once in forty
+    - not while the original pipeline stands in for a fused verdict still being computed
+
+    The debris sound plays for Debris and Confirmed, the rotation sound for Likely; the Settings rows say so. User-defined rules on rotation or debris and the rotation-near-you check are unchanged. A test pins the decision.
+
+- **The random sample at 139 windows** (2019 and 2021 added, 40 each; 95 radar-hours; 15 windows with tornadoes, 57 reports and paths).
+  - **Ordinary severe days:**
+
+    | Tier | Fusion | Original |
+    |---|---|---|
+    | Possible | 1.41 false/h, POD 0.09 | 3.51 false/h, POD 0.16 |
+    | Likely | 0.05 false/h, POD 0.00 | 0.89 false/h, POD 0.07 |
+
+    The fusion barely false-alarms on ordinary days, but it also finds few of their typical, mostly weak tornadoes.
+  - **The rotation-only opt-in on the same 139 windows (Possible tier):**
+
+    | Bar | Truths found | Total false |
+    |---|---|---|
+    | 0.018 s⁻¹ | 19 of 57 (POD 0.33) | 2.95 per hour |
+    | 0.020 s⁻¹ | 11 (POD 0.19) | 2.20 per hour |
+    | 0.022 s⁻¹ | 5 (no gain) | 1.89 per hour |
+
+    At either 0.018 or 0.020 the fused Possible tier beats the original Tornado ID on both counts on ordinary severe days: more tornadoes for fewer false alarms. On the hand-picked corpus the same bar costs more false alarms than it gains tornadoes, because that corpus is built from tornado days and hard negatives. The opt-in stays off until the maintainer chooses; the random sample is the stronger case for 0.018 or 0.020.
+  - **Decision: on by default at 0.018 s⁻¹** (the maintainer chose it over 0.020 and off). `DEFAULT_ROTATION_ONLY_POSSIBLE`; a settings file without the key gets it, and an explicit `null` stays off. Possible raises no alert, so the extra markers add no alarms.
+
+- **Stratiform rain hard negatives, and rotation-only Possible needs a storm core** (`docs/backtest-stratiform.txt`, export `h1-stratiform`). Phase 9 lists melting-layer low CC and bright-band contamination as hard negatives. Six cold-season stratiform windows with no tornado or hail report: nor'easter 2023-12-18 (KDIX), Puget Sound atmospheric river 2021-11-15 (KATX), California atmospheric river 2023-01-09 (KMUX, no archived volumes), and the January 2024 Northeast storm (KBOX, KPBZ, KLWX).
+  - **Results.**
+
+    | Detector | Possible | Likely |
+    |---|---|---|
+    | Fusion | 6 | 0 |
+    | Original | 22 | 3 |
+
+    The debris classifier finds 136 melting-layer low-CC anomalies, as it should; the fusion counts only tornado debris signatures. The fusion's six are synoptic-wind shear of 0.017–0.036 s⁻¹ at 63–104 km, two beside melting-layer low CC.
+  - **The rotation-only default added 10 more there.** A lifted column now must sit in a convective core (≥ 40 dBZ within 5 km, `column.echo`):
+
+    | Set | Tornadoes gained | False lifts, before → after |
+    |---|---|---|
+    | Random 139 | 14 of 14 kept | 146 → 71 |
+    | Corpus | 59 of 59 kept | 221 → 176 |
+    | Stratiform | — | 10 → 4 |
+
+    With it, the fused Possible tier on ordinary severe days runs at 2.16 false markers per radar-hour with POD 0.33, against the original's 3.51 and 0.16.
+
+- **Every fused verdict needs a storm core** (`Analysed::tornado_id_with`). The same rule, applied to all verdicts rather than only lifted ones: no marker without a ≥ 40 dBZ object within 5 km (`column.echo`), unless a tornado report confirms it. As a weighted feature (`f_echo_aspect`, "no core") it never improved the Likely tier held out, because almost every tornado has a core and the fusion already scores most coreless shear low. As a gate it removes what remains. Measured offline from the exported `f_*` columns, then confirmed in code:
+
+    | Set | Tornadoes found | False at ≥ 0.3 | False at ≥ 0.6 |
+    |---|---|---|---|
+    | Random 139 | unchanged | 134 → 73 | 5 → 0 |
+    | Corpus 65 | unchanged (137 at ≥ 0.3, 85 at ≥ 0.6) | 172 → 149 | 35 → 29 |
+    | Stratiform | — | 6 → 4 | — |
+
+    On ordinary severe days the fused tier now runs at 0.77 false Possible markers per radar-hour (POD 0.09) without the rotation-only lift, and 1.52 with it (POD 0.33). Likely raised no false marker in 95 radar-hours. The original Tornado ID: 3.51 and 0.89. The four stratiform markers left each have a ≥ 40 dBZ object within 5 km; whether that is bright band or embedded convection is not yet examined.
+
+- **Counting markers as the map draws them, and no lift within 40 km.** Since one-marker-per-tornado, verdicts within 15 km in a volume fold into the strongest, so the row counts above overstate what is shown. Marker-level verification folds each volume the same way (the lead's match decides). The original Tornado ID already draws one per circulation and is unchanged by folding.
+  - **By range, lifted markers within 40 km are nearly all false:** 0 of 13 verified on the random sample, 1 of 19 on the corpus, against 60% for fused markers there (corpus). Up close the lowest beam is under ~0.6 km, so a tornado's debris is usually in view and the fused score finds it, and the beam resolves ordinary storm shear sharply enough to reach 0.018 s⁻¹. `LIFT_MIN_RANGE_KM` = 40: the lift applies from there out. Swept 0–50 km; 40 is the farthest that lost no tornado on either set (50 lost one on the corpus).
+  - **Where it stands, false Possible markers per radar-hour and POD:**
+
+    | Set | Fused, no lift | Fused, lift from 40 km | Original |
+    |---|---|---|---|
+    | Random 139 (95 h, 57 truths) | 0.35, 0.09 | 0.85, 0.33 | 3.51, 0.16 |
+    | Corpus 65 (53.5 h, 493 truths) | 1.68, 0.27 | 3.46, 0.38 | 7.60, 0.29 |
+    | Stratiform (4 h) | 0.75 | 1.50 | 5.50 |
+
+    At Likely, the fused tier makes no false marker on the random sample (original 0.89/h) and 0.19/h on the corpus at POD 0.17 (original 2.58/h at 0.21).
+  - **Tried and set aside: fixed-spot clutter.** The KVNX 2019-06-16 false markers recur at one spot about 36 km out, small echo (2 km), likely wind-farm clutter (not yet checked against turbine locations), but the tracker gives them a new track nearly every volume, so `stationary` never fires. Counting the other volumes within ±30 minutes with any column within 2 km: ≥ 4 removes 13 of 94 false markers on the random sample, but only 10 of 203 on the corpus and costs 3 verified ones. Wind-farm columns flicker rather than persist. A turbine-location mask (USGS wind turbine database) would target them directly.
+
+- **Wind-turbine mask** (`wind_turbines`, `VerdictOptions::turbines_in_year`, `WIND_TURBINE_KM`). The USGS U.S. Wind Turbine Database (v9.0, 2026-06-26, public domain; 77,379 turbines with the year each came online) is embedded as the 42,874 0.01° cells holding a turbine, each with its earliest year (93 KB, `scripts/wind_turbines.py`). An archived volume is masked only by turbines standing in its year.
+  - **Distance from each marker to the nearest turbine in service** (exact positions, lift from 40 km): within 2 km, random sample 25 false and 0 true, corpus 22 false and 0 true, all Possible. The nearest verified marker was 2.95 km from one (KMPX 2018-09-20). The KVNX 2019-06-16 spot and the KDDC wind-farm night are both inside. Stratiform: none near.
+  - **Rule:** a Possible verdict within 2 km of a turbine cell centre is not shown, before folding. Likely and above, and anything a tornado report confirms, are, so a tornado through a wind farm still shows once debris or strong evidence backs it. Swept 1–3 km with the cell lookup the app uses:
+
+    | Mask | Random false (per h) | Random POD | Corpus false (per h) | Corpus POD |
+    |---|---|---|---|---|
+    | none | 81 (0.85) | 0.333 | 185 (3.46) | 0.383 |
+    | 1 km | 59 (0.62) | 0.333 | 170 (3.17) | 0.383 |
+    | 2 km | 57 (0.60) | 0.333 | 166 (3.10) | 0.383 |
+    | 3 km | 57 (0.60) | 0.333 | 165 (3.08) | 0.381 |
+
+  - **Where it stands, false Possible markers per radar-hour and POD:** random sample 0.60 at 0.33 (original Tornado ID 3.51 at 0.16); corpus 3.10 at 0.38 (original 7.60 at 0.29). The backtest export still writes every column; the mask, like the lift, is applied when verdicts are drawn, so these come from the offline rescoring.
+
+- **A report raises a verdict; it no longer makes one** (seen in the app, web build, Mayfield 2021-12-11). At 03:45Z the map showed two Tornado confirmed markers about 40 km apart: the tornado near Benton (90/100, 88 kt) and a 13/100, 21 kt column southwest of Mayfield. A report counted as confirmation for any column within 10 km and ±30 minutes, whatever its score or core, and the tornado moves 1.5 km a minute, so a report in town kept confirming the weak shear left behind for half an hour. Confirmed is at or above Likely, so such a column also raised the tornado alert, and as the top tier it led any 15 km fold over the real tornado.
+  - **Rule:** confirmation (report or observed warning) raises a verdict to Confirmed but cannot make one; the score (or the rotation-only lift) and the storm core decide whether there is a verdict. The observed-warning rule already worked this way.
+  - **Measured numbers are unchanged:** the offline rescoring never counted report-made markers (it scores radar evidence only), so every false-alarm and POD figure above stands. What changes is what the app drew and alerted on beyond them.
+
+- **The backtest exports the app's markers** (`tornado_marker` detector rows, `headless.rs`). The numbers above come from Python re-deriving the app's rules from the fused rows; they now have a source in code. Each volume runs `llsd_analyst::analyse` as the app does (raw debris signatures, no hail cores) and the same `circulations_with` call, radar evidence only (no confirmation), the default 0.018 bar and the volume's year for the turbine mask: one row per marker the map would draw.
+  - **Parity:** stratiform (4 h) and the 2022 random sample (13 h): identical, volume for volume (6 and 9 false markers). Three tornadic events (Washington IL 2013, Mayfield 2021, Nashville 2020; 5.9 h): 33 markers against Python's 30, 17 of 26 truths found by both; within 15–150 km the false counts agree (13 and 12, one volume). The rest is the app being more faithful than the re-derivation: markers under 15 km (the fused rows stop there; all 3 verified), and two Nashville volumes where scoring raw rather than cross-corroborated debris moves a score across a tier.
+  - Future verification should read `tornado_marker` rows (threshold 0.0 is every marker shown, 0.6 the Likely tier) rather than re-derive them: `python scripts/fusion/markers.py DIR [DIR...]` prints false markers per radar-hour and POD for the markers and the original Tornado ID, at every marker and at Likely, and why each missed truth was missed.
+
+- **The full sets with `tornado_marker` rows found a mismatch: single-gate "cores".** On the random sample the app drew 82 false markers within 15–150 km where the re-derivation had 57. The cause: the core rule took any ≥ 40 dBZ object within 5 km, and a lone gate is an object. Its length is the variance of one point in floating point, 0 to a few hundredths of a km, so the fused rows' `echo_aspect` read 0 (no core) while the app's `echo.is_some()` passed. Two gates already measure 0.3 km or more (of 67k fused rows: 10,301 at 0, 60 under 0.1 km, 13 at 0.1–0.3, the rest above). `in_core` now needs a core at least `MIN_CORE_LENGTH_KM` = 0.1 km long, which is the rule the re-derivation measured; a `> 0` test was not enough (the noise is positive).
+  - **Parity after the fix:** within 15–150 km, random sample 58 false against 57 (one volume, raw against corroborated debris), corpus 165 against 166, stratiform identical. Specks as cores had found no more tornadoes (19 of 57 either way).
+  - **The app's own rates** (all ranges, radar evidence only), false markers per radar-hour and POD:
+
+    | Set | Possible and up | Likely and up | Original, Possible / Likely |
+    |---|---|---|---|
+    | Random 139 (95 h, 57 truths) | 0.71, 0.40 | 0.03, 0.00 | 3.51, 0.16 / 0.89, 0.07 |
+    | Corpus 65 (53.5 h, 493 truths) | 3.14, 0.40 | 0.22, 0.18 | 7.60, 0.29 / 2.58, 0.21 |
+    | Stratiform (4 h) | 1.50 | 0 | 5.50 / 0.75 |
+
+    The figures quoted earlier from the re-derivation (0.60 on the random sample) were 15–150 km only; the app also draws nearer. Under 15 km the random sample had 11 markers, 9 false (3 of them Likely, mostly 5–10 km from the radar) and 2 verified; on the corpus 10 of 13 markers under 15 km were tornadoes, so close range is not cut.
+  - **Why tornadoes are missed** (corpus, 298 of 493; each miss attributed by the best fused column near it): 93 only weak shear (median 0.012 s⁻¹, 107 km), 91 only unrooted columns, 65 no rotation column at all, 39 only anticyclonic columns (median 119 km), 7 within 40 km below Possible, 3 folded or turbine-masked. None to the core rule. On the random sample, 34 misses: 15 weak, 14 unrooted, 4 no column, 1 within 40 km. The misses are the far-range sensing limit, not the display rules.
+  - **The anticyclonic misses are not a sensing error.** Columns near a tornado are anticyclonic as often as columns elsewhere at every range (38–39% against 41–44%, under 60 km, 60–100 and beyond 100 km, 65-event corpus); where the best column near a missed tornado is anticyclonic, it is the other half of the shear beside a weaker cyclonic one.
+
+- **What is left, and three rules measured and set aside** (app markers, `m6-*` exports).
+  - **Close range.** Within 15 km the random sample's 9 false markers are mostly one fixed spot: KLBB, 6.1–6.6 km north (−101.838, 33.706, within 0.5 km on three days in 2019 and 2021, one rotation value repeated exactly, 38.15 m/s), a fixed reflector; and KILX at 5.6 km. A per-site clutter mask from 139 windows would be fitted to one radar, and the corpus's real close tornadoes (Little Rock 2023 at 5.7–12.5 km, Nashville 2020 at 5.8–7.3 km, 10 of 13 markers under 15 km verified) rule out a range cut. Left alone; a clutter mask would need many more quiet days per site.
+  - **Implausible rotation.** One marker in all sets has Vrot ≥ 70 m/s: KILX 2019-06-05 at 14.8 km, 93 m/s, Likely, false, the look of a dealiasing failure (Phase 9). Verified markers top out at 64 m/s (Nashville). A plausibility cap is physically sound but one case cannot set it; kept as a hard-negative example.
+  - **Missed tornadoes the rules lose:** 5 corpus truths (7 ids) had a column meeting every display rule, all lost to folding, none to the turbine mask. Two are separate tornadoes 3 km from a stronger Debris marker on outbreak days (Mayflower–Vilonia 2014, Milton 2024); three were folded into a lead 10–12 km away, beyond the 10 km match radius.
+  - **Fold radius swept** (Python fold, at parity): 15 → 10 km finds 5 more corpus truths (189 → 194) for 15 more false markers and same-tornado duplicates from 1 to 11 (random sample: 3 more false, no more found). **Tier-dependent fold** (Likely+ folding only within 3–10 km): at most 1 more truth for up to 59 duplicates; strong verdicts a few km apart are nearly always one tornado. 15 km stays.
+  - **Persistence:** showing Possible only from its second consecutive volume (a marker within 10 km the volume before) cuts false markers 0.71 → 0.17/h on the random sample but found tornadoes 23 → 2, and on the corpus 3.14 → 0.99/h with found 195 → 128. Verified Possible markers are as isolated in time as false ones (91% and 80% on the random sample, 58% and 74% on the corpus). Not adopted.
+  - **Range-dependent rotation-only bar:** lowering the bar beyond 80–100 km (0.016–0.012 s⁻¹) finds up to 54 more corpus truths but, on the random sample, none until 0.012 (2 more) for 0.2–1.2 more false markers per radar-hour; dropping the rooting requirement beyond 100 km gains nothing. The corpus is tornado days and flatters looser rules. Not adopted.
+  - **Held-out year, 2020** (`docs/backtest-sample-2020.txt`, 40 windows drawn as the others, seed 2020; 26.7 radar-hours, 5 truths). None of this session's rules (core and its 0.1 km length, lift from 40 km, turbine mask, 15 km fold) saw it. App markers: 0.34 false Possible-and-up per radar-hour (0.71 on the years they were chosen on), none at Likely; found 2 of 5. The original Tornado ID: 3.26 and 0.60, found none. The false rate holds out of sample; five truths say little more about POD.
+    - **The first 2020 draw was contaminated:** `sample_days.py` excluded corpus events by their UTC date, but keys its pool by radar day (12Z–12Z), so an overnight corpus event slipped in: KOHX 2020-03-03 (Nashville), 2 of its 13 truths. Fixed (both sides by radar day) and redrawn. Of the other years only 2020 had a window on a corpus radar-day; the fix changes the 2021–2023 pools, so rerunning their commands now draws other windows, and their manifests say so. They stand as drawn.
+  - **Two more held-out years, 2018 and 2025** (`docs/backtest-sample-2018.txt`, `-2025.txt`, 40 windows each, drawn with the fixed sampler). The three held-out years together (80.5 radar-hours, 16 truths): app markers 0.51 false per radar-hour, POD 0.31, and 0.04 at Likely with POD 0.12; the original 2.70 at 0.19, and 0.58 at Likely with POD 0.12. 2018 alone found 0 of 7 (the original 1), every miss with no rotation column near it; 2025 found 3 of 4 (the original 2) at 0.37 against 1.28.
+  - **Quiet days** (`docs/backtest-quiet-2024.txt`: `sample_days.py 2024 40 2024 quiet`, 40 random minutes on radar-days with no severe report within 150 km; 31.7 radar-hours). Every marker there is false: the cost of clutter, anomalous propagation, birds and ordinary showers on the days that make up most of the year. App markers 0.28 per radar-hour, 0.13 at Likely; the original 0.63 and 0.06. All nine of the app's came from one radar: KDVN (Davenport), two fixed spots 8–10 and 16–19 km west, on two days two months apart, with 33–123 m/s near-ground inbound and 52–89 m/s rotation in columns 0–0.3 km deep, four of them Likely. Not wind turbines (none within 5 km).
+  - **Implausible near-ground flow** (`llsd_analyst::implausible_flow`). Near-ground inbound or rotation of 60 m/s or more (`near_flow` within 5 km of the base) in a column under 0.5 km deep with no debris beside it is dealiasing gone wrong around clutter, not a tornado the radar resolves: verified markers run 18 / 29 / 47 m/s inbound (p10 / median / p90) and a median 1.2 km deep. Measured on lead columns: without the depth condition it removed 16 false markers and no verified one, but also the synthetic violent vortex (75 m/s, no debris yet) that `detection_regressions` requires to read as a tornado; with it, 11 (4 random, 1 corpus, all 6 quiet) and none verified. Confirmed in the app's own markers: quiet days 9 → 0 false, corpus 168 → 167 false with all 195 truths still found and Likely unchanged. Rerun on all eight random years (259 windows, 175.5 h): 0.62 → 0.56 false per radar-hour, 0.03 → 0.02 at Likely, POD unchanged at 0.38; held-out years 0.51 → 0.46. Ten fewer false markers, not the re-derivation's four: it also removes ones under 15 km, which the fused rows do not cover (the fixed KLBB reflector 6 km out among them).
+  - **A second quiet year, 2023** (`docs/backtest-quiet-2023.txt`, 40 windows, 32.2 radar-hours, with the implausible-flow rule in place, so held out from it): one false marker, a lifted Possible 89 km from KSHV (0.03 per radar-hour, none at Likely); the original 0.12 and none. Both quiet years together: 1 false marker in 63.9 radar-hours. On days without severe weather the app is now close to silent; its false markers are on the severe days.
+  - **What the 98 false markers left on the eight random years are** (with every rule above): 57 rotation-only lifts (12–20% of lifted markers verify, by range band) and 41 fused; concentrated on a few very active days (KDVN 2019-05-29: 9, KDDC 2018-05-28: 7, KMPX 2019-07-19: 6, 22 of 98 between them), where unreported weak tornadoes and rotating storms are common. No range band, radar or feature separates them the way turbines, specks, close range or implausible flow did. The next gains need truth that can say which of those were tornadoes (damage surveys of the busy days), not another rule.
+  - **Storm Events as truth** (`scripts/fusion/stormevents.py`; NOAA's yearly detail files, public domain, cached in `target/backtest-cache/stormevents`, 2011–2025 less 2015). The official record of every US tornado with its begin and end points, so each tornado counts once rather than per report: on the ground while a window was scanned and within 150 km of its radar, found when a marker lies within 10 km of its begin–end segment between 15 minutes before it began and 15 after it ended. The matching was checked first: 15 of 16 verified random-window markers and 163 of 164 corpus ones lie on a Storm Events track.
+    - **Random windows 2018–2025:** 12 of 31 tornadoes found (39%; EF0 7 of 13, EF1 4 of 14, EF3 1 of 1, EFU 0 of 3), the same as the per-report POD. None of the 98 false markers lies on a Storm Events track: on ordinary severe days the reports had already caught every recorded tornado, and the false markers are not tornadoes the reports missed.
+    - **65-event corpus:** 104 of 224 tornadoes (46%), rising with strength: EF0 42%, EF1 36%, EF2 57%, EF3 71%, EF4 8 of 11, EF5 2 of 2. 13 markers counted false (7 at Likely) lie on Storm Events tracks: long violent tracks between report points, on events older than the damage-survey database. The quiet days have no Storm Events tornado, as drawn.
+  - **The Iowa QLCS, later in its life** (KDMX 2021-12-15 from 23:25, the corpus window extended past 23:34; 57 Storm Events tornadoes in the area). The original Tornado ID had 13 detections near tracks between 23:26 and 23:56, several at Debris within 0.3–3.6 km of EF1–EF2 tracks; the app's markers 3, none in the 23:34–23:48 scans. Not the display rules (the implausible-flow rule changed nothing here): at several of the original's debris spots there is no LLSD column within 5 km, and the columns that exist are mostly one tilt and unrooted. So the debris signatures (CC 0.21–0.38) stay "debris candidates": promotion needs a cyclonic column with 0.012 s⁻¹ low-level shear within the association radius (5–6 km here), and the fused verdict needs a column to carry it. Showing the original's Debris-tier detections where no marker stands within 15 km would add 6 truths in this window, but 150 false (0.85 per radar-hour) for 1 truth on the random years and 82 false for 13 truths on the corpus: not adopted. The QLCS gap is in the column stage (small shallow vortices the 2.5 km kernel smooths), as round four found, now with the cases to test a change against.
+  - **Random tornadoes** (`docs/backtest-tornadoes.txt`: `stormevents.py sample 2019 2025 60 2019`, 60 tornadoes drawn at random from the 8,245 Storm Events tornadoes of 2019–2025 within 150 km of a listed radar, corpus radar-days left out; each window 20 minutes before it began, at the nearest radar). The unbiased tornado-day set the hand-picked corpus is not: 27 EF0, 19 EF1, 3 EF2, 1 EF3, 10 EFU drawn, 44.7 radar-hours, 164 Storm Events tornadoes on the ground in the windows. Markers found 65 of them (40%): EF0 19 of 60, EF1 28 of 66, EF2 9 of 18, EF3 4 of 5, EF4 1 of 1, EFU 4 of 14. Per report and survey: POD 0.34 at 3.20 false per radar-hour, against the original Tornado ID's 0.22 at 5.95; at Likely 0.08 at 0.16, against 0.11 at 1.88. 17 markers counted false lie on Storm Events tracks (on tornado days the reports miss some). Of the 250 truths missed, 93 had only weak shear, 70 only unrooted columns, 46 no column, 24 a best column inside 40 km (only 2 of them had one that met every lift condition but range: the 40 km rule's cost on tornado days), 10 only anticyclonic.
+  - **Random significant tornadoes** (`docs/backtest-tornadoes-ef2.txt`: `stormevents.py sample 2013 2025 60 2013 2`, 60 drawn from the 1,481 EF2+ Storm Events tornadoes of the dual-pol era within 150 km of a listed radar: 46 EF2, 14 EF3; 45.1 radar-hours, 274 Storm Events tornadoes on the ground in the windows). Markers found 143 (52%): EF2 61 of 90 (68%), EF3 27 of 30 (90%), EF4 1 of 2, and the weaker tornadoes of the same days EF0 20 of 54, EF1 33 of 88. Per report and survey: POD 0.43 at 3.04 false per radar-hour against the original Tornado ID's 0.31 at 8.11; at Likely 0.13 at 0.18 against 0.17 at 2.39. A significant tornado is found two times in three, a strong one nine in ten.
+  - **Lead time against official begin times** (`stormevents.py lead` on the two tornado samples; each window opens 20 minutes before its tornado began, which caps lead at about 20 minutes; 54 and 44 of the 60 windows tie to one Storm Events tornado). First marker within 10 km of the begin point before touchdown, or on the track after:
+
+    | | Random tornadoes (54) | EF2+ (44) |
+    |---|---|---|
+    | Markers, any tier | 21 found, median +6 min (p25 +2, p75 +10) | 32 found, +5 min (−1, +8) |
+    | Markers, Likely+ | 5 found, +1 min | 13 found, −1 min (−6, +5) |
+    | Original, any tier | 14 found, +1.5 min | 19 found, 0 min |
+    | Original, Likely+ | 6 found, +1.5 min | 13 found, +5 min (−1, +10) |
+
+    The app's markers come first, about five minutes before touchdown, but that is the Possible tier (mostly the rotation-only lift), which raises no alert. At Likely the app finds as many as the original and, on significant tornadoes, later: its Likely leans on debris, which follows touchdown. The original's earlier Likely costs 2.39 false Likely markers per radar-hour on these days against the app's 0.18. An earlier alert needs pre-touchdown evidence the Likely tier can use.
+    - **Tried: rotation-only Likely.** A column meeting the lift conditions with low-level shear of at least a bar reads Likely without debris (re-derived, 15–150 km). At 0.035 s⁻¹ nothing changes (5 random tornadoes found at Likely, +2 min; EF2+ 10, −3 min); at 0.030 a few more are found (6 and 13) but no earlier (EF2+ median −5 min), and false Likely markers roughly double on tornado days (0.40 and 0.44 per radar-hour against 0.13 and 0.16) and on ordinary and quiet days (0.058 against 0.025); requiring two scans or a 0.025 bar does no better. Strong rotation alone does not lead touchdown at the alerting tier; not adopted.
+  - **A narrower LLSD kernel, on the random tornadoes** (`HOOKECHO_LLSD_AZIMUTHAL_KM=1.5`, export `t1-k15`). As drawn it found 87 of the 164 Storm Events tornadoes (53%, against 65) at 7.91 false markers per radar-hour (against 3.20) and 1.21 at Likely (against 0.16): the weights and the 0.018 bar were set with the 2.5 km kernel, and a narrower one reads more shear everywhere. At a matched false rate the gain disappears (re-derived markers, 15–150 km): 2.5 km found 61 at 3.09 per radar-hour; 1.5 km with the bar raised to 0.026 and the evidence floor to 0.4 found 59 at 3.26, and 66 at 3.75. The narrower kernel moves along the same curve rather than above it, as round four found on the lines; a gain would need weights fitted to it, not a kernel change alone.
+  - **A refit on all the data** (fit.py's constrained logistic fit; 118,746 fused rows, 6,901 verified, 416 events: corpus, random tornadoes, eight random years, quiet days; 5-fold grouped by event, each fold scored by a fit on the other four). Against the shipped fusion-3 on the same rows: AUC 0.631 against 0.638 on the corpus, 0.633 against 0.637 on the random tornadoes, 0.703 against 0.693 on the random years. At matched false rates the refit gains at most two points of POD at the Likely end of the corpus (0.19 against 0.17 at 0.7 false per radar-hour), and none on the random tornadoes or years. Four times the data moves a refit along the same curve: the linear fusion of these features is saturated, and the next gain needs new evidence (features that see small, shallow vortices), not more fitting. fusion-3 stays.
+  - **The same refit with the near-ground features signed in** (`near_couplet`, `near_vrot`, `near_inbound`, +1): the new evidence round three measured and left at weight 0. AUC rises on tornado days (corpus 0.670 against 0.638, random tornadoes 0.654 against 0.637), and at matched false rates POD gains 2–3 points there; but on the random years POD falls from 0.10 to 0.04 at about 0.6–0.7 false per radar-hour, and quiet-day false markers double (0.2 against 0.1 per radar-hour). As round three found with less data: these features rank tornado-day rotation better and reward strong ordinary wind on everyday severe days. The random windows are what a user mostly sees; not adopted.
+  - **Larger tornado samples, on radar-days no rule above was checked on** (exports `t3-2013`, `t4-ef2b`). `docs/backtest-tornadoes-2013.txt`: 120 tornadoes drawn at random from the 4,379 Storm Events tornadoes of 2013–2018, the radar-days of the corpus and every earlier sample left out (85.9 radar-hours). `docs/backtest-tornadoes-ef2b.txt`: 90 more EF2+ tornadoes of 2013–2025, none in the first EF2+ sample (67.7 radar-hours).
+    - **Storm Events, per tornado:** 2013–2018 found 152 of 355 (43%): EF0 46 of 156, EF1 66 of 138, EF2 29 of 44, EF3 10 of 10, EF4 1 of 2. The second EF2+ sample found 211 of 337 (63%): EF2 102 of 158 (65%), EF3 29 of 39 (74%), EF4 3 of 4. So both earlier samples hold up on new days: about two in five tornadoes, two in three significant ones, and most strong ones.
+    - **Per report and survey:** 2013–2018 POD 0.31 at 3.96 false per radar-hour against the original's 0.33 at 10.00, at Likely 0.08 at 0.23 against 0.16 at 1.86. EF2+ POD 0.47 at 2.95 against 0.39 at 7.94, at Likely 0.25 at 0.12 against 0.24 at 1.68. On the older, weaker-tornado years the original finds slightly more per report, at two and a half times the false markers; on significant tornadoes the app finds more at every tier.
+    - **Lead time** (`stormevents.py lead`; 97 and 69 windows tie to one Storm Events tornado): markers at any tier found 39 at a median of +4 min (2013–2018) and 39 at +6 min (EF2+), the original 32 at +4 and 35 at +3. At Likely the markers found 9 at +5 and 23 at 0 min; the original 20 at +3.5 and 24 at +4.5. The pattern of the first two samples again: the app's first marker leads, and its Likely tier waits for debris.
+    - **Why the 925 truths were missed** (both samples): 331 only weak low-level shear, 242 only unrooted columns, 179 no rotation column, 65 only anticyclonic, 62 a best column inside 40 km, 41 shown but folded or masked. As on the first random sample, most misses are columns too weak or too high for the radar to call, not rules hiding them.
+  - **Tried: pre-touchdown trends** (`low_level_trend`, `depth_trend`: least-squares slopes per 10 minutes over a rotation track's history, of its lowest-tilt shear and its column depth; exported at weight 0 in `tornado_fusion`). Tested on the four tornado samples (`t1f-random` and `t2f-ef2` rerun to export them, then `t3-2013`, `t4-ef2b`):
+    - **Alone, on verified rows:** AUC 0.50–0.51 on every sample, against 0.56–0.60 for low-level shear. A tornado's rows over its whole life do not trend.
+    - **Alone, before touchdown:** fused rows in the 20 minutes before a sample's own tornado began within 10 km of its begin point (2,606 rows), against rows near no Storm Events track (177,431): low-level trend AUC 0.536, depth trend 0.512, against the existing peak-shear trend's 0.555 and max shear's 0.689. A little signal, less than what the fusion already has.
+    - **Added to a fit:** with the fusion's own constrained logistic fit, trained on the 2019–2025 samples and scored on the 2013–2018 and second EF2+ samples, both as labelled and on the pre-touchdown labels above. Both trends come out with the wrong sign or near zero and are dropped: held-out AUC 0.6614 with and without on the report labels; 0.7012 without and 0.7003 with on the pre-touchdown labels.
+    - **Not adopted:** both stay exported at weight 0. The precursor the Likely tier needs is not in how fast a tracked column's low-level shear or depth grows, at these resolutions; round five's finding (AUC ≤ 0.61 per feature before touchdown) holds on four times the tornadoes.
+  - **The near-storm environment** (`wxdata::near_storm`, `cargo run -p wxdata --example env_sample`, `scripts/fusion/environment.py`; HRRR from NOAA's archive on AWS). The first evidence that is not radar: the air feeding the storm, which the tornado climatologies (Thompson et al. 2003, 2012) and NSSL's ProbSevere ProbTor use to separate tornadic rotation from the rest. For every candidate of the fifteen exports, the HRRR run an hour before at F+1 (what a live app has; the on-hour analysis or the run two hours before where the archive lacks it): surface and mixed-layer CAPE, mixed-layer CIN, 0–1 and 0–3 km helicity, 0–6 km shear, LCL height, and fixed-layer STP computed cell by cell. Each read over the inflow, the cells within 40 km at the favourable 90th percentile (the 10th for the LCL), and STP also at the column's own point. 915 HRRR hours, 2 not to be had; the 79 hours before the archive begins (2014-07-30) are left out, so the 2013 windows and part of the corpus have no environment and are scored as shipped.
+    - **On the way: the LCL height in HRRR is above ground**, not above sea level (Leadville, 3,291 m: 1,197 m; a fifth of the CONUS grid sits below its own terrain if read as MSL). The app's STP layer subtracted the terrain height and so overstated STP the higher the ground; fixed (`severe::fetch_grid`).
+    - **Which variable separates verified markers from false ones.** On the eight random years (114 markers, 16 verified): STP AUC 0.78 (median 1.15 verified against 0.26 false), STP at the column's point 0.82, 0–6 km shear 0.67, 0–1 km helicity 0.64, LCL 0.62, CAPE 0.57–0.60. On the tornado samples about 0.5 for every variable: there the false markers sit beside the real tornadoes, in the same air. The environment says which days and which storms can make tornadoes, not which rotation on a tornado day is the one.
+    - **A gate: no marker where the inflow STP is under 0.25.** Random years: 0.56 → 0.29 false per radar-hour, POD 0.38 → 0.33, fewer false markers in every one of the eight years (by 33–67%). The truths lost are one 2024 marker (KOAX 2024-04-16 18:37, four reports), where the HRRR an hour before had 0–6 km shear of 9.7 m/s, just under STP's 10 m/s floor: a tornado the model's air said could not happen. Tornado samples: 3.19 → 3.13, 3.04 → 2.88, 3.96 → 3.83, 2.95 → 2.54 false per radar-hour, POD unchanged or one point lower; corpus 3.12 → 2.95 at 0.40 → 0.38. The quiet days' one false marker is in STP above 0.25. Reading STP at the column's own point instead cuts more (0.19 per radar-hour on the random years) but costs nine points of POD on the significant tornadoes (0.43 → 0.34): a storm's own grid point is not its inflow.
+    - **A promotion: a Possible marker in inflow STP of at least 1 reads Likely.** Likely finds two to three times the tornadoes and leads touchdown: by `stormevents.py lead`, random tornadoes 5 → 15 found at Likely (median +1 → +3 min), EF2+ 13 → 26 (−1 → +4), 2013–2018 9 → 22 (+5 → +4), the second EF2+ sample 23 → 31 (0 → +6). The first time anything has made the Likely tier lead touchdown. But most promoted markers are rotation-only lifts, and false Likely markers rise from 0.1–0.23 to 1.5–2.4 per radar-hour on tornado days (the original Tornado ID's Likely is 1.7–2.4) and from 0.02 to 0.15 on the random years. Promoting only markers with fused evidence of at least 0.4 keeps false Likely at 0.3–0.5 per radar-hour on tornado days and 0.023 on the random years, and raises Likely POD there from 0.03 to 0.15 and on the tornado samples by 1–9 points; but those markers lead touchdown no earlier (+2.5, −1, +4, 0 min). The early Likely comes from the rotation-only lifts, and so do its false alarms.
+    - Thresholds: the gate's 0.25 was picked from a five-step sweep on these sets, the promotion's STP 1 is the climatologies' significant-tornado line and the evidence floor a three-step sweep; the 2013–2018 and second EF2+ samples, drawn after the 2019–2025 ones, agree with them, but no set was held out from the sweep. **Adopted: the gate, at Possible only** (`near_storm::GATE_STP`, `VerdictOptions::environment`), as the turbine mask is: Likely and above, and anything a report confirms, are shown whatever the model's air. Re-derived that way: random years 0.56 → 0.31 false per radar-hour at POD 0.38 → 0.33, Likely unchanged on every set (the corpus keeps its Likely POD of 0.18). The app fetches the HRRR hour of the active volume's hour as the sampler does (`near_storm::fetch_hour`; live, the run an hour before was posted and read in about 3 s) and draws verdicts without the gate until it arrives. The backtest gates its markers the same way with `HOOKECHO_BACKTEST_HRRR=1` (the HRRR hour cropped to 250 km of the radar and cached with the volumes, about 0.7 MB an hour) and records each row's inflow STP as `env_stp`; on KHGX 2023-01-24 it drew the 2 of 6 markers the sampled environment predicted (the 4 hidden all false, the debris on the surveyed EF3 path kept), with `env_stp` within 0.0005 of the sampler, fetched or cached. That run also caught a fault: a transient failure on the run an hour before had passed the hour to the on-hour analysis, which read STP 1.78 against 1.06 at the tornado. Only a missing source (`near_storm::is_missing`) now passes an hour on. Then the fixed-layer STP itself was put right: it had used SCP's shear term (zero below 10 m/s, capped at 1.0 from 20 m/s) where SPC's STP, and the app's own effective-layer STP, use zero below 12.5 m/s and a cap of 1.5 from 30 m/s. Re-derived from the sampled environment (each inflow STP rescaled by the two terms' ratio at its 0–6 km shear), the gate at 0.25 moves by at most 0.11 false markers per radar-hour on any set and changes no POD by more than a point (random years 0.31 → 0.32 per radar-hour at POD 0.33; no random-year marker changes its fate), so its threshold stands. The promotion is not adopted.
+  - **Every low-level pass** (`wxdata::low_passes`, `llsd_analyst::LikelyConfirmation`; backtest `HOOKECHO_BACKTEST_SAILS=1`, exports `s0-*`/`s1-*` and, on the code after the Py-ART dealiasing merge, `v0-*`/`v1-*`). Under SAILS or MRLE the radar revisits its lowest tilt partway through the volume: in 305 sampled backtest volumes 68% had two to four velocity passes there (29% two, 18% three, 21% four), a median 1.8 minutes apart in volumes a median 5.7 minutes long. The pipeline read only the newest. Now each pass is tracked at its own time, its lowest tilt under the volume's upper tilts, with its own debris signatures; persistence counts time tracked (`PERSISTED_2_S` 210 s, `PERSISTED_3_S` 450 s), not tracker updates.
+    - **A correction to every lead time above.** The backtest stamped each marker with its volume's start, but the newest lowest-tilt pass it read finished up to about four minutes later. Stamped with the pass it read, the original pipeline's first marker leads touchdown by a median +0 to +2 minutes on the four tornado samples, not the +4 to +6 reported above; its Likely, −6 to +4.5.
+    - **Measured, every pass against the newest only (`v1` against `v0`):** POD on the random tornadoes 0.34 → 0.42, EF2+ 0.44 → 0.53, 2013–2018 0.32 → 0.41, the second EF2+ sample 0.48 → 0.58, the eight random years 0.37 → 0.47. The first marker's median lead +1.5 → +3, +1 → +5, 0 → +3.5 and +2 → +4 minutes, and 28 tornadoes marked 10 or more minutes early against 14. False episodes (tracks no marker of which verified, `markers.py`) about double: 2.90 → 6.46, 2.22 → 5.41, 3.13 → 6.22, 2.35 → 5.38 per radar-hour on the tornado samples, 0.59 → 1.25 on the random years, 0.03 on the quiet days either way; many are one pass long. These runs have no HRRR hour, so no environment gate, which roughly halves the false markers of ordinary days in either mode.
+    - **Likely needs two passes** (`LIKELY_PASSES`). Drawn at every pass with no more, *likely* doubled the false alerts (0.13–0.24 to 0.19–0.47 per radar-hour, before the dealiasing merge); counting it only from a track's second pass at that tier, false *likely* episodes fell below the original's: 0.13 → 0.09, 0.18 → 0.11, 0.20 → 0.08, 0.16 → 0.04 on the tornado samples, 0.03 → 0.01 on the random years, 0.02 → 0 on the quiet days. Likely POD moved −4 to +4 points by set (0.07 → 0.11, 0.17 → 0.13, 0.07 → 0.08, 0.27 → 0.24), its median lead −5 → −4, −5 → −5, +4.5 → 0, −6 → −2.5 minutes. A report or an observed warning still confirms at once.
+    - **The dealiasing merge alone** (Py-ART region dealiasing at the decoded Nyquist, `base` against `v0`) moved POD by at most two points and false episodes by at most 0.45 per radar-hour.
+    - **Tried: confirming every tier on two passes of a track.** False episodes fell below the original's (2.12 and 1.60 per radar-hour on the first two samples) but POD fell below it too (0.31 and 0.40 against 0.34 and 0.42) and the lead gain went: at 1.8 minutes a pass the tracker breaks more tracks, and a second pass of the same track discards real first detections. Not adopted.
+    - **A rotation-only *possible* waits a pass** (`PassConfirmation`, exports `v2-*`). Most of the doubled false episodes were lifts (rotation-only, scored under 0.3) seen on one pass. Drawn only once their track was a verdict on an earlier pass too, as measured in the backtest code: POD 0.35, 0.46, 0.34, 0.54 on the four tornado samples (0.34, 0.44, 0.32, 0.48 reading once a volume; 0.42, 0.53, 0.41, 0.58 at every pass) at 3.77, 3.01, 3.50, 2.60 false episodes per radar-hour (2.90, 2.22, 3.13, 2.35; 6.46, 5.41, 6.22, 5.38); on the eight random years POD 0.45 at 0.70 (0.37 at 0.59; 0.47 at 1.25); the quiet days unchanged. The first marker's median lead +1, +4.5, +4, +4 minutes, and *likely* as at every pass. Making every first marker wait instead, at evidence bars of 0.4 or 0.6, only lost more. The default: on ordinary days, which most viewing is, it keeps nearly all of the gain at about the old false rate. `detectors.early_rotation` (Layer options → Detectors → "Show it at its first scan") draws lifts at once, for tornado days.
+    - **Adopted, in the app too:** the tracker is fed once per pass. The app had updated it at the volume's own time on every sweep of a live volume, which restarted it within each live volume and cost every live track its history; now a pass is fed once, the volume's first pass waits for its four lowest velocity tilts, and later sweeps re-analyse the last pass fed.
+  - **Where the misses are, with every low-level pass** (`v2` exports, the four tornado samples, scored per Storm Events tornado): found 68% of the tornadoes 0–40 km from the radar, 65% at 40–80 km, 51% at 80–120 km and 27% at 120–150 km; EF2+ 87%, 89%, 75%, 43%. 292 of the 507 misses are 80 km or more out, where the lowest beam is high. A second radar would reach few of them: only 109 of the 509 tornadoes 80 km or more from their radar had another WSR-88D within 100 km, the network's spacing putting most of them about as far from every radar (found 44% with one under 60 km, 30% at 60–100 km, 44% beyond). By the best fused column near each missed report or survey: 615 had only low-level shear under the 0.018 s⁻¹ bar (465 of them 80 km or more out), 326 columns not rooted in the lowest tilt, 281 no column, 126 a column inside 40 km where there is no rotation-only lift, 65 a lift-eligible column masked or folded, 48 anticyclonic.
+    - **Tried: a rotation-only lift inside 40 km**, at a bar from 0.010 to 0.020 s⁻¹ (rooted, cyclonic, in a core, no debris; re-derived from the fused rows). At 0.016 it adds 2.5 points of POD on the tornado samples at 0.60 more false tracks per radar-hour, and on the random years and quiet days no tornado at all for 0.25 and 0.11 more; at 0.020, a point for 0.18. The 40 km rule stands.
+  - **Tried: boosted trees for the fusion** (pure-Python histogram gradient boosting of depth-2 trees on the `v2` fused rows, four tornado samples and eight random years, 261,553 rows, 19,095 verified; five folds grouped by event). Held-out AUC 0.769 against fusion-3's 0.652, but that is the ranking of the many weak columns: at the scores markers are drawn from, on the tornado samples the trees found 0.276 of the reports and surveys at one false row per radar-hour against 0.262, and without range (which they lean on, as the free linear fits did) 0.213; without range or the near-ground features, 0.202. On the random years better in every variant (0.19–0.47 against 0.13 at one false row per radar-hour) but on 73 truths. Not adopted. What carried them was the length of the column's ≥ 40 dBZ echo (35–43% of their gain), then near-ground rotation (28%) and peak shear. Near-ground rotation splits the way the linear refit found: among the markers drawn, the strongest band verified 54% on the tornado samples and 10% on the random years. Echo length gave a rule.
+  - **A storm core at least 5 km long** (`MIN_CORE_LENGTH_KM`, from a tenth of a km). Among columns scored 0.3 or more on the random years, all 154 in an echo under 5 km long were false, against 26% verified at 20–50 km. Re-derived from the markers drawn once a volume (`v0`): random years false episodes 0.59 → 0.44 per radar-hour, false *likely* 0.034 → 0.017, POD 0.37 unchanged; tornado samples 2.70 → 2.49 for POD 0.409 → 0.402. Measured in the backtest code with every low-level pass and lifts waiting (`v3` against `v2`): random years 0.70 → 0.48 false episodes at POD 0.45 both; the tornado samples 3.77 → 3.28, 3.01 → 2.66, 3.50 → 3.17, 2.60 → 2.35 at POD 0.35 → 0.34, 0.46, 0.34 → 0.33, 0.54; the quiet days' last false marker gone. Against reading once a volume (`v0`), the app now finds more of the ordinary days' tornadoes (0.45 against 0.37) at fewer false markers (0.48 against 0.59 per radar-hour) and a third of the false *likely* (0.01 against 0.03); on the tornado samples POD is the same or higher, false episodes within 0.45 per radar-hour, false *likely* a third to three quarters lower.
+  - **Tried: hydrometeor size sorting as a precursor** (`wxdata::size_sorting`, exported as `zdr_kdp_km` and `zdr_kdp_angle` beside every fused column scored 0.1 or more; `v4` exports). Loeffler, Kumjian et al. (2020) found the ZDR arc and the KDP foot further apart, and more nearly across the motion, in supercells about to produce tornadoes. Measured at the lowest tilt on a 1 km grid within 20 km of the column (arc ZDR ≥ 3.25 dB, foot KDP ≥ 1.5 °/km, both in rain: Z ≥ 20 dBZ, CC ≥ 0.9, at least 3 km² each), with the track's motion. Before touchdown (rows in the 20 minutes before a sample's own tornado began, within 10 km of its begin point, against rows near no tornado, all scored 0.1 or more): separation 5.5 km against 4.4 km (AUC 0.60), angle 32° against 22° (0.60), against the fused score's 0.73. Added to the score in a logistic fitted on one pair of tornado samples and scored on the other, it raised that AUC both ways (0.738 → 0.765, 0.715 → 0.728): the first evidence that adds to the score before touchdown. But fitted on the verified rows, as the score is, its weight comes out near zero (+0.01, −0.017 per km), and with *likely* re-derived at matched false rows it adds 0.2–0.9 points of POD and no lead on either held-out half. It ranks the many weak columns before touchdown, not the strong ones *likely* is drawn from. Not adopted; exported for later fits.
+  - **What the radar showed at the missed tornadoes** (the 499 Storm Events tornadoes the `v3` markers missed on the four tornado samples; for each, the cached volumes from six minutes before it began to its end, the lowest tilt's rotation objects within 5 km of its track): 361 (72%) had a credible cyclonic object there, a median peak AzShear of 0.0126 s⁻¹ (p90 0.018), under the rotation-only bar and scored under *possible*: real rotation the radar resolved, as weak as ordinary storm rotation. 53 had only an object rejected as an artifact (36 of them elongated: a long thin shear zone, which is what a line's mesovortices look like), 46 only shear of 0.004–0.006 s⁻¹, 29 nothing within 5 km (27 of them 80 km or more out), 7 only anticyclonic. The misses are mostly a matter of strength, where weak tornadoes and non-tornadic rotation overlap, along the bar the Detectors setting already offers; the elongated rejections are the one gate worth testing.
+  - **Tried: a looser elongation gate** (rotation objects rejected as elongated from 6 times longer than wide at 6 km or more, against 4 times; exports `v5` against `v3`, everything else as the app). POD on the tornado samples 0.34 → 0.37, 0.46 → 0.50, 0.33 → 0.38, 0.54 → 0.55, all of it within 80 km; the random years unchanged at 0.45. False episodes up on every set (3.28 → 3.57, 2.66 → 2.88, 3.17 → 3.62, 2.35 → 2.97 per radar-hour; the random years 0.48 → 0.57) and false *likely* up on every tornado sample (0.09 → 0.13, 0.11 → 0.16, 0.06 → 0.07, 0.04 → 0.07); the first marker's median lead moved by a minute or two either way. On ordinary days it adds only false markers, and on tornado days more false alerts: not adopted.
+  - **Everything together, with the environment gate** (`v6`: every low-level pass, lifts waiting a pass, the 5 km core, and `HOOKECHO_BACKTEST_HRRR=1`, HRRR for 1,013 of 1,092 hours; the 79 without are mostly 2013 windows before the archive). On the random years POD 0.40 at 0.38 false episodes per radar-hour and 0.01 false *likely* (`v3`, the same without the gate: 0.45 at 0.48; `v0`, the app before any of this: 0.37 at 0.59 and 0.03). On the tornado samples POD 0.34, 0.45, 0.33, 0.53 at 3.24, 2.62, 3.09, 1.78 false episodes per radar-hour, *likely* as without the gate; the quiet days clean. On top of the core rule the gate is worth less than it was alone: on the random years a fifth of the false episodes (0.48 → 0.38) for the same five points of POD (0.45 → 0.40), where alone it took nearly half (0.56 → 0.31); and on the second EF2+ sample it held back early markers (44 → 39 sampled tornadoes marked, median lead +3 → +1 min).
+  - **All eight random years** (259 windows, 175.5 h, 73 truths; `python scripts/fusion/markers.py` on the eight exports): app 0.62 false per radar-hour at POD 0.38, 0.03 at Likely with POD 0.03; the original 3.14 at 0.16, 0.75 at Likely with POD 0.08.
+  - **All six random years together** (179 windows, 121.7 h, 62 truths): app 0.62 false per radar-hour at POD 0.40, and 0.025 at Likely with POD 0; the original 3.46 at 0.15, and 0.83 at Likely with POD 0.06. On ordinary days the app's Likely tier is conservative: the original's Likely finds 4 truths (three reports and a surveyed path of one KSGF 2019-05-21 storm: debris CC 0.24 beside 20 m/s rotation), which the app shows as Possible, at thirty times the false alarms.
+  - **Weak rotation: what separates tornadic from ordinary, beyond strength (1008.md G2; `scripts/fusion/weak_rotation.py`, `weak_rules.py`, on the `v6` exports).** Every fused cyclonic column 15–150 km out with low-level shear 0.010–0.018 s⁻¹ — the band most missed tornadoes sit in — labelled by whether it matched a truth (training: t1, t2 and the 2019 and 2021–2024 random years, 9,063 columns, 15.0% verified; held out: t3, t4 and the 2018, 2020 and 2025 years, 12,083, 14.8%). Held-out AUC within the band: the fused score itself 0.700 (0.673 training); near-storm STP 0.635, tilts 0.638, depth 0.625, low-level shear 0.637; persistence weak (2+ passes 0.545, track age 0.558); storm shape barely (a line-like echo aspect 0.537, echo length 0.599); range none (0.488). So beyond strength the fused score already carries most of what is there, and neither storm mode nor persistence separates weak tornadic rotation. The environment does on outbreak days and not on ordinary ones: an upper bound for a lift "score ≥ s and STP ≥ t" (truths the markers missed that passing columns match, and false tracks they add, before the markers' other rules) gives on the held-out tornado samples +1.4 to +1.6 points of POD for +0.47 to +0.56 false tracks per radar-hour at s 0.20 and STP 0.5–1 (+4.5 to +7 points at s 0.15, for +2.5 to +4.3 per radar-hour); but on the eight random years every truth such a rule adds needs STP under 2 (STP ≥ 2: none added), and the best point, s 0.20 with STP 0.5, adds at most 3 of 73 truths for 0.17 false tracks per radar-hour — 18 truths per false track per radar-hour against the markers' current 47 (29 found at 0.62). The quiet days stay at 0.00–0.06. No rule is adopted, and the default is unchanged. Two things block one: ordinary-day weak tornadoes mostly happen in low-STP air, so the separator there is still missing; and this plan has no stated false-rate tolerance to judge a trade against (1008.md G2 names "the documented tolerance"). Next: set that tolerance explicitly (for example, held-out random-year false episodes may not rise more than 10%), then test the s 0.20 / STP 0.5 lift as an opt-in "weak rotation" setting through the marker rules in the backtest code. Logs: `target/parity-review/1008/g2-*.txt`.
+  - **Tried: debris reflectivity from its CC's own cut, not adopted (1008.md G1; exports `g1-*` against `v6-*`, `scripts/fusion/compare_markers.py`).** At split-cut tilts the debris detector reads CC from the surveillance cut and reflectivity from the Doppler cut a rotation (about 17 s) later, because each moment is binned from its newest cut (`docs/certification/m1.4/README.md`, "Debris inputs"). `HOOKECHO_BACKTEST_DEBRIS_CUT=1` pairs CC with the reflectivity of its own cut (`level2::bin_scan_from_cut_of`, `low_passes::at_pass_with`), everything else as `v6`. A switch-off run of the same binary reproduced `v6-q2023` byte for byte, so `v6` is this code's baseline. Compared on the events both runs processed (g1 also loaded six t4 windows v6 had not): false episodes per radar-hour fell on every tornado sample (t1 3.28 → 3.17, t2 2.62 → 2.50, t3 3.09 → 3.06, t4 1.78 → 1.73) and on two random years (2022 0.46 → 0.38, 2023 1.03 → 0.95), false *likely* episodes on t1 4 → 2 and unchanged elsewhere; the quiet days stayed clean. But fewer tornadoes were found on three of the four tornado samples (POD t1 0.344 → 0.323, t3 0.332 → 0.328, t4 0.534 → 0.528, against t2 0.446 → 0.458; net 7 fewer of 2,605 truths) and on the 2019 random year (16 → 14 of 25); *likely* POD t2 0.118 → 0.111, t4 0.225 → 0.229. A small false-alarm gain for a small, consistent POD loss is not "does not get worse", so the app keeps its pairing; the switch stays for later fits (the debris thresholds were fitted on the current pairing, and a refit on same-cut inputs is the obvious next test). Logs: `target/parity-review/1008/g1-*.txt`.
+  - **Calibration tried, not adopted (1008.md G3; `scripts/fusion/calibration.py`, on the `v6` markers).** A reliability map from score to the observed frequency of a marker being verified, fitted two ways (isotonic and Platt) on training sets and read on held-out sets, per marker and per episode (a track's markers together, at its highest score). The score ranks well everywhere: on the second pair of tornado samples, held out from a fit on the first pair, the verified share rises from 0.43 at scores under 0.3 to 0.88 at 0.8-0.9 per marker, and the fits do improve on the raw score there (Brier 0.231 raw, 0.217 isotonic, 0.220 Platt; reliability 0.025 to 0.011). But the frequency at a given score is a property of the population, not of the score. Swapping which tornado samples train and which are held out, the held-out base rate moves from 0.58 to 0.73 and the fitted maps are as far off as the raw score (reliability 0.064-0.065 against 0.085). Fitted on all four tornado samples and read on the eight random years, both maps are worse than the raw score (Brier 0.278 isotonic, 0.280 Platt, 0.225 raw; verified share 0.29 for *possible* against 0.53-0.69 on the tornado samples). The random years alone are too few to fit (89 training markers, 22 verified; the Platt slope comes out negative, and the held-out bins hold 2-16 markers). So no tier is worded as a likelihood: a "likelihood" fitted on tornado days would overstate it on the ordinary days most viewing happens on by about a factor of two, and one fitted on ordinary days has no support. The tiers stay evidence, and markers stay labelled as not NWS products. What the tables do support: *debris* verified on 0.89-0.94 of tornado-sample markers (209 of 224, 248 of 271) and 5 of 6 on the random years. Logs: `target/parity-review/1008/g3-*.txt`.
+
+### Where the detection stands (65 events)
+
+- **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
+- **Weights.** fusion-3, fitted on the first 25 events, still outperforms every refit on events it never saw. Every candidate feature was measured, exported at weight 0 and tested held out by event: echo shape, no core, near-ground speed, inbound, Vrot, couplet minimum, circulation persistence. None improved the Likely tier on unseen events. The couplet minimum ranks better but loses Likely POD (0.20 to 0.08), so the weights stand.
+- **Line (QLCS) tornadoes are a sensing limit, not a weighting gap.** At 70–100 km, a shallow mesovortex spans a few radials and sits under or within the lowest beam. Its columns are unrooted and weak (median 0.008–0.0095 s⁻¹), and both Tornado IDs find almost none (round four POD 0.03 and 0.05). A narrower kernel adds more noise than signal. Within ~40 km the WSR-88D already resolves them, so the near-range miss is weighting. A TDWR test on the Chicago derecho was not a reliable gain (C-band attenuation).
+- **Lead time.** Measured along the storm's track from surveyed starts, both Tornado IDs confirm around touchdown: median +1 minute at Possible. The fused one has 10+ minutes of lead four times as often as the original (16% against 4%) and is later at Likely (−4 minutes), because debris follows touchdown. The radar evidence 5–30 minutes before touchdown holds little precursor signal (AUC ≤ 0.61 per feature).
+- **Calibration (Phase 14).** It still waits on a much larger corpus: 65 events with 25 hard negatives cannot set a probability, and the tiers stay evidence scores.
+
+### Findings to carry into Phase 9 (from 10 and 11)
+
+- Lead times measure a median of only 3–5 minutes because every event starts a few minutes before its first report. Measuring real lead time needs events that start earlier.
+- Tornado ID candidates carry no beam height, so its beam-height bands are all "unknown". The 100–150 km band is weak for every detector (Tornado ID FAR 0.95 at 0.5).
+- Truth coverage is uneven. Events without a survey only have point reports, so an unmatched detection there is less certainly false than one near a surveyed path.
+
+### Findings to carry into Phase 8 stage B / Phase 9
+
+- The corpus is the limit. Nine events (one hail and one derecho hard negative) cannot settle weights. On the KDVN derecho a free fit ranks *worse than random* (AUC 0.40). Phase 9's hard negatives and more tornadic cases come before any further tuning.
+- The fusion concentrates on the strongest circulations. To compete on POD it needs evidence for weaker tornadoes, or the plan's "1 volume neutral, 2 meaningful" persistence shape rather than a linear term.
+
+### Findings to carry into Phase 7
+
+- Denver's hail supercell still promotes 2 signatures, because it rotated within the radius. Telling it apart needs fused evidence (hail signs, depth, persistence), not a stricter debris rule fitted to one case.
+- Verified debris on this corpus has a median ZDR of +1.2 dB, not the ~0 dB often quoted. The mean is taken over a disk that includes the rain around the ball, so ZDR is a weak discriminant here except when strongly negative.
+
+### Findings to carry into Phase 5
+
+- One tornado's low-level circulation can be several objects 3–4 km apart at one tilt (Mayfield), so one column per tornado per volume is not guaranteed. Tracking should associate columns, not assume one.
+- Weak-echo rooting finds more real rooted columns but also more false ones. Phase 7 should weigh `weak_echo` members rather than count them as equal to members with echo.
+
+### Findings carried into Phase 4
+
+- Velocity noise far out makes 0.01–0.017 s⁻¹ slopes in nine-sample kernels. What separates it is significance against noise estimated over a fixed window, not the object's own few gates (which select low texture). Pure ±12 m/s noise: 11 436 objects, none credible.
+- AzShear is not vorticity: a vortex's outer flow gives opposite-sense shear on both flanks, about half the core's peak. These flanks are flagged and must not become anticyclonic rotation.
+- A real couplet can sit right at the Nyquist limit. A fold is told apart by crossing most kernel rows (seam 1.0, still 0.66 where it ends; Moore 0.31), not by its velocities alone.
+- Mayfield's strongest lowest-tilt gate (0.028 s⁻¹) is over 3–12 dBZ at the storm's edge, with no 20 dBZ in its kernel, and is excluded. Vertical association (the same circulation over echo one tilt up) is where it could be recovered.
+- Line-shaped shear dominates the remaining false alarms (the KDVN derecho alone: 439 objects). Elongation flags long lines, but the fragments of a broken line are compact.
+
+### Findings carried into Phase 3
+
+- Real violent tornadoes have *high* fit RMSE (Moore 14 m/s) and texture (19 m/s) at their peak gate, and Moore's peak gate has a 17% leftover-fold share. Quality gates must therefore be relative to the shear's own size, and fold flags must count only alongside other evidence. Absolute RMSE or texture limits would reject the strongest tornadoes.
+- Clear air produces isolated gates past 0.006 s⁻¹. The reflectivity requirement and coherent-object area are needed, not optional.
+
+## Purpose
+
+This roadmap is intended for Claude Code and Codex to implement a substantial reduction in high-confidence false tornado, rotation, and debris detections without simply raising thresholds until true events disappear.
+
+The current detectors contain useful safeguards, but the overall architecture still has three major weaknesses:
+
+1. Rotation is primarily derived from adjacent gate-to-gate peak velocity differences. This is sensitive to isolated bad gates, dealiasing errors, velocity texture, coarse sampling, and fixed-grid clustering.
+2. Rotation and debris scores are cross-corroborated and then combined again by Tornado ID, which can double-count correlated evidence and inflate moderate signals into apparently high-confidence tornado detections.
+3. Temporal persistence, object motion, storm-relative structure, and robust neighborhood statistics are not first-class inputs to tornado inference.
+
+The goal is not to eliminate all false positives. The goal is to make high scores difficult to obtain unless multiple physically consistent lines of evidence support the same persistent low-level circulation.
+
+---
+
+# Guiding principles
+
+## 1. Candidate generation is not classification
+
+Separate the system into:
+
+```
+Radar QC
+  -> candidate fields
+  -> physical objects
+  -> vertical association
+  -> temporal tracking
+  -> feature fusion
+  -> tornado classification / probability
+```
+
+Do not allow early-stage candidate scores to masquerade as final tornado confidence.
+
+## 2. Every source of evidence is counted once
+
+Rotation, CC, ZDR, reflectivity, vertical structure, persistence, reports, and warning metadata must each enter fusion only once.
+
+Do not boost rotation with debris, boost debris with rotation, and then combine the boosted values again.
+
+## 3. Prefer robust spatial statistics to maxima
+
+A single maximum gate-to-gate value must not dominate a high-confidence decision.
+
+Use neighborhood medians, percentiles, coherent object area, spatial gradients, texture, persistence, and vertical consistency.
+
+## 4. Scores are not probabilities unless calibrated
+
+Until a detector is calibrated against held-out historical events, label its value as an "evidence score", not a percentage probability.
+
+## 5. Hard negatives matter as much as tornadoes
+
+The validation corpus must contain large hail, QLCS shear, gust fronts, clear-air artifacts, dealiasing failures, sidelobes, wind farms, melting layers, biological scatter, and non-tornadic supercells.
+
+---
+
+# Phase 0 - Preserve a reproducible baseline
+
+Before changing detector behavior, create a baseline so every later change can be compared objectively.
+
+## Tasks
+
+- Preserve current algorithm versions and current detector output on the existing archived corpus.
+- Extend the headless backtest to export machine-readable JSON or CSV containing every candidate, not only summary metrics.
+- Include:
+  - radar site
+  - volume timestamp
+  - detector type
+  - lon/lat
+  - range
+  - beam height
+  - raw score
+  - final displayed score
+  - gate count
+  - tilt count
+  - Vrot
+  - gate-to-gate delta
+  - min/mean CC
+  - mean/max reflectivity
+  - ZDR
+  - vertical depth
+  - rooted state
+  - confirmation state
+  - whether matched to truth
+- Save baseline aggregate statistics for:
+  - POD
+  - FAR
+  - CSI
+  - false detections per radar-hour
+  - detections per volume
+  - score reliability by score bin
+  - performance by range band
+  - performance by beam-height band
+
+## Files
+
+- `crates/wxdata/src/detverify.rs`
+- headless/backtest CLI code
+- `docs/backtest-events.txt`
+
+## Acceptance criteria
+
+No detector behavior changes in this phase.
+
+A command must reproduce the same baseline summary on repeated runs.
+
+---
+
+# Phase 1 - Fix score semantics and double counting
+
+This phase should happen before replacing the detector itself.
+
+## Problem
+
+Current flow can effectively do:
+
+```
+raw rotation
+  -> boosted by debris
+
+raw debris
+  -> boosted by rotation
+
+then Tornado ID:
+  1 - (1 - boosted_rotation) * (1 - boosted_debris)
+```
+
+This treats highly correlated evidence as if it were independent and can inflate moderate detections into 80-95% scores.
+
+## Required redesign
+
+Introduce immutable raw detector evidence.
+
+Suggested structures:
+
+```rust
+pub struct RotationEvidence {
+    pub raw_score: f32,
+    // physical measurements...
+}
+
+pub struct DebrisEvidence {
+    pub raw_score: f32,
+    // physical measurements...
+}
+
+pub struct TornadoEvidence {
+    pub rotation: Option<RotationEvidence>,
+    pub debris: Option<DebrisEvidence>,
+    // later: temporal, environmental, reports, etc.
+}
+```
+
+The individual detector modules may report their own evidence quality, but they must not mutate each other.
+
+Remove bidirectional confidence boosting from the production tornado-classification path.
+
+If cross-corroboration remains for display compatibility, it must be clearly separated from raw evidence and must never feed Tornado ID.
+
+## Tornado ID changes
+
+Remove the noisy-OR combination of already-correlated detector scores.
+
+Initially replace it with a transparent rule-based fusion score while the new detector is being built.
+
+Example concept only:
+
+```
+rotation_quality
++ low_level_rooting
++ vertical_continuity
++ temporal_persistence
++ debris_consistency
++ spatial_collocation
+- QC penalties
+- hail-like penalties
+- implausible-motion penalties
+```
+
+Do not copy these exact weights without backtesting.
+
+## Rename score presentation
+
+Change user-facing text from:
+
+```
+78% confidence
+```
+
+to something such as:
+
+```
+Evidence score: 78/100
+```
+
+until calibration exists.
+
+## Tests
+
+Add tests proving:
+
+- debris cannot increase a rotation raw score
+- rotation cannot increase a debris raw score
+- Tornado ID sees raw evidence
+- adding the same evidence through two paths cannot increase the final score twice
+- duplicate nearby detections cannot increase confidence merely because there are more copies of the same object
+
+## Files
+
+- `crates/wxdata/src/rotation.rs`
+- `crates/wxdata/src/tds.rs`
+- `crates/wxdata/src/tornado_id.rs`
+- `crates/hookecho/src/app/detectors.rs`
+- marker/tooltip code displaying confidence
+
+---
+
+# Phase 2 - Replace peak gate-to-gate rotation detection with an LLSD/AzShear field
+
+This is the highest-priority detector redesign.
+
+The present adjacent-gate peak-difference approach is fundamentally sensitive to individual bad gates and sampling geometry.
+
+Implement a local linear least-squares derivative style azimuthal shear field similar in concept to modern NSSL/MRMS approaches.
+
+Reference concepts:
+- NSSL mesocyclone / tornado algorithm work
+- MRMS low-level and mid-level AzShear
+- LLSD velocity derivative techniques
+- TORP object-based rotation detection
+
+Useful references:
+- https://www.nssl.noaa.gov/research/tornadoes/
+- https://www.nssl.noaa.gov/education/svrwx101/tornadoes/detection/
+- https://repository.library.noaa.gov/view/noaa/48189
+
+## LLSD field
+
+For each valid velocity gate:
+
+1. Gather a local polar neighborhood.
+2. Reject invalid/range-folded/QC-failed samples.
+3. Fit the local radial-velocity field using robust or weighted least squares.
+4. Estimate azimuthal derivative / shear.
+5. Normalize the result into physically meaningful units.
+6. Store:
+   - signed shear
+   - absolute shear
+   - sample count
+   - fit residual
+   - local velocity texture
+   - QC flag
+
+Do not use only two adjacent gates.
+
+## Adaptive neighborhood
+
+The physical width represented by an azimuth bin grows strongly with range.
+
+The LLSD neighborhood should be based on approximate physical distance, not a fixed number of azimuth bins across all ranges.
+
+Candidate neighborhood target should be configurable and backtested.
+
+## Robust fitting
+
+Investigate:
+
+- median/MAD outlier rejection
+- Huber weighting
+- residual clipping
+- minimum valid-neighbor count
+
+A single velocity outlier should not create a strong shear maximum.
+
+## Quality fields
+
+Every AzShear gate/object should carry QC information.
+
+Suggested values:
+
+```rust
+pub struct ShearQuality {
+    pub valid_fraction: f32,
+    pub velocity_texture_ms: f32,
+    pub fit_rmse_ms: f32,
+    pub dealias_suspect_fraction: f32,
+    pub temporal_consistency: Option<f32>,
+}
+```
+
+High shear with terrible fit quality must be penalized heavily or rejected.
+
+---
+
+# Phase 3 - Create connected rotation objects
+
+Do not cluster candidate pairs by a fixed 0.04-degree geographic grid.
+
+Create a shear mask and connected objects directly from the AzShear field.
+
+## Candidate mask
+
+Candidate membership should use a combination of:
+
+- minimum absolute AzShear
+- minimum valid-neighbor count
+- acceptable LLSD fit quality
+- reflectivity / storm-context requirement
+- range/beam-height restrictions
+
+Use hysteresis if useful:
+
+```
+strong seed threshold
++
+weaker continuation threshold
+```
+
+This prevents weak isolated noise from becoming objects while allowing coherent circulation footprints to retain their full structure.
+
+## Object properties
+
+Create a new object type, for example:
+
+```rust
+pub struct RotationObject {
+    pub lon: f64,
+    pub lat: f64,
+    pub area_km2: f32,
+    pub diameter_km: f32,
+
+    pub max_azshear: f32,
+    pub p90_azshear: f32,
+    pub median_azshear: f32,
+
+    pub robust_delta_v_ms: f32,
+    pub max_delta_v_ms: f32,
+
+    pub mean_texture_ms: f32,
+    pub fit_rmse_ms: f32,
+    pub valid_fraction: f32,
+
+    pub range_km: f32,
+    pub beam_height_km: f32,
+    pub elevation_deg: f32,
+
+    pub sense: Sense,
+}
+```
+
+Use maximum shear only as one feature.
+
+## Reject obvious artifacts
+
+Explicitly test and penalize:
+
+- one-gate spikes
+- one-radial streaks
+- broad radial seams
+- Nyquist-boundary artifacts
+- implausibly elongated radial structures
+- isolated features with no coherent neighborhood
+- high texture / poor LLSD fit
+
+Retain the good existing seam and leftover-fold safeguards where they remain useful.
+
+---
+
+# Phase 4 - Redesign vertical association
+
+Current vertical association can potentially gain confidence through single-linkage chaining.
+
+Replace that behavior.
+
+## Vertical association rules
+
+Associate objects across elevation angles using:
+
+- distance from a common core/centroid
+- overlap or nearest-edge distance
+- expected storm tilt with height
+- maximum allowed displacement per kilometer of height
+- rotation sense consistency
+- comparable AzShear structure
+
+Do not allow:
+
+```
+A near B
+B near C
+therefore A == C
+```
+
+unless A and C are also physically consistent with a common vertical circulation.
+
+## Analyze physical height, not only tilt count
+
+Build vertical summaries by AGL layer.
+
+At minimum:
+
+```
+0-2 km AGL low-level rotation
+2-3 km transition
+3-6 km AGL mid-level rotation
+```
+
+Properties should include:
+
+- lowest detected height
+- strongest low-level shear
+- strongest midlevel shear
+- depth
+- centroid tilt with height
+- vertically integrated rotation evidence
+- whether the circulation reaches the lowest usable radar sample
+
+A circulation at four high tilts is not equivalent to a circulation rooted below 1 km.
+
+---
+
+# Phase 5 - Add temporal object tracking
+
+Temporal persistence must become detector evidence, not merely a UI sparkline.
+
+Implement a persistent track type.
+
+```rust
+pub struct RotationTrack {
+    pub id: u64,
+    pub age_volumes: usize,
+    pub age_seconds: i64,
+    pub history: Vec<RotationTrackPoint>,
+    pub motion_u_ms: f32,
+    pub motion_v_ms: f32,
+    pub trend: RotationTrend,
+}
+```
+
+## Association
+
+Associate objects between volumes with a motion-aware cost using:
+
+- predicted position
+- spatial distance
+- shear similarity
+- area similarity
+- sense
+- vertical structure
+- parent reflectivity-cell motion if available
+
+Hungarian matching is preferred if candidate counts stay manageable. A gated nearest-neighbor solution is acceptable initially.
+
+## Temporal features
+
+Expose:
+
+- age
+- volumes persisted
+- position jump
+- motion consistency
+- AzShear trend
+- Vrot trend
+- low-level depth trend
+- vertical-depth trend
+- debris appearance time relative to rotation
+
+## False-positive handling
+
+One-volume objects should normally have limited confidence unless evidence is extreme.
+
+Do not hard-require two volumes for all tornado detections, because rapidly developing tornadoes exist.
+
+Instead create a temporal term such as:
+
+```
+1 volume      neutral/limited
+2 volumes     meaningful persistence
+3+ volumes    strong persistence
+```
+
+with an escape path for an exceptionally strong, clean, low-level circulation with collocated debris.
+
+---
+
+# Phase 6 - Redesign TDS as a polarimetric object detector
+
+The current TDS module already has useful connected-component logic, contrast, size, vertical continuity, range effects, and ZDR.
+
+Keep those strengths, but change the semantics.
+
+## Split two concepts
+
+Introduce:
+
+```
+PolarimetricAnomaly
+TornadoDebrisSignature
+```
+
+A low-CC/high-Z object without credible nearby low-level circulation is a polarimetric anomaly or debris candidate, not automatically a Tornado Debris Signature.
+
+## Fuzzy polarimetric evidence
+
+Avoid making the detector depend on only:
+
+```
+CC < 0.80
+Z >= 40 dBZ
+```
+
+Use continuous evidence functions.
+
+Potential inputs:
+
+- min CC
+- mean CC
+- p10 / p25 CC
+- CC contrast to surroundings
+- reflectivity mean/max
+- ZDR mean/median
+- ZDR variance
+- area
+- shape compactness
+- vertical depth
+- low-level rooting
+- range/beam height
+- persistence
+
+## Hail discrimination
+
+Add explicit hail-like features where possible:
+
+- very high reflectivity
+- hail/MESH/MEHS context if already available
+- broad low-CC region
+- positive/high ZDR pattern
+- lack of collocated low-level rotation
+- storm-relative placement
+- melting-layer / bright-band proximity
+
+Do not allow a high-quality hail signature with no rotation to become an 80% "TDS".
+
+## TDS promotion
+
+Promote a polarimetric anomaly to `TornadoDebrisSignature` when:
+
+- the polarimetric signature itself is credible
+- a credible low-level rotational object is collocated within an adaptive physical radius
+- temporal/vertical behavior is consistent
+
+Do not use a fixed 5 km association radius at all ranges without testing beam geometry.
+
+---
+
+# Phase 7 - Build one fusion layer
+
+After Phases 2-6, Tornado ID should be the only place where evidence becomes a tornado-level score.
+
+Suggested feature vector:
+
+```
+rotation:
+  low_level_max_azshear
+  low_level_p90_azshear
+  midlevel_max_azshear
+  robust_delta_v
+  object_area
+  vertical_depth
+  lowest_height
+  rooted
+  sense
+  LLSD_fit_quality
+  velocity_texture
+  range
+  beam_height
+
+temporal:
+  track_age
+  volumes_persisted
+  motion_consistency
+  shear_trend
+  depth_trend
+
+polarimetric:
+  debris_candidate_quality
+  min_cc
+  mean_cc
+  cc_contrast
+  mean_z
+  max_z
+  zdr
+  compactness
+  debris_height
+  tds_persistence
+
+collocation:
+  rotation_debris_distance
+  rotation_debris_height_consistency
+
+context:
+  reflectivity_cell_strength
+  MESH/MEHS if available
+  storm type features if reliable
+
+external:
+  tornado report
+  observed warning
+```
+
+External confirmation must remain semantically distinct from radar inference.
+
+An observed warning or report may alter the displayed state, but it should not contaminate training features intended to estimate radar-only probability.
+
+---
+
+# Phase 8 - Start with transparent fusion, then train a model
+
+Do not block the detector redesign on ML.
+
+## Stage A - transparent fusion
+
+Implement an explainable provisional score with terms exposed in the tooltip/debug output.
+
+Every positive and negative contribution must be visible.
+
+Example output:
+
+```
+Rotation strength        +0.21
+Low-level rooting        +0.12
+Vertical depth           +0.09
+3-volume persistence     +0.14
+Debris collocation       +0.18
+Velocity texture         -0.11
+Far-range beam penalty   -0.08
+```
+
+Again: derive actual weights from backtests rather than the example.
+
+## Stage B - trained tornado probability
+
+Once a sufficiently large labeled corpus exists, train a small offline model.
+
+Preferred initial candidates:
+
+- logistic regression
+- generalized additive model
+- gradient-boosted trees
+- random forest
+
+Do not begin with a deep neural network.
+
+The runtime should only need inference. Training can occur offline in Python and export model coefficients/tree data into a deterministic format consumed by Rust.
+
+## Calibration
+
+If the UI eventually says:
+
+```
+70% tornado probability
+```
+
+the model must be calibrated on held-out data.
+
+Evaluate:
+
+- reliability diagram
+- Brier score
+- expected calibration error
+- isotonic calibration
+- Platt/logistic calibration if appropriate
+
+Split train/test by complete storm/event, not random detections.
+
+Never allow consecutive volumes from the same tornado into both train and test.
+
+---
+
+# Phase 9 - Expand the historical corpus
+
+The current backtest corpus is too small for reliable probability calibration.
+
+Create manifests for:
+
+## Tornadic cases
+
+Include:
+
+- classic supercell tornadoes
+- QLCS tornadoes
+- weak EF0/EF1 tornadoes
+- violent tornadoes
+- short-lived tornadoes
+- rain-wrapped/night tornadoes
+- near-radar cases
+- far-range cases
+- tropical tornadoes
+
+## Hard negatives
+
+This category is critical.
+
+Include:
+
+- large hail supercells with no tornado
+- strongly rotating non-tornadic supercells
+- derecho/QLCS shear zones
+- gust fronts
+- outflow boundaries
+- wind farms
+- terrain clutter
+- anomalous propagation
+- clear-air velocity noise
+- velocity dealias failures
+- range-folding artifacts
+- sidelobes
+- melting-layer low CC
+- biological scatter
+- bright-band contamination
+- very high-reflectivity hail cores
+
+## Sampling
+
+Do not compare a few tornado minutes against entire quiet days without controlling class balance.
+
+Maintain:
+
+- event-level metrics
+- object-level metrics
+- radar-hour false alarms
+- per-volume false alarms
+
+---
+
+# Phase 10 - Improve truth matching
+
+Local storm reports are useful but incomplete.
+
+Support several truth sources separately:
+
+- SPC/NCEI tornado reports
+- damage survey tracks
+- tornado start/end times where available
+- surveyed path geometry
+- observed warnings as contextual metadata only
+- manually verified research cases
+
+Truth matching should prefer distance to a tornado path segment when available rather than only distance to a point report.
+
+Record uncertainty in event timing.
+
+Do not silently treat every unmatched radar detection as definitively false when truth coverage is weak.
+
+---
+
+# Phase 11 - Verification matrix
+
+Every major detector revision must produce a comparison table against the baseline.
+
+At minimum report:
+
+```
+POD
+FAR
+CSI
+precision
+recall
+F1
+false alarms / radar-hour
+false alarms / volume
+median lead time
+score reliability
+```
+
+Break these down by:
+
+```
+0-30 km
+30-60 km
+60-100 km
+100-150 km
+
+beam height:
+<1 km
+1-2 km
+2-3 km
+>3 km
+
+storm type if labels exist
+```
+
+A change is not accepted merely because the total FAR falls if weak tornadoes or distant tornadoes are disproportionately lost.
+
+---
+
+# Phase 12 - UI and analyst diagnostics
+
+Add an analyst/debug mode showing why each object exists.
+
+For rotation show:
+
+- LLSD AzShear object outline
+- max / p90 / median AzShear
+- robust Delta-V
+- max Delta-V
+- area
+- lowest/highest height
+- vertical depth
+- velocity texture
+- fit RMSE
+- age
+- motion
+- score history
+- QC flags
+
+For debris show:
+
+- CC footprint
+- CC contrast
+- Z
+- ZDR
+- area
+- vertical extent
+- rotation distance
+- whether it is:
+  - polarimetric anomaly
+  - debris candidate
+  - TDS
+
+For Tornado ID show a complete feature explanation.
+
+This is required so false alarms can be diagnosed instead of merely observed.
+
+---
+
+# Phase 13 - Safe migration strategy
+
+Do not replace the existing detector in one commit.
+
+Implement:
+
+```
+Legacy rotation detector
+New LLSD detector
+```
+
+side-by-side behind a feature/debug flag.
+
+During development:
+
+- run both on every backtest case
+- export paired detections
+- compare object counts and truth matches
+- inspect disagreements
+
+Only promote the LLSD detector to default once it improves the agreed validation metrics.
+
+Keep legacy mode available temporarily for regression comparison.
+
+Do the same for Tornado ID fusion.
+
+---
+
+# Recommended implementation order for Claude Code / Codex
+
+Execute in this order:
+
+1. Baseline/export tooling.
+2. Stop detector score double counting.
+3. Rename "confidence" to evidence score in uncalibrated UI paths.
+4. Implement LLSD/AzShear field.
+5. Implement connected rotation objects.
+6. Add strong QC and robust object statistics.
+7. Replace vertical single-linkage with physical column association.
+8. Add temporal tracking.
+9. Split polarimetric anomaly from true TDS.
+10. Build one centralized Tornado ID fusion layer.
+11. Expand hard-negative test corpus.
+12. Tune transparent score using held-out events.
+13. Add optional offline-trained classifier.
+14. Calibrate probability.
+15. Promote new detector to default only after documented validation.
+
+---
+
+# Non-negotiable regression tests
+
+Add automated fixtures covering at least:
+
+- isolated bad velocity gate does not create high score
+- residual Nyquist jump does not create high score
+- radial seam does not create a circulation
+- broad gust-front shear is not classified as compact tornado rotation
+- three spatially chained but mutually displaced tilt detections do not create a deep column
+- same-sign storm-relative shear can still be detected if physically valid
+- strong hail low-CC core with no rotation is not labeled TDS
+- low-CC biological/clutter region is rejected
+- collocated clean low-level rotation + compact low-CC debris object strongly increases Tornado ID
+- duplicated detector objects do not increase final confidence
+- one-frame noisy object receives limited confidence
+- persistent coherent object becomes more credible
+- real short-lived extreme circulation is not blocked solely because persistence is missing
+- score explanation exactly reproduces the score
+- outputs remain deterministic across runs
+
+---
+
+# Performance constraints
+
+HookEcho is interactive, so new algorithms must remain bounded.
+
+Requirements:
+
+- no unbounded full-history scans per frame
+- detector work once per new radar volume
+- cache LLSD fields and objects by volume key
+- use bounded recent-track windows
+- avoid allocations inside gate loops where practical
+- parallelize per-tilt processing only if deterministic ordering is preserved
+- retain deterministic output for tests and reproducible backtests
+
+Benchmark:
+
+- LLSD generation
+- object segmentation
+- vertical association
+- temporal tracking
+- Tornado ID fusion
+
+Record representative timings for low-end desktop hardware.
+
+---
+
+# Definition of done
+
+The redesign is complete when:
+
+1. Rotation candidates come from a robust local shear field rather than a single adjacent-gate maximum.
+2. Rotation objects are contiguous and quality controlled.
+3. Vertical continuity uses physical height and cannot be artificially chained.
+4. Temporal persistence and motion influence tornado inference.
+5. Low-CC objects without credible rotation are not automatically called TDS.
+6. Rotation and debris evidence are fused exactly once.
+7. "Probability" is only shown if calibrated.
+8. High-score false alarms are substantially reduced on a hard-negative corpus without an unacceptable loss of POD or lead time.
+9. All scoring is explainable in analyst mode.
+10. Backtests are reproducible and event-separated.
+
+---
+
+# Research direction notes
+
+The implementation should use established operational/research ideas rather than blindly copy thresholds.
+
+Relevant concepts:
+
+- Local Linear Least Squares Derivatives (LLSD)
+- MRMS AzShear
+- object-based mesocyclone detection
+- TORP-style object tracking and probabilistic fusion
+- velocity QC before rotation detection
+- low-level vs mid-level AGL rotation
+- multi-product TDS identification
+- temporal and vertical continuity
+
+Useful starting references:
+
+- NSSL Tornado Research:
+  https://www.nssl.noaa.gov/research/tornadoes/
+
+- NSSL severe-weather tornado detection overview:
+  https://www.nssl.noaa.gov/education/svrwx101/tornadoes/detection/
+
+- NOAA/NSSL TORP publication:
+  https://repository.library.noaa.gov/view/noaa/48189
+
+- NWS Dual-Pol applications:
+  https://www.weather.gov/jan/dualpolupgrade-applications
+
+- NWS Tornado Debris Signature training/examples:
+  https://www.weather.gov/lmk/nws_radar_dualpol_tordebris
+
+The agents should verify implementation details against primary meteorological literature before hard-coding new thresholds.
+
+---
+
+# Instructions to coding agents
+
+When executing this roadmap:
+
+- inspect the current implementation before changing it
+- preserve existing useful QC/tests unless the replacement makes them obsolete
+- make incremental commits
+- do not silently change unrelated UI or radar behavior
+- add tests with every detector behavior change
+- run the full Rust test suite after each major phase
+- run the archived-event backtest before and after detector changes
+- document metric changes in the commit/PR
+- do not optimize solely for the existing small corpus
+- explicitly record regressions and tradeoffs
+- prefer physically meaningful features over arbitrary score bonuses
+- never call an uncalibrated heuristic a probability

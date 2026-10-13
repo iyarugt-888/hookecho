@@ -1,3 +1,5 @@
+> **Planning authority: roadmaps/** — [master index](roadmaps/README.md) and [audit](roadmaps/audit.md) supersede this document's task ordering. This file retains historical requirements and evidence; completed/superseded items and remaining-work dispositions are preserved in [the archive](roadmaps/archive/README.md). Certification runs alongside implementation.
+
 # HookEcho — Theme, Chrome & UX Overhaul Plan
 
 > **Purpose:** implementation plan for Claude Code, Codex and other coding agents working the

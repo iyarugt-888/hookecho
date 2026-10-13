@@ -1,0 +1,122 @@
+# Roadmap
+
+What's being worked on, what's queued, and what isn't happening. "Later" is a
+real list, not a graveyard — most of it is restocked from the `ponytail:`
+comments in the source, each of which names a deliberate simplification and the
+upgrade path out of it (`grep -rn "ponytail:" crates/`).
+
+## Now
+
+- **macOS**, as an experiment. CI builds and smoke-tests an app bundle, but
+  nobody has run it on real hardware, and it is ad-hoc signed.
+- **Store submissions.** The Flatpak, Snap, Homebrew, AUR and winget manifests
+  are in the repo and build; none of them is published, which is an account and
+  a review queue away rather than a code change. The order and the per-store
+  steps are in [packaging/SUBMITTING.md](packaging/SUBMITTING.md).
+
+## Next
+
+- **GOES from the source.** The outcome this entry described — satellite
+  imagery animated on the timeline the radar already uses — is shipped, but
+  through GIBS' time dimension rather than the `noaa-goes19`/`-18` buckets:
+  fifteen timed layers (GeoColor, clean IR, air mass, dust, fire temperature,
+  plus Himawari and IMERG), a frame bar, and a "follow the radar clock" mode
+  that scrubs the imagery with the volume. Reading ABI Level 2 CMIP directly
+  now also exists as three national field layers (clean IR, visible and
+  water vapor, CONUS sector, `wxdata::goes_abi`) — the fixed-grid
+  geostationary projection and the netCDF-4 read (an `hdf5lite` bugfix along
+  the way) were the real unknowns, and all three bands are proven against the
+  live bucket now. GOES-West is in too (`settings.goes_satellite_west`, a
+  Layer settings toggle — exclusive with East, since the two satellites'
+  CONUS scans overlap). The two mesoscale sectors are in beside CONUS
+  (`goes_abi::Sector`), native ABI frames follow the radar clock, and a
+  satellite loop plays every one-minute mesoscale scan (ROADMAP_PARITY M5.2).
+  What's actually left: the full-disk sector, and imagery inside an offline
+  chase pack.
+- **Model coverage on par with the other radar apps.** NAM's own 12 km grid
+  (`hrrr::Model::Nam`), the GFS ensemble mean (`global::GlobalModel::Gefs`),
+  Environment Canada's GDPS (`global::GlobalModel::Gdps`) and NDFD (the NWS's
+  own forecaster-blended grid — temperature, wind, gusts, snow totals,
+  `wxdata::ndfd`) are all in, each verified against its live public source.
+  NDFD's snowfall grid also turned up (and paid for the fix of) a real
+  decoder bug in the Complex Grid Packing template nothing else here had
+  exercised — see the changelog. RRFS v1.0 and HREF's probability-matched
+  mean are in too (`hrrr::Model`), both from NOMADS, since neither has an
+  operational AWS bucket (RRFS's holds only retrospective runs, and
+  `noaa-href-pds` does not exist). Still open: HREF's neighbourhood
+  probabilities (1010.md V10), and the browser build, which cannot reach
+  NOMADS without a proxy. ICON (DWD) is the one model here with a real open
+  question rather than just unconfirmed logistics: its native grid is icosahedral (triangular cells over the
+  sphere), not the regular lat/lon or Lambert grids every model this app
+  reads decodes today, so `gribberish` support for that grid definition
+  template would need confirming (or a DWD-published regular-lat/lon
+  regrid substituted) before it's more than a guess.
+
+## Later
+
+Restocked from `grep -rn "ponytail:" crates/` — 161 of them at the moment, each
+naming its own upgrade path.
+
+- Web persistence: caches live in memory in the browser, so a reload refetches
+  everything. IndexedDB or OPFS is the upgrade (`paths.rs`).
+- A tablet layout for Android — the phone chrome is what a tablet gets today
+  (`ui/m3.rs`).
+- Snap positions for the mobile sheets; they dismiss on a drag today but have no
+  half-open state.
+- Blending surface observations into the effective-layer analysis, which is the
+  remaining difference from SPC's mesoanalysis now that the vertical resolution
+  is there. Deliberately parked, not forgotten: this feeds numbers people may
+  use for real severe-weather decisions, and the scoping questions it raises
+  (radius of influence, which variables to correct, QC against a bad ob) are
+  worth a real decision when picked back up, not a guess.
+
+## Not planned
+
+- **iOS.** No Apple hardware, no signing story, no honest way to test it.
+- **Machine-learning nowcasting.** There is already a radar-advection nowcast
+  layer; a trained model is a research project, not a feature.
+- **Blitzortung lightning.** Their terms forbid application use. See
+  [docs/DATA.md](docs/DATA.md).
+- **A velocity mosaic.** Stitching velocity from separate radars is physically
+  meaningless — each radar measures motion along its own beam.
+- **A hosted service, accounts, or telemetry.** The app talks to public feeds
+  from your machine; sync goes through your own Google Drive folder, and
+  position sharing through your own relay if you set one.
+
+Already shipped, and sometimes mistaken for gaps:
+
+- **The whole app in a browser**, live chunk streaming included, so a web tab
+  updates sweep by sweep during a scan.
+- **GPU wind particles** — advected in a fragment shader, ping-ponging two
+  textures, with the CPU mesh still there as the fallback
+  (`HOOKECHO_CPU_WIND=1`). Positions are packed into RGBA already, so a device
+  without float render targets is not the blocker it is sometimes taken for.
+- **Saved workspaces**, three of them shipped, remembering panes, overlays and
+  field layers.
+- **Disk caches** for volumes, zones, soundings and snapshots, all capped and
+  swept, with a Storage tab that shows and clears them.
+- **Effective-layer severe parameters** on both the grid and the clicked
+  sounding, and CSV export of the sounding and its indices.
+- **Accessibility**: a screen-reader tree (accesskit), a high-contrast theme,
+  and the keyboard defaults written down.
+- **Android**: real per-device inset queries, and file import through the
+  Storage Access Framework.
+- **A radar snapshot as a file** (`--snapshot … --every`) for conky and
+  wallpaper scripts, with size and zoom on `/snapshot.png` too.
+- **True lunar ephemeris** (Meeus), in place of the mean synodic month.
+- **A model difference layer** — GFS against ECMWF, HRRR against RAP — drawing
+  nothing where the two agree, with a hover readout and a diverging legend,
+  aligned to one valid time, plus a two-pane side-by-side alternative to the
+  subtraction itself.
+- **A point meteogram in the Forecast window** — pick a model (GFS, ECMWF,
+  GEFS, GDPS) and a field, see that model's own raw run graphed at the tapped
+  point over 24h/3-day/5-day, with min/max/avg — beside the NWS blended
+  outlook already there, not instead of it.
+- **Effective-layer parameters on the full pressure ladder**, up to 100 hPa, so
+  the depth-dependent ones exist on the days they describe.
+- **A headless-browser smoke test in CI**, which is the check `cargo check`
+  structurally cannot perform.
+- Animated HRRR wind, the multi-day forecast, fourteen themes including Light,
+  interactive vector basemaps, offline chase packs, future radar, archive back
+  to 1991, placefiles with a layer manager, settings sync, and a Home Assistant
+  integration.

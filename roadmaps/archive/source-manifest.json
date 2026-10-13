@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "baseline_commit": "ed5eccaa689e2d99f8774c4313b4bc6ece93d06c",
+  "basis": "Exact working-tree bytes before consolidation; includes pre-existing peer changes. Not all bytes belong to baseline_commit.",
+  "initial_status": "MM CHANGELOG.md\n M CODEX_GOAL.md\n M ROADMAP_NEW.md\nMM ROADMAP_PARITY.md\n M crates/hdf5lite/tests/golden.rs\n M crates/hookecho/src/app/data_poll.rs\nM  crates/hookecho/src/app/field_series.rs\n M crates/hookecho/src/app/live_session.rs\nM  crates/hookecho/src/app/model_field.rs\nM  crates/hookecho/src/app/overlay_poll.rs\nM  crates/hookecho/src/app/point_models.rs\n M crates/hookecho/src/headless.rs\n M crates/wxdata/Cargo.toml\nM  crates/wxdata/src/hrrr.rs\n M crates/wxdata/src/live.rs\nM  crates/wxdata/src/model.rs\nM  crates/wxdata/src/model_inventory.rs\n M docs/certification/m1.2/README.md\nM  docs/certification/m5.3/README.md\nA  docs/certification/m5.3/href-prob-refc40-live.png\n M vendor/nexrad-model/Cargo.toml\n M vendor/nexrad-model/README.md\n M vendor/nexrad-model/src/data/sweep.rs\n?? 1008.md\n?? 1010.md\n?? crates/hookecho/src/app/delivery_fault_tests.rs\n?? crates/wxdata/tests/live_shared_sweeps.rs\n?? docs/certification/m1.2/shared-sweeps.md\n?? roadmaps/\n?? scripts/certification/roadmap_inventory.py\n",
+  "sources": [
+    {
+      "path": "ROADMAP.md",
+      "snapshot": "roadmaps/archive/sources/ROADMAP.md",
+      "sha256": "cad79a4261c13cc9d8f011f8d9fff20d1cbdbb78d2dadbc4debfab4ebce9fe6a",
+      "bytes": 7193
+    },
+    {
+      "path": "ROADMAP_NEW.md",
+      "snapshot": "roadmaps/archive/sources/ROADMAP_NEW.md",
+      "sha256": "06d852b35828cf3db822498b487488a9a4230079964f9cdc3adb2b687c22f51e",
+      "bytes": 342078
+    },
+    {
+      "path": "ROADMAP_2.md",
+      "snapshot": "roadmaps/archive/sources/ROADMAP_2.md",
+      "sha256": "f0972778e03cdabcd2a1862b204539e95847cbd7d1abc6954fadae47bf718b13",
+      "bytes": 72599
+    },
+    {
+      "path": "ROADMAP_PARITY.md",
+      "snapshot": "roadmaps/archive/sources/ROADMAP_PARITY.md",
+      "sha256": "44fa17498ac6aa4994c4431c0a39c7cf2d30ab749d5f38908c9b39d11fa00cc6",
+      "bytes": 419941
+    },
+    {
+      "path": "CODEX_GOAL.md",
+      "snapshot": "roadmaps/archive/sources/CODEX_GOAL.md",
+      "sha256": "81afb770ea399f31bf88ce098da051eb2cc58064f89e083639610f342ab83763",
+      "bytes": 15837
+    },
+    {
+      "path": "suggestions.md",
+      "snapshot": "roadmaps/archive/sources/suggestions.md",
+      "sha256": "6b6d0feb9063ec0d4f9552016d9a139c22cb48e0e39602083d9d036ebc32a37d",
+      "bytes": 35944
+    },
+    {
+      "path": "newsuggestions.md",
+      "snapshot": "roadmaps/archive/sources/newsuggestions.md",
+      "sha256": "cfa9d7cdbd3d46bebd2a50fd272b350b6569833dbfecc4829eaf0571982211dc",
+      "bytes": 10674
+    },
+    {
+      "path": "detectionplan.md",
+      "snapshot": "roadmaps/archive/sources/detectionplan.md",
+      "sha256": "1d8aa60408b7d7452058668c0e7561de1f9d1cc28e3b3134a74ede3e2afc0f2d",
+      "bytes": 136492
+    },
+    {
+      "path": "3d_rework.md",
+      "snapshot": "roadmaps/archive/sources/3d_rework.md",
+      "sha256": "5ffab3ed65b60d28fe2294b76c275ed0914e34ee36a57f8ace36ff7795d2de10",
+      "bytes": 7303
+    },
+    {
+      "path": "1008.md",
+      "snapshot": "roadmaps/archive/sources/1008.md",
+      "sha256": "8e20c4d52f6a3a56c85d1f25a68231dbaf167e6aabbfe152b94057f6610d5ab1",
+      "bytes": 20594
+    },
+    {
+      "path": "1010.md",
+      "snapshot": "roadmaps/archive/sources/1010.md",
+      "sha256": "c638a900c46f4be03d472c29bdde7eb0d70c60b4b4f1dcf223530b410bf9eeb6",
+      "bytes": 20281
+    },
+    {
+      "path": "theme_plan.md",
+      "snapshot": "roadmaps/archive/sources/theme_plan.md",
+      "sha256": "32a86c21cbacf5f7eba9ee53c75699952df6ed656f4da1b46997f948509748bf",
+      "bytes": 52401
+    },
+    {
+      "path": "expansion.md",
+      "snapshot": "roadmaps/archive/sources/expansion.md",
+      "sha256": "dd46f4c2a605ce24fd8c821dc20eb6aa6ffa17ced81c9e84ed16a1be70c32d78",
+      "bytes": 31863
+    },
+    {
+      "path": "docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md",
+      "snapshot": "roadmaps/archive/sources/WSV3_IMGUI_MODERN_DESIGN_PLAN.md",
+      "sha256": "650ddddbdbb78e1f7dcc397c7af8084a94df3925b246a80fc784174940b67547",
+      "bytes": 64483
+    }
+  ]
+}

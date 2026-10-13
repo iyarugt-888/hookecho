@@ -24,6 +24,8 @@ for c in m['cards']:
 why = '\n'.join(f'- {w}' for w in m['why_not_certified'])
 text = f"""# Certification evidence (ROADMAP_PARITY M7.3, 1008.md H4)
 
+Current priorities and continuous validation tracks: [roadmaps](../../roadmaps/README.md).
+
 **Not a release certification.** This index gathers the evidence reviewed so far. Release
 readiness is **not claimed**, for these reasons:
 

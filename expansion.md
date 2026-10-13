@@ -1,3 +1,5 @@
+> **Planning authority: roadmaps/** — [master index](roadmaps/README.md) and [audit](roadmaps/audit.md) supersede this document's task ordering. This file retains historical requirements and evidence; completed/superseded items and remaining-work dispositions are preserved in [the archive](roadmaps/archive/README.md). Certification runs alongside implementation.
+
 # Expansion — desktop and Android, off the web build's budget
 
 **Status:** plan, 2026-09-20. Written against `feat/wsv3-redesign` at `3e19b46`, version
