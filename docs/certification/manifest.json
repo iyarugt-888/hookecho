@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T01:06:21+00:00",
-  "generated_from_commit": "6c32bd798eb0f2fad117424c262a75e268f0ce52",
+  "generated_utc": "2026-10-13T02:00:31+00:00",
+  "generated_from_commit": "26f09554584df71acfb11e81cdcde75290392ce7",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -2001,6 +2001,31 @@
       "path": "docs/certification/spatial-groups/verification.json",
       "sha256": "5c0e0a40a7ce04a99b9d78be03c4d78b72a0ed506c2ffb5992e382772e23d460",
       "bytes": 8376
+    },
+    {
+      "path": "docs/certification/tornado-surveys/README.md",
+      "sha256": "ebba4f2e68cd89a52f65ad6b70fe803ea1e813d72debbe030fc516abb1ecc5a4",
+      "bytes": 5405
+    },
+    {
+      "path": "docs/certification/tornado-surveys/moore-day-browser.jpg",
+      "sha256": "55074e9385f21e54bfee10feaae9470693284e95cfb41d6d6d2de724a234b7ca",
+      "bytes": 93951
+    },
+    {
+      "path": "docs/certification/tornado-surveys/moore-ef5-indicator-browser.jpg",
+      "sha256": "3ce10cc8e43521dca1d9fb836cfde081157c6127cd184d69764a957e1870df07",
+      "bytes": 94856
+    },
+    {
+      "path": "docs/certification/tornado-surveys/moore-radar-at-time-browser.jpg",
+      "sha256": "b8696c72dd0f9c1ed153d3e9776bd5053fc24f34a9cde8647adc2dbf4eb8bbc3",
+      "bytes": 103784
+    },
+    {
+      "path": "docs/certification/tornado-surveys/near-a-point-browser.jpg",
+      "sha256": "883fb4ecf0dc7970d33f8680330b9603cccf139769868e361e3938bb564345bc",
+      "bytes": 73562
     },
     {
       "path": "docs/certification/web-walk/README.md",
