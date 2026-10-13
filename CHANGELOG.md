@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: clicking in the 3D view picks the echo you see
+
+In the 3D view, a click (the gate inspector, the 3D ruler) now goes to the first tilt along the
+line of sight that has an echo there, rather than a nearer tilt that is empty at that spot and
+drawn see-through.
+
 ### Improved: move either end of the ruler
 
 With the measure tool on, drag either end of a finished ruler to move it, instead of starting

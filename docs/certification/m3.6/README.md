@@ -198,3 +198,14 @@ change and another session's uncommitted TGFTP work.
 
 Not established: dragging an end in the 3D Observed view (the code re-picks the tilt as a click
 does, not seen in a run), Esc mid-drag, and touch.
+
+## The 3D pick prefers a measured gate (2026-10-12, roadmaps/radar-analysis R5)
+
+A click in the 3D Observed view (the gate inspector, the 3D ruler, a dragged ruler end) took the
+nearest tilt surface the ray met, even where that tilt had no echo: an empty gate is drawn
+transparent, so the echo the analyst sees behind it was not what was picked.
+`render3d::pick_observed_tilts` now returns every tilt the ray meets, nearest first, and
+`pick_3d` takes the first whose gate there is measured in the pane's product (a value, or range
+folded, as drawn), else the nearest crossing as before. Tests: `a_pick_prefers_the_nearest_measured_gate`,
+and the ray test now checks the order of crossings (`a straight drop from above` meets the steep
+cone, then the shallow one). Not seen in a run.

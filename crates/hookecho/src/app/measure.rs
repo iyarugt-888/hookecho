@@ -24,6 +24,14 @@ pub(crate) struct EndDrag {
     pub before: [MeasurePoint; 2],
 }
 
+/// The first hit, nearest first, where `measured` says a gate was measured; `None` when none was.
+pub(crate) fn prefer_measured<T: Copy>(
+    hits: Vec<T>,
+    mut measured: impl FnMut(T) -> bool,
+) -> Option<T> {
+    hits.into_iter().find(|h| measured(*h))
+}
+
 /// How far from an end a press may land and still take it, in points: a finger is wider.
 const END_GRAB_PT: f32 = 12.0;
 const END_GRAB_PT_TOUCH: f32 = 24.0;
@@ -200,11 +208,14 @@ impl HookEchoApp {
         })
     }
 
-    /// Where a click on pane `idx` lands in the 3D Observed view: the tilt whose beam surface the
-    /// ray meets first, and the ground under that hit. `None` outside that view or past every
-    /// tilt. Shared by the gate inspector and the 3D ruler.
+    /// Where a click on pane `idx` lands in the 3D Observed view: the nearest tilt along the ray
+    /// with a measured gate there in the pane's product (a value, or range folded: what is
+    /// drawn), else the nearest tilt the ray meets at all; and the ground under that hit. An
+    /// empty gate is drawn transparent, so the echo behind it is what the click is on
+    /// (roadmaps/radar-analysis R5). `None` outside that view or past every tilt. Shared by the
+    /// gate inspector and the 3D ruler.
     pub(crate) fn pick_3d(
-        &self,
+        &mut self,
         idx: usize,
         cam: &crate::render::mercator::Camera,
         px: (f32, f32),
@@ -218,7 +229,7 @@ impl HookEchoApp {
         }
         let site = v.site.as_deref().and_then(wxdata::sites::site_by_id)?;
         let elevations = &v.volume.as_ref()?.elevations;
-        crate::render3d::pick_observed_tilt(
+        let hits = crate::render3d::pick_observed_tilts(
             cam,
             px,
             vp,
@@ -228,7 +239,18 @@ impl HookEchoApp {
             v.map_3d.vertical_exaggeration as f64,
             v.map_3d.beam_rise as f64,
             elevations,
-        )
+        );
+        let first = *hits.first()?;
+        let moment = v.moment;
+        let v = &mut self.views[idx];
+        let measured = |v: &mut crate::view::MapView, (tilt, lon, lat): (usize, f64, f64)| {
+            v.volume
+                .as_mut()
+                .and_then(|vol| vol.binned(moment, tilt, false).ok())
+                .and_then(|sweep| sweep.sample_at(lon, lat))
+                .is_some_and(|s| s.value.is_some() || s.folded)
+        };
+        Some(prefer_measured(hits, |hit| measured(v, hit)).unwrap_or(first))
     }
 
     /// A measure end picked on a tilt, in the air: its tilt, height above sea level, the ground
@@ -509,6 +531,18 @@ pub(crate) fn step_tilt(tilt: usize, tilts: usize, up: usize, down: usize) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pick passes over an empty nearer tilt to the measured gate behind it, and falls back to
+    /// the nearest when none along the ray was measured.
+    #[test]
+    fn a_pick_prefers_the_nearest_measured_gate() {
+        let hits = vec![(3usize, 0.0, 0.0), (1, 0.0, 0.0), (0, 0.0, 0.0)];
+        assert_eq!(
+            prefer_measured(hits.clone(), |(tilt, ..)| tilt <= 1).map(|h| h.0),
+            Some(1)
+        );
+        assert_eq!(prefer_measured(hits, |_| false), None);
+    }
 
     /// A press takes the nearer end within reach, and none beyond it.
     #[test]

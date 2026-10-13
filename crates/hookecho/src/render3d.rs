@@ -1337,7 +1337,39 @@ pub fn pick_observed_tilt(
     beam_rise: f64,
     elevations_deg: &[f32],
 ) -> Option<(usize, f64, f64)> {
-    let (near, dir) = camera.screen_ray(px, viewport_px)?;
+    pick_observed_tilts(
+        camera,
+        px,
+        viewport_px,
+        radar_lon,
+        radar_lat,
+        antenna_altitude_m,
+        vertical_exaggeration,
+        beam_rise,
+        elevations_deg,
+    )
+    .into_iter()
+    .next()
+}
+
+/// Every tilt surface the click ray meets, nearest first, each at its nearest crossing: the
+/// candidates a pick can prefer a measured gate among (an empty gate is drawn transparent, so the
+/// echo behind it is what the click is on; roadmaps/radar-analysis R5).
+#[allow(clippy::too_many_arguments)]
+pub fn pick_observed_tilts(
+    camera: &crate::render::mercator::Camera,
+    px: (f32, f32),
+    viewport_px: (f32, f32),
+    radar_lon: f64,
+    radar_lat: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    beam_rise: f64,
+    elevations_deg: &[f32],
+) -> Vec<(usize, f64, f64)> {
+    let Some((near, dir)) = camera.screen_ray(px, viewport_px) else {
+        return Vec::new();
+    };
     pick_along_ray(
         near,
         dir,
@@ -1371,7 +1403,7 @@ fn pick_along_ray(
     vertical_exaggeration: f64,
     beam_rise: f64,
     elevations_deg: &[f32],
-) -> Option<(usize, f64, f64)> {
+) -> Vec<(usize, f64, f64)> {
     let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
 
     // Ground range (km) from the radar and altitude (m) above it, at ray parameter `t`, plus the
@@ -1396,7 +1428,7 @@ fn pick_along_ray(
             - tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration, beam_rise)
     };
 
-    let mut best: Option<(f32, usize)> = None;
+    let mut hits: Vec<(f32, usize)> = Vec::new();
     for (i, &elevation_deg) in elevations_deg.iter().enumerate() {
         let mut prev_t = 0.0f32;
         let mut prev_f = f(prev_t, elevation_deg);
@@ -1415,10 +1447,7 @@ fn pick_along_ray(
                         hi = mid;
                     }
                 }
-                let hit_t = (lo + hi) * 0.5;
-                if best.is_none_or(|(best_t, _)| hit_t < best_t) {
-                    best = Some((hit_t, i));
-                }
+                hits.push(((lo + hi) * 0.5, i));
                 break; // this tilt's nearest crossing only — a farther one is occluded by this one
             }
             prev_t = t;
@@ -1426,9 +1455,13 @@ fn pick_along_ray(
         }
     }
 
-    let (hit_t, tilt) = best?;
-    let (_, _, lon, lat) = at(hit_t);
-    Some((tilt, lon, lat))
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    hits.into_iter()
+        .map(|(t, tilt)| {
+            let (_, _, lon, lat) = at(t);
+            (tilt, lon, lat)
+        })
+        .collect()
 }
 
 struct Gpu {
@@ -3387,7 +3420,7 @@ mod pick_tests {
             // cones and reach the ground at this `metres_to_px` scale.
             let dir = Vec3::new(0.0, 0.0, -near.z * 2.0);
 
-            let (tilt, ..) = pick_along_ray(
+            let hits = pick_along_ray(
                 near,
                 dir,
                 camera_center,
@@ -3398,9 +3431,15 @@ mod pick_tests {
                 vertical_exaggeration,
                 1.0,
                 &elevations,
-            )
-            .expect("a straight drop from above should cross the steep tilt's cone");
+            );
+            let (tilt, ..) = *hits
+                .first()
+                .expect("a straight drop from above should cross the steep tilt's cone");
             assert_eq!(tilt, 1, "at ground_km={ground_km}");
+            // Every tilt the drop meets, nearest first: the steep cone, then the shallow one under
+            // it, for a pick that prefers a measured gate to fall back on.
+            let order: Vec<usize> = hits.iter().map(|h| h.0).collect();
+            assert_eq!(order, [1, 0], "at ground_km={ground_km}");
         }
     }
 
@@ -3440,6 +3479,6 @@ mod pick_tests {
             1.0,
             &elevations,
         )
-        .is_none());
+        .is_empty());
     }
 }
