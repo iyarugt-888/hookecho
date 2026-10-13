@@ -98,7 +98,8 @@ impl HookEchoApp {
         // A drag that starts on a cross-section handle edits the section instead of panning.
         let ui_ctx = ui.ctx().clone();
         let editing =
-            self.xsection_input(idx, prect, &response, ui, quiet && !swipe_dragging, &ui_ctx);
+            self.xsection_input(idx, prect, &response, ui, quiet && !swipe_dragging, &ui_ctx)
+                || self.measure_input(idx, prect, &response, ui, quiet && !swipe_dragging, &ui_ctx);
         let tracking =
             editing || self.storm_track_input(idx, prect, &response, ui, quiet && !swipe_dragging);
         if tracking {

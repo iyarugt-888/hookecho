@@ -175,3 +175,26 @@ Open:
 - Changing the first end's tilt after the second is placed (re-click it).
 - A pick that prefers tilts holding data over the first surface the ray meets.
 - A desktop or device walkthrough.
+
+## Either ruler end moves without re-clicking (2026-10-12, roadmaps/radar-analysis R5)
+
+With the measure tool armed, a finished ruler's two ends are ringed handles (the held one
+larger). A drag that starts within 12 points of an end (24 on a touch screen) moves that end and
+does not pan the map (`measure_input`, `end_at`; `a_press_takes_the_nearer_end_within_reach`):
+on the ground on the 2D map, and onto the tilt under the pointer in the 3D Observed view, the
+way a click places an end. The ground under the end is read again when it is let go, and Esc
+puts the ruler back as it was.
+
+**Browser build on WebGPU, one machine**, built from the working tree at `824a3317` with this
+change and another session's uncommitted TGFTP work.
+
+| Capture | What it shows |
+| --- | --- |
+| `ruler-end-dragged-browser.jpg` | A ruler from Norman whose other end was dragged from Oklahoma City to Lawton: both ends ringed, the label "68.3 mi @ 234° · beam 6273 ft above the radar (7551 ft MSL, 6424 ft above the ground (terrain on a 63 m grid))", the ground read after the drag. |
+
+| File | SHA-256 |
+| --- | --- |
+| ruler-end-dragged-browser.jpg | `cd5446a254e05f785d5c0d20f6d7bec3a4596a26e6000ed8052a5485673fe87f` |
+
+Not established: dragging an end in the 3D Observed view (the code re-picks the tilt as a click
+does, not seen in a run), Esc mid-drag, and touch.

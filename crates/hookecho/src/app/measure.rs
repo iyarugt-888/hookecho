@@ -15,6 +15,29 @@ pub(crate) struct MeasurePoint {
     pub tilt: Option<usize>,
 }
 
+/// An end of the ruler held by a drag: which pane, which end, and the ruler as it was (Esc puts it
+/// back).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EndDrag {
+    pub pane: usize,
+    pub end: usize,
+    pub before: [MeasurePoint; 2],
+}
+
+/// How far from an end a press may land and still take it, in points: a finger is wider.
+const END_GRAB_PT: f32 = 12.0;
+const END_GRAB_PT_TOUCH: f32 = 24.0;
+
+/// The end nearest `p` within `radius`, given the ends' screen positions.
+pub(crate) fn end_at(ends: [egui::Pos2; 2], p: egui::Pos2, radius: f32) -> Option<usize> {
+    ends.into_iter()
+        .enumerate()
+        .map(|(i, e)| (i, e.distance(p)))
+        .filter(|(_, d)| *d <= radius)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
+}
+
 /// An end picked on a tilt: the tilt's elevation and the beam centre's height there, feet above
 /// mean sea level (true geometry, not the 3D view's exaggeration), the ground under it, and what
 /// the pane's product reads at that gate.
@@ -327,6 +350,90 @@ impl HookEchoApp {
         Some(cam.world_to_screen(w, vp))
     }
 
+    /// Take a drag that starts on an end of a finished ruler, with the measure tool armed: that end
+    /// follows the pointer (onto the tilt under it in the 3D Observed view, as a click would put
+    /// it) and the ground under it is read again when it is let go. Esc puts the ruler back.
+    /// Returns whether it owns the pointer, so the map does not pan under it.
+    pub(crate) fn measure_input(
+        &mut self,
+        idx: usize,
+        prect: egui::Rect,
+        response: &egui::Response,
+        ui: &egui::Ui,
+        allow_pointer: bool,
+        ctx: &egui::Context,
+    ) -> bool {
+        let cancelled = ui.input(|i| !i.focused || i.key_pressed(egui::Key::Escape));
+        if self.tool != MapTool::Measure || cancelled || !allow_pointer || self.measure.len() != 2 {
+            if let Some(drag) = self.measure_drag.take() {
+                if cancelled {
+                    self.measure = drag.before.to_vec();
+                }
+            }
+            return false;
+        }
+        if self.measure_drag.is_some_and(|d| d.pane != idx) {
+            return false;
+        }
+        let vp = (prect.width(), prect.height());
+        let cam = self.views[idx].camera;
+        let to_px = |s: Option<(f32, f32)>| {
+            let (x, y) = s.unwrap_or((-1.0e6, -1.0e6));
+            egui::pos2(prect.left() + x, prect.top() + y)
+        };
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            let Some(p) = ui.input(|i| i.pointer.press_origin()) else {
+                return false;
+            };
+            let ends = [
+                to_px(self.measure_screen(idx, &cam, vp, self.measure[0])),
+                to_px(self.measure_screen(idx, &cam, vp, self.measure[1])),
+            ];
+            let touch = ui.input(|i| i.any_touches() || i.has_touch_screen());
+            let radius = if touch {
+                END_GRAB_PT_TOUCH
+            } else {
+                END_GRAB_PT
+            };
+            let Some(end) = end_at(ends, p, radius) else {
+                return false;
+            };
+            self.active = idx;
+            self.measure_drag = Some(EndDrag {
+                pane: idx,
+                end,
+                before: [self.measure[0], self.measure[1]],
+            });
+        }
+        let Some(drag) = self.measure_drag else {
+            return false;
+        };
+        if let Some(p) = response.interact_pointer_pos() {
+            let px = (p.x - prect.left(), p.y - prect.top());
+            let point = match self.pick_3d(idx, &cam, px, vp) {
+                Some((tilt, lon, lat)) => MeasurePoint {
+                    ll: [lon, lat],
+                    tilt: Some(tilt),
+                },
+                None => {
+                    let w = cam.screen_to_world(px, vp);
+                    let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
+                    MeasurePoint {
+                        ll: [lon, lat],
+                        tilt: None,
+                    }
+                }
+            };
+            self.measure[drag.end] = point;
+        }
+        if response.drag_stopped() || !ui.input(|i| i.pointer.primary_down()) {
+            self.measure_drag = None;
+            let [lon, lat] = self.measure[drag.end].ll;
+            self.request_ground(lon, lat, ctx);
+        }
+        true
+    }
+
     /// Draw the measure tool's points, line and label on pane `idx`; `readings` are each end's
     /// gate values on its tilt ([`Self::measure_readings`]).
     pub(crate) fn paint_measure(
@@ -348,8 +455,17 @@ impl HookEchoApp {
                 .unwrap_or((-1.0e6, -1.0e6));
             egui::pos2(prect.left() + sx, prect.top() + sy)
         };
-        for &pt in &self.measure {
-            painter.circle_filled(screen(pt), 3.5, col);
+        // With the tool armed, a finished ruler's ends are handles: ringed, the held one larger.
+        let handles = self.tool == MapTool::Measure && self.measure.len() == 2;
+        let held = self.measure_drag.map(|d| d.end);
+        for (i, &pt) in self.measure.iter().enumerate() {
+            let at = screen(pt);
+            if handles {
+                let r = if held == Some(i) { 8.0 } else { 6.0 };
+                painter.circle_filled(at, r, egui::Color32::from_black_alpha(160));
+                painter.circle_stroke(at, r, egui::Stroke::new(2.0, col));
+            }
+            painter.circle_filled(at, 3.5, col);
         }
         if self.measure.len() == 2 {
             let (a, b) = (screen(self.measure[0]), screen(self.measure[1]));
@@ -393,6 +509,16 @@ pub(crate) fn step_tilt(tilt: usize, tilts: usize, up: usize, down: usize) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A press takes the nearer end within reach, and none beyond it.
+    #[test]
+    fn a_press_takes_the_nearer_end_within_reach() {
+        let ends = [egui::pos2(100.0, 100.0), egui::pos2(110.0, 100.0)];
+        assert_eq!(end_at(ends, egui::pos2(103.0, 101.0), 12.0), Some(0));
+        assert_eq!(end_at(ends, egui::pos2(108.0, 99.0), 12.0), Some(1));
+        assert_eq!(end_at(ends, egui::pos2(140.0, 100.0), 12.0), None);
+        assert_eq!(end_at(ends, egui::pos2(140.0, 100.0), 32.0), Some(1));
+    }
 
     /// The 3D ruler between two points in the air: 10 km apart over the ground, from 2,000 ft on
     /// the 0.5° tilt to 12,000 ft on the 3.1° tilt, rises 10,000 ft over a straight line of

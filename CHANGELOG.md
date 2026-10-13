@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: move either end of the ruler
+
+With the measure tool on, drag either end of a finished ruler to move it, instead of starting
+over; the map stays put under the drag. In the 3D view the end goes onto the tilt under the
+pointer, as a click would put it. Esc puts the ruler back.
+
 ### Improved: unit advice for your own products, wherever they show
 
 The warning the product editor gives when a formula's units do not add up (adding reflectivity to

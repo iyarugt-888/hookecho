@@ -1625,6 +1625,8 @@ pub struct HookEchoApp {
     ribbon_mode: RibbonMode,
     /// Measure-tool clicked endpoints in `[lon, lat]` (max 2).
     measure: Vec<measure::MeasurePoint>,
+    /// An end of the ruler being dragged (roadmaps/radar-analysis R5).
+    measure_drag: Option<measure::EndDrag>,
     /// Manual storm-motion tracks (`app::storm_track`); session-only.
     storm_tracks: storm_track::StormTracks,
     output: output_window::OutputWindow,
