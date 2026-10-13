@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: a column product in every pane
+
+Each pane now builds and draws its own column product: different products, radars or times
+side by side, not just the active pane's. Each pane also keeps the sounding or analysis for
+its own radar and time, so two panes no longer take turns waiting for theirs.
+
 ### Added: which scan each part of a trail came from
 
 The max/min trail's export options have a new "Contributors…": a GeoTIFF on the same grid as

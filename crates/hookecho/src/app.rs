@@ -1823,19 +1823,18 @@ pub struct HookEchoApp {
     /// What the locally derived products (VIL/VILD/echo tops) were last computed from:
     /// The accepted volume revision, sweep policy, settings and both temperature levels.
     derived_key: Option<radar_products::DerivedKey>,
-    /// The column user product build in flight, the one on the GPU, and the last failure with the
-    /// selection it answered (`app::column_product`).
+    /// The column user product build in flight, and every pane's built product (or why none
+    /// could be built) by its selection, each with its own texture (`app::column_product`).
     column_requested: Option<column_product::ColumnKey>,
-    column_accepted: Option<Arc<column_product::ColumnAccepted>>,
-    column_failed: Option<(column_product::ColumnKey, String)>,
+    column_panes: column_product::ColumnPanes,
     /// The column product trail being built for the active pane (`app::column_trail`).
     column_trail: Option<column_trail::ColumnTrailState>,
-    /// The most recent isotherm heights (`env_levels::EnvLevels`), for the hail grids and every
-    /// other consumer of a melting level. Read through [`App::freezing_for`] /
-    /// [`App::env_levels_for`], which only hand a view the levels for its own site and epoch.
-    freezing: Option<env_levels::EnvLevels>,
-    /// When, and for which `(site, epoch)`, the last request went out — the throttle.
-    freezing_last_fetch: Option<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
+    /// Isotherm heights (`env_levels::EnvLevels`) filed by `(site, epoch)`, for the hail grids,
+    /// column products and every other consumer of a melting level, with the request throttle.
+    /// Read through [`App::freezing_for`] / [`App::env_levels_for`], which hand a view only the
+    /// reading for its own site and epoch, so two panes on different radars or times each keep
+    /// theirs (roadmaps/radar-analysis R2).
+    freezing: env_levels::EnvCache,
     /// Accumulation window (hours) for the observed snowfall analysis, and the one last fetched.
     snow_hours: u16,
     snow_fetched: Option<u16>,
@@ -3442,9 +3441,9 @@ impl HookEchoApp {
         // `fetch_freezing_levels` self-throttles to 900s and no-ops without a site, so calling it
         // on every inspection is cheap, not a fetch storm.
         //
-        // Only meaningful for the gate's own site and time — `self.freezing` is a single
-        // most-recent cache, so `freezing_for` filters out another site's reading, or a live one
-        // standing in for an archived volume's. Read before `v` for the same borrow reason.
+        // Only meaningful for the gate's own site and time — `self.freezing` files readings by
+        // `(site, epoch)`, so `env_levels_for` never hands over another site's reading, or a live
+        // one standing in for an archived volume's. Read before `v` for the same borrow reason.
         let levels = self
             .env_levels_for(idx)
             .map(env_levels::EnvLevels::column_levels)

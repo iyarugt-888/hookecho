@@ -93,3 +93,39 @@ SHA256. The live HRRR owner retains its 0C/263K/253K fields and does not estimat
 levels. See [recorded-environment rules, pinned tables and independent reference reader](recorded-environment/README.md)
 for selection, interpolation, unknown reported timestamps and the remaining geopotential versus
 approximate geometric beam-altitude limitation. Tests and run evidence are recorded separately.
+
+## Each pane's own column product and environment (2026-10-13, roadmaps/radar-analysis R2)
+
+Until now only the active pane built a column product, into one shared texture, and another
+pane drew it only if its selection was exactly the same. The isotherm heights a formula reads
+were one most-recent reading too, so two panes on different radars or times needing different
+soundings superseded each other's request on the one environment lane, and neither
+reliably got its reading.
+
+- **Builds:** every pane showing a column product now builds its own: its own product, volume,
+  accepted revision, temporal policy and environment. `ColumnPanes` holds what each selection came
+  to (the accepted product or why there is none), each with its own texture, drawn through the
+  keyed-texture path the GOES panes use. Two panes on one selection share one build. A selection
+  no pane shows lets its texture go, and a selection built again gets a new texture. One build
+  runs at a time, the active pane's first, and a reply for a selection no pane wants is dropped.
+- **Environment:** readings are filed by `(site, epoch)` (`EnvCache`, 12 kept). A refresh replaces
+  only its own pair's reading. While one request is out, another pair waits instead of
+  superseding it, for at most a minute or until the lane reports the request finished. The
+  diagnostics report's `melting_level` is now the active pane's reading rather than whichever
+  arrived last.
+
+Tests: `each_pane_keeps_its_own_column_build` covers two products on the pinned Mayfield volume:
+a build and texture each, a shared selection, a failure filed for its own selection, and a
+rebuild on a new texture. `readings_are_filed_by_site_and_epoch` covers a live and an archived
+pair kept apart, a refresh, the throttle, waiting on the lane, and the bound.
+
+Run, browser build on WebGPU, one machine (2026-10-13, live): a two-pane workspace with KAPX on
+"Top REF" = `max_vertical(REF)` and KGRR on "Echo depth" = `count_vertical(REF >= 20)`. The
+inactive KGRR pane drew its own product (13 tilts) while the active KAPX pane was still building,
+then both showed their own keys (14 and 13 tilts) side by side
+([r2-two-panes-two-column-products.jpg](r2-two-panes-two-column-products.jpg), SHA-256
+`7ad7d8998de7b8eef9d2e6a70ef80204137aab2bae9dca40b11728500c048ebe`). No panic in the console.
+
+Not established: two archived panes on different RAOB launches in a run (the cache and its
+test are), a live HRRR reading next to an archived sounding with missing levels in a run, the
+desktop and Android windows, and build cost with many panes.

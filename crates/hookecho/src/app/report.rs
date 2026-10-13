@@ -364,7 +364,7 @@ impl HookEchoApp {
             // Warnings and observations with their own clocks (1008.md A4).
             "warnings": self.warning_lineage_json(),
             "observations": self.metar_lineage_json(),
-            "melting_level": self.freezing.as_ref().map(|l| json!({
+            "melting_level": self.env_levels_for(self.active).map(|l| json!({
                 "site": l.site,
                 "source": if l.epoch.is_some() { "observed sounding" } else { "HRRR analysis" },
                 "source_detail": l.source,

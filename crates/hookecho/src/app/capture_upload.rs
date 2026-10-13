@@ -51,7 +51,7 @@ impl HookEchoApp {
                 },
                 None => field_upload_indexed(FL::UserColumnTrail, f),
             },
-            FL::UserColumn => match self.column_accepted.as_deref() {
+            FL::UserColumn => match self.column_shown(self.active) {
                 Some(a) => column_product::column_upload(f, &a.table, a.range),
                 None => field_upload_indexed(FL::UserColumn, f),
             },

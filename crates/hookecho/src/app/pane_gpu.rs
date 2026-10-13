@@ -335,6 +335,9 @@ impl HookEchoApp {
                     .flatten()
             }));
             drop_mrms_fields.extend(self.goes_panes.take_dropped());
+            // So does each pane's column product (roadmaps/radar-analysis R2).
+            mrms_uploads.extend(self.column_panes.take_uploads());
+            drop_mrms_fields.extend(self.column_panes.take_dropped());
         }
         let mrms_fields: Vec<(crate::render::FieldLayer, crate::render::MrmsTextureKey)> = self
             .views[idx]
@@ -352,6 +355,14 @@ impl HookEchoApp {
                 let slot = self.goes_panes.get(&request)?;
                 slot.ready(request).then_some((*layer, slot.texture))
             }))
+            .chain(
+                self.views[idx]
+                    .fields_on
+                    .contains(&crate::render::FieldLayer::UserColumn)
+                    .then(|| self.column_texture(idx))
+                    .flatten()
+                    .map(|key| (crate::render::FieldLayer::UserColumn, key)),
+            )
             .collect();
         // Bottom to top, in the user's paint order: the renderer paints this list as given.
         let order = crate::render::FieldLayer::paint_order(&self.settings.field_order);

@@ -101,6 +101,86 @@ impl EnvLevels {
 
 use super::*;
 
+/// Isotherm readings filed by `(site, epoch)`, so two panes on different radars or times each keep
+/// their own instead of the newest reply standing in for both (roadmaps/radar-analysis R2), and
+/// the throttle on asking for them.
+#[derive(Default)]
+pub(crate) struct EnvCache {
+    /// Oldest filed first; at most [`EnvCache::CAPACITY`].
+    readings: Vec<EnvLevels>,
+    /// When each `(site, epoch)` was last asked for.
+    asked: Vec<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
+    /// The request in flight. One lane carries one request: a second sent while it is out would
+    /// supersede it and its reply would be dropped, so another pair waits for it.
+    in_flight: Option<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
+}
+
+impl EnvCache {
+    /// Readings kept: more than the panes of a full workstation layout, each on its own radar.
+    pub(crate) const CAPACITY: usize = 12;
+    /// A request not answered in this long no longer holds the lane.
+    const IN_FLIGHT_S: u64 = 60;
+
+    /// The reading for `site` at `epoch`, if one was filed.
+    pub(crate) fn get(
+        &self,
+        site: &str,
+        epoch: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Option<&EnvLevels> {
+        self.readings.iter().find(|l| l.answers(site, epoch))
+    }
+
+    /// File a reply under the pair it answers, replacing that pair's older reading; the oldest
+    /// other reading goes once the cache is full.
+    pub(crate) fn file(&mut self, levels: EnvLevels) {
+        if self
+            .in_flight
+            .as_ref()
+            .is_some_and(|(_, s, e)| levels.answers(s, *e))
+        {
+            self.in_flight = None;
+        }
+        self.readings
+            .retain(|l| !l.answers(&levels.site, levels.epoch));
+        self.readings.push(levels);
+        if self.readings.len() > Self::CAPACITY {
+            self.readings.remove(0);
+        }
+    }
+
+    /// Whether a request for `site` at `epoch` may go out now: not asked within `cadence`, and no
+    /// other pair's request still out on the lane (`lane_busy`, and asked under a minute ago).
+    pub(crate) fn may_ask(
+        &self,
+        site: &str,
+        epoch: Option<chrono::DateTime<chrono::Utc>>,
+        lane_busy: bool,
+        cadence: std::time::Duration,
+    ) -> bool {
+        let recent = self
+            .asked
+            .iter()
+            .any(|(t, s, e)| s == site && *e == epoch && t.elapsed() < cadence);
+        let blocked = lane_busy
+            && self.in_flight.as_ref().is_some_and(|(t, s, e)| {
+                !(s == site && *e == epoch)
+                    && t.elapsed() < std::time::Duration::from_secs(Self::IN_FLIGHT_S)
+            });
+        !recent && !blocked
+    }
+
+    /// Record that a request for `site` at `epoch` went out.
+    pub(crate) fn asking(&mut self, site: &str, epoch: Option<chrono::DateTime<chrono::Utc>>) {
+        let now = Instant::now();
+        self.asked.retain(|(_, s, e)| !(s == site && *e == epoch));
+        self.asked.push((now, site.to_string(), epoch));
+        if self.asked.len() > Self::CAPACITY {
+            self.asked.remove(0);
+        }
+        self.in_flight = Some((now, site.to_string(), epoch));
+    }
+}
+
 impl HookEchoApp {
     /// Refresh the melting-level heights the hail grids need, on the environment cadence.
     /// Which melting level view `idx` wants: `None` for the live HRRR analysis while it follows
@@ -123,8 +203,7 @@ impl HookEchoApp {
         let site = self.views[idx].site.as_deref()?;
         let epoch = self.freezing_epoch(idx);
         self.freezing
-            .as_ref()
-            .filter(|l| l.answers(site, epoch))
+            .get(site, epoch)
             .and_then(|l| l.h0_m.zip(l.hm20_m))
             .filter(|(h0, hm20)| hm20 > h0)
     }
@@ -134,12 +213,13 @@ impl HookEchoApp {
     pub(crate) fn env_levels_for(&self, idx: usize) -> Option<&env_levels::EnvLevels> {
         let site = self.views[idx].site.as_deref()?;
         let epoch = self.freezing_epoch(idx);
-        self.freezing.as_ref().filter(|l| l.answers(site, epoch))
+        self.freezing.get(site, epoch)
     }
 
     /// Request the melting level view `idx` wants (see [`Self::freezing_epoch`]). Throttled per
     /// `(site, epoch)`: the live analysis refreshes on the 15-minute environment cadence, and an
     /// archived ascent never changes, so the same cadence only paces retries after a failure.
+    /// Another pane's pair waits while one request is out, rather than superseding it.
     pub(super) fn fetch_freezing_levels(&mut self, ctx: &egui::Context, idx: usize) {
         let Some(site) = self.views[idx]
             .site
@@ -149,14 +229,19 @@ impl HookEchoApp {
             return;
         };
         let epoch = self.freezing_epoch(idx);
-        if self
-            .freezing_last_fetch
-            .as_ref()
-            .is_some_and(|(t, s, e)| s == site.id && *e == epoch && t.elapsed().as_secs() < 900)
-        {
+        let lane_busy = self
+            .acquisition
+            .health(&RequestLane::Feed(FeedSource::FreezingLevels))
+            .fetching;
+        if !self.freezing.may_ask(
+            site.id,
+            epoch,
+            lane_busy,
+            std::time::Duration::from_secs(900),
+        ) {
             return;
         }
-        self.freezing_last_fetch = Some((Instant::now(), site.id.to_string(), epoch));
+        self.freezing.asking(site.id, epoch);
         self.spawn_overlay(
             ctx,
             OverlaySource::FreezingLevels {
@@ -187,6 +272,69 @@ mod tests {
             hm30_crossings: None,
             hm40_crossings: None,
         }
+    }
+
+    /// Two panes on different radars and times each keep their own reading, a refresh replaces
+    /// only its own pair's, and a second pair waits while the first request is out.
+    #[test]
+    fn readings_are_filed_by_site_and_epoch() {
+        let mut cache = EnvCache::default();
+        let archived = chrono::DateTime::from_timestamp(1_368_993_600, 0);
+        cache.file(live());
+        cache.file(EnvLevels {
+            site: "KFWS".into(),
+            epoch: archived,
+            source: "Fort Worth, TX 19 12Z sounding".into(),
+            ..live()
+        });
+        assert_eq!(
+            cache.get("KTLX", None).unwrap().source,
+            "HRRR analysis 06 00Z"
+        );
+        assert_eq!(
+            cache.get("KFWS", archived).unwrap().source,
+            "Fort Worth, TX 19 12Z sounding"
+        );
+        assert!(cache.get("KFWS", None).is_none(), "live never stands in");
+        cache.file(EnvLevels {
+            source: "HRRR analysis 06 01Z".into(),
+            ..live()
+        });
+        assert_eq!(
+            cache.get("KTLX", None).unwrap().source,
+            "HRRR analysis 06 01Z"
+        );
+        assert!(
+            cache.get("KFWS", archived).is_some(),
+            "the other pair is kept"
+        );
+
+        let quarter = std::time::Duration::from_secs(900);
+        assert!(cache.may_ask("KTLX", None, false, quarter));
+        cache.asking("KTLX", None);
+        assert!(!cache.may_ask("KTLX", None, true, quarter), "throttled");
+        assert!(
+            !cache.may_ask("KFWS", archived, true, quarter),
+            "waits for the request out"
+        );
+        assert!(
+            cache.may_ask("KFWS", archived, false, quarter),
+            "a failed request frees the lane"
+        );
+        cache.file(live());
+        assert!(
+            cache.may_ask("KFWS", archived, true, quarter),
+            "an answered request frees it"
+        );
+
+        for i in 0..EnvCache::CAPACITY + 3 {
+            cache.file(EnvLevels {
+                site: format!("K{i:03}"),
+                ..live()
+            });
+        }
+        assert_eq!(cache.readings.len(), EnvCache::CAPACITY, "bounded");
+        assert!(cache.get("K000", None).is_none(), "the oldest went first");
     }
 
     #[test]

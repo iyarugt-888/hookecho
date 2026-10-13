@@ -2,12 +2,14 @@
 //! function, evaluated over every tilt of the pane's own volume on the local-derived grid
 //! (`wxdata::udp_column`) and drawn as `FieldLayer::UserColumn`.
 //!
-//! One build at a time, for the active pane, like the composite/VIL build beside it
-//! (`rebuild.rs`) but on its own request lane. The key names everything the answer depends on —
-//! the scan and accepted revision, the temporal policy, the product's definition and palette, and
-//! the environmental heights the formula actually reads with their source — so a late worker for a
-//! superseded selection is dropped, and a pane draws the shared texture only when its own
-//! selection would have produced exactly that key.
+//! Every pane builds its own (roadmaps/radar-analysis R2): its own product, volume, temporal
+//! policy and environment, kept by selection in [`ColumnPanes`] with a texture each, so two panes
+//! on different products, radars or times show both, and two on the same selection share one.
+//! One build runs at a time, the active pane's first, on its own request lane. The key names
+//! everything the answer depends on — the scan and accepted revision, the temporal policy, the
+//! product's definition and palette, and the environmental heights the formula actually reads with
+//! their source — so a late worker for a superseded selection is dropped, and a pane draws a
+//! build only when its own selection would have produced exactly that key.
 use super::*;
 use wxdata::level2::temporal::{TemporalCoverage, TemporalPolicy};
 use wxdata::udp_column::{ColumnEnv, ColumnProduct, ColumnTilt};
@@ -63,7 +65,6 @@ pub(crate) struct ColumnSpec {
 
 /// An accepted build: what the resident `UserColumn` texture shows.
 pub(crate) struct ColumnAccepted {
-    key: ColumnKey,
     pub name: String,
     pub units: String,
     pub coverage: TemporalCoverage,
@@ -99,6 +100,106 @@ impl ColumnDelivery {
             .0
             .acquisition_range_ms()
             .and_then(|(_, end)| chrono::DateTime::from_timestamp_millis(end))
+    }
+}
+
+/// Texture identities for column products, clear of MRMS's and the GOES panes' (`1 << 48`).
+const KEY_BASE: u64 = 1 << 49;
+
+/// One selection's column product: the build that answered it, or why none could, and the
+/// texture it is drawn through.
+struct ColumnSlot {
+    key: ColumnKey,
+    built: Result<Arc<ColumnAccepted>, String>,
+    state: FieldState,
+    texture: crate::render::MrmsTextureKey,
+}
+
+/// Column products by selection (roadmaps/radar-analysis R2): what each pane draws. A selection
+/// no pane wants any more is let go, its texture with it; a selection built again gets a new
+/// texture, so a texture never shows another build.
+#[derive(Default)]
+pub(crate) struct ColumnPanes {
+    slots: Vec<ColumnSlot>,
+    next: u64,
+    dropped: Vec<crate::render::MrmsTextureKey>,
+}
+
+impl ColumnPanes {
+    fn get(&self, key: &ColumnKey) -> Option<&ColumnSlot> {
+        self.slots.iter().find(|s| &s.key == key)
+    }
+
+    /// File what a build of `key` came to: the accepted product with its grid and upload, or why
+    /// there is none.
+    fn file(
+        &mut self,
+        key: ColumnKey,
+        built: Result<
+            (
+                ColumnAccepted,
+                wxdata::mrms::MrmsField,
+                crate::render::MrmsUpload,
+            ),
+            String,
+        >,
+    ) {
+        self.forget(&key);
+        self.next = self
+            .next
+            .checked_add(1)
+            .expect("column texture identity exhausted");
+        let mut state = FieldState::default();
+        let built = built.map(|(accepted, field, upload)| {
+            state.stage(field, None, upload);
+            Arc::new(accepted)
+        });
+        self.slots.push(ColumnSlot {
+            key,
+            built,
+            state,
+            texture: crate::render::MrmsTextureKey(KEY_BASE + self.next),
+        });
+    }
+
+    fn forget(&mut self, key: &ColumnKey) {
+        if let Some(i) = self.slots.iter().position(|s| &s.key == key) {
+            let slot = self.slots.remove(i);
+            self.dropped.push(slot.texture);
+        }
+    }
+
+    /// Keep only the selections some pane still wants.
+    fn reconcile(&mut self, wanted: &[ColumnKey]) {
+        let gone: Vec<ColumnKey> = self
+            .slots
+            .iter()
+            .filter(|s| !wanted.contains(&s.key))
+            .map(|s| s.key.clone())
+            .collect();
+        for key in gone {
+            self.forget(&key);
+        }
+    }
+
+    /// Builds not yet on the GPU, for the renderer.
+    pub(super) fn take_uploads(
+        &mut self,
+    ) -> Vec<(crate::render::MrmsTextureKey, crate::render::MrmsUpload)> {
+        self.slots
+            .iter_mut()
+            .filter_map(|s| Some((s.texture, s.state.pending.take()?)))
+            .collect()
+    }
+
+    /// Textures let go since the last call, for the renderer.
+    pub(super) fn take_dropped(&mut self) -> Vec<crate::render::MrmsTextureKey> {
+        std::mem::take(&mut self.dropped)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.slots.len()
     }
 }
 
@@ -374,8 +475,8 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
-        // Isotherm heights above sea level — `self.freezing`, already filtered to the gate's own
-        // site and epoch by the caller (`env_levels_for`). Empty on the very first inspection of a
+        // Isotherm heights above sea level — the reading for the gate's own site and epoch, as
+        // the caller found it (`env_levels_for`). Empty on the very first inspection of a
         // site before the proactive fetch `inspect_gate` kicks off there has landed; a formula
         // referencing these inputs just sees them as missing in the meantime.
         levels: wxdata::udp_column::Levels,
@@ -583,19 +684,50 @@ impl HookEchoApp {
         self.column_key_for(idx, &spec)
     }
 
-    /// Whether pane `idx` may draw the resident `UserColumn` texture: only when its own selection
-    /// is exactly the accepted build's.
+    /// Pane `idx`'s own slot: the build its selection, exactly, came to.
+    fn column_slot(&self, idx: usize) -> Option<&ColumnSlot> {
+        self.column_panes.get(&self.column_current_key(idx)?)
+    }
+
+    /// Whether pane `idx` has a column product to draw: a build of exactly its own selection.
     pub(crate) fn column_field_ready(&self, idx: usize) -> bool {
-        self.column_accepted
-            .as_ref()
-            .is_some_and(|a| Some(&a.key) == self.column_current_key(idx).as_ref())
+        self.column_shown(idx).is_some()
     }
 
     /// The accepted build pane `idx` is drawing, for its legend, probe and inspector.
     pub(crate) fn column_shown(&self, idx: usize) -> Option<&ColumnAccepted> {
-        self.column_field_ready(idx)
-            .then_some(self.column_accepted.as_deref())
-            .flatten()
+        self.column_slot(idx)?.built.as_deref().ok()
+    }
+
+    /// The texture pane `idx`'s column product is drawn through.
+    pub(super) fn column_texture(&self, idx: usize) -> Option<crate::render::MrmsTextureKey> {
+        self.column_slot(idx)
+            .filter(|s| s.built.is_ok())
+            .map(|s| s.texture)
+    }
+
+    /// Pane `idx`'s column product as a field: its grid, for the probe and exports.
+    pub(super) fn column_pane_state(&self, idx: usize) -> Option<&FieldState> {
+        self.column_slot(idx)
+            .filter(|s| s.built.is_ok())
+            .map(|s| &s.state)
+    }
+
+    /// The panes showing a column product, the active one first, with their selections.
+    fn column_wanted(&self) -> Vec<(usize, ColumnSpec, ColumnKey)> {
+        std::iter::once(self.active)
+            .chain((0..self.views.len()).filter(|&i| i != self.active))
+            .filter(|&idx| {
+                self.views[idx]
+                    .fields_on
+                    .contains(&crate::render::FieldLayer::UserColumn)
+            })
+            .filter_map(|idx| {
+                let spec = self.column_spec(idx)?.ok()?;
+                let key = self.column_key_for(idx, &spec)?;
+                Some((idx, spec, key))
+            })
+            .collect()
     }
 
     /// Why pane `idx`'s column product is not drawn, if it is selected and not drawn.
@@ -632,55 +764,48 @@ impl HookEchoApp {
                 }
             )));
         }
-        let key = self.column_key_for(idx, &spec);
-        match &self.column_failed {
-            Some((k, e)) if key.as_ref() == Some(k) => Some(ColumnStatus::Unavailable(e.clone())),
+        match self.column_slot(idx).map(|s| &s.built) {
+            Some(Err(e)) => Some(ColumnStatus::Unavailable(e.clone())),
             _ => Some(ColumnStatus::Building),
         }
     }
 
-    /// Start a build when the active pane's column product, volume, policy or environment moved.
+    /// Keep every pane's column product current: let go of selections no pane shows, and start
+    /// the next build a pane is missing — the active pane's first, one at a time.
     pub(crate) fn recompute_column_product(&mut self, ctx: &egui::Context) {
-        let idx = self.active;
-        // An evicted texture takes the accepted build with it: nothing resident to draw.
+        let wanted = self.column_wanted();
+        let keys: Vec<ColumnKey> = wanted.iter().map(|(_, _, k)| k.clone()).collect();
+        self.column_panes.reconcile(&keys);
         if self
-            .fields
-            .get(&crate::render::FieldLayer::UserColumn)
-            .is_none_or(|s| s.grid.is_none())
+            .column_requested
+            .as_ref()
+            .is_some_and(|k| !keys.contains(k))
         {
-            self.column_accepted = None;
-        }
-        if !self.views[idx]
-            .fields_on
-            .contains(&crate::render::FieldLayer::UserColumn)
-        {
+            // Superseded: its reply is dropped when it lands.
             self.column_requested = None;
+        }
+        let mut next = None;
+        for (idx, spec, key) in wanted {
+            // A formula reading an isotherm needs its pane's site's and time's reading; ask for
+            // it and wait. Not an error to remember: the build starts the moment it lands.
+            if !spec.env.missing_for(&spec.expr).is_empty() {
+                if spec.expr.inputs().iter().any(|i| i.is_environment_height())
+                    && self.env_levels_for(idx).is_none()
+                {
+                    self.fetch_freezing_levels(ctx, idx);
+                }
+                continue;
+            }
+            if next.is_none() && self.column_panes.get(&key).is_none() {
+                next = Some((idx, spec, key));
+            }
+        }
+        if self.column_requested.is_some() {
             return;
         }
-        let Some(Ok(spec)) = self.column_spec(idx) else {
-            self.column_requested = None;
+        let Some((idx, spec, key)) = next else {
             return;
         };
-        // A formula reading an isotherm needs that site's and time's reading; ask for it and wait.
-        if spec.expr.inputs().iter().any(|i| i.is_environment_height())
-            && self.env_levels_for(idx).is_none()
-        {
-            self.fetch_freezing_levels(ctx, idx);
-        }
-        let Some(key) = self.column_key_for(idx, &spec) else {
-            self.column_requested = None;
-            return;
-        };
-        if self.column_requested.as_ref() == Some(&key)
-            || self.column_accepted.as_ref().is_some_and(|a| a.key == key)
-        {
-            return;
-        }
-        if !spec.env.missing_for(&spec.expr).is_empty() {
-            // Not an error to remember: the build starts the moment the reading lands.
-            self.column_requested = None;
-            return;
-        }
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return;
         };
@@ -792,10 +917,13 @@ impl HookEchoApp {
         crate::ui::legend::draw_status_card(painter, prect, &text, y)
     }
 
-    /// Whether a delivery still answers what the active pane asks for.
+    /// Whether a delivery still answers what some pane asks for.
     pub(super) fn column_delivery_current(&self, delivery: &ColumnDelivery) -> bool {
         self.column_requested.as_ref() == Some(&delivery.key)
-            && self.column_current_key(self.active).as_ref() == Some(&delivery.key)
+            && self
+                .column_wanted()
+                .iter()
+                .any(|(_, _, key)| key == &delivery.key)
     }
 
     pub(super) fn accept_column_product(&mut self, delivery: ColumnDelivery) {
@@ -816,27 +944,21 @@ impl HookEchoApp {
         let (coverage, product) = match result {
             Ok(ok) => ok,
             Err(e) => {
-                self.column_failed = Some((key, e));
+                self.column_panes.file(key, Err(e));
                 return;
             }
         };
         let Some(range) = colour_range(range, &product) else {
-            self.column_failed = Some((
+            self.column_panes.file(
                 key,
-                "the product has no value anywhere in this volume".into(),
-            ));
+                Err("the product has no value anywhere in this volume".into()),
+            );
             return;
         };
         let table = table.unwrap_or_else(|| crate::colormap::ramp_table(range.0, range.1));
         let field = product.field.clone();
         let upload = column_upload(&field, &table, range);
-        if let Some(state) = self.fields.get_mut(&crate::render::FieldLayer::UserColumn) {
-            state.stage(field, None, upload);
-            state.radar = None;
-        }
-        self.column_failed = None;
-        self.column_accepted = Some(Arc::new(ColumnAccepted {
-            key,
+        let accepted = ColumnAccepted {
             name,
             units,
             coverage,
@@ -845,7 +967,8 @@ impl HookEchoApp {
             table,
             env_source,
             volume_time,
-        }));
+        };
+        self.column_panes.file(key, Ok((accepted, field, upload)));
     }
 }
 
@@ -915,6 +1038,101 @@ mod tests {
             }],
             ..Settings::default()
         }
+    }
+
+    /// Two panes on different products each keep their own build and texture; two on the same
+    /// selection share one; a selection no pane shows lets its texture go, and one built again
+    /// draws through a new texture (roadmaps/radar-analysis R2).
+    #[test]
+    fn each_pane_keeps_its_own_column_build() {
+        let scan = mayfield();
+        let core = "min_vertical(CC, REF >= 40)";
+        let top = "max_vertical(REF)";
+        let mut settings = settings_with(core);
+        settings.udp_products.push(wxdata::udp::ProductDef {
+            name: "Top".into(),
+            expression: top.into(),
+            ..settings.udp_products[0].clone()
+        });
+        let view = fixture_view(Arc::clone(&scan));
+        let mut spec_top = spec_of(top);
+        spec_top.name = "Top".into();
+        let a = key_for(&view, &settings, 0, &spec_of(core)).unwrap();
+        let b = key_for(&view, &settings, 0, &spec_top).unwrap();
+        assert_ne!(a, b, "another product is another build");
+
+        let mut vol = fixture_view(Arc::clone(&scan)).volume.unwrap();
+        let time = vol.time;
+        let build_of = |spec: &ColumnSpec, vol: &mut Volume| {
+            let tilts = assemble_tilts(vol, &spec.expr);
+            let (coverage, product) = build(
+                tilts,
+                TemporalPolicy::Continuous,
+                None,
+                &spec.expr,
+                &spec.env,
+                time,
+            )
+            .unwrap();
+            let range = colour_range(None, &product).unwrap();
+            let table = crate::colormap::ramp_table(range.0, range.1);
+            let field = product.field.clone();
+            let upload = column_upload(&field, &table, range);
+            let accepted = ColumnAccepted {
+                name: spec.name.clone(),
+                units: String::new(),
+                coverage,
+                product,
+                range,
+                table,
+                env_source: None,
+                volume_time: time,
+            };
+            Ok((accepted, field, upload))
+        };
+        let mut panes = ColumnPanes::default();
+        panes.file(a.clone(), build_of(&spec_of(core), &mut vol));
+        panes.file(b.clone(), build_of(&spec_top, &mut vol));
+        let (ta, tb) = (
+            panes.get(&a).unwrap().texture,
+            panes.get(&b).unwrap().texture,
+        );
+        assert_ne!(ta, tb, "a texture each");
+        assert!(
+            ta.0 > KEY_BASE && tb.0 > KEY_BASE,
+            "clear of MRMS and GOES keys"
+        );
+        assert_eq!(
+            panes.get(&a).unwrap().built.as_ref().unwrap().name,
+            "Core CC"
+        );
+        assert_eq!(panes.get(&b).unwrap().built.as_ref().unwrap().name, "Top");
+        let mut uploaded: Vec<_> = panes.take_uploads().into_iter().map(|(k, _)| k).collect();
+        uploaded.sort_by_key(|k| k.0);
+        assert_eq!(uploaded, vec![ta, tb], "both go to the GPU, once");
+        assert!(panes.take_uploads().is_empty());
+
+        // Both panes on one selection: one build.
+        panes.reconcile(&[a.clone(), a.clone()]);
+        assert_eq!(panes.len(), 1);
+        assert_eq!(
+            panes.take_dropped(),
+            vec![tb],
+            "the other's texture is let go"
+        );
+
+        // A failure is filed for its own selection only.
+        panes.file(
+            b.clone(),
+            Err("the product has no value anywhere in this volume".into()),
+        );
+        assert!(panes.get(&b).unwrap().built.is_err());
+        assert!(panes.get(&a).unwrap().built.is_ok());
+
+        // Built again, a selection draws through a new texture.
+        panes.file(a.clone(), build_of(&spec_of(core), &mut vol));
+        assert_ne!(panes.get(&a).unwrap().texture, ta);
+        assert_eq!(panes.take_dropped(), vec![ta]);
     }
 
     #[test]

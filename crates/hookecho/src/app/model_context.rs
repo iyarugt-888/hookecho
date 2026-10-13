@@ -510,6 +510,9 @@ impl HookEchoApp {
             self.model_fields.get(&request).map(|slot| &slot.state)
         } else if let Some(request) = self.selected_mrms_context_for(idx, layer) {
             self.mrms_fields.get(&request).map(|slot| &slot.state)
+        } else if layer == crate::render::FieldLayer::UserColumn {
+            // Each pane's column product is its own build (roadmaps/radar-analysis R2).
+            self.column_pane_state(idx)
         } else if let Some(request) = self.goes_pane_request(idx, layer) {
             // A pane on its own GOES request reads its own field, never the active pane's.
             self.goes_panes

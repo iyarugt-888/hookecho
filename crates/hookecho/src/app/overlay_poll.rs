@@ -517,7 +517,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Spotters(spotters) => self.spotters = spotters,
                 OverlayMsg::Fronts(a) => self.fronts = Some(a),
-                OverlayMsg::FreezingLevels(levels) => self.freezing = Some(*levels),
+                OverlayMsg::FreezingLevels(levels) => self.freezing.file(*levels),
                 OverlayMsg::ProbSevere(f) => {
                     self.evaluate_probsevere_rules(&f);
                     self.probsevere = f;
