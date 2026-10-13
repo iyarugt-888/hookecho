@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T20:38:35+00:00",
-  "generated_from_commit": "31e6a000e33ef9efe5691b5a54422de7e9b5ffcb",
+  "generated_utc": "2026-10-13T21:44:00+00:00",
+  "generated_from_commit": "6b06c0b999a3ae9de41c3bd4e6b28352162315f4",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1139,8 +1139,8 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "acde1e009aec176b6e2b0959cd4e700c8fc7da80d2a1083b4f7781b67a581a9b",
-      "bytes": 3812
+      "sha256": "958eefd4830f6ed2b340507120abc7d77eb2b8633d37d943973fcde6bbf85f91",
+      "bytes": 6853
     },
     {
       "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
@@ -1161,6 +1161,21 @@
       "path": "docs/certification/m2.2/radar-hint-switched.png",
       "sha256": "b121f90bb8df00ab96d50038cae151f7e58df78be84b9af3ab85e0eebe17368f",
       "bytes": 660561
+    },
+    {
+      "path": "docs/certification/m2.2/s1-follow-after-backward-step.jpg",
+      "sha256": "e7303f5edbb8fa945814e9e0e21ec32d88cdd155877205324f28af537a14b1ee",
+      "bytes": 103497
+    },
+    {
+      "path": "docs/certification/m2.2/s1-follow-keeps-its-storm.jpg",
+      "sha256": "b16b8967cb0fdca4bdfa3d07bc0ec5360b46fe1341085e021a9501af4182143c",
+      "bytes": 101209
+    },
+    {
+      "path": "docs/certification/m2.2/s1-follow-renumbered-before.jpg",
+      "sha256": "cdd7bd67eb16d6a4306f0bfc695e34093633b3ac19e81ece7ae6c0611a913579",
+      "bytes": 98819
     },
     {
       "path": "docs/certification/m2.2/storm-row-lineage.png",
@@ -1214,8 +1229,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "b4a31578d61c87e11fa9ee0e149569a080be4d0f0888cade2a79dbdedb26f410",
-      "bytes": 15069
+      "sha256": "8c9764379182c34dedaf734078ff7acd36a37c51da9ba50d99fb6b57255d6704",
+      "bytes": 16370
     },
     {
       "path": "docs/certification/m3.3/column-composite.png",
@@ -1231,6 +1246,11 @@
       "path": "docs/certification/m3.3/composable-products.json",
       "sha256": "5acb0b2b3b948ef0dbcf958f9c46df9519b160c8ff91442c50c40ec262649a7a",
       "bytes": 1756
+    },
+    {
+      "path": "docs/certification/m3.3/r2-busy-sounding-and-hrrr-missing-level.jpg",
+      "sha256": "16efe469f4574594070da26f8b7a400edeb14010564bf3d74097476be8205c28",
+      "bytes": 96476
     },
     {
       "path": "docs/certification/m3.3/r2-two-archived-panes-two-soundings.jpg",
@@ -1329,8 +1349,8 @@
     },
     {
       "path": "docs/certification/m3.6/README.md",
-      "sha256": "bcb8f7643217be76daeacbccf551e946d4a38a89ddab825d2a23b7dc43b2d012",
-      "bytes": 11583
+      "sha256": "da16097750661fa678d8eae30aa6c5b16f9cdc62d5160bb1d6526f152b4515e0",
+      "bytes": 13643
     },
     {
       "path": "docs/certification/m3.6/drawn-region-box.jpg",
@@ -1351,6 +1371,21 @@
       "path": "docs/certification/m3.6/observed-in-region.jpg",
       "sha256": "edf9d0745514714858fb8037e4710d0637d16b6bd2afb005323b05adeaf17644",
       "bytes": 120373
+    },
+    {
+      "path": "docs/certification/m3.6/r5-3d-pick-measured-gate.jpg",
+      "sha256": "62fa94a54bfd035b863a8ae040b817091adb65a6e30fff3649ce7ed0308f7138",
+      "bytes": 79330
+    },
+    {
+      "path": "docs/certification/m3.6/r5-3d-ruler-end-dragged.jpg",
+      "sha256": "fcfac141e17317f63d12f5b998052364122fc97d40febf3c867882eb54446f91",
+      "bytes": 100164
+    },
+    {
+      "path": "docs/certification/m3.6/r5-3d-ruler-reading-inside-pane.jpg",
+      "sha256": "28cc10f83eed2fc7983be09bbcf8596e71b44d92f8a34796026886be5a6baf1f",
+      "bytes": 99466
     },
     {
       "path": "docs/certification/m3.6/region-notice.jpg",
