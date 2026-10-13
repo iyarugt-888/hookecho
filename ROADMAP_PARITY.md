@@ -1690,6 +1690,8 @@ time increment must migrate GOES clocks, sector footprints and source ownership 
 add independent analysis-time memberships and verify operator archive-miss behavior. Tornado
 detection remains with Claude.
 
+**Evidence ledger — 2026-10-12, GOES mesoscale footprint per pane (roadmaps/models-satellite C1):** a pane on its own GOES request now keeps its own mesoscale footprint (`goes_pane_footprints`), from its own granules and a footprint probe asked for it, so it falls back to CONUS outside the box and draws the box like the active pane. Browser build: pane 1 at 18:00 UTC and pane 2 live each drew its own Mesoscale 1 box and read CONUS (`docs/certification/m5.1/goes-meso-footprint-per-pane-browser.jpg`). Open: a pane inside the box on its own time, group pickers, desktop and Android.
+
 **Evidence ledger — 2026-10-12, GOES per pane (1010.md V15):** a pane whose GOES request is not the active pane's (another time group, time linking off, another sector) gets its own request-keyed slot, fetch, decoded field and texture (`app/goes_panes.rs`), drawn through the per-pane keyed textures MRMS uses, read by its probe and readiness, and kept from cancellation while wanted; the active pane's path is unchanged. Replies are accepted only by the slot that asked for that exact request (the early reply filter now lets those through). Browser build: with pane 1 active at 12:01 UTC and pane 3 live, pane 3's probe read GOES-East valid 20:32:36 UTC while pane 1's read 12:02:36 UTC (`docs/certification/m5.1/`). Test `each_request_has_its_own_slot_and_texture`. Open: two groups set from the picker, a mesoscale sector's footprint for a pane that is not active, those panes in Sources, desktop and Android runs.
 
 #### M5.2 — Add satellite-native one-minute playback

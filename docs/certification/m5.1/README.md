@@ -81,3 +81,30 @@ now pass it. Not established: two time groups set from the picker (this run used
 off, which gives each pane its own time by the same path), a mesoscale sector in a pane that is
 not active (it keeps the chosen box, without the active pane's footprint to fall back to CONUS
 outside it), those panes in Sources, the desktop app and Android.
+
+## A mesoscale sector's box for a pane on its own time (2026-10-12, roadmaps/models-satellite C1)
+
+V15 left one gap: a pane whose GOES request is not the active pane's (another time group, time
+linking off) had no footprint for the chosen mesoscale sector, so it could not fall back to
+CONUS outside the box or draw the box. The footprint was kept for the active pane's request only.
+Now each pane's footprint is kept by its own footprint request (`goes_pane_footprints`). It is
+filled from the pane's own mesoscale granules, and from a footprint probe asked for that pane
+while a GOES layer is on in it, even while it reads CONUS, as the active pane's is.
+`goes_footprint_for(idx)` reads it, so the pane's sector choice and the box use it. Footprints no
+pane's time asks for are dropped. Replies are accepted only by the pane slot that asked.
+
+**Browser build on WebGPU, one machine**, built from the working tree at `563105fa` with this
+change and another session's uncommitted TGFTP work: two panes on KTLX with GOES-East IR, time
+linking off, the Mesoscale 1 sector chosen; pane 1 (active) sent to 18:00 UTC, pane 2 live.
+
+| Capture | What it shows |
+| --- | --- |
+| `goes-meso-footprint-per-pane-browser.jpg` | Both panes read CONUS IR at their own times (the hurricane off Mazatlán in different places), each with its own Mesoscale 1 box: pane 1 "GOES-East Meso 1 · 18:00Z (view outside: CONUS)", pane 2 "· 02:35Z (view outside: CONUS)". Pane 2's box appeared only once its own probe answered, a few seconds after pane 1 moved. |
+
+| File | SHA-256 |
+| --- | --- |
+| goes-meso-footprint-per-pane-browser.jpg | `6ca498533c7c069affdf69ad9144a390ce65edfe6ce929d3a2562f26a3dd9cc3` |
+
+Not established: a pane inside the box on its own time reading the mesoscale sector itself
+(here both views were outside it), group pickers, and the desktop and Android apps. No unit test:
+the logic lives in the app state, which has no test harness.

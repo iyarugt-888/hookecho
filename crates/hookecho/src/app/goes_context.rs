@@ -251,6 +251,28 @@ impl HookEchoApp {
         self.goes_footprint
             .filter(|(request, fp)| *request == wanted && request.accepts_time(fp.time))
             .map(|(request, fp)| (request.sector, fp))
+            // Another pane on its own time: the footprint its own requests found.
+            .or_else(|| {
+                self.goes_pane_footprints
+                    .get(&wanted)
+                    .filter(|fp| wanted.accepts_time(fp.time))
+                    .map(|fp| (wanted.sector, *fp))
+            })
+    }
+
+    /// Pane `idx`'s mesoscale footprint probe when it is not the active pane's: asked for even
+    /// while the pane reads CONUS outside the box, as the active pane's is.
+    fn goes_pane_footprint_request(&self, idx: usize) -> Option<GoesRequest> {
+        let request = self
+            .selected_goes_footprint_for(idx)
+            .filter(|r| r.sector.is_meso())?;
+        let shows_goes = GOES_FRAME_LAYERS
+            .into_iter()
+            .any(|layer| self.views[idx].fields_on.contains(&layer));
+        (idx != self.active
+            && shows_goes
+            && self.selected_goes_footprint_for(self.active) != Some(request))
+        .then_some(request)
     }
     pub(super) fn goes_sector_for_pane(&self, idx: usize) -> Sector {
         let view = &self.views[idx];
@@ -402,11 +424,15 @@ impl HookEchoApp {
                     others.insert(request);
                 }
             }
+            if let Some(request) = self.goes_pane_footprint_request(idx) {
+                others.insert(request);
+            }
         }
         for request in &others {
             wanted.insert(*request);
+            let found = request.layer.is_none() && self.goes_pane_footprints.contains_key(request);
             let slot = self.goes_panes.ensure(*request);
-            let resident = slot.state.grid.is_some();
+            let resident = slot.state.grid.is_some() || found;
             if slot.slot.due(*request, resident, now) {
                 slot.slot.begin(*request, now);
                 self.acquisition
@@ -414,6 +440,12 @@ impl HookEchoApp {
             }
         }
         self.goes_panes.reconcile(&others);
+        // A footprint no pane's time asks for any more is dropped.
+        let footprints: std::collections::HashSet<GoesRequest> = (0..self.views.len())
+            .filter_map(|idx| self.selected_goes_footprint_for(idx))
+            .collect();
+        self.goes_pane_footprints
+            .retain(|request, _| footprints.contains(request));
         if let Some(request) = self
             .selected_goes_footprint_for(self.active)
             .filter(|r| r.sector.is_meso() && self.goes_layers_on())

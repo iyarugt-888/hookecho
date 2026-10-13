@@ -414,6 +414,7 @@ impl HookEchoApp {
             goes_panes: Default::default(),
             goes_footprint: None,
             goes_footprint_slot: Default::default(),
+            goes_pane_footprints: Default::default(),
             glm_archive: None,
             glm_archive_slot: None,
             goto_poll: None,

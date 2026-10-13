@@ -310,9 +310,33 @@ impl HookEchoApp {
                         let upload = self.field_upload(layer, &field.data);
                         if let Some(slot) = self.goes_panes.get_mut(&request) {
                             if slot.slot.accept(request) {
+                                // A mesoscale granule says where the box is for that pane's time.
+                                if request.sector.is_meso() {
+                                    self.goes_pane_footprints.insert(
+                                        request.footprint_request(),
+                                        wxdata::goes_abi::Footprint::of(&field.data),
+                                    );
+                                }
                                 slot.state.stage(field.data, Some(field.stamp), upload);
                             }
                         }
+                    }
+                }
+                OverlayMsg::GoesFootprintFor(request, fp)
+                    if !self.goes_request_current(request)
+                        && self
+                            .goes_panes
+                            .get(&request)
+                            .is_some_and(|slot| slot.slot.requested == Some(request)) =>
+                {
+                    // Another pane's own footprint probe.
+                    if request.accepts_time(fp.time)
+                        && self
+                            .goes_panes
+                            .get_mut(&request)
+                            .is_some_and(|slot| slot.slot.accept(request))
+                    {
+                        self.goes_pane_footprints.insert(request, fp);
                     }
                 }
                 OverlayMsg::GoesField(request, field) => {

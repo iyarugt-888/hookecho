@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: the mesoscale satellite box on a pane with its own time
+
+With panes on different times and a GOES mesoscale sector chosen, each pane now finds where that
+box is for its own time: it shows the box, and reads the full CONUS image when the view is
+outside it. Before, only the selected pane did.
+
 ### Improved: the browser version says which models it cannot show
 
 In the browser, the RAP, HiresW, RRFS, HREF and Canadian GDPS are now greyed out in the model

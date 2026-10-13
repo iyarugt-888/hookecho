@@ -1476,6 +1476,10 @@ pub struct HookEchoApp {
     goes_panes: goes_panes::GoesPaneCache,
     goes_footprint: Option<(GoesRequest, wxdata::goes_abi::Footprint)>,
     goes_footprint_slot: goes_context::GoesSlot,
+    /// Where a mesoscale sector was pointed for the other panes' own requests (their time, their
+    /// group), keyed by the footprint request: so a pane outside the box reads CONUS and draws the
+    /// box, like the active pane (ROADMAP roadmaps/models-satellite C1).
+    goes_pane_footprints: std::collections::HashMap<GoesRequest, wxdata::goes_abi::Footprint>,
     /// GLM flashes for a scrubbed-back view: the window ending at that time (ROADMAP_NEW E6).
     glm_archive: Option<(DateTime<Utc>, Vec<wxdata::glm::Flash>)>,
     /// The minute slot the GLM archive window was last asked for.
