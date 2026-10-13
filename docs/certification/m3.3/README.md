@@ -129,3 +129,37 @@ then both showed their own keys (14 and 13 tilts) side by side
 Not established: two archived panes on different RAOB launches in a run (the cache and its
 test are), a live HRRR reading next to an archived sounding with missing levels in a run, the
 desktop and Android windows, and build cost with many panes.
+
+## A column product's height on the cross-section (2026-10-13, roadmaps/radar-analysis R3)
+
+A scalar column is one number per map cell, not a measured gate or a vertical profile, so only
+a column product whose value is itself a height has a place on the cross-section's height axis.
+`column_product::height_profile` samples the pane's accepted column product along the cut at
+201 points, straight between A and B in longitude and latitude (as the section and the ground
+line sample), and converts to the panel's datum: km above the antenna for
+`MetresAboveAntenna` results, metres MSL less the antenna's altitude for `MetresMsl` results,
+and nothing at all for any other quantity (a dBZ, a count) or for an MSL height with no known
+antenna altitude. The section window draws it as a cyan line with a dark casing over the gates,
+broken where the column has no value and where the height is below the antenna or above the
+panel's top (never pinned to an edge), captioned with the product's name, "column product
+height, one value per map cell, not a gate", and the volume time.
+
+Tests: `a_height_product_reads_along_the_cut_above_the_antenna` (pinned Mayfield volume) checks
+that every sample equals the map's own cell value at that point for `last_height_above(REF, 18)`,
+that `max_vertical(BEAM_ALTITUDE_M, REF >= 18)` (MSL) is shifted by exactly the antenna altitude
+and refused without one, and that `max_vertical(REF)` gives no line.
+`a_column_height_line_breaks_off_the_panel` checks the panel placement and every break.
+
+Run, browser build on WebGPU, one machine (2026-10-13, archive): KPAH 2021-12-11 03:23:49Z
+(Mayfield), "Echo top 18" = `last_height_above(REF, 18)` on the map (14 tilts), a 93 km cut at
+72° through the tornadic cell. The line follows the top of the 18 dBZ echo across the cell,
+near 12 km over the core and lower on its flanks, with the caption readable over the core
+([r3-column-height-on-section.jpg](r3-column-height-on-section.jpg), SHA-256
+`d44c03cc18f2aa2beeba0cf464c57d16e07209fe0d31cf735aaffb561134323d`; bundle
+`hookecho_bg-fafd014a.wasm`, built from the working tree with peer live-radar edits present).
+The first capture of the run had the caption drawn straight over the gates and unreadable over
+the core; it now sits on a dark backing.
+
+Not established: the desktop and Android windows, the 3D cut, a pane whose column product and
+section come from different volumes, and other environmental fields on the section (none is
+added here: only quantities that are heights are drawn).

@@ -203,6 +203,38 @@ impl ColumnPanes {
     }
 }
 
+/// A column product's value along a cut from `a` to `b` (lon, lat), at `n` evenly spaced
+/// points, as km above the antenna — the cross-section's datum — when the formula computes a
+/// height (roadmaps/radar-analysis R3): above the antenna as every column function's height is,
+/// or above sea level less the antenna's altitude. `None` when the value is not a height, or is
+/// above sea level with the antenna's altitude unknown: a dBZ or a count has no place on a
+/// height axis.
+pub(crate) fn height_profile(
+    product: &ColumnProduct,
+    quantity: wxdata::udp::Quantity,
+    antenna_msl_km: Option<f64>,
+    a: [f64; 2],
+    b: [f64; 2],
+    n: usize,
+) -> Option<Vec<Option<f32>>> {
+    use wxdata::udp::Quantity;
+    let offset_km = match quantity {
+        Quantity::MetresAboveAntenna => 0.0,
+        Quantity::MetresMsl => antenna_msl_km? as f32,
+        _ => return None,
+    };
+    Some(
+        (0..n)
+            .map(|i| {
+                let t = i as f64 / (n.max(2) - 1) as f64;
+                let (lon, lat) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+                let (v, _) = product.at(lon, lat)?;
+                v.map(|m| m / 1000.0 - offset_km)
+            })
+            .collect(),
+    )
+}
+
 /// Why the selected column product is not on the map, for the legend and the product window.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ColumnStatus {
@@ -713,6 +745,38 @@ impl HookEchoApp {
             .map(|s| &s.state)
     }
 
+    /// Pane `idx`'s column product along the cross-section `line`, when its value is a height,
+    /// with a caption naming it as a column reduction and the volume it came from.
+    pub(crate) fn column_height_line(
+        &self,
+        idx: usize,
+        line: &super::xsection_edit::SectionLine,
+    ) -> Option<crate::ui::xsection_window::ColumnHeightLine> {
+        let shown = self.column_shown(idx)?;
+        let spec = self.column_spec(idx)?.ok()?;
+        let antenna_msl_km = self.views[idx]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0);
+        let above_antenna_km = height_profile(
+            &shown.product,
+            spec.expr.result_quantity(),
+            antenna_msl_km,
+            line.a,
+            line.b,
+            201,
+        )?;
+        Some(crate::ui::xsection_window::ColumnHeightLine {
+            label: format!(
+                "{}: column product height, one value per map cell, not a gate \u{b7} volume {}",
+                shown.name,
+                crate::timefmt::fmt_clock(shown.volume_time, self.active_tz(), false)
+            ),
+            above_antenna_km,
+        })
+    }
+
     /// The panes showing a column product, the active one first, with their selections.
     fn column_wanted(&self) -> Vec<(usize, ColumnSpec, ColumnKey)> {
         std::iter::once(self.active)
@@ -1038,6 +1102,66 @@ mod tests {
             }],
             ..Settings::default()
         }
+    }
+
+    /// A height product reads along a cut as the map's cells say, in km above the antenna; an
+    /// MSL height less the antenna's altitude; anything else is not a height and has no line.
+    #[test]
+    fn a_height_product_reads_along_the_cut_above_the_antenna() {
+        use wxdata::udp::Quantity;
+        let mut vol = fixture_view(mayfield()).volume.unwrap();
+        let time = vol.time;
+        let product = |src: &str, env: ColumnEnv, vol: &mut Volume| {
+            let spec = ColumnSpec {
+                env,
+                ..spec_of(src)
+            };
+            let q = spec.expr.result_quantity();
+            (single_volume_product(vol, &spec, time).unwrap(), q)
+        };
+        let (top, q) = product("last_height_above(REF, 18)", ColumnEnv::default(), &mut vol);
+        assert_eq!(q, Quantity::MetresAboveAntenna);
+        let f = &top.field;
+        // Across the grid's middle row, west to east.
+        let mid = (f.lat_north + f.lat_south) / 2.0;
+        let (a, b) = ([f.lon_west + 0.01, mid], [f.lon_east - 0.01, mid]);
+        let line = height_profile(&top, q, None, a, b, 101).unwrap();
+        assert_eq!(line.len(), 101);
+        let mut seen = 0;
+        for (i, h) in line.iter().enumerate() {
+            let t = i as f64 / 100.0;
+            let at = top.at(a[0] + (b[0] - a[0]) * t, mid).unwrap().0;
+            assert_eq!(*h, at.map(|m| m / 1000.0), "point {i}");
+            seen += usize::from(h.is_some());
+        }
+        assert!(seen > 0, "the cut crosses echo");
+
+        let antenna = ColumnEnv {
+            antenna_altitude_m: Some(150.0),
+            ..ColumnEnv::default()
+        };
+        let (msl, q) = product(
+            "max_vertical(BEAM_ALTITUDE_M, REF >= 18)",
+            antenna,
+            &mut vol,
+        );
+        assert_eq!(q, Quantity::MetresMsl);
+        assert!(
+            height_profile(&msl, q, None, a, b, 11).is_none(),
+            "no antenna altitude"
+        );
+        let line = height_profile(&msl, q, Some(0.15), a, b, 101).unwrap();
+        let i = line.iter().position(Option::is_some).expect("a value");
+        let t = i as f64 / 100.0;
+        let at = msl.at(a[0] + (b[0] - a[0]) * t, mid).unwrap().0.unwrap();
+        assert!((line[i].unwrap() - (at / 1000.0 - 0.15)).abs() < 1e-6);
+
+        let (dbz, q) = product("max_vertical(REF)", ColumnEnv::default(), &mut vol);
+        assert_eq!(q, Quantity::Dbz);
+        assert!(
+            height_profile(&dbz, q, Some(0.15), a, b, 11).is_none(),
+            "a dBZ is no height"
+        );
     }
 
     /// Two panes on different products each keep their own build and texture; two on the same

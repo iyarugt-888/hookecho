@@ -37,6 +37,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: a column product's height on the cross-section
+
+When the map shows a column product whose value is a height (an echo top such as
+`last_height_above(REF, 18)`, or a highest beam altitude), the cross-section draws that height
+along the cut as a cyan line over the measured gates, captioned with the product, the volume it
+came from, and that it is one value per map cell rather than a gate. Where the column has no
+value, the line breaks.
+
 ### Improved: a column product in every pane
 
 Each pane now builds and draws its own column product: different products, radars or times

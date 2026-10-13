@@ -146,6 +146,81 @@ pub struct XsControls {
     pub antenna_msl_km: Option<f64>,
     /// The ground along the cut, from A to B, when the app has terrain for it.
     pub ground: GroundProfile,
+    /// The pane's column product along the cut, when its value is a height.
+    pub column_height: Option<ColumnHeightLine>,
+}
+
+/// A column product whose value is a height (roadmaps/radar-analysis R3), sampled along the cut
+/// the way the ground is: at each point, the height the map's column reduction found there,
+/// above the antenna (the panel's own datum). One number per map cell, drawn as a line over
+/// the measured gates, never as one.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColumnHeightLine {
+    /// Its name, what it is and the volume it was built from, for the caption.
+    pub label: String,
+    /// Evenly spaced from A to B, km above the antenna; `None` where the column has no value.
+    pub above_antenna_km: Vec<Option<f32>>,
+}
+
+/// The colour a column product's height is drawn in: clear of the reflectivity palette's greens,
+/// yellows and reds, the beam-rise hues and the ground's brown.
+const COLUMN_LINE: egui::Color32 = egui::Color32::from_rgb(90, 230, 255);
+
+/// Where a column product's height is drawn on a panel `rect` whose top is `top_km` above the
+/// antenna: one run of points per stretch with a value, broken wherever the column has none or
+/// its height is off the panel (below the antenna or above the top), never drawn along an edge.
+fn column_height_runs(
+    rect: egui::Rect,
+    top_km: f32,
+    line: &ColumnHeightLine,
+) -> Vec<Vec<egui::Pos2>> {
+    let n = line.above_antenna_km.len();
+    let top = top_km.max(f32::EPSILON);
+    let mut runs = vec![Vec::new()];
+    for (i, h) in line.above_antenna_km.iter().enumerate() {
+        match h {
+            Some(h) if n > 1 && (0.0..=top).contains(h) => {
+                let x = rect.left() + rect.width() * i as f32 / (n - 1) as f32;
+                let y = rect.bottom() - h / top * rect.height();
+                runs.last_mut().unwrap().push(egui::pos2(x, y));
+            }
+            _ if runs.last().is_some_and(|r| !r.is_empty()) => runs.push(Vec::new()),
+            _ => {}
+        }
+    }
+    runs.retain(|r| !r.is_empty());
+    runs
+}
+
+/// Draw a column product's height along the cut over the panel `rect`, with its caption along
+/// the panel's bottom.
+fn draw_column_height(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection, line: &ColumnHeightLine) {
+    let painter = ui.painter_at(rect);
+    for run in column_height_runs(rect, xs.max_height_km, line) {
+        if let [p] = run.as_slice() {
+            painter.circle_filled(*p, 2.0, COLUMN_LINE);
+            continue;
+        }
+        painter.add(egui::Shape::line(
+            run.clone(),
+            egui::Stroke::new(3.5, egui::Color32::from_black_alpha(200)),
+        ));
+        painter.add(egui::Shape::line(run, egui::Stroke::new(1.8, COLUMN_LINE)));
+    }
+    // On a dark backing: over a storm core the caption would otherwise vanish into the gates.
+    let galley = painter.layout(
+        line.label.clone(),
+        egui::FontId::proportional(10.0),
+        COLUMN_LINE,
+        rect.width() - 8.0,
+    );
+    let at = rect.left_bottom() + egui::vec2(4.0, -14.0 - galley.size().y);
+    painter.rect_filled(
+        egui::Rect::from_min_size(at, galley.size()).expand(2.0),
+        2.0,
+        egui::Color32::from_black_alpha(190),
+    );
+    painter.galley(at, galley, COLUMN_LINE);
 }
 
 /// Ground height along the cut (ROADMAP_PARITY M3.6): evenly spaced samples from A to B, metres
@@ -504,6 +579,9 @@ pub fn show(
             }
             flush(&mut run);
         }
+        if let Some(line) = &ctl.column_height {
+            draw_column_height(ui, rect, xs, line);
+        }
         if ruler_on {
             let at = |p: egui::Pos2| RulerEnd {
                 along_km: f64::from(((p.x - rect.left()) / rect.width()).clamp(0.0, 1.0))
@@ -611,6 +689,41 @@ pub fn show(
 mod tests {
     use super::*;
     use wxdata::level2::BinnedSweep;
+
+    /// A column height sits on the panel's own axis, km above the antenna; a missing column, a
+    /// height under the antenna or over the panel's top breaks the line instead of pinning it
+    /// to an edge (roadmaps/radar-analysis R3).
+    #[test]
+    fn a_column_height_line_breaks_off_the_panel() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 200.0));
+        let line = ColumnHeightLine {
+            label: String::new(),
+            above_antenna_km: vec![
+                Some(5.0),
+                Some(10.0),
+                None,
+                Some(2.5),
+                Some(25.0),
+                Some(-0.1),
+                Some(0.0),
+            ],
+        };
+        let runs = column_height_runs(rect, 20.0, &line);
+        let x = |i: f32| i * 100.0 / 6.0;
+        assert_eq!(
+            runs,
+            vec![
+                vec![egui::pos2(0.0, 150.0), egui::pos2(x(1.0), 100.0)],
+                vec![egui::pos2(x(3.0), 175.0)],
+                vec![egui::pos2(100.0, 200.0)],
+            ]
+        );
+        let empty = ColumnHeightLine {
+            above_antenna_km: vec![None, Some(30.0)],
+            ..line
+        };
+        assert!(column_height_runs(rect, 20.0, &empty).is_empty());
+    }
 
     /// A synthetic storm at eight tilts of a standard VCP: a 60 dBZ core 60 km east of the radar,
     /// falling off 1 dBZ per km from it and 4 dBZ per km of height above 8 km, so the section has

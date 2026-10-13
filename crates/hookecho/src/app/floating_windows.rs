@@ -1022,6 +1022,11 @@ impl HookEchoApp {
         if let (Some(xs), Some(tex), Some(line)) =
             (&self.xsection, &self.xsection_tex, self.xsection_line())
         {
+            let source_pane = self
+                .xsection_source
+                .as_ref()
+                .map_or(self.active, |s| s.pane);
+            let column_height = self.column_height_line(source_pane, &line);
             let mut moment = self.xsection_moment;
             let before = ui::xsection_window::XsControls {
                 bearing_deg: line.bearing(),
@@ -1042,6 +1047,7 @@ impl HookEchoApp {
                 .and_then(wxdata::sites::site_by_id)
                 .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0),
                 ground: ground.clone().unwrap_or_default(),
+                column_height,
                 ..Default::default()
             };
             let mut ctl = before.clone();
