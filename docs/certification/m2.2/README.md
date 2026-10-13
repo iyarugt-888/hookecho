@@ -64,3 +64,44 @@ decoded.
 
 Not established: following and comparing a local cell through a long replay, a backward scrub
 seen in a run, and the desktop and Android apps.
+
+## Following an archive's storm keeps that storm (2026-10-13, roadmaps/storm-analysis S1)
+
+**Found in a run.** Browser build on WebGPU, one machine: KPAH 2021-12-11 03:23Z (Mayfield),
+Storms (43), L-18 at 16 nmi, 68 dBZ, linked to Tornado Warning PAH-TO-36. Follow, then one
+step forward to 9:34 PM CST. The table was renumbered: the Mayfield cell had become L-79, and
+"L-18" now named another storm. The followed cell card switched to it (53 dBZ, ΔV 30 m/s instead
+of 68 dBZ and 53 m/s), and a "Better radar for L-18: KNQA" banner placed it 173 km from KPAH
+([s1-follow-renumbered-before.jpg](s1-follow-renumbered-before.jpg)).
+
+**Cause.** `celltrack::replay` numbers storms in the order its window first sees them, and the
+window is the last 16 frames up to the playhead (only those decoded). A step forward drops one
+frame and adds one, and decoding fills earlier frames in, so the numbers changed on nearly every
+step and were handed to other storms. "A replay gives the same IDs" held only for an identical
+window.
+
+**Fix.** `celltrack::LocalLabels::relabel` carries labels from the table being replaced. A storm
+whose new track holds an observation of a previous storm (the same per-volume cell, cached, at the
+same position) keeps its label; on a split, the cell sharing the newer observation, then the longer
+track, keeps it. Every other storm gets a label never issued before in the session, so a label
+never moves to a different storm. A table from another radar hands on nothing. Test:
+`a_sliding_window_keeps_each_storms_label_and_never_hands_it_on`, which first reproduces raw
+`replay` giving A's number to B when the window slides past a short-lived storm, then covers a
+slide, a new storm, a backward step, a jump with no shared volume, and a split.
+
+**After** (bundle `hookecho_bg-66a5499b.wasm`, same steps): one step forward to 9:34 PM kept L-18
+on the Mayfield core, with the card on that storm (ΔV 75 m/s, CC 0.73) and no banner
+([s1-follow-keeps-its-storm.jpg](s1-follow-keeps-its-storm.jpg)). Two steps back, to 9:30 PM, L-18
+was still that storm at 16 nmi, 66 dBZ
+([s1-follow-after-backward-step.jpg](s1-follow-after-backward-step.jpg)). Cells whose new track
+shares no observation with the last table show new labels; that is by design.
+
+| File | SHA-256 |
+| --- | --- |
+| s1-follow-renumbered-before.jpg | `cdd7bd67eb16d6a4306f0bfc695e34093633b3ac19e81ece7ae6c0611a913579` |
+| s1-follow-keeps-its-storm.jpg | `b16b8967cb0fdca4bdfa3d07bc0ec5360b46fe1341085e021a9501af4182143c` |
+| s1-follow-after-backward-step.jpg | `e7303f5edbb8fa945814e9e0e21ec32d88cdd155877205324f28af537a14b1ee` |
+
+Not established: a long replay played through (decoding in the debug browser build advanced only
+about one frame per step here), compare across a long replay, the desktop and Android apps. The
+Trends row still says "once SCIT has tracked this cell" for a local cell.

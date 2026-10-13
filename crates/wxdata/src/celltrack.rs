@@ -274,14 +274,75 @@ pub fn is_local_id(id: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The labels an archive's local cells are shown by, carried from one rebuilt table to the next.
+///
+/// [`replay`] numbers storms in the order its window first sees them, and the window slides with
+/// the playhead (and grows as frames finish decoding), so its numbers change from one frame to the
+/// next: a followed "L-18" became another storm 170 km away one step later. [`Self::relabel`]
+/// keeps a storm's label for as long as the new table's storm contains an observation of it (the
+/// same cell, found once per volume and cached, at the same position), and gives every other storm
+/// a label never used before in the session, so no label passes to a different storm.
+#[derive(Debug, Default)]
+pub struct LocalLabels {
+    issued: u64,
+}
+
+impl LocalLabels {
+    /// Label `cells`, a table just rebuilt by [`replay`], against `previous`, the table it replaces
+    /// (empty for the first). A storm takes the label of the previous storm whose track holds the
+    /// newest of its own observations; when two claim one label (a split), the one that shares the
+    /// newer observation, then the longer track, keeps it and the other is new.
+    pub fn relabel(&mut self, previous: &[crate::level3::Cell], cells: &mut [crate::level3::Cell]) {
+        let key = |p: &(f64, f64)| (p.0.to_bits(), p.1.to_bits());
+        let mut seen: std::collections::HashMap<(u64, u64), &str> =
+            std::collections::HashMap::new();
+        for p in previous {
+            for point in &p.past_track {
+                seen.insert(key(point), &p.id);
+            }
+        }
+        // (cell index, label it continues, observations back from its newest, track length)
+        let mut claims: Vec<(usize, String, usize, usize)> = cells
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                c.past_track
+                    .iter()
+                    .rev()
+                    .enumerate()
+                    .find_map(|(back, point)| {
+                        seen.get(&key(point))
+                            .map(|label| (i, label.to_string(), back, c.past_track.len()))
+                    })
+            })
+            .collect();
+        claims.sort_by(|a, b| a.2.cmp(&b.2).then(b.3.cmp(&a.3)).then(a.0.cmp(&b.0)));
+        let mut labels: Vec<Option<String>> = vec![None; cells.len()];
+        let mut taken = std::collections::HashSet::new();
+        for (i, label, ..) in claims {
+            if taken.insert(label.clone()) {
+                labels[i] = Some(label);
+            }
+        }
+        for (c, label) in cells.iter_mut().zip(labels) {
+            let label = label.unwrap_or_else(|| {
+                self.issued += 1;
+                local_id(self.issued)
+            });
+            c.id = label.clone();
+            c.title = label;
+        }
+    }
+}
+
 /// An archive's storm cells from its own reflectivity (roadmaps/storm-analysis S1): SCIT is not
 /// archived, so a scrubbed-to time has no storm table. `frames` (oldest first: each volume's time
 /// and its cells, [`find_cells`]) are folded through a fresh [`crate::storm_history::StormHistory`]
 /// as [`crate::storm_history::Source::LocalCell`] observations, and the last frame's cells come
-/// back as storm-cell rows: the history's stable ID ("L-3"), the motion fitted over each one's own
-/// track, its past positions and its strongest gate. Rebuilt from the same window, a replay (and
-/// a backward scrub, which restarts the history) gives the same IDs every time; local cells carry
-/// no provider ID, so none is recycled.
+/// back as storm-cell rows: an ID ("L-3"), the motion fitted over each one's own track, its past
+/// positions and its strongest gate. The IDs number this window's storms only: rebuilt from the
+/// same window they are the same, but a window that slides or fills in renumbers them, so a table
+/// shown over time takes its labels from [`LocalLabels`].
 pub fn replay(
     frames: &[(chrono::DateTime<chrono::Utc>, Vec<Blob>)],
     site: &str,
@@ -400,6 +461,65 @@ mod tests {
         assert!(replay(&[], "KTLX").is_empty());
         let lone = replay(&frames[..1], "KTLX");
         assert_eq!(lone[0].mvt_deg, None, "no motion from one volume");
+    }
+
+    /// A window that slides past a short-lived storm renumbers the rest: replay's own IDs hand one
+    /// storm's number to another. Carried labels keep each storm's for as long as the new table
+    /// holds one of its observations; a new storm, or one seen after a jump with no shared frame,
+    /// gets a label never used before; a split leaves the label with the newer, longer track.
+    #[test]
+    fn a_sliding_window_keeps_each_storms_label_and_never_hands_it_on() {
+        // A and B move east through seven volumes; X shows in the first only, C from the sixth.
+        let frames: Vec<_> = (0..7)
+            .map(|k| {
+                let dx = 0.03 * k as f64;
+                let mut cells = vec![cell(-97.6 + dx, 35.3), cell(-97.0 + dx, 35.9)];
+                if k == 0 {
+                    cells.insert(0, cell(-99.0, 34.0));
+                }
+                if k >= 5 {
+                    cells.push(cell(-96.0 + dx, 36.5));
+                }
+                (at(5 * k), cells)
+            })
+            .collect();
+        let ids =
+            |cells: &[crate::level3::Cell]| cells.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        // The defect: replay's numbers for A and B change when the window drops X's frame, and
+        // A's old number now names B.
+        assert_eq!(ids(&replay(&frames[0..4], "KTLX")), ["L-2", "L-3"]);
+        assert_eq!(ids(&replay(&frames[1..5], "KTLX")), ["L-1", "L-2"]);
+
+        let mut labels = LocalLabels::default();
+        let mut first = replay(&frames[0..4], "KTLX");
+        labels.relabel(&[], &mut first);
+        assert_eq!(ids(&first), ["L-1", "L-2"], "A, B");
+        let mut slid = replay(&frames[1..5], "KTLX");
+        labels.relabel(&first, &mut slid);
+        assert_eq!(ids(&slid), ["L-1", "L-2"], "A and B keep theirs");
+        let mut on = replay(&frames[2..7], "KTLX");
+        labels.relabel(&slid, &mut on);
+        assert_eq!(ids(&on), ["L-1", "L-2", "L-3"], "C is new");
+        // Backward, still sharing frames: the same labels.
+        let mut back = replay(&frames[0..3], "KTLX");
+        labels.relabel(&on, &mut back);
+        assert_eq!(ids(&back), ["L-1", "L-2"]);
+        // A jump with no shared frame: none inherited, none reused.
+        let far: Vec<_> = (0..2)
+            .map(|k| (at(500 + 5 * k), vec![cell(-95.0, 33.0)]))
+            .collect();
+        let mut jumped = replay(&far, "KTLX");
+        labels.relabel(&back, &mut jumped);
+        assert_eq!(ids(&jumped), ["L-4"]);
+
+        // A split: two cells continue A's track; the one sharing A's newest point keeps "L-1".
+        let mut split = first.clone();
+        let mut twin = split[0].clone();
+        twin.past_track.truncate(2);
+        twin.past_track.push((-90.0, 30.0));
+        split.push(twin);
+        labels.relabel(&first, &mut split);
+        assert_eq!(ids(&split), ["L-1", "L-2", "L-5"]);
     }
 
     /// A sweep with one square-ish patch of strong echo, everything else empty.

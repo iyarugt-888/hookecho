@@ -809,7 +809,9 @@ impl HookEchoApp {
 
     /// Keep the archive's storm cells current for the active pane's volume: rebuilt from the
     /// trailing window whenever the volume changes, so the storm list, follow and compare work
-    /// on a scrubbed-to time, and a replay or a backward scrub gives the same IDs. Cleared live.
+    /// on a scrubbed-to time. Each rebuild takes its labels from the table it replaces
+    /// (`LocalLabels`): a storm keeps its ID through a step, a loop or a backward scrub that shares
+    /// a volume with the last table, and an ID never passes to another storm. Cleared live.
     pub(crate) fn sync_archive_cells(&mut self) {
         /// Over an hour of volumes: enough for a storm's identity and motion to settle.
         const WINDOW_FRAMES: usize = 16;
@@ -824,6 +826,13 @@ impl HookEchoApp {
         let site = self.views[self.active].site.clone().unwrap_or_default();
         let frames = self.local_cell_frames(WINDOW_FRAMES);
         let mut cells = wxdata::celltrack::replay(&frames, &site);
+        // A table from another radar (its volume named for that site) hands on no label.
+        let previous = self
+            .archive_cells
+            .as_ref()
+            .filter(|((_, volume, _), _)| volume.starts_with(&site))
+            .map_or(&[][..], |(_, c)| c.as_slice());
+        self.archive_labels.relabel(previous, &mut cells);
         // Where each is from the radar, as SCIT's table gives it.
         if let Some(radar) = wxdata::sites::site_by_id(&site) {
             let at = [f64::from(radar.longitude), f64::from(radar.latitude)];

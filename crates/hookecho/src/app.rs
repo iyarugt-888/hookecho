@@ -1321,6 +1321,9 @@ pub struct HookEchoApp {
     /// An archive's storm cells, tracked from its own reflectivity since SCIT is not archived
     /// (`wxdata::celltrack::replay`; roadmaps/storm-analysis S1), for the active pane's volume.
     archive_cells: Option<((usize, String, usize), Vec<Cell>)>,
+    /// The labels those cells are shown by, carried from one rebuilt table to the next so a
+    /// followed or compared storm keeps its ID while the playhead moves.
+    archive_labels: wxdata::celltrack::LocalLabels,
     /// Confidence-over-time for the active pane's debris/rotation detections (C5's "timeline of
     /// score changes"), rebuilt from `tds_shown_cache`/`rot_shown_cache` the same bounded-window
     /// way `tracks_cache` is. See `compute_tds_score_track`/`compute_rot_score_track`.

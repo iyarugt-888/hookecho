@@ -37,6 +37,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: a followed storm in the archive stays the same storm
+
+When you scrubbed back in time and followed a storm, stepping the loop could renumber the storm
+list, so the storm you followed (say "L-18") became a different storm far away, with its card,
+its warning and the "better radar" suggestion switching with it. A storm now keeps its ID as you
+step forward or back, and an ID is never given to a different storm.
+
 ### Fixed: the ruler's reading stays on screen
 
 A ruler drawn near the edge of the map, or a 3D ruler's two-line reading in a narrow pane, had
