@@ -345,9 +345,13 @@ impl HookEchoApp {
     }
 
     /// Write the current max/min trail out (ROADMAP_NEW C2): as a GeoTIFF of its values on a
-    /// lat/lon grid, or as GeoJSON outlines of the path at the pane's value threshold — or, with
-    /// none set, at [`trail_outline_level`] for the product.
-    pub(crate) fn export_trail(&mut self, raster: bool) {
+    /// lat/lon grid, as GeoJSON outlines of the path at the pane's value threshold — or, with
+    /// none set, at [`trail_outline_level`] for the product — or as a GeoTIFF on the same grid of
+    /// how many minutes before the trail's end each cell's value was scanned
+    /// (roadmaps/radar-analysis R4's contributor export).
+    pub(crate) fn export_trail(&mut self, kind: crate::ui::layer_options::TrailExport) {
+        use crate::ui::layer_options::TrailExport;
+        let raster = kind != TrailExport::Outline;
         use wxdata::extrema::Extremum;
         let threshold = self.views[self.active].active_threshold();
         let Some(state) = self.trail.as_ref() else {
@@ -381,11 +385,39 @@ impl HookEchoApp {
             Extremum::Min => "min",
         };
         let slug = format!(
-            "trail-{}-{what}-{window}min-{}",
+            "trail-{}-{what}-{window}min-{}{}",
             moment.short_name().to_lowercase(),
-            time.format("%Y%m%dT%H%MZ")
+            time.format("%Y%m%dT%H%MZ"),
+            if kind == TrailExport::Contributors {
+                "-contributors"
+            } else {
+                ""
+            }
         );
-        let (bytes, ext, count) = if raster {
+        let (bytes, ext, count) = if kind == TrailExport::Contributors {
+            let ages = shown.contributor_grid(&grid, time.timestamp());
+            let desc = format!(
+                "HookEcho {what} {} trail contributors, {window} min ending {} | minutes before \
+                 the end that each cell's value was scanned, NaN where none | {} frames {}..{}, \
+                 {} missing",
+                moment.short_name(),
+                time.to_rfc3339(),
+                coverage.frames,
+                span(coverage.from),
+                span(coverage.to),
+                coverage.missing
+            );
+            match wxdata::geotiff::write(&ages, &desc) {
+                Some(b) => (b, "tif", None),
+                None => {
+                    self.toast(
+                        ToastKind::Error,
+                        "Could not encode the trail's contributors",
+                    );
+                    return;
+                }
+            }
+        } else if raster {
             let desc = format!(
                 "HookEcho {what} {} trail, {window} min ending {} | {} frames {}..{}, {} missing, \
                  {} s of the window without history | physical values, no age fade",

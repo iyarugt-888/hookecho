@@ -12,6 +12,17 @@ use crate::ui::a11y::Named as _;
 use wxdata::alerts::Category;
 
 /// Signals the chrome (drawer, pills, mobile sheets) raises for the app to act on this frame.
+/// How the max/min trail is written out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrailExport {
+    /// Its values on a lat/lon grid, as a GeoTIFF.
+    Raster,
+    /// The path's outline at a level, as GeoJSON.
+    Outline,
+    /// Where each cell's value came from: minutes before the trail's end, as a GeoTIFF.
+    Contributors,
+}
+
 #[derive(Default)]
 pub struct UiActions {
     pub open_site_dialog: bool,
@@ -24,8 +35,8 @@ pub struct UiActions {
     pub instant_replay: bool,
     /// Rebuild the max/min trail from its cached window ending at the current playhead.
     pub reset_trail: bool,
-    /// Export the trail: `true` as a GeoTIFF raster, `false` as a GeoJSON outline.
-    pub export_trail: Option<bool>,
+    /// Export the trail as a raster, an outline or its contributors.
+    pub export_trail: Option<TrailExport>,
     /// The Day-1 outlook hazard changed; the app must clear + refetch that day's outlook.
     pub outlook_kind_changed: bool,
     /// The WSSI day changed; the app must clear + refetch it.
@@ -1128,7 +1139,7 @@ pub(crate) fn show(
                 )
                 .clicked()
             {
-                actions.export_trail = Some(true);
+                actions.export_trail = Some(TrailExport::Raster);
             }
             if ui
                 .button("Outline (GeoJSON)\u{2026}")
@@ -1138,7 +1149,17 @@ pub(crate) fn show(
                 )
                 .clicked()
             {
-                actions.export_trail = Some(false);
+                actions.export_trail = Some(TrailExport::Outline);
+            }
+            if ui
+                .button("Contributors\u{2026}")
+                .on_hover_text(
+                    "Which volume each part of the trail is from: a GeoTIFF on the same grid, each \
+                     cell the minutes before the trail's end that its value was scanned",
+                )
+                .clicked()
+            {
+                actions.export_trail = Some(TrailExport::Contributors);
             }
         });
         if !filters.trail_status.is_empty() {

@@ -37,6 +37,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Added: which scan each part of a trail came from
+
+The max/min trail's export options have a new "Contributors…": a GeoTIFF on the same grid as
+the trail's own, where each cell says how many minutes before the trail's end its value was
+scanned. Put it beside the trail in QGIS or ArcGIS to date every part of a path.
+
 ### Added: storm cells when you scrub back in time
 
 The radar's own storm-cell table is not kept in the archive, so the storm list was empty for any

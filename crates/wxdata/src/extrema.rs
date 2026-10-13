@@ -251,6 +251,44 @@ pub struct WindowTrail {
 }
 
 impl WindowTrail {
+    /// Where the trail's regridded values (`values`, `derived::sweep_grid` of this trail's sweep)
+    /// came from: each cell holds how many minutes before `end_s` (seconds) the frame that
+    /// supplied its gate was scanned, on the same lattice; NaN where `values` has none or no
+    /// frame contributed (roadmaps/radar-analysis R4). Read beside the values, it says which
+    /// volume each part of a path is from.
+    pub fn contributor_grid(
+        &self,
+        values: &crate::mrms::MrmsField,
+        end_s: i64,
+    ) -> crate::mrms::MrmsField {
+        let (nx, ny) = (values.nx, values.ny);
+        let dlon = (values.lon_east - values.lon_west) / nx.max(1) as f64;
+        let dlat = (values.lat_north - values.lat_south) / ny.max(1) as f64;
+        let mut out = Vec::with_capacity(nx * ny);
+        for row in 0..ny {
+            let lat = values.lat_north - (row as f64 + 0.5) * dlat;
+            for col in 0..nx {
+                let v = values
+                    .values
+                    .get(row * nx + col)
+                    .copied()
+                    .unwrap_or(f32::NAN);
+                let lon = values.lon_west + (col as f64 + 0.5) * dlon;
+                let minutes = v
+                    .is_finite()
+                    .then(|| self.sweep.index_at(lon, lat))
+                    .flatten()
+                    .and_then(|i| self.contributor.get(i).copied().flatten())
+                    .map(|t| (end_s - t) as f32 / 60.0);
+                out.push(minutes.unwrap_or(f32::NAN));
+            }
+        }
+        crate::mrms::MrmsField {
+            values: out,
+            ..values.clone()
+        }
+    }
+
     /// The trail at `(lon, lat)`: the gate sample (value, geometry) and the time of the frame
     /// that supplied it. `None` outside the sweep.
     pub fn at_point(&self, lon: f64, lat: f64) -> Option<(crate::level2::GateSample, Option<i64>)> {
@@ -664,6 +702,69 @@ pub fn mask_below(sweep: &mut BinnedSweep, by: &BinnedSweep, floor: f32) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A contributor grid says, cell by cell, how old the frame behind each value is, and is
+    /// empty where the values are.
+    #[test]
+    fn a_contributor_grid_says_how_old_each_cell_is() {
+        let sweep = crate::level2::BinnedSweep {
+            moment: crate::level2::Moment::Reflectivity,
+            az_bins: 360,
+            gate_count: 400,
+            data: vec![200; 360 * 400],
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.33,
+            radar_lon: -97.28,
+            elevation_deg: 0.5,
+            value_min: -32.0,
+            value_max: 94.5,
+            ..Default::default()
+        };
+        let n = sweep.data.len();
+        let mut contributor = vec![Some(1_000i64); n];
+        // The western half came from a frame ten minutes earlier.
+        for az in 180..360 {
+            for g in 0..400 {
+                contributor[az * 400 + g] = Some(400);
+            }
+        }
+        let trail = WindowTrail {
+            sweep: sweep.clone(),
+            contributor,
+            coverage: Coverage {
+                requested_s: 600,
+                from: 400,
+                to: 1_000,
+                frames: 2,
+                missing: 0,
+                short_s: 0,
+            },
+        };
+        let values =
+            crate::derived::sweep_grid(&sweep, chrono::DateTime::from_timestamp(1_000, 0).unwrap())
+                .expect("a grid");
+        let ages = trail.contributor_grid(&values, 1_000);
+        assert_eq!((ages.nx, ages.ny), (values.nx, values.ny));
+        let at = |lon: f64| {
+            let dlon = (ages.lon_east - ages.lon_west) / ages.nx as f64;
+            let col = ((lon - ages.lon_west) / dlon) as usize;
+            ages.values[(ages.ny / 2) * ages.nx + col]
+        };
+        let east = at(f64::from(sweep.radar_lon) + 0.5);
+        let west = at(f64::from(sweep.radar_lon) - 0.5);
+        assert_eq!(east, 0.0, "the newest frame: no age");
+        assert_eq!(west, 10.0, "ten minutes older");
+        let empty = crate::mrms::MrmsField {
+            values: vec![f32::NAN; values.values.len()],
+            ..values.clone()
+        };
+        assert!(trail
+            .contributor_grid(&empty, 1_000)
+            .values
+            .iter()
+            .all(|v| v.is_nan()));
+    }
 
     #[test]
     fn a_gate_without_enough_echo_behind_it_is_cleared() {

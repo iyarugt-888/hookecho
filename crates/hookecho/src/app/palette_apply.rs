@@ -728,8 +728,8 @@ impl HookEchoApp {
         if actions.instant_replay {
             self.instant_replay();
         }
-        if let Some(raster) = actions.export_trail {
-            self.export_trail(raster);
+        if let Some(kind) = actions.export_trail {
+            self.export_trail(kind);
         }
         if actions.reset_trail {
             // `advance_trail` always chooses frames at or before the active playhead, so dropping

@@ -58,3 +58,19 @@ Test: `a_gate_without_enough_echo_behind_it_is_cleared` covers:
 - a folded gate left as it is;
 - a gate with no reflectivity behind it cleared;
 - a minimum trail over masked frames.
+
+## Trail contributors export (2026-10-13, roadmaps/radar-analysis R4)
+
+The trail's GeoTIFF and outline say how many frames it covers and their span, but not which
+volume each part of a path came from, though the trail keeps that per gate
+(`WindowTrail::contributor`, the scan time of the frame that supplied each gate's value).
+"Contributors…" beside the trail's exports writes it out: a float32 GeoTIFF on the same lat/lon
+lattice as the trail's own GeoTIFF, each cell the minutes before the trail's end that its value
+was scanned, NaN where the trail has no value or no frame contributed
+(`WindowTrail::contributor_grid`). Read beside the values, it dates every part of a path. The
+export is named `trail-<product>-<max|min>-<window>min-<time>-contributors.tif`, and its
+description repeats the window, the frames and the missing volumes.
+
+Test: `a_contributor_grid_says_how_old_each_cell_is` (the newest frame's half reads 0, a frame
+ten minutes older reads 10, an empty grid stays empty). Not established: the file read in QGIS or
+GDAL, and the dialog in a running window (saving a file from the browser build is a download).
