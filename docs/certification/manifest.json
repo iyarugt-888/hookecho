@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T06:21:56+00:00",
-  "generated_from_commit": "aac1a633527fcc342dfced760af813f1522279ae",
+  "generated_utc": "2026-10-13T06:43:27+00:00",
+  "generated_from_commit": "f3001857c67f66f254221883d40b028c23bc579a",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1214,8 +1214,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "c5353055fc9fbd86215e0d25d1eec373bd1749ddad69bcadb0e0273a4ac4450c",
-      "bytes": 6835
+      "sha256": "1144a87c4a802f64815007fc156150f348ec94fbd965df289abcd48a451bd742",
+      "bytes": 9423
     },
     {
       "path": "docs/certification/m3.3/column-composite.png",
@@ -1231,6 +1231,11 @@
       "path": "docs/certification/m3.3/composable-products.json",
       "sha256": "5acb0b2b3b948ef0dbcf958f9c46df9519b160c8ff91442c50c40ec262649a7a",
       "bytes": 1756
+    },
+    {
+      "path": "docs/certification/m3.3/r2-two-panes-two-column-products.jpg",
+      "sha256": "7ad7d8998de7b8eef9d2e6a70ef80204137aab2bae9dca40b11728500c048ebe",
+      "bytes": 105503
     },
     {
       "path": "docs/certification/m3.3/recorded-environment/.gitattributes",
