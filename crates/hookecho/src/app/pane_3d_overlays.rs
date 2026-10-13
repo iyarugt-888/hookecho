@@ -168,7 +168,9 @@ impl HookEchoApp {
 
     /// The cross-section's column-product height (roadmaps/radar-analysis R3) along the 3D cut,
     /// in the same colour and at the same heights as on the section panel, so the line read
-    /// there is found in the volume. Only with the 3D cut on, in the pane the section samples.
+    /// there is found in the volume. Only with the 3D cut on, in the pane the section samples,
+    /// over a resampled volume (what the cut slices): the observed sweeps place heights by beam
+    /// rise and exaggerate only the earth's curvature, so an MSL line would not sit on them.
     pub(crate) fn paint_3d_column_height(
         &self,
         painter: &egui::Painter,
@@ -181,7 +183,12 @@ impl HookEchoApp {
             .xsection_source
             .as_ref()
             .map_or(self.active, |s| s.pane);
-        if !self.xsection_cut_3d || !self.views[idx].map_3d.enabled || source != idx {
+        let m3d = &self.views[idx].map_3d;
+        if !self.xsection_cut_3d
+            || !m3d.enabled
+            || m3d.representation == crate::view::Map3dRepresentation::ObservedSweeps
+            || source != idx
+        {
             return;
         }
         let (Some(line), Some(antenna)) = (self.xsection_line(), self.antenna_msl_km(idx)) else {

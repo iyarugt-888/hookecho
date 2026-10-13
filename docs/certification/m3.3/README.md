@@ -233,4 +233,6 @@ samples, put on sea level by the antenna's altitude (`column_product::height_lin
 the antenna's altitude up by the volume's height, times the vertical exaggeration
 (`render3d::map_uniform`), and `render3d::lonlat_alt_screen` places an MSL height the same way.
 The metres-to-pixels scale is taken at the point's latitude rather than the radar's, under 1%
-across the box. Not seen in a run: the browser pane was hidden for this session's last runs.
+across the box. Only over a resampled volume, which is what the cut slices: the observed sweeps place
+heights by beam rise and exaggerate only the earth's curvature, so an MSL line would not sit on
+them. Not seen in a run: the browser pane was hidden for this session's last runs.
