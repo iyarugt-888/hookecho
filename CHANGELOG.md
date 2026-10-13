@@ -45,6 +45,10 @@ When the University of Wyoming's server was busy or unreachable, HookEcho moved 
 balloon as though the right one did not exist, and kept it. Now it moves on only when the server
 says that launch is not there; otherwise it shows that it is still waiting and asks again later.
 
+When a column product needs a level its source does not have (the live HRRR analysis has no
+−30 °C or −40 °C level, and a balloon can burst before −40 °C), the map now names the source and
+says the level is not in it, instead of saying it is waiting for a level that is never coming.
+
 ### Added: a column product's height on the cross-section
 
 When the map shows a column product whose value is a height (an echo top such as

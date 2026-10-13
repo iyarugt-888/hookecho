@@ -235,6 +235,47 @@ pub(crate) fn height_profile(
     )
 }
 
+/// Why a formula's environmental inputs are not all there. Either the pane's reading for its site
+/// and time has not arrived (a wait), or it arrived without that level: the live HRRR analysis
+/// has no −30/−40 °C level, and a balloon can burst below −40 °C. The second is said as such,
+/// naming the source, rather than as a wait that never ends.
+fn missing_levels_status(
+    missing: &[wxdata::udp::Input],
+    live: bool,
+    reading: Option<&super::env_levels::EnvLevels>,
+) -> String {
+    let (env, other): (Vec<_>, Vec<_>) = missing.iter().partition(|i| i.is_environment_height());
+    let names = |inputs: &[&wxdata::udp::Input]| {
+        inputs
+            .iter()
+            .map(|i| i.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if !env.is_empty() {
+        parts.push(match reading {
+            None => format!(
+                "waiting for {} at this radar {}",
+                names(&env),
+                if live {
+                    "from the live analysis"
+                } else {
+                    "from that day's sounding"
+                }
+            ),
+            Some(r) => format!("{} has no {}", r.short_source(), names(&env)),
+        });
+    }
+    if !other.is_empty() {
+        parts.push(format!(
+            "{}: this radar's antenna altitude is not known",
+            names(&other)
+        ));
+    }
+    format!("{}; nothing is substituted", parts.join("; "))
+}
+
 /// Why the selected column product is not on the map, for the legend and the product window.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ColumnStatus {
@@ -816,16 +857,10 @@ impl HookEchoApp {
         }
         let missing = spec.env.missing_for(&spec.expr);
         if !missing.is_empty() {
-            let names: Vec<&str> = missing.iter().map(|i| i.name()).collect();
-            let live = self.views[idx].timeline.following;
-            return Some(ColumnStatus::Unavailable(format!(
-                "waiting for {} at this radar {}; nothing is substituted",
-                names.join(", "),
-                if live {
-                    "from the live analysis"
-                } else {
-                    "from that day's sounding"
-                }
+            return Some(ColumnStatus::Unavailable(missing_levels_status(
+                &missing,
+                self.views[idx].timeline.following,
+                self.env_levels_for(idx),
             )));
         }
         match self.column_slot(idx).map(|s| &s.built) {
@@ -1102,6 +1137,66 @@ mod tests {
             }],
             ..Settings::default()
         }
+    }
+
+    /// A level not yet here is a wait; a level the reading that came does not carry is said as
+    /// such, naming the source, never as a wait that does not end (roadmaps/radar-analysis R2).
+    #[test]
+    fn a_level_the_reading_lacks_is_not_reported_as_a_wait() {
+        use super::super::env_levels::EnvLevels;
+        use wxdata::udp::Input;
+        let reading = |source: &str, epoch| EnvLevels {
+            site: "KPAH".into(),
+            epoch,
+            h0_m: Some(3200.0),
+            hm20_m: Some(6400.0),
+            hm10_m: Some(5000.0),
+            hm30_m: None,
+            hm40_m: None,
+            source: source.into(),
+            hm10_crossings: None,
+            hm30_crossings: None,
+            hm40_crossings: None,
+        };
+        let m30 = [Input::Minus30cHeightM];
+        assert_eq!(
+            missing_levels_status(&m30, true, None),
+            "waiting for MINUS30C_HEIGHT_M at this radar from the live analysis; nothing is \
+             substituted"
+        );
+        assert_eq!(
+            missing_levels_status(&m30, false, None),
+            "waiting for MINUS30C_HEIGHT_M at this radar from that day's sounding; nothing is \
+             substituted"
+        );
+        let hrrr = reading(
+            "HRRR analysis 2026-10-13 19:00Z; 0 C field, 263/253 K levels (-10.15/-20.15 C), HGT m \
+             MSL",
+            None,
+        );
+        assert_eq!(hrrr.short_source(), "HRRR analysis 2026-10-13 19:00Z");
+        assert_eq!(
+            missing_levels_status(&m30, true, Some(&hrrr)),
+            "HRRR analysis 2026-10-13 19:00Z has no MINUS30C_HEIGHT_M; nothing is substituted"
+        );
+        let launch =
+            chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2017, 5, 8, 12, 0, 0).unwrap();
+        let balloon = reading(
+            "Denver, CO WMO 72469 sounding (launch selection 2017-05-08 12:00Z), recorded HGHT \
+             geopotential m MSL; bracketed crossings, linear in HGHT; table SHA256 ab; 0/-20 C \
+             highest cooling crossing (else lowest recorded), -10/-30/-40 C lowest crossing",
+            Some(launch),
+        );
+        assert_eq!(
+            missing_levels_status(
+                &[Input::Minus40cHeightM, Input::BeamAltitudeM],
+                false,
+                Some(&balloon)
+            ),
+            "Denver, CO WMO 72469 sounding (launch selection 2017-05-08 12:00Z) has no \
+             MINUS40C_HEIGHT_M; BEAM_ALTITUDE_M: this radar's antenna altitude is not known; \
+             nothing is substituted"
+        );
     }
 
     /// A height product reads along a cut as the map's cells say, in km above the antenna; an

@@ -63,6 +63,18 @@ impl EnvLevels {
         }
     }
 
+    /// Where the reading came from in a few words, for a status line: "HRRR analysis 2026-10-13
+    /// 19:00Z" or "Denver, CO WMO 72469 sounding (launch selection 2017-05-08 12:00Z)". The
+    /// provenance's first clause, without the datum and interpolation detail that follows.
+    pub(crate) fn short_source(&self) -> &str {
+        let head = self.source.split(';').next().unwrap_or_default();
+        match head.find("), ") {
+            Some(i) => &head[..=i],
+            None => head,
+        }
+        .trim()
+    }
+
     /// Whether this reading answers `site` at `epoch`.
     pub(crate) fn answers(&self, site: &str, epoch: Option<chrono::DateTime<chrono::Utc>>) -> bool {
         self.site == site && self.epoch == epoch

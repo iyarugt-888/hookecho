@@ -204,5 +204,21 @@ from a local socket: 400/404 absent; 429/502/503 not).
 `an_upstream_not_found_passes_through_and_a_busy_upstream_is_a_bad_gateway` (`serve.rs`, real
 socket) and the worker's `an upstream's own not-found passes through; a busy upstream is a 502`.
 
-Not established: a busy UWyo observed end to end after the fix (it cannot be provoked on demand),
-the deployed worker, and the desktop and Android windows.
+Run after the fix, same session (bundle `hookecho_bg-20866391.wasm`, debug `--serve`): both
+panes on "REF above -30C" = `max_vertical(REF, BEAM_ALTITUDE_M >= MINUS30C_HEIGHT_M)`. Pane 1:
+KPAH archived at 2017-05-08 20:33Z. Pane 2: KFTG live. UWyo answered pane 1's Nashville 12Z
+request with **503 Too Busy** (server log), the proxy returned 502, and the app made no request
+for an older launch or another site. Pane 1 kept "waiting for MINUS30C_HEIGHT_M at this radar
+from that day's sounding; nothing is substituted", to be asked again on the environment cadence.
+Pane 2 got its live HRRR reading, which has no −30 °C level, and said so: "HRRR analysis
+2026-10-13 19:00Z has no MINUS30C_HEIGHT_M; nothing is substituted". Before this change it said
+"waiting for MINUS30C_HEIGHT_M … from the live analysis" indefinitely, for a level HRRR never
+carries; a balloon that bursts below −40 °C read the same way. The new wording comes from
+`missing_levels_status` (test `a_level_the_reading_lacks_is_not_reported_as_a_wait`), and the
+note names the reading's source by its first clause (`EnvLevels::short_source`)
+([r2-busy-sounding-and-hrrr-missing-level.jpg](r2-busy-sounding-and-hrrr-missing-level.jpg),
+SHA-256 `16efe469f4574594070da26f8b7a400edeb14010564bf3d74097476be8205c28`; the note is cut at the
+pane's width).
+
+Not established: the retry after a busy answer actually landing in a run, the deployed worker,
+and the desktop and Android windows.
