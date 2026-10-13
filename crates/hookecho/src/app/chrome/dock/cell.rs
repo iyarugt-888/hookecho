@@ -746,11 +746,12 @@ impl HookEchoApp {
                             let n = format!("{} scans", trend.len());
                             ws::fold_section(ui, &t, "cell_trends", "Trends", Some(&n), true, |ui| {
                                 if trend.len() < 2 {
-                                    // Five empty charts say less than one line does. Who tracked it
-                                    // depends on the row: SCIT live, the local tracker in an archive.
+                                    // Five empty charts say less than one line does. Trends are
+                                    // SCIT's per-scan attributes (`cell_trends`, fed by the live
+                                    // poll only); an archive's local cell has none to wait for.
                                     ui.label(ws::text(
                                         if wxdata::celltrack::is_local_id(&c.id) {
-                                            "Trends draw once the local tracker has followed this cell through a second volume."
+                                            "No trends for a locally tracked cell: they come from SCIT's per-scan attributes, which the archive does not keep."
                                         } else {
                                             "Trends draw once SCIT has tracked this cell through a second volume."
                                         },
