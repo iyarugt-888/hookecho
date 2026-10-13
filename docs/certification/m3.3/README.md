@@ -163,3 +163,46 @@ the core; it now sits on a dark backing.
 Not established: the desktop and Android windows, the 3D cut, a pane whose column product and
 section come from different volumes, and other environmental fields on the section (none is
 added here: only quantities that are heights are drawn).
+
+## Two archived panes, two soundings; a busy service no longer substitutes an older one (2026-10-13, R2)
+
+Run, browser build on WebGPU, one machine: a two-pane workspace, each pane in its own time group
+on "REF above 0C" = `max_vertical(REF, BEAM_ALTITUDE_M >= FREEZING_LEVEL_M)`. Pane 1: KPAH
+2021-12-11 03:23Z (Mayfield). Pane 2: KFTG 2017-05-08 20:34Z (Denver hail). Each showed "waiting
+for FREEZING_LEVEL_M … nothing is substituted" until its own reading arrived, then built its own
+product (14 tilts each) with an `env` source on its key. The proxied requests were Nashville
+(72327) 2021-12-11 00Z and Denver (72469) 2017-05-08 12Z, both answered 200
+([r2-two-archived-panes-two-soundings.jpg](r2-two-archived-panes-two-soundings.jpg), SHA-256
+`f348646a2db229dbe8478804273a250f1396fb533adfba8b289530e140dfad19`; bundle
+`hookecho_bg-db3d5e4c.wasm`, debug `--serve` binary, working tree with peer live-radar edits
+present). The key's note is cut at the pane's width, so the launch is read from the requests.
+
+An earlier attempt in the same session moved pane 2 to KPAH 2021-12-11 14:00Z. Its 12Z Nashville
+request came back 502 from the local proxy, which had received **503 Too Busy** from UWyo; the
+search then took the 00Z ascent from 14 hours earlier and filed it as pane 2's reading, never to
+be asked again. Here that happened to be right: UWyo answers a later 400, "Unable to retrieve the
+data for 72327 at 2021-12-11 12:00:00", because there was no 12Z ascent. But the same path would
+have replaced an ascent that exists with an older one whenever the service was busy.
+
+Fixed:
+
+- `wxdata::raob::search_launches` now serves both launch searches (`environment_levels` and the
+  hail `melting_levels`). It moves to the launch before, or the next site, only when
+  `launch_absent` says the launch is not there: a `NoSounding` (no table, too few levels, no
+  usable isotherm) or a client error other than 408/429. A busy, rate-limited or unreachable
+  service ends the search with its error. The pane then keeps saying it is waiting, and asks again
+  on the existing 15-minute environment cadence.
+- Both proxies (`serve.rs` and `web/_worker.js/proxy-core.js`) pass an upstream 400/404/410
+  through as itself and keep 502 for everything else, never forwarding the upstream body, so the
+  browser can tell "not held" from "busy". Checked live through the rebuilt local proxy: the 12Z
+  Nashville request now returns 400.
+
+Tests: `a_busy_service_ends_the_launch_search_and_a_missing_launch_moves_it_on` (scripted
+answers: a 503 stops at the first launch; an absent one moves to 00Z, then the next site; a timeout
+after an absence stops). `client_errors_are_absence_and_server_errors_are_not` (real HTTP answers
+from a local socket: 400/404 absent; 429/502/503 not).
+`an_upstream_not_found_passes_through_and_a_busy_upstream_is_a_bad_gateway` (`serve.rs`, real
+socket) and the worker's `an upstream's own not-found passes through; a busy upstream is a 502`.
+
+Not established: a busy UWyo observed end to end after the fix (it cannot be provoked on demand),
+the deployed worker, and the desktop and Android windows.

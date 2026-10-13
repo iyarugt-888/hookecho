@@ -2,7 +2,7 @@
 //! above mean sea level (https://weather.uwyo.edu/upperair/columns.html). It is never
 //! reconstructed from pressure or shifted by a different site's terrain elevation.
 
-use super::{fetch_table, field, stations_within, synoptic_before, RaobStation};
+use super::{fetch_table, field, search_launches, NoSounding, RaobStation};
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
@@ -100,8 +100,10 @@ impl EnvironmentalLevels {
     }
 }
 
-/// Same bounded historical source search as RAOB melting levels, but uses recorded heights.
-/// A missing isotherm does not discard other valid ones. Never requests a launch after `when`.
+/// Same bounded historical source search as RAOB melting levels ([`search_launches`]), but uses
+/// recorded heights. A missing isotherm does not discard other valid ones. Never requests a launch
+/// after `when`, and never moves to an older launch or another site because the service was busy
+/// or unreachable.
 pub async fn environment_levels(
     client: &reqwest::Client,
     lon: f64,
@@ -109,27 +111,22 @@ pub async fn environment_levels(
     when: DateTime<Utc>,
     cache_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<EnvironmentalLevels> {
-    let mut last_error = anyhow::anyhow!("no sounding site within 400 km");
-    for (station, _) in stations_within(lon, lat, 400.0).into_iter().take(2) {
-        for back_h in [0, 12] {
-            let launch = synoptic_before(when - chrono::Duration::hours(back_h));
-            match fetch_table(client, station, launch, cache_dir.clone()).await {
-                Ok(table) => {
-                    let levels = EnvironmentalLevels::from_table(*station, launch, &table);
-                    if levels.isotherms.iter().any(|l| l.height_m.is_some()) {
-                        return Ok(levels);
-                    }
-                    last_error = anyhow::anyhow!(
-                        "{} at {} has no recorded-height isotherm brackets",
-                        station.name,
-                        launch
-                    );
-                }
-                Err(error) => last_error = error,
+    search_launches(lon, lat, when, |station, launch| {
+        let cache_dir = cache_dir.clone();
+        async move {
+            let table = fetch_table(client, station, launch, cache_dir).await?;
+            let levels = EnvironmentalLevels::from_table(*station, launch, &table);
+            if levels.isotherms.iter().any(|l| l.height_m.is_some()) {
+                return Ok(levels);
             }
+            Err(NoSounding(format!(
+                "{} at {} has no recorded-height isotherm brackets",
+                station.name, launch
+            ))
+            .into())
         }
-    }
-    Err(last_error)
+    })
+    .await
 }
 
 #[cfg(test)]

@@ -1412,12 +1412,7 @@ fn proxy(
             }
             Err(e) => {
                 log::warn!("proxy ranged fetch of {url} failed: {e}");
-                (
-                    "502 Bad Gateway",
-                    "application/json",
-                    br#"{"error":"upstream range fetch failed"}"#.to_vec(),
-                )
-                    .into()
+                upstream_failure(&e, true)
             }
         };
     }
@@ -1465,12 +1460,7 @@ fn proxy(
         }
         Err(e) => {
             log::warn!("proxy fetch of {url} failed: {e}");
-            (
-                "502 Bad Gateway",
-                "application/json",
-                br#"{"error":"upstream fetch failed"}"#.to_vec(),
-            )
-                .into()
+            upstream_failure(&e, false)
         }
     }
 }
@@ -1505,6 +1495,30 @@ fn proxy_reply(
         body: (*body).clone(),
         headers,
     }
+}
+
+/// The reply for an upstream fetch that failed. The source's own "no such thing" (400, 404, 410)
+/// passes through as itself, because a caller may act on it: UWyo answers 400 for an ascent it
+/// does not hold, and only that lets a sounding search move to an earlier launch. Anything else —
+/// a busy or unreachable source, a rate limit, an oversized body — stays a 502, which says nothing
+/// about the object. Only the status passes, never the upstream body.
+fn upstream_failure(e: &anyhow::Error, ranged: bool) -> Reply {
+    let status = match e
+        .downcast_ref::<reqwest::Error>()
+        .and_then(reqwest::Error::status)
+        .map(|s| s.as_u16())
+    {
+        Some(400) => "400 Bad Request",
+        Some(404) => "404 Not Found",
+        Some(410) => "410 Gone",
+        _ => "502 Bad Gateway",
+    };
+    let body = if ranged {
+        br#"{"error":"upstream range fetch failed"}"#.to_vec()
+    } else {
+        br#"{"error":"upstream fetch failed"}"#.to_vec()
+    };
+    (status, "application/json", body).into()
 }
 
 /// One upstream GET, no inherited headers, stopped at [`PROXY_MAX_BYTES`] mid-stream rather than
@@ -1742,6 +1756,46 @@ setInterval(radar, 300000);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An upstream's "no such thing" reaches the browser as itself, so a sounding search can tell
+    /// a launch the service does not hold from a busy service; everything else stays a 502.
+    #[test]
+    fn an_upstream_not_found_passes_through_and_a_busy_upstream_is_a_bad_gateway() {
+        use std::io::{Read, Write};
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let http = reqwest::Client::new();
+        let through = |status: &str| {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let reply =
+                format!("HTTP/1.1 {status}\r\ncontent-length: 4\r\nconnection: close\r\n\r\nnope");
+            let upstream = std::thread::spawn(move || {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf);
+                sock.write_all(reply.as_bytes()).unwrap();
+            });
+            let e = rt
+                .block_on(fetch_capped(&http, &format!("http://{addr}/")))
+                .unwrap_err();
+            upstream.join().unwrap();
+            let r = upstream_failure(&e, false);
+            assert_eq!(
+                r.body, br#"{"error":"upstream fetch failed"}"#,
+                "never upstream's body"
+            );
+            r.status
+        };
+        assert_eq!(through("400 Bad Request"), "400 Bad Request");
+        assert_eq!(through("404 Not Found"), "404 Not Found");
+        assert_eq!(through("410 Gone"), "410 Gone");
+        assert_eq!(through("429 Too Many Requests"), "502 Bad Gateway");
+        assert_eq!(through("503 Too Busy"), "502 Bad Gateway");
+        assert_eq!(
+            upstream_failure(&anyhow::anyhow!("response over cap"), true).status,
+            "502 Bad Gateway"
+        );
+    }
 
     #[test]
     fn the_token_check_is_exact_and_length_safe() {

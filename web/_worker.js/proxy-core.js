@@ -182,9 +182,15 @@ const refused = (why) =>
     headers: { "content-type": "application/json" },
   });
 
-const badGateway = () =>
+// The source's own "no such thing" passes through as itself, because a caller may act on it: UWyo
+// answers 400 for an ascent it does not hold, and only that lets a sounding search move to an
+// earlier launch. Anything else (busy, rate-limited, unreachable) stays a 502, which says nothing
+// about the object. Only the status passes, never the upstream body. Same rule as `serve.rs`.
+const NOT_THERE = new Set([400, 404, 410]);
+
+const badGateway = (status = 502) =>
   new Response(JSON.stringify({ error: "upstream fetch failed" }), {
-    status: 502,
+    status: NOT_THERE.has(status) ? status : 502,
     headers: { "content-type": "application/json" },
   });
 
@@ -243,7 +249,10 @@ export async function handleProxy(request, { fetchInit = () => ({}), extraHeader
   } catch {
     return badGateway();
   }
-  if (!upstream.ok) return badGateway();
+  if (!upstream.ok) {
+    upstream.body?.cancel();
+    return badGateway(upstream.status);
+  }
 
   if (range) {
     const start = Number(range.slice("bytes=".length).split("-")[0]) || 0;

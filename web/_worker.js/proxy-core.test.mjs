@@ -110,3 +110,14 @@ test("a malformed range is dropped, not forwarded", async () => {
   await proxy(ask("api.weather.gov/alerts/active", { range: "bytes=0-10,20-30" }));
   assert.equal(calls[0].init.headers.range, undefined);
 });
+
+test("an upstream's own not-found passes through; a busy upstream is a 502", async () => {
+  const failing = (status) =>
+    new Response("upstream text", { status, headers: { "content-type": "text/html" } });
+  for (const [status, want] of [[400, 400], [404, 404], [410, 410], [429, 502], [503, 502]]) {
+    stubFetch(failing(status));
+    const res = await proxy(ask("weather.uwyo.edu/wsgi/sounding?id=72327"));
+    assert.equal(res.status, want, `upstream ${status}`);
+    assert.deepEqual(await res.json(), { error: "upstream fetch failed" }, "never upstream's body");
+  }
+});

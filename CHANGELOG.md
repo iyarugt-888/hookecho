@@ -37,6 +37,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: a busy sounding server no longer swaps in an older balloon
+
+For an archived scan, the melting level and other isotherm heights come from the weather balloon
+launched before it, or, when that launch never happened, the one before that or a nearby site's.
+When the University of Wyoming's server was busy or unreachable, HookEcho moved on to the older
+balloon as though the right one did not exist, and kept it. Now it moves on only when the server
+says that launch is not there; otherwise it shows that it is still waiting and asks again later.
+
 ### Added: a column product's height on the cross-section
 
 When the map shows a column product whose value is a height (an echo top such as

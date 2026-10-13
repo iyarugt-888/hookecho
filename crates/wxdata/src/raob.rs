@@ -827,6 +827,68 @@ pub fn synoptic_before(when: DateTime<Utc>) -> DateTime<Utc> {
         .unwrap_or(when)
 }
 
+/// The service's answer that a launch is not there to use: no table on its page, too few usable
+/// levels, or no level the caller needs. A launch search moves past it to an earlier launch or the
+/// next site.
+#[derive(Debug)]
+pub struct NoSounding(pub String);
+
+impl std::fmt::Display for NoSounding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NoSounding {}
+
+/// Whether `err` says the requested launch is not there, as opposed to saying nothing about it.
+/// A [`NoSounding`], or a client error from the service (UWyo answers 400, "Unable to retrieve
+/// the data", for an ascent it does not hold), is absence. A busy, rate-limiting or unreachable
+/// service, a timeout or a server error is not: a search that moved on because of one would hand
+/// a pane the ascent twelve hours older than the one that exists, as if it were the answer.
+pub fn launch_absent(err: &anyhow::Error) -> bool {
+    use reqwest::StatusCode;
+    err.chain().any(|e| {
+        e.downcast_ref::<NoSounding>().is_some()
+            || e.downcast_ref::<reqwest::Error>()
+                .and_then(reqwest::Error::status)
+                .is_some_and(|s| {
+                    s.is_client_error()
+                        && s != StatusCode::TOO_MANY_REQUESTS
+                        && s != StatusCode::REQUEST_TIMEOUT
+                })
+    })
+}
+
+/// Walk the launches a search may use near `(lon, lat)` — the two nearest sites within 400 km,
+/// each at the synoptic launch at or before `when` and then the one before that (far enough to
+/// reach a neighbour, near enough to be the same airmass on a storm day) — until `try_one`
+/// answers. A launch that is not there ([`launch_absent`]) moves the search on; any other failure
+/// ends it, so the caller asks again for the right ascent instead of taking an older one.
+async fn search_launches<T, F, Fut>(
+    lon: f64,
+    lat: f64,
+    when: DateTime<Utc>,
+    mut try_one: F,
+) -> anyhow::Result<T>
+where
+    F: FnMut(&'static RaobStation, DateTime<Utc>) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let mut last_err = anyhow::anyhow!("no sounding site within 400 km");
+    for (station, _) in stations_within(lon, lat, 400.0).into_iter().take(2) {
+        for back_h in [0, 12] {
+            let launch = synoptic_before(when - chrono::Duration::hours(back_h));
+            match try_one(station, launch).await {
+                Ok(v) => return Ok(v),
+                Err(e) if launch_absent(&e) => last_err = e,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Err(last_err)
+}
+
 /// One field of the fixed-width table, or `None` when the column is blank (a missing measurement).
 fn field(line: &str, i: usize) -> Option<f64> {
     let (lo, hi) = (i * 7, (i + 1) * 7);
@@ -898,13 +960,15 @@ pub async fn fetch(
     let launch = synoptic_before(when);
     let table = fetch_table(client, station, launch, cache_dir).await?;
     let levels = parse_table(&table);
-    anyhow::ensure!(
-        levels.len() >= 5,
-        "sounding for {} at {} has only {} usable levels",
-        station.name,
-        launch.format("%Y-%m-%d %HZ"),
-        levels.len()
-    );
+    if levels.len() < 5 {
+        return Err(NoSounding(format!(
+            "sounding for {} at {} has only {} usable levels",
+            station.name,
+            launch.format("%Y-%m-%d %HZ"),
+            levels.len()
+        ))
+        .into());
+    }
     Ok(Sounding {
         fh: 0,
         lon: station.lon,
@@ -950,11 +1014,11 @@ async fn fetch_table(
                 .await?;
             let table = pre_block(&body)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
+                    NoSounding(format!(
                         "no sounding for {} at {}",
                         station.name,
                         launch.format("%Y-%m-%d %HZ")
-                    )
+                    ))
                 })?
                 .to_string();
             if let Some(p) = &cache_file {
@@ -990,9 +1054,8 @@ pub struct MeltingLevels {
 /// decades, which is what lets the hail algorithm (`crate::derived::hail`) run on a past storm
 /// with that day's melting level rather than today's model analysis.
 ///
-/// Launches get skipped (weather, equipment, a gap in the archive), so this tries the two nearest
-/// sites within 400 km — far enough to reach a neighbour, near enough to be the same airmass on a
-/// storm day — each at the launch before `when` and then the one before that.
+/// Launches get skipped (weather, equipment, a gap in the archive), so this searches the nearby
+/// launches [`search_launches`] allows; a busy or unreachable service ends the search instead.
 pub async fn melting_levels(
     client: &reqwest::Client,
     lon: f64,
@@ -1000,35 +1063,28 @@ pub async fn melting_levels(
     when: DateTime<Utc>,
     cache_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<MeltingLevels> {
-    let mut last_err = anyhow::anyhow!("no sounding site within 400 km");
-    for (station, _) in stations_within(lon, lat, 400.0).into_iter().take(2) {
-        for back_h in [0, 12] {
-            let at = when - chrono::Duration::hours(back_h);
-            match fetch(client, station, at, cache_dir.clone()).await {
-                Ok(snd) => match levels_of(&snd) {
-                    Some((h0_m, hm20_m)) => {
-                        let hm10 = snd.isotherm_crossings_m(-10.0);
-                        return Ok(MeltingLevels {
-                            label: format!("{} {}", station.name, snd.run.format("%d %HZ")),
-                            h0_m,
-                            hm20_m,
-                            hm10_m: hm10.first().copied(),
-                            hm10_crossings: hm10.len(),
-                        });
-                    }
-                    None => {
-                        last_err = anyhow::anyhow!(
-                            "{} at {} never reaches −20 °C",
-                            station.name,
-                            snd.run.format("%d %HZ")
-                        )
-                    }
-                },
-                Err(e) => last_err = e,
-            }
+    search_launches(lon, lat, when, |station, launch| {
+        let cache_dir = cache_dir.clone();
+        async move {
+            let snd = fetch(client, station, launch, cache_dir).await?;
+            let (h0_m, hm20_m) = levels_of(&snd).ok_or_else(|| {
+                NoSounding(format!(
+                    "{} at {} never reaches −20 °C",
+                    station.name,
+                    snd.run.format("%d %HZ")
+                ))
+            })?;
+            let hm10 = snd.isotherm_crossings_m(-10.0);
+            Ok(MeltingLevels {
+                label: format!("{} {}", station.name, snd.run.format("%d %HZ")),
+                h0_m,
+                hm20_m,
+                hm10_m: hm10.first().copied(),
+                hm10_crossings: hm10.len(),
+            })
         }
-    }
-    Err(last_err)
+    })
+    .await
 }
 
 /// Both heights, or `None` when the profile is too short to reach −20 °C (a balloon that burst
@@ -1110,5 +1166,85 @@ mod tests {
         assert_eq!(synoptic_before(t(21)).hour(), 12);
         assert_eq!(synoptic_before(t(6)).hour(), 0);
         assert_eq!(synoptic_before(t(12)).hour(), 12);
+    }
+
+    /// A launch the service does not hold moves the search to the launch before it and then the
+    /// next site; a busy service ends it at once, so the right ascent is asked for again rather
+    /// than the one twelve hours older taken in its place.
+    #[test]
+    fn a_busy_service_ends_the_launch_search_and_a_missing_launch_moves_it_on() {
+        use std::cell::RefCell;
+        // Paducah, 14Z: Nashville's 12Z and 00Z, then the next site's.
+        let (lon, lat) = (-88.77, 37.07);
+        let when = Utc.with_ymd_and_hms(2021, 12, 11, 14, 0, 0).unwrap();
+        let run = |answers: Vec<Option<anyhow::Error>>| {
+            let asked = RefCell::new(Vec::new());
+            let answers = RefCell::new(answers.into_iter());
+            let got = futures_util::FutureExt::now_or_never(search_launches(
+                lon,
+                lat,
+                when,
+                |station, launch| {
+                    asked.borrow_mut().push((station.id, launch.hour()));
+                    let answer = answers.borrow_mut().next().flatten();
+                    async move { answer.map_or(Ok((station.id, launch.hour())), Err) }
+                },
+            ))
+            .expect("no real I/O");
+            (got, asked.into_inner())
+        };
+        let absent = || Some(anyhow::Error::new(NoSounding("not held".into())));
+
+        let (got, asked) = run(vec![Some(anyhow::anyhow!("503 Too Busy"))]);
+        assert_eq!(got.unwrap_err().to_string(), "503 Too Busy");
+        assert_eq!(asked, [("72327", 12)], "no older launch after a busy reply");
+
+        let (got, asked) = run(vec![absent()]);
+        assert_eq!(got.unwrap(), ("72327", 0));
+        assert_eq!(asked, [("72327", 12), ("72327", 0)]);
+
+        let (got, asked) = run(vec![absent(), absent(), absent(), absent()]);
+        assert!(launch_absent(&got.unwrap_err()));
+        assert_eq!(asked.len(), 4);
+        assert_eq!(asked[..2], [("72327", 12), ("72327", 0)]);
+        assert_ne!(asked[2].0, "72327", "then the next site");
+
+        let (got, asked) = run(vec![absent(), Some(anyhow::anyhow!("timed out"))]);
+        assert_eq!(got.unwrap_err().to_string(), "timed out");
+        assert_eq!(asked.len(), 2);
+    }
+
+    /// The service's own answers, over HTTP: a client error (UWyo's 400 for an ascent it does
+    /// not hold) is absence; a 503 or 502 says nothing about the launch.
+    #[tokio::test]
+    async fn client_errors_are_absence_and_server_errors_are_not() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        async fn answer(status: &str) -> anyhow::Error {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let reply =
+                format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+            tokio::spawn(async move {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                sock.write_all(reply.as_bytes()).await.unwrap();
+            });
+            reqwest::get(format!("http://{addr}/"))
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map(|_| ())
+                .unwrap_err()
+                .into()
+        }
+        assert!(launch_absent(&answer("400 Bad Request").await));
+        assert!(launch_absent(&answer("404 Not Found").await));
+        assert!(!launch_absent(&answer("429 Too Many Requests").await));
+        assert!(!launch_absent(&answer("503 Too Busy").await));
+        assert!(!launch_absent(&answer("502 Bad Gateway").await));
+        assert!(launch_absent(
+            &anyhow::Error::new(NoSounding("x".into())).context("while searching")
+        ));
+        assert!(!launch_absent(&anyhow::anyhow!("connection reset")));
     }
 }
