@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T21:44:00+00:00",
-  "generated_from_commit": "6b06c0b999a3ae9de41c3bd4e6b28352162315f4",
+  "generated_utc": "2026-10-13T22:31:53+00:00",
+  "generated_from_commit": "aff34ff85dbd82355436a38d4c5a84b7579b0086",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1139,8 +1139,8 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "958eefd4830f6ed2b340507120abc7d77eb2b8633d37d943973fcde6bbf85f91",
-      "bytes": 6853
+      "sha256": "2b3798911b53611199692e9ada6ef2f1d46b4075354e87a560e62f9c80f430f5",
+      "bytes": 9649
     },
     {
       "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
@@ -1176,6 +1176,11 @@
       "path": "docs/certification/m2.2/s1-follow-renumbered-before.jpg",
       "sha256": "cdd7bd67eb16d6a4306f0bfc695e34093633b3ac19e81ece7ae6c0611a913579",
       "bytes": 98819
+    },
+    {
+      "path": "docs/certification/m2.2/s1-moore-replay-labels.txt",
+      "sha256": "2b2cde647e652f0d11040ad1b9e681470f9f01b423960338c8c146737029b4f9",
+      "bytes": 648
     },
     {
       "path": "docs/certification/m2.2/storm-row-lineage.png",
@@ -1229,8 +1234,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "8c9764379182c34dedaf734078ff7acd36a37c51da9ba50d99fb6b57255d6704",
-      "bytes": 16370
+      "sha256": "294b779c404e6170493ee64f2734f24b820ea352155821ad3455922b20c30cb9",
+      "bytes": 17480
     },
     {
       "path": "docs/certification/m3.3/column-composite.png",
