@@ -232,6 +232,21 @@ impl OverlayAcquisition {
         request: super::ModelRequest,
         cap: usize,
     ) {
+        // A model this build cannot read is answered at once with the reason, through the same
+        // delivery a failed fetch takes, so the layer says why instead of asking the network.
+        if let Some(why) = request.unreadable_here() {
+            let lane = RequestLane::Model(request);
+            let generation = self.start(lane.clone());
+            let _ = self.sender.send(OverlayDelivery::Fetched {
+                lane,
+                generation,
+                model_request: Some(request),
+                mrms_context: None,
+                result: Err(why.to_string()),
+            });
+            ctx.request_repaint();
+            return;
+        }
         self.spawn_lane(ctx, request.source(), cap, RequestLane::Model(request));
     }
     pub(super) fn spawn_mrms(&self, ctx: &egui::Context, request: super::MrmsContext, cap: usize) {

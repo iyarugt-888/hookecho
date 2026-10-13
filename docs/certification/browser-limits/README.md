@@ -24,6 +24,10 @@ on wasm (`the_browser_cannot_read_the_jpeg_2000_and_nomads_models`).
 - Model fields greys out RAP and HREF probabilities in its model menu, and a saved pick of one
   shows the reason instead of a fetch error.
 - The point forecast's models use the same reasons (they had their own copy).
+- A map layer that still asks for one (a workspace saved on the desktop) is answered at once
+  with the reason, through the delivery a failed fetch takes (`Acquisition::spawn_model`,
+  `ModelRequest::unreadable_here`), so it shows why without asking the network
+  (`unreadable_requests_are_refused_only_where_they_cannot_be_read`).
 
 **Browser build on WebGPU, one machine**, built from the working tree at `26836bfd` with this
 change and another session's uncommitted TGFTP work.
@@ -39,8 +43,8 @@ change and another session's uncommitted TGFTP work.
 | model-fields-href-prob-browser.jpg | `86451098e2c951b9b289879c08a44ba8f4f8a7354c2ba9711aa03b6ff095f0b7` |
 
 Not established: a workspace saved on the desktop with one of these as its model and opened in
-the browser (the map layer's own fetch would still fail there, with its error), the command
-palette refusal in a run, and the desktop and Android builds, where nothing changes.
+the browser (the layer's answer above is covered by the build and the test, not seen in a run),
+the command palette refusal in a run, and the desktop and Android builds, where nothing changes.
 
 Open for the maintainer: the other V12 branch, allowing NOMADS behind the proxy, and a JPEG 2000
 decoder for the web build, which would bring back the RAP and GDPS there.

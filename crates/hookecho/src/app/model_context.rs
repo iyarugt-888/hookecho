@@ -57,6 +57,22 @@ pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 22] = {
 };
 
 impl ModelRequest {
+    /// Why this build cannot read the request's model, if it cannot (the browser build's JPEG
+    /// 2000 and NOMADS models; `model_browser::regional_unreadable_here`). A workspace saved on
+    /// the desktop can still carry one of them into the browser.
+    pub(super) fn unreadable_here(self) -> Option<&'static str> {
+        use crate::model_browser::{global_unreadable_here, regional_unreadable_here};
+        match self {
+            Self::Reflectivity(m, ..) | Self::Environment(_, m, ..) => regional_unreadable_here(m),
+            Self::Global(_, g, ..) => global_unreadable_here(g),
+            Self::Discovered(pick, ..) => pick
+                .model
+                .unreadable_here()
+                .or_else(|| pick.minus.and_then(|m| m.unreadable_here())),
+            Self::Subhourly(..) | Self::RegionalProduct(..) | Self::Analysis(..) => None,
+        }
+    }
+
     pub(super) fn description(self) -> String {
         use crate::render::FieldLayer as L;
         let (source, product, minutes, run) = match self {
@@ -582,6 +598,25 @@ pub(super) mod tests {
     use crate::render::{FieldLayer as L, MrmsUpload};
     use wxdata::global::{GlobalField as F, GlobalModel as G};
     use wxdata::hrrr::Model as M;
+
+    /// The requests a browser could not read are only refused there: on the desktop every
+    /// model, and a difference against one, is still asked for.
+    #[test]
+    fn unreadable_requests_are_refused_only_where_they_cannot_be_read() {
+        let rap = ModelRequest::Reflectivity(M::Rap, 3, None);
+        let gdps = ModelRequest::Global(L::GlobalTemp2m, G::Gdps, F::Temp2m, 6, None);
+        assert!(crate::model_browser::regional_unreadable_in_browser(M::Rap).is_some());
+        assert!(crate::model_browser::global_unreadable_in_browser(G::Gdps).is_some());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            assert_eq!(rap.unreadable_here(), None);
+            assert_eq!(gdps.unreadable_here(), None);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            assert!(rap.unreadable_here().is_some() && gdps.unreadable_here().is_some());
+        }
+    }
 
     #[test]
     fn model_pane_request_resolver_separates_runs_with_the_same_valid_time() {
