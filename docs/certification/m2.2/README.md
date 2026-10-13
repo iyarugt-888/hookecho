@@ -104,4 +104,5 @@ shares no observation with the last table show new labels; that is by design.
 
 Not established: a long replay played through (decoding in the debug browser build advanced only
 about one frame per step here), compare across a long replay, the desktop and Android apps. The
-Trends row still says "once SCIT has tracked this cell" for a local cell.
+Trends row said "once SCIT has tracked this cell" for a local cell too; a local cell's now names
+the local tracker.

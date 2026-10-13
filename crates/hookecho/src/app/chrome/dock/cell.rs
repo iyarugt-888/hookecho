@@ -746,9 +746,14 @@ impl HookEchoApp {
                             let n = format!("{} scans", trend.len());
                             ws::fold_section(ui, &t, "cell_trends", "Trends", Some(&n), true, |ui| {
                                 if trend.len() < 2 {
-                                    // Five empty charts say less than one line does.
+                                    // Five empty charts say less than one line does. Who tracked it
+                                    // depends on the row: SCIT live, the local tracker in an archive.
                                     ui.label(ws::text(
-                                        "Trends draw once SCIT has tracked this cell through a second volume.",
+                                        if wxdata::celltrack::is_local_id(&c.id) {
+                                            "Trends draw once the local tracker has followed this cell through a second volume."
+                                        } else {
+                                            "Trends draw once SCIT has tracked this cell through a second volume."
+                                        },
                                         10.5,
                                         t.text_faint,
                                     ));
