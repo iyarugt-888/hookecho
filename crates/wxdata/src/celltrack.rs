@@ -268,6 +268,17 @@ pub fn local_id(n: u64) -> String {
     format!("L-{n}")
 }
 
+/// Whose motion and cores a storm-cell row's are, for provenance text: `("SCIT", "SCIT's")` for a
+/// SCIT row, `("local", "the local tracker's")` for a locally tracked one, whose motion is fitted
+/// over its own track ([`replay`]) and is not SCIT's.
+pub fn tracker_of(id: &str) -> (&'static str, &'static str) {
+    if is_local_id(id) {
+        ("local", "the local tracker's")
+    } else {
+        ("SCIT", "SCIT's")
+    }
+}
+
 /// Whether a storm-cell row's ID is a locally tracked cell's ([`local_id`]).
 pub fn is_local_id(id: &str) -> bool {
     id.strip_prefix("L-")

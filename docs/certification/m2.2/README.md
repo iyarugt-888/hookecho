@@ -133,3 +133,16 @@ first, as the prefetch delivers them. In each table no label names two storms
 
 Not established: the same played through in the app (the debug browser build decoded too slowly to
 play the hour), compare over the replay, the desktop and Android apps.
+
+## Whose motion an archive storm's arrivals come from (2026-10-13, roadmaps/storm-analysis S2)
+
+Seen in the S1 follow run: the cell card of an archive's local cell (L-18) said "no SCIT motion
+to project", and with motion it would have said "Arrivals from SCIT's motion". Its association
+lines said "nearest SCIT core", "SCIT core inside source polygon" and "ambiguous between SCIT
+cores", and a manual track started from it recorded "SCIT's motion for cell L-18". An archive has
+no SCIT. That motion is the local tracker's fit over the cell's own track, and the cores are local
+cells. S2 asks that motion provenance be kept apart. `celltrack::tracker_of` names the tracker
+from the row's ID, and the card and the manual track's line use it. Tests:
+`arrivals_name_whose_motion_they_come_from` and the manual-track line in
+`a_manual_motion_reads_against_the_scit_motion_it_started_from`. SCIT rows read as before. Not
+seen in a run.

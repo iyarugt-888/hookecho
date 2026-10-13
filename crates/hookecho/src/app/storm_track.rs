@@ -809,14 +809,16 @@ pub(crate) fn manual_motion_line(
     if let Some(src) = &track.source {
         let turned = (track.bearing_deg - src.scit_bearing_deg + 540.0).rem_euclid(360.0) - 180.0;
         let faster = track.speed_kmh - src.scit_speed_kmh;
+        // A track started from an archive's local cell began from the local tracker's motion.
+        let (_, whose) = wxdata::celltrack::tracker_of(&src.cell_id);
         if turned.abs() < 0.5 && faster.abs() < 0.5 {
             line.push_str(&format!(
-                "; SCIT's motion for cell {}, unadjusted",
+                "; {whose} motion for cell {}, unadjusted",
                 src.cell_id
             ));
         } else {
             line.push_str(&format!(
-                "; adjusted from SCIT's {} at {} for cell {}",
+                "; adjusted from {whose} {} at {} for cell {}",
                 compass(src.scit_bearing_deg),
                 speed(src.scit_speed_kmh),
                 src.cell_id
@@ -1917,6 +1919,20 @@ mod tests {
             manual_motion_line(&t, Some(later), false, fmt),
             "W at 25 mph (260°), set for t0, 10 min before this scan; adjusted from SCIT's WSW \
              at 35 mph for cell O7"
+        );
+        // Started from an archive's local cell, it names the local tracker's motion, not SCIT's.
+        let local = ManualTrack::from_cell(
+            &wxdata::level3::Cell {
+                id: "L-18".into(),
+                ..cell.clone()
+            },
+            t0,
+        )
+        .unwrap();
+        assert_eq!(
+            manual_motion_line(&local, Some(t0), true, fmt),
+            "WSW at 56 km/h (240°), set for t0; the local tracker's motion for cell L-18, \
+             unadjusted"
         );
         // A track drawn by hand belongs to no storm and says nothing about SCIT.
         let free = ManualTrack::new([-97.0, 35.0], t0);

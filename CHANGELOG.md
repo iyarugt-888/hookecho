@@ -44,6 +44,9 @@ list, so the storm you followed (say "L-18") became a different storm far away, 
 its warning and the "better radar" suggestion switching with it. A storm now keeps its ID as you
 step forward or back, and an ID is never given to a different storm.
 
+In the archive, a storm's card also now says its arrival times come from the motion HookEcho
+measured from its own track, not from SCIT, which the archive does not have.
+
 ### Fixed: the ruler's reading stays on screen
 
 A ruler drawn near the edge of the map, or a 3D ruler's two-line reading in a narrow pane, had

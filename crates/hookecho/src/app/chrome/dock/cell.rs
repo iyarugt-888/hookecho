@@ -596,7 +596,8 @@ impl HookEchoApp {
                                     }
                                 }
                                 if threat.ambiguous > 0 {
-                                    ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between SCIT cores", threat.ambiguous), 11.0, t.warn));
+                                    let (tracker, _) = wxdata::celltrack::tracker_of(&c.id);
+                                    ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between {tracker} cores", threat.ambiguous), 11.0, t.warn));
                                 }
                                 for details in &threat.probsevere {
                                     ui.label(ws::text(details, 11.0, t.text));
@@ -611,7 +612,8 @@ impl HookEchoApp {
                                     ws::kv(ui, &t, "Warning", w, Some(t.warn));
                                 }
                                 if threat.motion.is_none() {
-                                    ws::kv(ui, &t, "Arrivals", "no SCIT motion to project", None);
+                                    let (tracker, _) = wxdata::celltrack::tracker_of(&c.id);
+                                    ws::kv(ui, &t, "Arrivals", &format!("no {tracker} motion to project"), None);
                                 } else if threat.etas.is_empty() {
                                     ws::kv(ui, &t, "Arrivals", "no saved place ahead within 2 h", None);
                                 }
@@ -1137,6 +1139,8 @@ fn threat_for(
     use crate::app::storm_track::{compass, distance, ManualTrack};
     let at = [c.lon, c.lat];
     let km = |lon: f64, lat: f64| crate::geo::great_circle(at, [lon, lat]);
+    // An archive's local cell is not SCIT's: its cores and motion are the local tracker's.
+    let (tracker, tracker_s) = wxdata::celltrack::tracker_of(&c.id);
     let associations = super::storm_associations::associate(c, evidence);
     let tornado = associations.circulations.first().map(|&(i, separation)| {
         let z = &evidence.circulations[i];
@@ -1147,7 +1151,7 @@ fn threat_for(
             format!("{} {} of it", distance(d, metric), compass(bearing))
         };
         format!(
-            "{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
+            "{} · evidence {} · {} signal{}, {place}; nearest {tracker} core ({} from nearest signal)",
             z.id.tier.label(),
             wxdata::evidence::out_of_100(z.id.score),
             z.members.len(),
@@ -1173,7 +1177,7 @@ fn threat_for(
         .iter()
         .map(|&i| {
             format!(
-                "{}\nAssociation: SCIT core inside source polygon; source time unavailable",
+                "{}\nAssociation: {tracker} core inside source polygon; source time unavailable",
                 evidence.probsevere[i].detail
             )
         })
@@ -1183,7 +1187,7 @@ fn threat_for(
     let track = ManualTrack::from_cell(c, t0);
     let motion = track.as_ref().map(|t| {
         format!(
-            "Arrivals from SCIT's motion, {:03.0}\u{b0} at {:.0} kt, rounded to the minute",
+            "Arrivals from {tracker_s} motion, {:03.0}\u{b0} at {:.0} kt, rounded to the minute",
             t.bearing_deg,
             t.speed_kmh / 1.852
         )
@@ -1324,6 +1328,41 @@ mod threat_tests {
         );
         assert!(th.etas[0].2, "in the path");
         assert_eq!(th.count(), 1);
+    }
+
+    /// An archive's local cell's arrivals are projected from the local tracker's motion and say
+    /// so; a SCIT cell's still name SCIT's (roadmaps/storm-analysis S2: motion provenance).
+    #[test]
+    fn arrivals_name_whose_motion_they_come_from() {
+        let motion = |id: &str| {
+            let c = Cell {
+                id: id.into(),
+                ..cell()
+            };
+            threat_for(
+                &c,
+                &super::super::storm_associations::Evidence {
+                    cells: std::slice::from_ref(&c),
+                    circulations: &[],
+                    warnings: &[],
+                    probsevere: &[],
+                },
+                &[],
+                chrono::Utc::now(),
+                false,
+                None,
+                (&[], 0),
+            )
+            .motion
+            .unwrap()
+        };
+        assert!(motion("K4").starts_with("Arrivals from SCIT's motion, 090"));
+        let local = motion("L-18");
+        assert!(
+            local.starts_with("Arrivals from the local tracker's motion, 090"),
+            "{local}"
+        );
+        assert!(!local.contains("SCIT"));
     }
 
     #[test]
