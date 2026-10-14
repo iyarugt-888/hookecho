@@ -919,7 +919,7 @@ enum DataMsg {
         /// `wxdata::live::Update::retries`.
         retries: u32,
         /// See `wxdata::live::Update::decode_time`.
-        decode_time: std::time::Duration,
+        decode_time: Option<std::time::Duration>,
     },
     /// The live stream for `view` ended (error or clean exit); polling resumes.
     LiveEnded {

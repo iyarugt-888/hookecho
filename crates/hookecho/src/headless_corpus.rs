@@ -532,12 +532,13 @@ fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
             provider: Some("pinned Mayfield fixture".into()),
             volume: "KPAH20211211_032349_V06 (partial fixture)".into(),
             volume_start_unix_ms: chrono::DateTime::parse_from_rfc3339("2021-12-11T03:23:49Z")
-                .unwrap().timestamp_millis(),
+                .unwrap()
+                .timestamp_millis(),
             accepted_revision: 1,
             raw_acquisition: None,
         },
         Some(received),
-        std::time::Duration::ZERO,
+        None,
     );
     let mut cb = callback(&sweep, &camera);
     if let Some(up) = cb.radar_upload.as_mut() {

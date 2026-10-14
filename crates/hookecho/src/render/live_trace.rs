@@ -72,7 +72,8 @@ pub struct RevisionTrace {
     /// Elapsed from the provider's client receipt boundary. This is not necessarily
     /// first byte, and completed-volume providers can omit it altogether.
     pub receipt_to_accept_us: Option<u64>,
-    pub decode_work_us: u64,
+    pub decode_work_us: Option<u64>,
+    pub decode_work_unavailable_reason: Option<&'static str>,
     pub receipt_to_queue_writes_us: Option<u64>,
     pub receipt_to_gpu_callback_us: Option<u64>,
     pub first_2d_upload: Option<DrawIdentity>,
@@ -97,7 +98,7 @@ impl RevisionTraces {
         &self,
         identity: RevisionIdentity,
         receipt_to_accept: Option<Duration>,
-        decode_work: Duration,
+        decode_work: Option<Duration>,
     ) {
         let mut rows = self
             .0
@@ -106,7 +107,10 @@ impl RevisionTraces {
         rows.push_back(RevisionTrace {
             identity,
             receipt_to_accept_us: receipt_to_accept.map(micros),
-            decode_work_us: micros(decode_work),
+            decode_work_us: decode_work.map(micros),
+            decode_work_unavailable_reason: decode_work
+                .is_none()
+                .then_some("adapter does not observe decode work"),
             receipt_to_queue_writes_us: None,
             receipt_to_gpu_callback_us: None,
             first_2d_upload: None,
@@ -215,7 +219,7 @@ mod tests {
             trace.accept(
                 identity(revision),
                 Some(Duration::from_micros(10)),
-                Duration::from_micros(3),
+                Some(Duration::from_micros(3)),
             );
         }
         let draw = DrawIdentity {
@@ -250,10 +254,25 @@ mod tests {
     }
 
     #[test]
+    fn missing_decode_work_is_null_and_measured_zero_remains_distinct() {
+        let trace = RevisionTraces::default();
+        trace.accept(identity(1), None, None);
+        trace.accept(identity(2), None, Some(Duration::ZERO));
+        let rows = serde_json::to_value(trace.snapshot()).unwrap();
+        assert!(rows[0]["decode_work_us"].is_null());
+        assert!(rows[0]["decode_work_unavailable_reason"]
+            .as_str()
+            .unwrap()
+            .contains("does not observe"));
+        assert_eq!(rows[1]["decode_work_us"], 0);
+        assert!(rows[1]["decode_work_unavailable_reason"].is_null());
+    }
+
+    #[test]
     fn bounded_history_and_missing_receipts_cannot_acquire_foreign_callbacks() {
         let trace = RevisionTraces::default();
         for revision in 0..=RevisionTraces::CAPACITY as u64 {
-            trace.accept(identity(revision), None, Duration::ZERO);
+            trace.accept(identity(revision), None, None);
         }
         trace.gpu_done(Some(0), Duration::from_secs(1));
         trace.gpu_done(None, Duration::from_secs(2));

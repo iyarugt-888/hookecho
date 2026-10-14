@@ -650,7 +650,7 @@ mod tests {
             scan,
             changed: Vec::new(),
             retries: 0,
-            decode_time: std::time::Duration::ZERO,
+            decode_time: None,
         };
         let mut primary = ProviderHealth::new(
             PRIMARY_LABEL,

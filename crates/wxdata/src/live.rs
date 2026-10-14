@@ -194,7 +194,8 @@ pub struct Update {
     /// Wall clock spent assembling and merging this update — the local half of live latency, as
     /// opposed to the provider's own ingest lag (how stale the data already was on arrival). See
     /// [`emit`]'s own comment for exactly what this does and doesn't include.
-    pub decode_time: std::time::Duration,
+    /// None when the adapter does not observe this boundary; never fabricate a zero.
+    pub decode_time: Option<std::time::Duration>,
 }
 
 /// Stream live chunks for `site`, starting from `base` (the last polled volume), calling
@@ -696,7 +697,7 @@ async fn emit<F: FnMut(Update), P: FnMut(ScanProgress)>(
         scan: Arc::clone(merged),
         changed,
         retries,
-        decode_time: started.elapsed(),
+        decode_time: Some(started.elapsed()),
     });
     true
 }

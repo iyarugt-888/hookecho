@@ -32,7 +32,8 @@ and [accepted-revision timing](live-trace/README.md), plus the
 [progressive source-clock freshness](live-source-clock/README.md) and
 [displayed-subscription feedback](display-feedback/README.md) and
 [progressive idle delivery](delivery-idle/README.md) and
-[provider monitor retirement](monitor-retirement/README.md). Their local manifests include dirty-tree
+[provider monitor retirement](monitor-retirement/README.md) and
+[decode observations](decode-observation/README.md). Their local manifests include dirty-tree
 checks; the historical manifest below describes committed evidence only.
 
 **Not a release certification.** This index gathers the evidence reviewed so far. Release

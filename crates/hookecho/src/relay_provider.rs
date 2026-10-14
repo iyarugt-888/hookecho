@@ -316,6 +316,10 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             // block accepted by `wxdata::live`'s own `emit()` for the Unidata path (see that
             // function's comment); a windowed re-assembly is a possible future optimization, not
             // a correctness requirement.
+            // Measure assembly, provenance bookkeeping and merge work, separately from
+            // transport receipt and application callbacks. A relay must not report zero
+            // simply because it is a different adapter from Unidata.
+            let decode_started = wxdata::clock::Instant::now();
             let partial = match assemble_scan(&pending_blocks) {
                 Ok(s) => s,
                 // Most commonly: no VCP block has arrived yet this volume (e.g. a client that
@@ -371,9 +375,6 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             if changed.is_empty() {
                 continue;
             }
-            if let Some(progress) = progress {
-                on_progress(progress);
-            }
             if let Some(coverage) = &mut radial_coverage {
                 coverage.source_attribution =
                     Some(Arc::new(passes.attribution_for_scan(&new_scan)));
@@ -400,6 +401,10 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 .expect("the current block established a volume")
                 .volume_start
                 .timestamp_millis();
+            let decode_time = decode_started.elapsed();
+            if let Some(progress) = progress {
+                on_progress(progress);
+            }
             on_update(Update {
                 name: format!("relay-{site}-{volume_start_ms}-{update_count}"),
                 time: newest_radial_time,
@@ -408,7 +413,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 scan: merged.clone(),
                 changed,
                 retries: 0,
-                decode_time: std::time::Duration::ZERO,
+                decode_time: Some(decode_time),
             });
         }
         Ok(())
@@ -1378,7 +1383,9 @@ mod integration_tests {
                         let _ = tx.send(update);
                     }),
                     Box::new(move |progress| {
-                        let _ = progress_tx.send(progress);
+                        let started = wxdata::clock::Instant::now();
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        let _ = progress_tx.send((progress, started.elapsed()));
                     }),
                 )
                 .await
@@ -1401,6 +1408,12 @@ mod integration_tests {
             .expect("update channel closed unexpectedly");
         assert!(!update.changed.is_empty());
         assert!(!update.scan.sweeps().is_empty());
+        let decode_time = update.decode_time.expect("relay observes assembly work");
+        assert!(
+            !decode_time.is_zero(),
+            "real relay assembly must report measured work, not a hard-coded zero"
+        );
+        assert!(update.received_at.unwrap().elapsed() >= decode_time);
         assert_eq!(
             update.time.timestamp_millis(),
             source_time.timestamp_millis()
@@ -1418,10 +1431,21 @@ mod integration_tests {
             .iter()
             .any(|pass| pass.key.elevation_number == 1
                 && pass.key.start_ms == source_time.timestamp_millis()));
-        let progress = tokio::time::timeout(std::time::Duration::from_secs(5), progress_rx.recv())
-            .await
-            .expect("no live progress arrived over the websocket in time")
-            .expect("progress channel closed unexpectedly");
+        let (progress, callback_time) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), progress_rx.recv())
+                .await
+                .expect("no live progress arrived over the websocket in time")
+                .expect("progress channel closed unexpectedly");
+        assert!(
+            decode_time < callback_time,
+            "deliberately slow application callback must be outside decode work"
+        );
+        eprintln!(
+            "relay timing: decode_us={} callback_us={} receipt_to_test_us={}",
+            decode_time.as_micros(),
+            callback_time.as_micros(),
+            update.received_at.unwrap().elapsed().as_micros()
+        );
         assert!(progress.elevation_number > 0);
         assert!(progress.azimuth_span_deg() > 0.0);
         assert!(progress.chunk_duration_secs() > 0.0);

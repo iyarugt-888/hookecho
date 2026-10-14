@@ -1,0 +1,7 @@
+
+running 1 test
+relay timing: decode_us=469 callback_us=200469 receipt_to_test_us=401899
+test relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1626 filtered out; finished in 0.97s
+

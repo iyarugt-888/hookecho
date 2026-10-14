@@ -339,7 +339,7 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
                             scan: merged.clone(),
                             changed,
                             retries: 0,
-                            decode_time: std::time::Duration::ZERO,
+                            decode_time: None,
                         });
                     }
                 }
@@ -856,6 +856,10 @@ mod tests {
         assert_eq!(update.time, parse_filename_time(RECOVERY_NAME).unwrap());
         assert_eq!(update.scan.sweeps(), expected.sweeps());
         assert!(update.received_at.is_none() && update.radial_coverage.is_none());
+        assert!(
+            update.decode_time.is_none(),
+            "unobserved fallback decode must not report zero"
+        );
         assert!(started.elapsed() >= provider.list_timeout + provider.poll_interval);
         println!(
             "TGFTP timeout -> retry -> recovered update: {} ms, 2 polls",

@@ -1,0 +1,11 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `test` profile [unoptimized] target(s) in 1m 13s
+     Running unittests src\lib.rs (target\debug\deps\hookecho-73c88c3cc1459a89.exe)
+
+running 1 test
+relay timing: decode_us=651 callback_us=200187 receipt_to_test_us=402017
+test relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1624 filtered out; finished in 0.97s
+

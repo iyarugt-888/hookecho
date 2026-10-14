@@ -179,10 +179,11 @@ impl HookEchoApp {
                     log::debug!(
                         target: "hookecho::live_sweep",
                         "{}: live chunk merged into {name} ({time}), {} tilt(s) changed, \
-                         decode {:.0} ms, {retries} retr{}",
+                         decode {}, {retries} retr{}",
                         v.site.as_deref().unwrap_or("?"),
                         changed.len(),
-                        decode_time.as_secs_f64() * 1000.0,
+                        decode_time.map(|d| format!("{:.0} ms", d.as_secs_f64() * 1000.0))
+                            .unwrap_or_else(|| "not measured".into()),
                         if retries == 1 { "y" } else { "ies" },
                     );
                     match &mut v.volume {
@@ -235,12 +236,12 @@ impl HookEchoApp {
                     // the accepted native radial geometry separately, without angular prediction.
                     // Stream end and site changes clear it, so it cannot linger indefinitely.
                     v.live_retries = retries;
-                    v.last_decode_time = Some(decode_time);
+                    v.last_decode_time = decode_time;
                     let now = Utc::now();
                     v.live_history.push_back((
                         now,
                         (now - time).num_milliseconds() as f32 / 1000.0,
-                        decode_time.as_secs_f32() * 1000.0,
+                        decode_time.map(|d| d.as_secs_f32() * 1000.0),
                     ));
                     while v.live_history.len() > crate::view::LIVE_HISTORY {
                         v.live_history.pop_front();

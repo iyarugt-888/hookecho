@@ -44,6 +44,8 @@ competitive workflow “completed”. See live workstreams for remaining work.
 
 | L2d: provider monitor retirement | [Pending-subscription and actual app/GPU control](../../docs/certification/monitor-retirement/README.md); inactive managers retire after stream End; ignored cancellation drops subscription guard without failure accounting; started/finished task counters | OS sockets, detached/blocking jobs, independent upstream outages and full-app long runs remain unmeasured |
 
+| L3b: measured relay and missing decode observations | [WebSocket negative/positive, serialization, fallback and app/GPU controls](../../docs/certification/decode-observation/README.md); relay work excludes subscriber callback; unmeasured adapter/channel/pane/history/trace values remain optional | First-byte, visible presentation, operational sources, long-run sampling and physical platforms remain open |
+
 Add subsequent entries only after recording actual verification. Peer increments
 retain their dated workstream/certification records; their open running-window and
 device gates prevent blanket completion of those parent rows.

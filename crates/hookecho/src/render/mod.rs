@@ -33,7 +33,7 @@ impl LiveQueueTimings {
         &self,
         identity: live_trace::RevisionIdentity,
         received: Option<wxdata::clock::Instant>,
-        decode_work: std::time::Duration,
+        decode_work: Option<std::time::Duration>,
     ) {
         self.revision_traces
             .accept(identity, received.map(|r| r.elapsed()), decode_work);

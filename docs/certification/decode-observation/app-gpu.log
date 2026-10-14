@@ -1,0 +1,6 @@
+
+running 1 test
+test app::data_poll::delivery_fault_tests::app_delivery_recovery_keeps_archive_and_sibling_frames_owned ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1626 filtered out; finished in 3.97s
+

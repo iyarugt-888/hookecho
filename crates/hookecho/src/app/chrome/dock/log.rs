@@ -32,7 +32,7 @@ pub(super) struct LiveStats {
     wire: wxdata::alert_latency::Summary,
     frame_age_s: Option<i64>,
     /// `(ingest lag s, decode ms)` of recent arrivals, oldest first.
-    history: Vec<(f32, f32)>,
+    history: Vec<(f32, Option<f32>)>,
     couplets: Option<usize>,
     debris: Option<usize>,
     frames: Option<crate::app::telemetry::FrameSummary>,
@@ -211,6 +211,8 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     }
     if let Some(d) = s.decode_ms {
         ws::kv(ui, t, "Decode", &format!("{d:.0} ms"), None);
+    } else if s.lag_s.is_some() {
+        ws::kv(ui, t, "Decode", "Not measured", None);
     }
     if let Some((p50, p95, count)) = s.queue_ms {
         ws::kv(
@@ -407,7 +409,7 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
 
 /// Ingest lag of recent arrivals as a line (accent), decode time as bars (dim), on their own
 /// scales, newest on the right.
-fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, f32)]) {
+fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, Option<f32>)]) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
@@ -425,8 +427,9 @@ fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, f32)]) {
     let inner = rect.shrink2(egui::vec2(4.0, 12.0));
     let n = h.len();
     let x = |i: usize| inner.left() + inner.width() * i as f32 / (n - 1) as f32;
-    let max_d = robust_max(h.iter().map(|v| v.1));
+    let max_d = robust_max(h.iter().filter_map(|v| v.1));
     for (i, (_, d)) in h.iter().enumerate() {
+        let Some(d) = d else { continue };
         let bh = inner.height() * (d / max_d).clamp(0.0, 1.0);
         p.line_segment(
             [
@@ -458,7 +461,11 @@ fn lag_graph(ui: &mut egui::Ui, t: &ws::Tokens, h: &[(f32, f32)]) {
     p.text(
         rect.right_top() + egui::vec2(-4.0, 1.0),
         egui::Align2::RIGHT_TOP,
-        format!("decode, to {max_d:.0} ms"),
+        if h.iter().any(|v| v.1.is_some()) {
+            format!("decode, to {max_d:.0} ms")
+        } else {
+            "decode not measured".into()
+        },
         egui::FontId::proportional(9.5),
         t.text_dim,
     );

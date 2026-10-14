@@ -1099,8 +1099,8 @@ pub struct MapView {
     /// stays meaningful (not zeroed by an unrelated redraw) between updates.
     pub last_decode_time: Option<std::time::Duration>,
     /// Recent live arrivals for the Analyst log's graph, oldest first: `(arrived, ingest lag in
-    /// seconds, decode milliseconds)`. Capped at [`LIVE_HISTORY`].
-    pub live_history: std::collections::VecDeque<(DateTime<Utc>, f32, f32)>,
+    /// seconds, optional measured decode milliseconds)`. Capped at [`LIVE_HISTORY`].
+    pub live_history: std::collections::VecDeque<(DateTime<Utc>, f32, Option<f32>)>,
     /// One-shot client transport receipt for the next 2D upload and bounded queue timings.
     pub live_render_started: Option<Instant>,
     pub live_queue_timings: Arc<crate::render::LiveQueueTimings>,

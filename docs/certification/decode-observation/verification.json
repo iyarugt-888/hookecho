@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T06:19:27.663065+00:00",
+  "baseline_commit": "d29a48493937e6570d8c9200095315ee45ddd7b1",
+  "basis": "Shared tested working-tree bytes including concurrent peer storm-selection edits. Source hashes describe the inspected working tree, not an isolated clean commit build.",
+  "status": [
+    " M crates/hookecho/src/app.rs",
+    " M crates/hookecho/src/app/chrome/dock/cell.rs",
+    " M crates/hookecho/src/app/chrome/dock/log.rs",
+    " M crates/hookecho/src/app/construct.rs",
+    " M crates/hookecho/src/app/data_poll.rs",
+    " M crates/hookecho/src/app/delivery_fault_tests.rs",
+    " M crates/hookecho/src/app/pane_sync.rs",
+    " M crates/hookecho/src/app/radar_hint.rs",
+    " M crates/hookecho/src/headless_corpus.rs",
+    " M crates/hookecho/src/provider_health.rs",
+    " M crates/hookecho/src/radar_provider_manager.rs",
+    " M crates/hookecho/src/relay_provider.rs",
+    " M crates/hookecho/src/render/live_trace.rs",
+    " M crates/hookecho/src/render/mod.rs",
+    " M crates/hookecho/src/tgftp_provider.rs",
+    " M crates/hookecho/src/view.rs",
+    " M crates/wxdata/src/live.rs",
+    " M roadmaps/live-radar/README.md",
+    " M scripts/certification/readme.py",
+    "?? docs/certification/decode-observation/"
+  ],
+  "commands": {
+    "libraries": "CARGO_INCREMENTAL=0 cargo test --workspace --lib --config profile.test.debug=0 --config profile.dev.debug=0",
+    "clippy": "CARGO_INCREMENTAL=0 cargo clippy --workspace --all-targets --config profile.test.debug=0 --config profile.dev.debug=0 -- -D warnings",
+    "wasm": "CARGO_INCREMENTAL=0 cargo check -p hookecho --lib --target wasm32-unknown-unknown --config profile.dev.debug=0",
+    "relay": "hookecho-49bb090cfd1e1247.exe relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket --exact --nocapture",
+    "app_gpu": "HOOKECHO_APP_FAULT_CONTROL=1; HTTP_PROXY/HTTPS_PROXY/ALL_PROXY=http://127.0.0.1:9; hookecho-49bb090cfd1e1247.exe app::data_poll::delivery_fault_tests::app_delivery_recovery_keeps_archive_and_sibling_frames_owned --ignored --exact --nocapture",
+    "gpu_timing": "hookecho-49bb090cfd1e1247.exe headless::corpus::gpu_live_upload_reports_queue_and_completion_stages_in_order --ignored --exact --nocapture"
+  },
+  "results": {
+    "before": 101,
+    "relay_only_after": 0,
+    "final_relay": 0,
+    "libraries": 0,
+    "clippy": 0,
+    "wasm": 0,
+    "app_gpu": 0,
+    "gpu_timing": 0
+  },
+  "library_totals": {
+    "passed": 2693,
+    "ignored": 209
+  },
+  "sources": [
+    {
+      "path": "crates/hookecho/src/app.rs",
+      "bytes": 402424,
+      "sha256": "13d6bcf4065a4451f1b9c0efc028622e58bcdcbd889efa48d4d919442adf1403"
+    },
+    {
+      "path": "crates/hookecho/src/app/chrome/dock/log.rs",
+      "bytes": 19351,
+      "sha256": "0b7101d741e39fbab19568b2f39aca0cba964459caa753a149454f06afd07433"
+    },
+    {
+      "path": "crates/hookecho/src/app/data_poll.rs",
+      "bytes": 14939,
+      "sha256": "7f1d4199e5103619fcc95f3504c7beee4008fb95cbf3f93fb87b114336386b4d"
+    },
+    {
+      "path": "crates/hookecho/src/app/delivery_fault_tests.rs",
+      "bytes": 20567,
+      "sha256": "372c0513b6160c3b708d5e0f195c7a7d3f98891512d753241e92bce2d59bd9be"
+    },
+    {
+      "path": "crates/hookecho/src/headless_corpus.rs",
+      "bytes": 41999,
+      "sha256": "94f49cb115fd88e668a59c88a85e9436c2f22464bead46d15d63c43b19af43f5"
+    },
+    {
+      "path": "crates/hookecho/src/provider_health.rs",
+      "bytes": 40425,
+      "sha256": "32dcfd883ba6ac041d72c0e6d7c82ed86ffa220b831efe24e353c3baa2e284a6"
+    },
+    {
+      "path": "crates/hookecho/src/radar_provider_manager.rs",
+      "bytes": 43355,
+      "sha256": "4fbeb276b15738b27e747fa404e7b5482ae279b398ba116edf9d528f7c941883"
+    },
+    {
+      "path": "crates/hookecho/src/relay_provider.rs",
+      "bytes": 69009,
+      "sha256": "677d31e567d503f6b614a7f7c573529c4d836a5a38f4288dd0a6d73185d8d656"
+    },
+    {
+      "path": "crates/hookecho/src/render/live_trace.rs",
+      "bytes": 10915,
+      "sha256": "94e66610b69aa56aa6aa92bb53370f19c474fd35f4771436204f55888fd7b9a7"
+    },
+    {
+      "path": "crates/hookecho/src/render/mod.rs",
+      "bytes": 145469,
+      "sha256": "70b86e3973e24123203c491a766d9bb19e6990d04f5a5fb9aa61ba431f3f5b6c"
+    },
+    {
+      "path": "crates/hookecho/src/tgftp_provider.rs",
+      "bytes": 44654,
+      "sha256": "a6eda9bd3ffb0b60ff936a6cd85e5aae1c3ca3fa382b9524727dc12c8d6ae606"
+    },
+    {
+      "path": "crates/hookecho/src/view.rs",
+      "bytes": 106251,
+      "sha256": "850dee35afa489d4db5545a6d4451b943e13069579652d059f5b2ffd42a9cc69"
+    },
+    {
+      "path": "crates/wxdata/src/live.rs",
+      "bytes": 54395,
+      "sha256": "8dca31e57c83a8e92e064846a2e2761de215c8ffd2b5059b68d8b280391c2543"
+    }
+  ],
+  "executable": {
+    "path": "D:/hookecho-codex-validation/decode-observation-tests.exe",
+    "bytes": 114924544,
+    "sha256": "6ad8620654b2909a8306f96cceb7ba9759776ed33b50067f8714ad954c92692e"
+  },
+  "artifacts": [
+    {
+      "path": "docs/certification/decode-observation/after.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/after.log",
+      "bytes": 586,
+      "sha256": "081c11eda07a2d765707d24983197bb106c70e31af27229d3cc1d20c38189708"
+    },
+    {
+      "path": "docs/certification/decode-observation/app-gpu.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/app-gpu.log",
+      "bytes": 232,
+      "sha256": "d7f1b49b777766effe6b94d955cbce09e4c55b7b8abdffe3deb31fe38f13a439"
+    },
+    {
+      "path": "docs/certification/decode-observation/app-observations.json",
+      "bytes": 27152,
+      "sha256": "cd8136a406ec78c60b58a9ff67e7df7eb6d396f320d81d7e71d3cb6802f0a3cb"
+    },
+    {
+      "path": "docs/certification/decode-observation/before.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/decode-observation/before.log",
+      "bytes": 701,
+      "sha256": "508d20f7e6fa19b8ebbc2c752c68dc1c7893c80fa8245a7d37375fe6688fe399"
+    },
+    {
+      "path": "docs/certification/decode-observation/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/clippy.log",
+      "bytes": 411,
+      "sha256": "929855c14a8f59c160fd733616bff215d934042efca780d8593d0b932ba19cd8"
+    },
+    {
+      "path": "docs/certification/decode-observation/filter-miss.log",
+      "bytes": 861,
+      "sha256": "d48eba72364f24a3ad71700ddfbd31250c59f8c7266cd149777a767762ea5f6c"
+    },
+    {
+      "path": "docs/certification/decode-observation/final-relay.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/final-relay.log",
+      "bytes": 308,
+      "sha256": "5e0400e5516c8861f753eba34d92de0ba306c81dde0520661c5477162fd99b70"
+    },
+    {
+      "path": "docs/certification/decode-observation/gpu-timing.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/gpu-timing.log",
+      "bytes": 263,
+      "sha256": "e5e718251dea1894172e628d4f65d25a307fc21b5ac5256c7103548c687dbf0f"
+    },
+    {
+      "path": "docs/certification/decode-observation/README.md",
+      "bytes": 2406,
+      "sha256": "2bc9ad515d8342adb2ba785a5b0fe80c11dc0f185c02a9207ba9025149facbdf"
+    },
+    {
+      "path": "docs/certification/decode-observation/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/wasm.log",
+      "bytes": 3073,
+      "sha256": "e860671b5f97baec3a71343cb259156047418520bc46a200968066ca6b5e8d84"
+    },
+    {
+      "path": "docs/certification/decode-observation/workspace.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/decode-observation/workspace.log",
+      "bytes": 244492,
+      "sha256": "ad471f0d202424e5f58a39b337d31967489790326b6e4d1a9a7c64b93e16b596"
+    }
+  ],
+  "limitations": [
+    "One loopback synthetic radar-ingest fixture, not independent operational upstream failover.",
+    "Offscreen NVIDIA RTX 2060/Vulkan app/GPU controls; no surface, compositor or display scan-out.",
+    "WASM library passed with nine existing warnings, not a browser/device runtime validation.",
+    "First initial Cargo filter selected zero tests; retained filter-miss.log, followed by exact listed integration test before/after controls.",
+    "Builds overlapped peer work and C: storage pressure. D: holds pinned executable; no cache/source/evidence deletion. Not a resource-comparable soak."
+  ]
+}

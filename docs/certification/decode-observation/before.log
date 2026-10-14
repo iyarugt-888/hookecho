@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket' (2620) panicked at crates\hookecho\src\relay_provider.rs:1404:9:
+real relay assembly must report measured work, not a hard-coded zero
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket ... FAILED
+
+failures:
+
+failures:
+    relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1624 filtered out; finished in 0.32s
+

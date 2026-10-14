@@ -469,7 +469,7 @@ mod tests {
                 scan: base,
                 changed: vec![0.5],
                 retries: 0,
-                decode_time: std::time::Duration::ZERO,
+                decode_time: None,
             });
             while active() {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -726,7 +726,7 @@ mod tests {
                     scan: base.clone(),
                     changed: vec![0.5],
                     retries: 0,
-                    decode_time: std::time::Duration::ZERO,
+                    decode_time: None,
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
@@ -900,7 +900,7 @@ mod tests {
                 scan: base,
                 changed: vec![0.5],
                 retries: 0,
-                decode_time: std::time::Duration::ZERO,
+                decode_time: None,
             });
             while active() {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;

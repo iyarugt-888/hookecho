@@ -75,7 +75,7 @@ fn send(app: &HookEchoApp, view: usize, generation: u64, name: &str, scan: Arc<S
             scan,
             changed,
             retries: 0,
-            decode_time: std::time::Duration::ZERO,
+            decode_time: None,
         })
         .unwrap();
 }
@@ -269,6 +269,13 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         partial.clone(),
     );
     app.poll_messages();
+    assert!(app.views[0].last_decode_time.is_none());
+    assert!(app.views[0].live_history.iter().all(|h| h.2.is_none()));
+    assert!(app.views[0]
+        .live_queue_timings
+        .revision_traces()
+        .iter()
+        .all(|r| r.decode_work_us.is_none() && r.decode_work_unavailable_reason.is_some()));
     assert_eq!(app.views[0].live_scan_revision, 1);
     assert_eq!(
         app.views[0].live_scan.phase(Utc::now(), 90),

@@ -35,3 +35,8 @@ L1's bounded adapter work is archived. L2 requires genuine independent
 live inputs; replay relays and different labels cannot close it. L3 instrumentation can
 advance while L2 deployment and L4 observation are pending. Run Track B/C/D/E beside
 each increment. Full M1 remains open until operational and platform evidence exists.
+
+[Decode-observation increment](../../docs/certification/decode-observation/README.md)
+measures relay assembly/merge work and carries missing completed-volume measurements
+as null through the pane, history and revision trace. L3 still needs transport
+boundaries, durable/3D samples and actual presentation correlation.
