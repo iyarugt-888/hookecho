@@ -12,8 +12,10 @@ impl HookEchoApp {
         prect: egui::Rect,
         cam: crate::render::mercator::Camera,
         vp: (f32, f32),
+        idx: usize,
     ) {
-        if self.show_stations {
+        // Live only: an observation is "now", not the time of a scrubbed or looped scan.
+        if self.show_stations && self.pane_is_live(idx) {
             let show_labels = cam.zoom >= 8.0;
             let temp_unit = self.settings.temp_unit;
             for ob in &self.stations.obs {

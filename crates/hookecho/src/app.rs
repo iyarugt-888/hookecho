@@ -6021,7 +6021,7 @@ impl HookEchoApp {
 
         // Crowd precipitation-type reports: a lettered dot per report, so the rain/snow line
         // reads straight off the map.
-        if self.show_mping {
+        if self.show_mping && self.pane_is_live(idx) {
             for r in &self.mping_reports {
                 let w = crate::render::mercator::lonlat_to_world(r.lon, r.lat);
                 let (sx, sy) = cam.world_to_screen(w, vp);
@@ -6059,7 +6059,7 @@ impl HookEchoApp {
 
         // Live stations: a dot per station, warm where it is hot and cool where it is not, so a
         // boundary reads off the map before any card is open. Clicking one opens its card.
-        self.paint_live_stations(&painter, prect, cam, vp);
+        self.paint_live_stations(&painter, prect, cam, vp, idx);
 
         // Damage surveys: the fitted path first, then a dot per surveyed indicator coloured by its
         // EF rating, so the rating gradient along the track reads at a glance.

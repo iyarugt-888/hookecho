@@ -179,3 +179,5 @@ positions and PIREPs exist only as "now", but were drawn over a pane scrubbed or
 older scan, as if they belonged to it (a spotter beside a 2021 storm). They now show only on a
 pane following the newest scan (`pane_is_live`), the rule live storm cells already followed. GOES
 GLM lightning, which has an archive window, is unchanged.
+Live station observations and mPING precipitation-type reports, which are "now" too, follow the
+same rule.
