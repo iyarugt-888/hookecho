@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T04:17:01+00:00",
-  "generated_from_commit": "ffc7d310fd6ec8f8b921aad7fcc9cf68cbb1ba06",
+  "generated_utc": "2026-10-14T05:12:53+00:00",
+  "generated_from_commit": "4bf574993215c8b28fa1dcf02ac7088242b928fd",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -1599,8 +1599,8 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "75fedf49bd8a4446cbf336264dea3b3b31cf6ec8a7ab32897c498ca8993f7b52",
-      "bytes": 17008
+      "sha256": "e2ea338c7ebebe2d5d9a4a5ad9c5233667343f28e41201fd58ef048f25ae0e68",
+      "bytes": 18013
     },
     {
       "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
@@ -1631,6 +1631,16 @@
       "path": "docs/certification/m2.2/cell-core-app-outline-flat.png",
       "sha256": "704611f20b96294cacbee9c30067df2dd1f062c23703841976fe4f6a9cf01444",
       "bytes": 369921
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-outline-smooth-mask.png",
+      "sha256": "419ee877b10eee487d34b8e4b1f2dcdd7438c07239982a4a2fdf326e660e306e",
+      "bytes": 260460
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-outline-smooth.png",
+      "sha256": "b0aea2fded535cdcc7d28357f8f6485637aeab44c898948aa101387321f78147",
+      "bytes": 458921
     },
     {
       "path": "docs/certification/m2.2/cell-core-moore-whole-cell-rows.png",
