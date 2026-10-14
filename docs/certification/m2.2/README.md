@@ -237,5 +237,18 @@ base of the core (the low tilts, where most such gates are) and dots up the stor
 | [cell-core-app-outline-3d-mask.png](cell-core-app-outline-3d-mask.png) | White where the outline changes the frame | `c2e80cacd17ee6762d1a3de8a5151d891cad0aff4e6fdcd34afdae0ccf0ba8d4` |
 | [cell-core-app-outline-flat.png](cell-core-app-outline-flat.png) | The same gates on the flat map | `704611f20b96294cacbee9c30067df2dd1f062c23703841976fe4f6a9cf01444` |
 
+**The same outline over the smooth volume** (2026-10-13; `app_core_outline_sits_in_the_smooth_volume`,
+same isolated headless app, same camera). Here the gates take `highlight_screen`'s other branch:
+placed at their beam height above sea level in the resampled volume's frame, not along the
+observed beam. The pane is drawn until the app's off-thread build is accepted (3.3 s), then
+captured with and without the outline: 144 pixels change, over the same screen rows (285–350) as
+over the observed sweeps, with the same dense patch at the base and dots between the 4 km and
+8 km marks. The two placements agree.
+
+| File | What | SHA-256 |
+| --- | --- | --- |
+| [cell-core-app-outline-smooth.png](cell-core-app-outline-smooth.png) | The smooth volume with the outline | `b0aea2fded535cdcc7d28357f8f6485637aeab44c898948aa101387321f78147` |
+| [cell-core-app-outline-smooth-mask.png](cell-core-app-outline-smooth-mask.png) | White where the outline changes the frame | `419ee877b10eee487d34b8e4b1f2dcdd7438c07239982a4a2fdf326e660e306e` |
+
 Not established: the hover itself (the test sets the outline a hover would), an interactive
-window, the resampled-volume placement, desktop and Android.
+window, desktop and Android.
