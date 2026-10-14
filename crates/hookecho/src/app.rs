@@ -1457,6 +1457,9 @@ pub struct HookEchoApp {
     /// The radar whose storm table `cell_popup` was picked from. SCIT's IDs, and an archive's
     /// local ones, are issued per radar: on another radar's table the same ID is another storm.
     pub(crate) cell_popup_site: Option<String>,
+    /// A selected storm being taken to another radar ("Switch to" a better one): that radar, the
+    /// storm as last seen, and when. Its cell there is adopted once that radar's table is in.
+    selection_carry: Option<(String, Cell, Instant)>,
     /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the
     /// workstation; there, the Inspector's storm section is the summary and this opens on request.
     pub(crate) cell_details: bool,

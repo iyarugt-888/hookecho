@@ -124,8 +124,14 @@ impl HookEchoApp {
         )
     }
 
-    /// Switch the active pane to `site`, keeping the camera on `storm`, and carry a follow over.
-    fn switch_radar_for_storm(&mut self, site: &str, storm: &Cell) {
+    /// Switch the active pane to `site`, keeping the camera on `storm`, and carry a follow and a
+    /// selection over.
+    pub(super) fn switch_radar_for_storm(&mut self, site: &str, storm: &Cell) {
+        // The site change drops the selection with the old radar's table; the storm it was is
+        // found again in the new radar's (`adopt_carried_selection`).
+        if let Some(selected) = self.selected_storm() {
+            self.selection_carry = Some((site.to_owned(), selected, Instant::now()));
+        }
         let v = &mut self.views[self.active];
         v.site = Some(site.to_owned());
         // `sync_pane` would centre on the new radar; the storm is what is being watched.
@@ -140,6 +146,47 @@ impl HookEchoApp {
                 ..cell
             };
             self.follow_cell = Some((site.to_owned(), carried, since));
+        }
+    }
+
+    /// Select, on the radar a selection was taken to, the storm it was: once that radar's own
+    /// table is in, for about the same time (an archive's local cells for an archived scan, not
+    /// live SCIT), the cell nearest where the storm's motion puts it, within 15 km — as a follow
+    /// is carried. Its ID there is another radar's numbering, so nothing is matched by ID. Given
+    /// up after two minutes without such a table, or when there is no storm that near.
+    pub(super) fn adopt_carried_selection(&mut self) {
+        const WITHIN_KM: f64 = 15.0;
+        const SAME_TIME_MIN: i64 = 15;
+        let Some((site, storm, since)) = self.selection_carry.clone() else {
+            return;
+        };
+        let expired = since.elapsed().as_secs() > 120;
+        let cells = self.active_storm_cells();
+        let table_time = cells.iter().find_map(|c| c.time);
+        let ready = self.storm_table_site() == Some(site.as_str())
+            && table_time
+                .zip(storm.time)
+                .is_some_and(|(t, s)| (t - s).num_minutes().abs() <= SAME_TIME_MIN);
+        if !ready {
+            if expired {
+                self.selection_carry = None;
+            }
+            return;
+        }
+        let minutes = table_time
+            .zip(storm.time)
+            .map_or(0.0, |(t, s)| (t - s).num_seconds() as f64 / 60.0);
+        let at = match (storm.mvt_deg, storm.mvt_kt) {
+            (Some(dir), Some(kt)) if kt > 0.0 => {
+                let km = f64::from(kt) * 1.852 * minutes / 60.0;
+                crate::geo::destination_point([storm.lon, storm.lat], f64::from(dir), km)
+            }
+            _ => [storm.lon, storm.lat],
+        };
+        let found = super::nearest_cell(cells, at[0], at[1], WITHIN_KM).cloned();
+        self.selection_carry = None;
+        if let Some(c) = found {
+            self.select_storm_from(c, false);
         }
     }
 }

@@ -62,6 +62,16 @@ Diagnostics now includes recent accepted radar revisions with acquisition-clock 
 receipt, decode, upload and GPU timing. Visible-presentation timing is explicitly unavailable
 until a display observer measures it.
 
+### Fixed: switching to a better radar keeps the storm selected
+
+The "Better radar for this storm" card switches the pane to a radar whose beam is lower at the
+storm. For a storm you had selected (rather than followed), the switch closed the storm's card,
+leaving you to find the storm again on the new radar. Now, once the new radar's storms arrive,
+HookEcho selects the storm there: the one nearest where the storm's motion puts it, within
+15 km. It never matches by number, because the new radar numbers its storms differently. It
+only uses a storm list from about the same time, so a live list is never matched to an archived
+scan. If no storm is that close, nothing is selected.
+
 ### Fixed: a storm picked on one radar stays that storm on another
 
 Radars number their storms separately, so "A3" on one radar is a different storm from "A3" on

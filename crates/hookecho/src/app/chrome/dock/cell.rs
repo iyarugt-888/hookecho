@@ -2024,6 +2024,93 @@ mod tests {
         assert_eq!(back.source.unwrap().site.as_deref(), Some("KTLX"));
     }
 
+    /// "Switch to" a better radar for a selected storm keeps it selected: the switch drops the
+    /// old radar's table and the selection with it, and once the new radar's own table is in
+    /// (for about the same time) the storm is selected there as the cell nearest where its motion
+    /// puts it, never by its old ID. A table from another time (live SCIT under an archived
+    /// storm) is not used, and with no storm within 15 km nothing is selected.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn a_storm_taken_to_a_better_radar_stays_selected() {
+        let (mut app, _state, _out) = headless_app();
+        let t0 = chrono::Utc::now() - chrono::Duration::minutes(10);
+        let cell = |id: &str, lon: f64, lat: f64, time: chrono::DateTime<chrono::Utc>| Cell {
+            id: id.into(),
+            title: id.into(),
+            lon,
+            lat,
+            time: Some(time),
+            mvt_deg: Some(60.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let camera = crate::render::mercator::Camera::at_lonlat(-97.0, 36.0, 6.0);
+        app.views = vec![crate::view::MapView::new(Some("KTLX".into()), camera)];
+        app.views[0].loaded_site = Some("KTLX".into());
+        app.views[0].timeline.following = true;
+        app.active = 0;
+        let ktlx = vec![cell("A3", -97.5, 35.3, t0)];
+        app.dock.storm_ids.feed(Some("KTLX"), &ktlx);
+        app.storm_cells = ktlx;
+        app.cells_site = Some("KTLX".into());
+        let picked = app.active_storm_cells()[0].clone();
+        app.select_storm(picked.clone());
+        let ctx = egui::Context::default();
+
+        // Switched: the old table and the selection go with the old radar.
+        app.switch_radar_for_storm("KINX", &picked);
+        app.sync_pane(0, &ctx);
+        assert_eq!(app.views[0].site.as_deref(), Some("KINX"));
+        assert!(app.selected_storm().is_none());
+        assert!(app.selection_carry.is_some());
+
+        // KINX's table from two hours later: not this storm's time; nothing adopted yet.
+        let arrive = |app: &mut HookEchoApp, cells: Vec<Cell>| {
+            app.dock.storm_ids.feed(Some("KINX"), &cells);
+            app.storm_cells = cells;
+            app.cells_site = Some("KINX".into());
+        };
+        let later = t0 + chrono::Duration::hours(2);
+        arrive(&mut app, vec![cell("C9", -97.45, 35.33, later)]);
+        app.sync_pane(0, &ctx);
+        assert!(app.selected_storm().is_none());
+        assert!(app.selection_carry.is_some(), "still waiting");
+
+        // KINX's table five minutes on: the storm has moved 4.6 km north-east. KINX numbers it
+        // C9; its "A3" is another storm 30 km off.
+        let t1 = t0 + chrono::Duration::minutes(5);
+        let moved = crate::geo::destination_point([-97.5, 35.3], 60.0, 30.0 * 1.852 * 5.0 / 60.0);
+        arrive(
+            &mut app,
+            vec![
+                cell("A3", -97.2, 35.4, t1),
+                cell("C9", moved[0] + 0.01, moved[1], t1),
+                // Nearer where it was than C9 is: only its motion says C9.
+                cell("D2", -97.5, 35.3 - 0.03, t1),
+            ],
+        );
+        app.sync_pane(0, &ctx);
+        let (sel, live) = app.selected_storm_live().expect("selected on KINX");
+        assert_eq!(sel.id, "C9");
+        assert!(live);
+        assert_eq!(app.cell_popup_site.as_deref(), Some("KINX"));
+        assert!(app.selection_carry.is_none());
+
+        // Taken back to KTLX with no storm within 15 km there: nothing is selected.
+        app.switch_radar_for_storm("KTLX", &sel);
+        app.sync_pane(0, &ctx);
+        let t2 = t1 + chrono::Duration::minutes(5);
+        app.dock
+            .storm_ids
+            .feed(Some("KTLX"), &[cell("B1", -96.5, 35.0, t2)]);
+        app.storm_cells = vec![cell("B1", -96.5, 35.0, t2)];
+        app.cells_site = Some("KTLX".into());
+        app.sync_pane(0, &ctx);
+        assert!(app.selected_storm().is_none());
+        assert!(app.selection_carry.is_none(), "given up");
+    }
+
     /// The real cell card in a real app: the app built headlessly with its storage isolated
     /// under `target/` and its network denied (run with `HOOKECHO_APP_CARD_CAPTURE=1` and every
     /// proxy at `http://127.0.0.1:9`, in its own process), the Moore volume (KTLX 2013-05-20

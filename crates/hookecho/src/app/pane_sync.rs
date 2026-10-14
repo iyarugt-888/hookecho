@@ -76,6 +76,9 @@ impl HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
             }
         }
+        if idx == self.active {
+            self.adopt_carried_selection();
+        }
 
         // Advance playback (if playing) then reconcile the displayed volume with the timeline.
         // Past the scan cache a loop plays light frames (`app::long_loop`), a few percent of a

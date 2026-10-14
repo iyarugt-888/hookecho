@@ -402,6 +402,7 @@ impl HookEchoApp {
             feature_chooser: None,
             cell_popup: None,
             cell_popup_site: None,
+            selection_carry: None,
             cell_details: false,
             cell_follow_toggle: false,
             cell_view3d: false,
