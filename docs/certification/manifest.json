@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T05:32:57+00:00",
-  "generated_from_commit": "6ead9d5b9015d67733b7bd1087f1875bc1a0cf1f",
+  "generated_utc": "2026-10-14T06:02:47+00:00",
+  "generated_from_commit": "150e047c6879e6a0dd51df8503384593f5b418d1",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -2666,6 +2666,101 @@
       "path": "docs/certification/model-timeline/verification.json",
       "sha256": "19cea13f0cdb60cf02719a8f70ed9b0446c189a1e2477b6a0874676efaf6809d",
       "bytes": 5380
+    },
+    {
+      "path": "docs/certification/monitor-retirement/README.md",
+      "sha256": "a7246a4514795ee7319629a11af93add06bfa6a4ec564e4577f8e78aa914a091",
+      "bytes": 2228
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after-no-incremental.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after-no-incremental.log",
+      "sha256": "a5eb715a99ed9f2fb396c6ff1a1dc68efa8d15b5a157f94dbb65370b4f8f2382",
+      "bytes": 2605
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after.exit",
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95",
+      "bytes": 5
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after.log",
+      "sha256": "f09130fa736a31beed8a415f8b30950f80a23eedad26d08cf6a003816199422d",
+      "bytes": 4601
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-gpu.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-gpu.log",
+      "sha256": "7e048a4c1510b6b470012ede0d19e3b827d9b238dea6514afc98cce3925f4efa",
+      "bytes": 232
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-observations.json",
+      "sha256": "1adb4729d719c0318fcc35c1226dc6e9acf81bc1274a45d641565665a318ffaf",
+      "bytes": 25673
+    },
+    {
+      "path": "docs/certification/monitor-retirement/before.exit",
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95",
+      "bytes": 5
+    },
+    {
+      "path": "docs/certification/monitor-retirement/before.log",
+      "sha256": "2f60e7759cb66077c3ac82674bf19d12f4c138a56c6841ef8f33e10f7c76fee9",
+      "bytes": 1275
+    },
+    {
+      "path": "docs/certification/monitor-retirement/clippy.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/monitor-retirement/clippy.log",
+      "sha256": "513fcdd59d27f917728802b6b4e42f121d20b6f9739dde9bcb6169dbfea3f5e0",
+      "bytes": 13409
+    },
+    {
+      "path": "docs/certification/monitor-retirement/verification.json",
+      "sha256": "8708808919a59bbc2247783beefd9e0c9a4b6d69bdd41404ebd9b8ed363604e7",
+      "bytes": 6473
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.exit",
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95",
+      "bytes": 5
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.log",
+      "sha256": "e1fa8e96fc19ed525bfcddbf153b8e27ba8721ec31167fdeaecfeb5a2b05373b",
+      "bytes": 23808
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm.log",
+      "sha256": "524fa1aff4d5839a27f5db0cf4d1550dccd541c665fb202b1af2c084382b4a6a",
+      "bytes": 2997
+    },
+    {
+      "path": "docs/certification/monitor-retirement/workspace.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/monitor-retirement/workspace.log",
+      "sha256": "cc1b6f38f8ce005f1e5d577d8be64bcae80ff661c6a07ffd7a134c7bd3004c95",
+      "bytes": 243887
     },
     {
       "path": "docs/certification/mrms-panes.md",
