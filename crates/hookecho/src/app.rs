@@ -5649,7 +5649,8 @@ impl HookEchoApp {
 
         // Ground strikes off the broker. Same shape as the GLM block above, including the
         // lon/lat prefilter, because the deque is just as long and the pane just as small.
-        if self.show_strikes && !self.strikes.is_empty() {
+        // Live only: a strike is "now", not the time of a scrubbed or looped scan.
+        if self.show_strikes && self.pane_is_live(idx) && !self.strikes.is_empty() {
             let now = chrono::Utc::now();
             let corner = |px: (f32, f32)| {
                 let w = cam.screen_to_world(px, vp);
@@ -6016,7 +6017,7 @@ impl HookEchoApp {
 
         // Pilot reports: a small triangle per report, filled when it carries a hazard so a
         // turbulence report stands out from a routine sky observation.
-        self.paint_pireps(&painter, prect, cam, vp, &response);
+        self.paint_pireps(&painter, prect, cam, vp, idx, &response);
 
         // Crowd precipitation-type reports: a lettered dot per report, so the rain/snow line
         // reads straight off the map.

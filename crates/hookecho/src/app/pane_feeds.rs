@@ -12,9 +12,10 @@ impl HookEchoApp {
         prect: egui::Rect,
         cam: crate::render::mercator::Camera,
         vp: (f32, f32),
+        idx: usize,
         response: &egui::Response,
     ) {
-        if self.show_pireps {
+        if self.show_pireps && self.pane_is_live(idx) {
             for r in &self.pireps {
                 let w = crate::render::mercator::lonlat_to_world(r.lon, r.lat);
                 let (sx, sy) = cam.world_to_screen(w, vp);

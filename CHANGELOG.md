@@ -45,6 +45,8 @@ now shows none until the right ones for that time arrive. Loop exports also list
 captured before its warnings arrived.
 Today's ProbSevere outlines are no longer drawn over an old scan or counted in its storms' scores,
 since HookEcho keeps no ProbSevere history; the storm card says so.
+Live lightning strikes, spotter positions and pilot reports are likewise shown only on a pane
+showing the newest scan.
 
 ### Fixed: a followed storm in the archive stays the same storm
 

@@ -173,3 +173,9 @@ scores (the Storms table, the cell card, the compare view, the digest's ranking)
 evidence record, and the card said "no containing source polygon" as if it had looked.
 `active_probsevere` is empty over an archived scan, and the card says "not kept for past times".
 Live behaviour is unchanged.
+
+Live-only point layers, the same way (2026-10-13). Ground strikes from the broker, Spotter Network
+positions and PIREPs exist only as "now", but were drawn over a pane scrubbed or looped back to an
+older scan, as if they belonged to it (a spotter beside a 2021 storm). They now show only on a
+pane following the newest scan (`pane_is_live`), the rule live storm cells already followed. GOES
+GLM lightning, which has an archive window, is unchanged.

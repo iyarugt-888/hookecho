@@ -77,7 +77,7 @@ impl HookEchoApp {
         idx: usize,
         response: &egui::Response,
     ) -> Option<wxdata::spotters::Spotter> {
-        if self.show_spotters {
+        if self.show_spotters && self.pane_is_live(idx) {
             if let Some(site_pos) = self.views[idx]
                 .site
                 .as_deref()

@@ -475,6 +475,13 @@ impl HookEchoApp {
 
     /// The alert features to display right now: live alerts, or while the active pane is scrubbed
     /// off-live, its bucket's archived set (feature W), empty until that bucket arrives.
+    /// Whether pane `idx` shows the newest scan, so layers that only exist as "now" (ground
+    /// strikes, spotter positions, PIREPs) belong on it. Scrubbed or looped back, they would be
+    /// read as that scan's: the rule `live_storm_cells` already follows.
+    pub(crate) fn pane_is_live(&self, idx: usize) -> bool {
+        self.views[idx].timeline.following
+    }
+
     /// ProbSevere's polygons for the map, the storm scores and the cell card: today's, and none
     /// over an archived scan. The app keeps no archive of them, so today's must not be drawn
     /// over a past storm or score it.
