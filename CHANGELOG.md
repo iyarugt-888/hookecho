@@ -43,6 +43,8 @@ When you scrubbed back in time, the map could show today's live warnings, discus
 reports over the old scan until the archived ones arrived, or the previous few minutes' set. It
 now shows none until the right ones for that time arrive. Loop exports also list a frame
 captured before its warnings arrived.
+Today's ProbSevere outlines are no longer drawn over an old scan or counted in its storms' scores,
+since HookEcho keeps no ProbSevere history; the storm card says so.
 
 ### Fixed: a followed storm in the archive stays the same storm
 

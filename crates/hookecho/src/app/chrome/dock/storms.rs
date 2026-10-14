@@ -711,7 +711,7 @@ impl HookEchoApp {
             scan,
             volume: volume.clone(),
             detectors: [has_rot, has_tds, fused],
-            features: features_hash(&[self.active_alert_features(), &self.probsevere]),
+            features: features_hash(&[self.active_alert_features(), self.active_probsevere()]),
         };
         if self.dock.storm_ids.evidence_key.as_ref() == Some(&key) {
             return;
@@ -725,7 +725,7 @@ impl HookEchoApp {
         };
         let cells = self.active_storm_cells().to_vec();
         let warnings = self.active_alert_features().to_vec();
-        let probsevere = self.probsevere.clone();
+        let probsevere = self.active_probsevere().to_vec();
         self.dock.storm_ids.record_evidence(
             key,
             &cells,
@@ -763,7 +763,7 @@ impl HookEchoApp {
             None => &[],
         };
         let explanations =
-            wxdata::cellscore::score_all_explained(&cells, &self.probsevere, couplets);
+            wxdata::cellscore::score_all_explained(&cells, self.active_probsevere(), couplets);
         let scores: Vec<u8> = explanations.iter().map(|e| e.score).collect();
         // Each row's stable storm, beside SCIT's own (recycled) ID.
         let stable: Vec<Option<u64>> = cells

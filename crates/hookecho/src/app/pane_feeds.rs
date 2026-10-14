@@ -145,7 +145,7 @@ impl HookEchoApp {
         vp: (f32, f32),
     ) {
         if self.show_probsevere {
-            for f in &self.probsevere {
+            for f in self.active_probsevere() {
                 let Some(ring) = f.rings.first() else {
                     continue;
                 };

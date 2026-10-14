@@ -166,3 +166,10 @@ session, and the browser pane was hidden.
 Still open for B2: GIS layers and dressing (logos, annotations) have no time-addressed fetch to
 wait for and are not stamped. Waiting (rather than listing) on a not-ready overlay uses the
 existing pause only for the radar frame.
+
+ProbSevere, the same way (2026-10-13). The app keeps no archive of ProbSevere, but over an
+archived scan today's live polygons were drawn on the map, fed the archived storms' severity
+scores (the Storms table, the cell card, the compare view, the digest's ranking) and the storm
+evidence record, and the card said "no containing source polygon" as if it had looked.
+`active_probsevere` is empty over an archived scan, and the card says "not kept for past times".
+Live behaviour is unchanged.

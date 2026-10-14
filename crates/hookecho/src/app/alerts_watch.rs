@@ -475,6 +475,13 @@ impl HookEchoApp {
 
     /// The alert features to display right now: live alerts, or while the active pane is scrubbed
     /// off-live, its bucket's archived set (feature W), empty until that bucket arrives.
+    /// ProbSevere's polygons for the map, the storm scores and the cell card: today's, and none
+    /// over an archived scan. The app keeps no archive of them, so today's must not be drawn
+    /// over a past storm or score it.
+    pub(crate) fn active_probsevere(&self) -> &[GeoFeature] {
+        archived_or_live(self.archive_bucket(), |_| None, &self.probsevere)
+    }
+
     pub(crate) fn active_alert_features(&self) -> &[GeoFeature] {
         archived_or_live(
             self.arch_warn_shown,

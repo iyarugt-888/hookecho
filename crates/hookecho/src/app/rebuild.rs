@@ -161,7 +161,7 @@ impl HookEchoApp {
             }
         }
         if self.show_probsevere {
-            v.extend(self.probsevere.iter().cloned());
+            v.extend(self.active_probsevere().iter().cloned());
         }
         if self.show_tropical {
             if let Some(t) = &self.tropical {

@@ -760,7 +760,7 @@ impl HookEchoApp {
         // itself returns, so the table's ranking and the detail panel's hover breakdown can never
         // disagree with each other.
         let cell_explanations =
-            wxdata::cellscore::score_all_explained(cells, &self.probsevere, couplets);
+            wxdata::cellscore::score_all_explained(cells, self.active_probsevere(), couplets);
         let cell_scores: Vec<u8> = cell_explanations.iter().map(|e| e.score).collect();
         // Each row's trend is its storm's, not its (recycled) SCIT ID's; built only while the
         // table is open.

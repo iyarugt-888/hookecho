@@ -104,7 +104,8 @@ impl HookEchoApp {
         let cells: Vec<wxdata::level3::Cell> =
             all.iter().filter(|c| inside(c.lon, c.lat)).cloned().collect();
         b.storms_elsewhere = all.len() - cells.len();
-        let explained = wxdata::cellscore::score_all_explained(&cells, &self.probsevere, &couplets);
+        let explained =
+            wxdata::cellscore::score_all_explained(&cells, self.active_probsevere(), &couplets);
         let mut order: Vec<usize> = (0..cells.len()).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(explained[i].score));
         order.truncate(MAX_STORMS);
@@ -148,7 +149,7 @@ impl HookEchoApp {
                 tvs: c.tvs.as_ref().is_some_and(|t| !t.is_empty()),
                 meso: c.meso.as_ref().is_some_and(|m| !m.is_empty()),
                 motion: c.mvt_deg.zip(c.mvt_kt),
-                prob_severe: wxdata::overlay::hit(&self.probsevere, c.lon, c.lat)
+                prob_severe: wxdata::overlay::hit(self.active_probsevere(), c.lon, c.lat)
                     .and_then(wxdata::cellscore::dominant_pct),
                 core: cores
                     .get(k)

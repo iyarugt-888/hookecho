@@ -362,13 +362,13 @@ impl HookEchoApp {
         };
         let explained = wxdata::cellscore::score_all_explained(
             std::slice::from_ref(&c),
-            &self.probsevere,
+            self.active_probsevere(),
             &couplets,
         )
         .pop();
         let open_cells: Vec<Cell> = open.iter().map(|(o, _)| o.clone()).collect();
         let scores = if compare {
-            wxdata::cellscore::score_all(&open_cells, &self.probsevere, &couplets)
+            wxdata::cellscore::score_all(&open_cells, self.active_probsevere(), &couplets)
         } else {
             Vec::new()
         };
@@ -425,6 +425,9 @@ impl HookEchoApp {
             }
             None => (Vec::new(), None),
         };
+        // ProbSevere is not kept for past times (`active_probsevere`): an archived storm's card
+        // says so, rather than that no polygon contains it.
+        let probsevere_archived = self.archive_bucket().is_some();
         let threat = {
             let vol = self.views[self.active].volume.as_ref();
             let name = vol.map(|v| v.name.clone()).unwrap_or_default();
@@ -457,7 +460,7 @@ impl HookEchoApp {
                     cells: self.active_storm_cells(),
                     circulations: &circulations,
                     warnings: self.active_alert_features(),
-                    probsevere: &self.probsevere,
+                    probsevere: self.active_probsevere(),
                 },
                 &markers,
                 t0,
@@ -602,7 +605,9 @@ impl HookEchoApp {
                                 for details in &threat.probsevere {
                                     ui.label(ws::text(details, 11.0, t.text));
                                 }
-                                if threat.probsevere.is_empty() {
+                                if probsevere_archived {
+                                    ws::kv(ui, &t, "ProbSevere", "not kept for past times", None);
+                                } else if threat.probsevere.is_empty() {
                                     ws::kv(ui, &t, "ProbSevere", "no containing source polygon", None);
                                 }
                                 if threat.warnings.is_empty() {
