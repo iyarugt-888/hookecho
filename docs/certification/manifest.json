@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T06:07:49+00:00",
-  "generated_from_commit": "ea366e45d49edd0c78bb88afb2d08d6875a60ebc",
+  "generated_utc": "2026-10-14T06:21:14+00:00",
+  "generated_from_commit": "41af73f1cd36670e17c5463a1f3c1a85fa27dc0b",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -421,6 +421,106 @@
       "path": "docs/certification/chase/route-storms-escape-browser.jpg",
       "sha256": "286cb8fc67103abe1f0dca7fe4145b5416c5be44ddf46f4b894afe36e9a998d6",
       "bytes": 81549
+    },
+    {
+      "path": "docs/certification/decode-observation/README.md",
+      "sha256": "2bc9ad515d8342adb2ba785a5b0fe80c11dc0f185c02a9207ba9025149facbdf",
+      "bytes": 2406
+    },
+    {
+      "path": "docs/certification/decode-observation/after.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/after.log",
+      "sha256": "081c11eda07a2d765707d24983197bb106c70e31af27229d3cc1d20c38189708",
+      "bytes": 586
+    },
+    {
+      "path": "docs/certification/decode-observation/app-gpu.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/app-gpu.log",
+      "sha256": "d7f1b49b777766effe6b94d955cbce09e4c55b7b8abdffe3deb31fe38f13a439",
+      "bytes": 232
+    },
+    {
+      "path": "docs/certification/decode-observation/app-observations.json",
+      "sha256": "cd8136a406ec78c60b58a9ff67e7df7eb6d396f320d81d7e71d3cb6802f0a3cb",
+      "bytes": 27152
+    },
+    {
+      "path": "docs/certification/decode-observation/before.exit",
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95",
+      "bytes": 5
+    },
+    {
+      "path": "docs/certification/decode-observation/before.log",
+      "sha256": "508d20f7e6fa19b8ebbc2c752c68dc1c7893c80fa8245a7d37375fe6688fe399",
+      "bytes": 701
+    },
+    {
+      "path": "docs/certification/decode-observation/clippy.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/clippy.log",
+      "sha256": "929855c14a8f59c160fd733616bff215d934042efca780d8593d0b932ba19cd8",
+      "bytes": 411
+    },
+    {
+      "path": "docs/certification/decode-observation/filter-miss.log",
+      "sha256": "d48eba72364f24a3ad71700ddfbd31250c59f8c7266cd149777a767762ea5f6c",
+      "bytes": 861
+    },
+    {
+      "path": "docs/certification/decode-observation/final-relay.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/final-relay.log",
+      "sha256": "5e0400e5516c8861f753eba34d92de0ba306c81dde0520661c5477162fd99b70",
+      "bytes": 308
+    },
+    {
+      "path": "docs/certification/decode-observation/gpu-timing.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/gpu-timing.log",
+      "sha256": "e5e718251dea1894172e628d4f65d25a307fc21b5ac5256c7103548c687dbf0f",
+      "bytes": 263
+    },
+    {
+      "path": "docs/certification/decode-observation/verification.json",
+      "sha256": "41bddf39cf5679b7a2b03f2f6666c98ab92e1e1957bf7869874b4a2fa5f325a4",
+      "bytes": 9131
+    },
+    {
+      "path": "docs/certification/decode-observation/wasm.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/wasm.log",
+      "sha256": "e860671b5f97baec3a71343cb259156047418520bc46a200968066ca6b5e8d84",
+      "bytes": 3073
+    },
+    {
+      "path": "docs/certification/decode-observation/workspace.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/decode-observation/workspace.log",
+      "sha256": "ad471f0d202424e5f58a39b337d31967489790326b6e4d1a9a7c64b93e16b596",
+      "bytes": 244492
     },
     {
       "path": "docs/certification/delivery-idle/README.md",
