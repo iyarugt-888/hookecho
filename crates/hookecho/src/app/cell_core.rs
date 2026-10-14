@@ -99,12 +99,16 @@ enum Running {
     Local(Box<CoreJob>),
 }
 
+/// Cores kept per volume. A big supercell's is tens of thousands of gates (several MB), so the
+/// cache is bounded; it holds more than one frame ever asks for at once (the Digest's ten storms
+/// and the card's seven), or a frame wanting them all would evict and gather again forever.
+const CORES_KEPT: usize = 24;
+
 /// The whole-cell cores of one pane's volume.
-#[derive(Default)]
 pub(crate) struct CellCores {
     /// The volume they are of (`HookEchoApp::volume_key`); another empties the cache.
     volume: Option<(usize, String, usize)>,
-    done: std::collections::HashMap<(u64, u64), Option<Arc<RegionSamples>>>,
+    done: LruCache<(u64, u64), Option<Arc<RegionSamples>>>,
     /// The gathering out, and how far it has got (tilts done, of how many).
     running: Option<(Running, (usize, usize))>,
     /// The cell card's rows for the core it shows, worked out once per core (a whole cell is tens
@@ -121,6 +125,18 @@ pub(crate) struct CardRows {
     pub core: Vec<(&'static str, String, bool)>,
     /// By tilt: tilt and beam height, that tilt's values, notable.
     pub tilts: Vec<(String, String, bool)>,
+}
+
+impl Default for CellCores {
+    fn default() -> Self {
+        Self {
+            volume: None,
+            done: LruCache::new(NonZeroUsize::new(CORES_KEPT).unwrap()),
+            running: None,
+            card: None,
+            card_cache: Default::default(),
+        }
+    }
 }
 
 /// One centre's whole-cell core.
@@ -177,13 +193,13 @@ impl HookEchoApp {
         if let Some(results) = finished {
             cores.running = None;
             for (k, s) in results {
-                cores.done.insert(k, s.map(Arc::new));
+                cores.done.put(k, s.map(Arc::new));
             }
         }
         let missing: Vec<(f64, f64)> = centres
             .iter()
             .copied()
-            .filter(|&(lon, lat)| !cores.done.contains_key(&key_of(lon, lat)))
+            .filter(|&(lon, lat)| !cores.done.contains(&key_of(lon, lat)))
             .collect();
         if cores.running.is_none() && !missing.is_empty() {
             if let Some(scan) = self.views[idx].volume.as_ref().map(|v| Arc::clone(&v.scan)) {
@@ -210,7 +226,7 @@ impl HookEchoApp {
                 self.whole_cores.running = Some((running, progress));
             }
         }
-        let cores = &self.whole_cores;
+        let cores = &mut self.whole_cores;
         centres
             .iter()
             .map(|&(lon, lat)| match cores.done.get(&key_of(lon, lat)) {
