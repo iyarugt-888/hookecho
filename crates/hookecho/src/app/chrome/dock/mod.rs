@@ -480,6 +480,8 @@ pub(crate) struct DockState {
     /// The SCIT table `cells_open` (and `cell_last_sel`) were written against, so a new table
     /// carries them through the storm history instead of matching recycled IDs.
     cells_open_scan: Option<i64>,
+    /// The radar whose table `cells_open` names storms of: on another radar's they name others.
+    cells_open_site: Option<String>,
     /// The Cell window shows its open storms side by side.
     pub cell_compare: bool,
     /// The storm selected last frame, so a newly selected one joins the Cell window once.
@@ -547,6 +549,7 @@ impl Default for DockState {
             bulletin_seen: None,
             cells_open: Vec::new(),
             cells_open_scan: None,
+            cells_open_site: None,
             cell_compare: false,
             cell_last_sel: None,
             phone: false,

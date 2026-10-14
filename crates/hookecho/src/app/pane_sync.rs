@@ -55,8 +55,25 @@ impl HookEchoApp {
                 self.cell_popup = None;
                 if let Some(site) = self.views[idx].site.clone() {
                     let history = self.cells_history_site.as_deref() != Some(site.as_str());
+                    self.cells_asked = Some(site.clone());
                     self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
                 }
+            }
+        }
+
+        // Another pane was made active: ask for its radar's storm cells now, not at the next
+        // overlay refresh up to minutes later (the storm table is empty until they arrive).
+        if idx == self.active && self.overlay_last_fetch.is_some() {
+            if let Some(site) = self.views[idx]
+                .site
+                .clone()
+                .filter(|s| wxdata::sites::is_nexrad(s))
+                .filter(|s| self.cells_site.as_deref() != Some(s.as_str()))
+                .filter(|s| self.cells_asked.as_deref() != Some(s.as_str()))
+            {
+                let history = self.cells_history_site.as_deref() != Some(site.as_str());
+                self.cells_asked = Some(site.clone());
+                self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
             }
         }
 

@@ -380,6 +380,14 @@ impl HookEchoApp {
             .iter()
             .map(|c| c.id.clone())
             .collect();
+        // Another radar's table (another pane made active): the open storms were this one's.
+        let site = self.storm_table_site().map(str::to_string);
+        if site != self.dock.cells_open_site {
+            self.dock.cells_open.clear();
+            self.dock.cell_last_sel = None;
+            self.dock.cell_compare = false;
+            self.dock.cells_open_site = site;
+        }
         // A new table: each open storm is carried to its cell in it, by the storm history.
         let scan = self.dock.storm_ids.fed_scan();
         if scan != self.dock.cells_open_scan {
@@ -394,7 +402,8 @@ impl HookEchoApp {
         let sel = self
             .selected_storm()
             .map(|c| c.id)
-            .filter(|id| !id.is_empty());
+            .filter(|id| !id.is_empty())
+            .filter(|_| self.cell_popup_site.as_deref() == self.storm_table_site());
         if sel != self.dock.cell_last_sel {
             if let Some(id) = &sel {
                 let open = &mut self.dock.cells_open;
@@ -1059,6 +1068,7 @@ impl HookEchoApp {
             Some(CellAct::Focus(id)) => {
                 if let Some(cell) = self.active_storm_cells().iter().find(|o| o.id == id) {
                     self.cell_popup = Some(cell.clone());
+                    self.cell_popup_site = self.storm_table_site().map(str::to_string);
                 }
                 self.dock.cell_compare = false;
             }
@@ -1076,6 +1086,7 @@ impl HookEchoApp {
                         // Selecting the next one must not re-add the one just closed.
                         self.dock.cell_last_sel = Some(cell.id.clone());
                         self.cell_popup = Some(cell);
+                        self.cell_popup_site = self.storm_table_site().map(str::to_string);
                     }
                     None => self.cell_details = false,
                 }
@@ -1764,15 +1775,13 @@ mod tests {
         assert!(!get("Max dBZ").2, "59 dBZ is under the 60 flag");
     }
 
-    /// A headless app for the full-app captures: storage isolated under `target/`, network
-    /// denied (asserted), the cached Moore volume (KTLX 2013-05-20 20:16Z) on pane 0, archive
-    /// mode, the Moore storm selected and the cell card open. Returns the app, its render state,
-    /// the storm's centre and the capture folder.
+    /// A headless app for the full-app tests: storage isolated under `target/` (a folder per
+    /// process), network denied (asserted), KTLX the default site. Returns the app, its render
+    /// state and the capture folder.
     #[cfg(not(target_arch = "wasm32"))]
-    fn headless_moore_app() -> (
+    fn headless_app() -> (
         HookEchoApp,
         eframe::egui_wgpu::RenderState,
-        (f64, f64),
         std::path::PathBuf,
     ) {
         assert_eq!(
@@ -1805,16 +1814,7 @@ mod tests {
             serde_json::to_vec(&settings).unwrap(),
         )
         .unwrap();
-        // The volume comes from the local cache only: the network is denied.
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let name = "KTLX20130520_201643_V06.gz";
-        let scan = std::sync::Arc::new(
-            rt.block_on(wxdata::level2::download_scan(
-                wxdata::level2::Identifier::new(name.into()),
-                Some(repo.join("target/trail-volumes")),
-            ))
-            .expect("the Moore volume cached by a_full_volume_core_reads_the_storm_on_many_tilts"),
-        );
         let (device, queue, adapter) = crate::headless::init_gpu(&rt).unwrap();
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let renderer = eframe::egui_wgpu::Renderer::new(
@@ -1833,7 +1833,35 @@ mod tests {
         };
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.wgpu_render_state = Some(state.clone());
-        let mut app = HookEchoApp::new(&cc);
+        let app = HookEchoApp::new(&cc);
+        (app, state, out)
+    }
+
+    /// [`headless_app`] with the cached Moore volume (KTLX 2013-05-20 20:16Z) on pane 0, archive
+    /// mode, the Moore storm selected and the cell card open. Returns the app, its render state,
+    /// the storm's centre and the capture folder.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn headless_moore_app() -> (
+        HookEchoApp,
+        eframe::egui_wgpu::RenderState,
+        (f64, f64),
+        std::path::PathBuf,
+    ) {
+        let (mut app, state, out) = headless_app();
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // The volume comes from the local cache only: the network is denied.
+        let name = "KTLX20130520_201643_V06.gz";
+        let scan = std::sync::Arc::new(
+            rt.block_on(wxdata::level2::download_scan(
+                wxdata::level2::Identifier::new(name.into()),
+                Some(repo.join("target/trail-volumes")),
+            ))
+            .expect("the Moore volume cached by a_full_volume_core_reads_the_storm_on_many_tilts"),
+        );
         let time = wxdata::level2::Identifier::new(name.into())
             .date_time()
             .unwrap();
@@ -1843,6 +1871,7 @@ mod tests {
         app.views[0].timeline.following = false;
         app.views[0].timeline.playing = false;
         let centre = (-97.51, 35.32);
+        app.cell_popup_site = Some("KTLX".into());
         app.cell_popup = Some(Cell {
             id: "L-1".into(),
             title: "L-1".into(),
@@ -1855,6 +1884,86 @@ mod tests {
         app.dock.cell.open = true;
         app.dock.cell_available = true;
         (app, state, centre, out)
+    }
+
+    /// A storm picked on one radar is not another radar's storm with the same ID. Two live panes
+    /// (KTLX, KINX); "A3" picked on KTLX; KINX's pane made active. Until KINX's own cells arrive,
+    /// its storm table is empty (KTLX's are not KINX's) and they are asked for at once. When they
+    /// arrive with a different storm also called "A3", the selection stays the storm picked on
+    /// KTLX, read as it was picked, and the Cell window does not open KINX's "A3". Back on KTLX,
+    /// the pick is matched there again once KTLX's table is back.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn a_storm_picked_on_one_radar_is_not_another_radars_storm() {
+        let (mut app, _state, _out) = headless_app();
+        let time = chrono::Utc::now();
+        let cell = |id: &str, lon: f64, lat: f64| Cell {
+            id: id.into(),
+            title: id.into(),
+            lon,
+            lat,
+            time: Some(time),
+            ..Default::default()
+        };
+        let camera = crate::render::mercator::Camera::at_lonlat(-97.0, 36.0, 6.0);
+        app.views = vec![
+            crate::view::MapView::new(Some("KTLX".into()), camera),
+            crate::view::MapView::new(Some("KINX".into()), camera),
+        ];
+        for v in &mut app.views {
+            v.loaded_site = v.site.clone();
+            v.timeline.following = true;
+        }
+        app.active = 0;
+        let ktlx = vec![cell("A3", -97.5, 35.3), cell("B1", -97.0, 35.6)];
+        app.dock.storm_ids.feed(Some("KTLX"), &ktlx);
+        app.storm_cells = ktlx;
+        app.cells_site = Some("KTLX".into());
+        app.cells_asked = Some("KTLX".into());
+        app.select_storm(app.active_storm_cells()[0].clone());
+        app.cell_details = true;
+        app.sync_open_cells();
+        assert_eq!(app.dock.cells_open, ["A3"]);
+        let (sel, live) = app.selected_storm_live().unwrap();
+        assert!(live && sel.lon == -97.5);
+
+        // KINX's pane made active: no table yet, and KINX is asked for now.
+        app.active = 1;
+        assert!(
+            app.active_storm_cells().is_empty(),
+            "KTLX's cells as KINX's"
+        );
+        let (sel, live) = app.selected_storm_live().unwrap();
+        assert!(!live && sel.lon == -97.5);
+        app.overlay_last_fetch = Some(std::time::Instant::now());
+        let ctx = egui::Context::default();
+        app.sync_pane(1, &ctx);
+        assert_eq!(app.cells_asked.as_deref(), Some("KINX"));
+
+        // KINX's cells arrive, with another storm called "A3".
+        let kinx = vec![cell("A3", -95.9, 36.4)];
+        app.dock.storm_ids.feed(Some("KINX"), &kinx);
+        app.storm_cells = kinx;
+        app.cells_site = Some("KINX".into());
+        assert_eq!(app.active_storm_cells().len(), 1);
+        let (sel, live) = app.selected_storm_live().unwrap();
+        assert!(!live, "KINX's A3 taken for the storm picked on KTLX");
+        assert_eq!((sel.lon, sel.lat), (-97.5, 35.3));
+        app.sync_open_cells();
+        assert!(app.dock.cells_open.is_empty(), "{:?}", app.dock.cells_open);
+
+        // Back on KTLX: empty until KTLX's table is back, then the pick is matched there.
+        app.active = 0;
+        assert!(app.active_storm_cells().is_empty());
+        let ktlx = vec![cell("A3", -97.45, 35.32)];
+        app.dock.storm_ids.feed(Some("KTLX"), &ktlx);
+        app.storm_cells = ktlx;
+        app.cells_site = Some("KTLX".into());
+        let (sel, live) = app.selected_storm_live().unwrap();
+        assert!(live && sel.lon == -97.45);
+        app.sync_open_cells();
+        assert_eq!(app.dock.cells_open, ["A3"]);
     }
 
     /// The real cell card in a real app: the app built headlessly with its storage isolated
@@ -2070,7 +2179,10 @@ mod tests {
         // Drawing starts the build off-thread; drawing again collects it.
         let waited = std::time::Instant::now();
         while app.smooth_vol_key[0].is_none() {
-            assert!(waited.elapsed().as_secs() < 300, "the smooth volume is built");
+            assert!(
+                waited.elapsed().as_secs() < 300,
+                "the smooth volume is built"
+            );
             shoot("app-outline-smooth-warmup", &mut app, 2, false);
             std::thread::sleep(std::time::Duration::from_millis(300));
         }
@@ -2081,7 +2193,11 @@ mod tests {
         shoot("app-outline-smooth", &mut app, 6, true);
         shoot("app-outline-smooth-none", &mut app, 6, false);
         let _ = std::fs::remove_file(out.join("app-outline-smooth-warmup.png"));
-        let img = |l: &str| image::open(out.join(format!("{l}.png"))).unwrap().to_rgba8();
+        let img = |l: &str| {
+            image::open(out.join(format!("{l}.png")))
+                .unwrap()
+                .to_rgba8()
+        };
         let (with, without) = (img("app-outline-smooth"), img("app-outline-smooth-none"));
         let changed = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
             a.0.iter().zip(b.0).take(3).any(|(x, y)| x.abs_diff(y) > 60)

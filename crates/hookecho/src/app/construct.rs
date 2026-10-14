@@ -401,6 +401,7 @@ impl HookEchoApp {
             detail: None,
             feature_chooser: None,
             cell_popup: None,
+            cell_popup_site: None,
             cell_details: false,
             cell_follow_toggle: false,
             cell_view3d: false,
@@ -571,6 +572,7 @@ impl HookEchoApp {
             #[cfg(target_arch = "wasm32")]
             crash_report: None,
             cells_site: None,
+            cells_asked: None,
             cells_history_site: None,
             cell_trends: std::collections::HashMap::new(),
             comparison_fcst_hour: 0,

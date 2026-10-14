@@ -1454,6 +1454,9 @@ pub struct HookEchoApp {
     feature_chooser: Option<Vec<feature_chooser::ChoiceItem>>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
     pub(crate) cell_popup: Option<Cell>,
+    /// The radar whose storm table `cell_popup` was picked from. SCIT's IDs, and an archive's
+    /// local ones, are issued per radar: on another radar's table the same ID is another storm.
+    pub(crate) cell_popup_site: Option<String>,
     /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the
     /// workstation; there, the Inspector's storm section is the summary and this opens on request.
     pub(crate) cell_details: bool,
@@ -1606,6 +1609,8 @@ pub struct HookEchoApp {
     /// Level 3 clickable storm cells for `cells_site` (the active site when last fetched).
     storm_cells: Vec<Cell>,
     cells_site: Option<String>,
+    /// The site storm cells were last asked for, so a newly active pane's radar is asked once.
+    cells_asked: Option<String>,
     /// The site whose earlier scans have been merged into `cell_trends`, so they are fetched once.
     cells_history_site: Option<String>,
     /// Per-cell-id trend history (VIL/top/dBZ across volumes); cleared when the site changes.
@@ -2624,6 +2629,7 @@ impl HookEchoApp {
             .filter(|s| wxdata::sites::is_nexrad(s))
         {
             let history = self.cells_history_site.as_deref() != Some(site.as_str());
+            self.cells_asked = Some(site.clone());
             self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
         }
     }
@@ -3631,6 +3637,7 @@ impl HookEchoApp {
     /// analyst is stepping down the list — the ring on the map already says which one it is.
     pub(crate) fn select_storm_from(&mut self, c: Cell, show: bool) {
         self.cell_popup = Some(c);
+        self.cell_popup_site = self.storm_table_site().map(str::to_string);
         if self.workstation_chrome() {
             if self.cell_details {
                 // The Cell window is open: the storm joins it (`sync_open_cells`) to be read
@@ -4258,7 +4265,17 @@ impl HookEchoApp {
         if self.archive_bucket().is_some() {
             return self.archive_cells.as_ref().map_or(&[], |(_, c)| c.as_slice());
         }
+        // Another pane's radar was made active: the table is not its own until its own arrives.
+        if self.cells_site.as_deref() != self.views[self.active].site.as_deref() {
+            return &[];
+        }
         &self.storm_cells
+    }
+
+    /// The radar the active storm table is from: the active pane's (an archive's cells are rebuilt
+    /// for it every frame; SCIT's are empty until its own arrive).
+    pub(crate) fn storm_table_site(&self) -> Option<&str> {
+        self.views[self.active].site.as_deref()
     }
 
     /// SCIT's live cells only, empty while scrubbed: for what is about you now (the chase target,

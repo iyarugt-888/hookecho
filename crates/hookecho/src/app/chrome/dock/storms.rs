@@ -167,9 +167,7 @@ impl StormIdentity {
     /// new history; no cells feed nothing.
     pub(crate) fn feed(&mut self, site: Option<&str>, cells: &[wxdata::level3::Cell]) {
         use wxdata::storm_history::{ObservationRef, Source};
-        let local = cells
-            .iter()
-            .any(|c| wxdata::celltrack::is_local_id(&c.id));
+        let local = cells.iter().any(|c| wxdata::celltrack::is_local_id(&c.id));
         if self.site.as_deref() != site || (self.local != local && !cells.is_empty()) {
             *self = StormIdentity {
                 site: site.map(str::to_string),
@@ -588,6 +586,10 @@ impl HookEchoApp {
     /// click-time copy).
     pub(crate) fn selected_storm_live(&self) -> Option<(Cell, bool)> {
         let picked = self.cell_popup.as_ref()?;
+        // Picked on another radar: its ID there names nothing here, so it stays as it was picked.
+        if self.cell_popup_site.as_deref() != self.storm_table_site() {
+            return Some((picked.clone(), false));
+        }
         let cells = self.active_storm_cells();
         let by_id = |id: &str| cells.iter().find(|c| !id.is_empty() && c.id == id);
         let resolved = self

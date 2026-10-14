@@ -62,6 +62,16 @@ Diagnostics now includes recent accepted radar revisions with acquisition-clock 
 receipt, decode, upload and GPU timing. Visible-presentation timing is explicitly unavailable
 until a display observer measures it.
 
+### Fixed: a storm picked on one radar stays that storm on another
+
+Radars number their storms separately, so "A3" on one radar is a different storm from "A3" on
+another. When you made a pane on another radar active, a storm you had selected could become
+that radar's storm with the same number, with its card and Cell window switching to it. The
+storm list could also show the previous radar's storms for up to a few minutes. Now the list
+stays empty until the active radar's own storms arrive, and HookEcho asks for them immediately.
+A storm you selected keeps showing as it was when you picked it, and it updates again when you
+go back to its radar.
+
 ### Improved: a storm's core statistics read the whole storm, tilt by tilt
 
 A storm's Core statistics, Core distribution and comparison used to read only the tilt on
