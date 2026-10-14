@@ -1,0 +1,523 @@
+warn: could not canonicalize path C:\Users\wushi
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app\beam_diagram.rs:104:
+     let range_km = match hovered {
+         Some((km, _)) => km.min(f64::from(d.span_km)),
+         None => {
+-            crate::theme::slider(ui,
++            crate::theme::slider(
++                ui,
+                 egui::Slider::new(&mut d.range_km, 0.0..=d.span_km)
+                     .text("range")
+                     .suffix(" km"),
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app\digest_brief.rs:89:
+             let c = Some(h.confidence);
+             ([h.lon, h.lat], SignatureKind::Debris, sb::debris(h), c)
+         }));
+-        sigs.extend(
+-            tbss.iter()
+-                .map(|h| ([h.lon, h.lat], SignatureKind::HailSpike, sb::hail_spike(h), None)),
+-        );
+-        sigs.extend(
+-            zdr.iter()
+-                .map(|h| ([h.lon, h.lat], SignatureKind::ZdrColumn, sb::zdr_column(h), None)),
+-        );
++        sigs.extend(tbss.iter().map(|h| {
++            (
++                [h.lon, h.lat],
++                SignatureKind::HailSpike,
++                sb::hail_spike(h),
++                None,
++            )
++        }));
++        sigs.extend(zdr.iter().map(|h| {
++            (
++                [h.lon, h.lat],
++                SignatureKind::ZdrColumn,
++                sb::zdr_column(h),
++                None,
++            )
++        }));
+         sigs.retain(|(p, ..)| inside(p[0], p[1]));
+ 
+         // The storms in view, scored the way the Storms table scores them.
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app\digest_brief.rs:103:
+         let all = self.active_storm_cells().to_vec();
+-        let cells: Vec<wxdata::level3::Cell> =
+-            all.iter().filter(|c| inside(c.lon, c.lat)).cloned().collect();
++        let cells: Vec<wxdata::level3::Cell> = all
++            .iter()
++            .filter(|c| inside(c.lon, c.lat))
++            .cloned()
++            .collect();
+         b.storms_elsewhere = all.len() - cells.len();
+         let explained = wxdata::cellscore::score_all_explained(&cells, &self.probsevere, &couplets);
+         let mut order: Vec<usize> = (0..cells.len()).collect();
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app\digest_brief.rs:109:
+         order.sort_by_key(|&i| std::cmp::Reverse(explained[i].score));
+         order.truncate(MAX_STORMS);
+-        let centres: Vec<(f64, f64)> = order.iter().map(|&i| (cells[i].lon, cells[i].lat)).collect();
++        let centres: Vec<(f64, f64)> = order
++            .iter()
++            .map(|&i| (cells[i].lon, cells[i].lat))
++            .collect();
+         let cores = self.core_rows_at(idx, &centres);
+         let towns = self.town_labels();
+         let flashes = self.recent_flashes();
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app\digest_brief.rs:183:
+                     })
+                 }
+                 _ => {
+-                    let (km, bearing) = radar.map_or((0.0, 0.0), |r| crate::geo::great_circle(r, p));
++                    let (km, bearing) =
++                        radar.map_or((0.0, 0.0), |r| crate::geo::great_circle(r, p));
+                     b.loose.push(Signature {
+                         kind,
+                         detail,
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:28:
+ mod goes_timeline;
+ mod point_models;
+ pub(crate) use goes_context::GoesRequest;
++mod beam_diagram;
+ pub(crate) mod impact;
+ mod impact_report;
+ mod layer_probe;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:36:
+ #[cfg(not(target_arch = "wasm32"))]
+ mod local_api;
+ pub(crate) mod long_loop;
++pub(crate) mod model_field;
++mod model_particles;
+ mod overlay_health;
+ mod pane_time;
+-mod model_particles;
+ mod radar_wind;
+ mod region_stats;
+-pub(crate) mod model_field;
+ mod report;
+-mod beam_diagram;
+ mod sat_loop;
+ pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
+ pub(crate) use contours::{summarize_contours, ContourEntry, ContourKind};
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:53:
+ pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
+ mod account_sync;
+ mod alert_latency;
+-mod gis_bundle;
+-mod wire_alerts;
+ mod alerts_watch;
+ mod beam_tools;
+ pub(crate) mod camera_flight;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:63:
+ mod construct;
+ mod contours;
+ mod ensemble_stamps;
++mod gis_bundle;
+ mod radar_outlines;
++mod wire_alerts;
+ /// The export's outline thresholds, for Settings.
+-pub(crate) use radar_outlines::{default_thresholds as default_outline_thresholds, parse_thresholds};
++pub(crate) use radar_outlines::{
++    default_thresholds as default_outline_thresholds, parse_thresholds,
++};
+ mod data_age;
+ mod data_poll;
+ mod detectors;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:72:
+ mod digest_brief;
+ mod draw_panes;
++mod feature_chooser;
++mod feature_tracking;
+ mod fetch_schedule;
++mod field_series;
+ mod floating_windows;
+ mod frame_end;
+ mod frame_intake;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:81:
+ mod models;
+ mod near_storm;
+ mod output_window;
+-mod presentation;
+-mod feature_chooser;
+ mod overlay_poll;
+ mod overlay_toggle;
+ mod packs_soundings;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:95:
+ mod placefiles_sync;
+ mod prefs_app;
+ mod prefs_map;
++mod presentation;
+ mod quality;
+ mod rebuild;
+ mod route_frame;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:101:
+-mod feature_tracking;
+-mod volume3d_fuse;
+-mod xsection_fuse;
+-mod field_series;
+ mod self_update_ui;
+ mod spatial_groups;
++mod volume3d_fuse;
++mod xsection_fuse;
+ pub(crate) use goto::{goto_link, parse_goto, Goto};
+ mod cell_markers;
+ mod community_targets;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:115:
+ use loop_capture::LoopExport;
+ mod map_click;
+ mod map_volume;
+-pub(crate) mod memory_trim;
+-mod radar_hint;
+ mod measure;
++pub(crate) mod memory_trim;
+ mod pane_3d_overlays;
+ mod pane_feeds;
+ mod pane_layout;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:128:
+ mod pane_points;
+ mod pane_stations;
+ mod radar_feed;
++mod radar_hint;
+ mod radar_probe;
+ mod radar_products;
+ mod rules;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:825:
+     Api(std::sync::mpsc::Sender<Result<Vec<u8>, String>>),
+ }
+ 
+-
+ /// A pane's smooth volume grid: `n`, `nz`, half-width km, top km, centre km east/north.
+ type SmoothDims = (u32, u32, f32, f32, [f32; 2]);
+ 
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:1660:
+     previous_sounding_rx:
+         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
+     /// The GEFS envelope at the sounding's point (ROADMAP_NEW F8).
+-    envelope_rx: Option<
+-        std::sync::mpsc::Receiver<Result<wxdata::ensemble_sounding::Envelope, String>>,
+-    >,
++    envelope_rx:
++        Option<std::sync::mpsc::Receiver<Result<wxdata::ensemble_sounding::Envelope, String>>>,
+     /// Last spoken storm-position update: when, and the distance in whole miles it reported.
+     spoke_pos: Option<(Instant, i32)>,
+     /// Detections seen recently, for compound rules to ask "and was there also…". Trimmed to the
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\app.rs:4655:
+         let following = self.follow_cell.is_some();
+         let text = if let Some((_, c, _)) = &self.follow_cell {
+             // No ID while a follow carried to another radar waits for that radar's storms.
+-            let id = if c.id.is_empty() { "storm" } else { c.id.as_str() };
++            let id = if c.id.is_empty() {
++                "storm"
++            } else {
++                c.id.as_str()
++            };
+             format!("⌖ Following {id}  ✕")
+         } else if let Some((msg, _)) = &self.follow_notice {
+             msg.clone()
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ensemble_layer.rs:206:
+             let (lon, lat) = world_to_lonlat(wx, wy);
+             let c = ((lon - grid.lon_west) / dlon).floor();
+             let r = ((grid.lat_north - lat) / dlat).floor();
+-            let inside =
+-                c >= 0.0 && r >= 0.0 && (c as usize) < grid.nx && (r as usize) < grid.ny;
++            let inside = c >= 0.0 && r >= 0.0 && (c as usize) < grid.nx && (r as usize) < grid.ny;
+             let idx = if inside {
+                 upload.data[r as usize * grid.nx + c as usize] as usize
+             } else {
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\lib.rs:50:
+ /// network, no platform dependency), so unlike `relay_provider`/`provider_health` this one builds
+ /// everywhere, wasm32 included.
+ pub mod failover_arbiter;
+-pub mod fielddiff;
+ /// A short visual crossfade when a field layer's frame changes (M5.4, 1008.md E2).
+ pub mod field_fade;
++pub mod fielddiff;
+ pub mod fonts;
+ pub mod fronts_draw;
+ pub mod geo;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\lib.rs:100:
+ pub mod plugins;
+ pub mod products;
+ pub mod profiling;
+-pub mod quality;
+ /// ROADMAP_NEW B6.11 step 7: run more than one `Level2LiveProvider` for a site concurrently and
+ /// compare their health, without changing which one is rendered. Native only, like
+ /// `relay_provider` — see that module's doc comment for why.
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\lib.rs:107:
+ #[cfg(not(target_arch = "wasm32"))]
+ pub mod provider_health;
++pub mod quality;
++#[cfg(test)]
++mod radar_precision_tests;
+ /// ROADMAP_NEW B6.11 step 11: wires the failover arbiter, dual-feed health monitor, relay provider
+ /// and TGFTP degraded provider together into one per-site decision (`SiteProviders`). Native only,
+ /// for the same reason as `relay_provider`/`provider_health` — see this module's own doc comment.
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\lib.rs:165:
+ pub mod tropical_draw;
+ /// User-defined products on the GPU (ROADMAP_NEW C1).
+ pub mod udp_gpu;
+-#[cfg(test)]
+-mod radar_precision_tests;
+ pub mod ui;
+ pub mod vector_tiles;
+ pub mod view;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:283:
+             a.push(format!("ProbSevere {p}%"));
+         }
+         match self.motion {
+-            Some((to, kt)) => a.push(format!("moving toward {} at {kt:.0} kt", compass(to as f64))),
++            Some((to, kt)) => a.push(format!(
++                "moving toward {} at {kt:.0} kt",
++                compass(to as f64)
++            )),
+             None => a.push("motion unknown".into()),
+         }
+         if let Some(n) = self.flashes_5min {
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:301:
+     parts.extend(pair("max dBZ", t.dbz, ""));
+     parts.extend(pair("top", t.top_kft, " kft"));
+     parts.extend(pair("VIL", t.vil, ""));
+-    parts.extend(
+-        t.severity
+-            .map(|(a, b)| format!("severity {a}→{b}")),
+-    );
++    parts.extend(t.severity.map(|(a, b)| format!("severity {a}→{b}")));
+     (!parts.is_empty()).then(|| {
+         format!(
+             "over the last {} min ({} scans): {}",
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:366:
+             _ => {}
+         }
+         if let Some((h, cc)) = self.bright_band {
+-            let _ = writeln!(o, "Melting layer seen in CC at {h:.1} km above the radar (mean CC {cc:.2}).");
++            let _ = writeln!(
++                o,
++                "Melting layer seen in CC at {h:.1} km above the radar (mean CC {cc:.2})."
++            );
+         }
+         if let Some(n) = self.flashes_5min {
+             let _ = writeln!(o, "GOES lightning in view, last 5 min: {n} flashes.");
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:402:
+             }
+         }
+         if self.storms_elsewhere > 0 {
+-            let _ = writeln!(o, "\n{} more tracked storms outside the view.", self.storms_elsewhere);
++            let _ = writeln!(
++                o,
++                "\n{} more tracked storms outside the view.",
++                self.storms_elsewhere
++            );
+         }
+         o
+     }
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:440:
+             }
+         }
+         if n > 3 {
+-            let _ = write!(o, "\n\n{} weaker storm{} not described.", n - 3, if n == 4 { "" } else { "s" });
++            let _ = write!(
++                o,
++                "\n\n{} weaker storm{} not described.",
++                n - 3,
++                if n == 4 { "" } else { "s" }
++            );
+         }
+         if !self.loose.is_empty() {
+             let _ = write!(
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:467:
+     let newest = samples.iter().filter_map(|s| s.time).max()?;
+     let mut recent: Vec<&crate::ui::cell_window::CellSample> = samples
+         .iter()
+-        .filter(|s| s.time.is_some_and(|t| (newest - t).num_minutes() <= window_min))
++        .filter(|s| {
++            s.time
++                .is_some_and(|t| (newest - t).num_minutes() <= window_min)
++        })
+         .collect();
+     recent.sort_by_key(|s| s.time);
+     if recent.len() < 2 {
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:557:
+         ] {
+             assert!(s.contains(want), "missing {want:?} in\n{s}");
+         }
+-        assert!(!s.contains("warning"), "warnings are not part of the brief:\n{s}");
++        assert!(
++            !s.contains("warning"),
++            "warnings are not part of the brief:\n{s}"
++        );
+     }
+ 
+     #[test]
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\storm_brief.rs:567:
+             standalone: true,
+             ..Default::default()
+         };
+-        assert_eq!(m.heading(), "Mesocyclone (radar detection, no tracked cell)");
++        assert_eq!(
++            m.heading(),
++            "Mesocyclone (radar detection, no tracked cell)"
++        );
+     }
+ 
+     #[test]
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\theme.rs:408:
+     fn the_geometry_is_dear_imgui_s_square_and_compact() {
+         assert_eq!(GEOMETRY.corner_radius, 0, "Dear ImGui rounds nothing");
+         assert_eq!(GEOMETRY.window_corner_radius, 0);
+-        assert_eq!(GEOMETRY.button_padding, vec2(4.0, 3.0), "ImGuiStyle::FramePadding");
+-        assert_eq!(GEOMETRY.item_spacing, vec2(8.0, 4.0), "ImGuiStyle::ItemSpacing");
++        assert_eq!(
++            GEOMETRY.button_padding,
++            vec2(4.0, 3.0),
++            "ImGuiStyle::FramePadding"
++        );
++        assert_eq!(
++            GEOMETRY.item_spacing,
++            vec2(8.0, 4.0),
++            "ImGuiStyle::ItemSpacing"
++        );
+     }
+ 
+     #[test]
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\theme.rs:416:
+     fn the_accent_is_the_exact_imgui_blue_until_the_user_picks_one() {
+         // ImGuiCol_CheckMark / Header / SliderGrabActive in StyleColorsDark(): (0.26, 0.59, 0.98).
+         set_accent_override(None);
+-        assert_eq!(accent(Theme::DearImGui), Color32::from_rgb(0x42, 0x96, 0xfa));
++        assert_eq!(
++            accent(Theme::DearImGui),
++            Color32::from_rgb(0x42, 0x96, 0xfa)
++        );
+         set_accent_override(Some([255, 0, 128]));
+         assert_eq!(accent(Theme::DearImGui), Color32::from_rgb(255, 0, 128));
+         set_accent_override(None);
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ui\mod.rs:98:
+ pub mod cell_window;
+ pub mod cells_window;
+ pub mod changelog;
+-pub(crate) mod whats_new;
+ pub mod chase_replay;
+ pub mod cheatsheet;
+ pub mod cursor_probe;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ui\mod.rs:107:
+ pub mod drawer;
+ pub mod event_window;
+ pub mod firstrun;
++/// River-gauge cards: hydrograph, flood stages, crests.
++pub mod flood_impact;
+ pub mod forecast_window;
+ pub(crate) mod freshness;
+ pub mod gate_inspector;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ui\mod.rs:113:
+-/// River-gauge cards: hydrograph, flood stages, crests.
+-pub mod flood_impact;
+ pub mod gauge_card;
+ /// Every river gauge in view: flood categories, sparklines, the selected gauge's card.
+ pub mod gauge_dashboard;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ui\mod.rs:157:
+ pub mod video_window;
+ pub mod volume3d_window;
+ pub mod warning_window;
++pub(crate) mod whats_new;
+ /// WSV3-style ribbon chrome primitives.
+ pub mod workstation;
+ pub mod wsv3;
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\ui\model_panel.rs:185:
+                 actions.palette = Some(PaletteAction::StepModelLead(-1));
+             }
+             let mut lead = *lead_min;
+-            let response = crate::theme::slider(ui,
++            let response = crate::theme::slider(
++                ui,
+                 egui::Slider::new(&mut lead, range.min..=range.max)
+                     .step_by(f64::from(range.step))
+                     .show_value(true)
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\vector_tiles.rs:198:
+     palette: basemap_style::Palette,
+     tess_zoom: f64,
+ ) -> (Vec<OverlayVertex>, Vec<u32>, Vec<PlaceLabel>) {
+-    build_tile_with_theme(bytes, id, palette, tess_zoom, crate::settings::Theme::DearImGui)
++    build_tile_with_theme(
++        bytes,
++        id,
++        palette,
++        tess_zoom,
++        crate::settings::Theme::DearImGui,
++    )
+ }
+ 
+ /// Theme-aware variant: high-contrast scales stroke widths via `crate::theme::vector_stroke_scale`.
+Diff in \\?\C:\Users\wushi\hookecho\crates\hookecho\src\main.rs:93:
+             .map(|(_, a)| a)
+             .collect();
+         let Some(site) = rest.first() else {
+-            eprintln!(
+-                "usage: hookecho --soak SITE [MINUTES] [--inject] [--render] [--jsonl PATH]"
+-            );
++            eprintln!("usage: hookecho --soak SITE [MINUTES] [--inject] [--render] [--jsonl PATH]");
+             std::process::exit(2);
+         };
+         let minutes = rest.get(1).and_then(|m| m.parse().ok()).unwrap_or(120);
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\flood_fim.rs:318:
+             {"geometry":{"rings":[[[-84.1,32.2],[-84.0,32.2],[-84.0,32.25],[-84.1,32.2]]]}}
+         ]}"#;
+         let rings = parse_rings(json).unwrap();
+-        assert_eq!(rings.len(), 2, "two-point and one-point rings have no area and are dropped");
++        assert_eq!(
++            rings.len(),
++            2,
++            "two-point and one-point rings have no area and are dropped"
++        );
+         assert_eq!(rings[0][0], (-84.03, 32.30));
+         assert!(library_lid("MDVG1").unwrap() == "mdvg1");
+         assert!(library_lid("x' OR 1=1").is_err());
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:35:
+ pub mod efield;
+ pub mod ensemble;
+ pub mod ensemble_sounding;
+-pub mod feature_track;
+ pub mod ero;
+ pub mod evidence;
+ pub mod extrema;
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:42:
++pub mod feature_track;
+ pub mod field;
+ pub mod firewx;
+ pub mod flood_fim;
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:52:
+ pub mod goes_abi;
+ pub mod goes_rgb;
+ pub mod grib_split;
+-pub mod grid_winds;
+ pub mod gribcache;
++pub mod grid_winds;
+ pub mod gridverify;
+ pub mod hrrr;
+ pub mod isosurface;
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:83:
+ pub mod near_flow;
+ pub mod near_storm;
+ pub mod net;
+-pub mod nwws;
+ pub mod netcdf;
+ pub mod nohrsc;
++pub mod nwws;
+ pub mod objcache;
+ pub mod obs;
+ pub mod odim;
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:108:
+ pub mod rotation_tracks;
+ pub mod route;
+ pub mod rtma;
+-pub mod source_lineage;
+ pub mod scan_age;
+ pub mod scoretrack;
+ pub mod severe;
+Diff in \\?\C:\Users\wushi\hookecho\crates\wxdata\src\lib.rs:115:
+-pub mod size_sorting;
+ pub mod shapefile;
++pub mod size_sorting;
+ pub mod sounding;
++pub mod source_lineage;
+ pub mod spc;
+ pub mod spoken;
+ pub mod spotters;

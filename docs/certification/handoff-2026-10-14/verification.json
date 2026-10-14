@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T03:40:47.361377+00:00",
+  "baseline_commit": "0b3b9fb04e90b92240e5fc6901d0a569a01f6b6a",
+  "basis": "final shared dirty source tree; workspace precedes archive-control assertion strengthening, then final isolated control and Clippy",
+  "workspace_suites": 40,
+  "workspace_passed": 2754,
+  "workspace_failed": 0,
+  "workspace_ignored": 243,
+  "results": {
+    "workspace-retry": 0,
+    "clippy-final": 0,
+    "wasm": 0,
+    "web-tests": 0,
+    "corpus": 0,
+    "app-delivery-final": 0,
+    "core-smooth-final": 0,
+    "gpu-trace": 0
+  },
+  "artifacts": [
+    {
+      "path": "docs/certification/handoff-2026-10-14/workspace.log",
+      "bytes": 967,
+      "sha256": "5916f57fd911a200e509d18bc068443432b285b37d60eef823fe46363f5bc75a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/workspace.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/workspace-retry.log",
+      "bytes": 257882,
+      "sha256": "dc4de783e8a837ee2eaf213bfacccca397d204c0dd729594936512b3c8ef0a1c"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/workspace-retry.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/clippy.log",
+      "bytes": 503,
+      "sha256": "d1396a0541cd3effadaaa86c8c922d88e8499bc6226512bdcd814b791548997c"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/clippy-final.log",
+      "bytes": 204,
+      "sha256": "9fe4a6da9b986ce1dd2ad39d07899d8365304e72a89752e86d2ad81126b6406c"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/clippy-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/wasm.log",
+      "bytes": 3009,
+      "sha256": "6b52cdb46388e70f6f22e4e317866796e4ac2aa52d448e0d0875cbba7474e44f"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/web-tests.log",
+      "bytes": 1366,
+      "sha256": "4706b03b5f6f259c56b5c571d82e8c80ef17efa1d1df147491abdcea9fdb4be6"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/web-tests.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/corpus.log",
+      "bytes": 1729,
+      "sha256": "fe1d02a478f130d4f352452922e8fd38a220ca2aaa7780e4177528bb67849583"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/corpus.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-build.log",
+      "bytes": 3835,
+      "sha256": "fe1dd944e39a8a76ccecf025e3efa5ce1fedcc256b4cb559cf56e1c1cdadd3ad"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-build.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery.log",
+      "bytes": 232,
+      "sha256": "7af591fcf07fa581dab0c6c021c5c3baf0030e6b80961e83b7685fb2f339a841"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery-final.log",
+      "bytes": 232,
+      "sha256": "43f0b3791b2e627dc3617773d3f7d996884b7f771eb2bfb60799fa5d7a4e2413"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth.log",
+      "bytes": 295,
+      "sha256": "4a2e5d9c4e1f0d0e84d3c6731809dfa02946e3232876f503359d78da0b25d679"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth-final.log",
+      "bytes": 295,
+      "sha256": "397c56a841d27115edef7e7b65e5a5f094e18a1e16f8f250b33452a3bbb64e79"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/gpu-trace.log",
+      "bytes": 263,
+      "sha256": "f1aa428f796f9ada66832e63dc8b8ad286e81e86deb6333217aba7fdc2ae18d4"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/gpu-trace.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/observations.json",
+      "bytes": 17227,
+      "sha256": "83859459c6524becabb6954e7c755d49239cef7d8e0a69b9ff360521542aff62"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/selected-archive.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/archive-after-queued-live.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/sibling-archive.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/sibling-after-resume.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/resumed-live.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/app-delivery/backup-full.png",
+      "bytes": 26560,
+      "sha256": "2376223abd9976aae0cd56b45445b08e36034a49ac6374504e7b23516fee137a"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth/app-outline-smooth.png",
+      "bytes": 458921,
+      "sha256": "b0aea2fded535cdcc7d28357f8f6485637aeab44c898948aa101387321f78147"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth/app-outline-smooth-none.png",
+      "bytes": 458047,
+      "sha256": "a30fe37c0e0e5d40127d42fc9de2ed2fda96ccbd7240027e457bd1fd2c445ec6"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/core-smooth/app-outline-smooth-mask.png",
+      "bytes": 260460,
+      "sha256": "419ee877b10eee487d34b8e4b1f2dcdd7438c07239982a4a2fdf326e660e306e"
+    },
+    {
+      "path": "docs/certification/handoff-2026-10-14/source-files.json",
+      "bytes": 122423,
+      "sha256": "b7812ca29406994b6058c6fe196cfed35c766743781fef9e72c11d6038e25a67"
+    },
+    {
+      "path": "target/trail-volumes/volumes/KTLX20130520_201643_V06.gz",
+      "bytes": 9548976,
+      "sha256": "772e01b154a5c966982a6d0aa2fc78bc64f08a9b77165b74dc02d7aa5aa69275"
+    },
+    {
+      "path": "crates/wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2",
+      "bytes": 462169,
+      "sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c"
+    },
+    {
+      "path": "crates/hookecho/tests/data/tgftp/KFTG_20261013_002258.bz2",
+      "bytes": 3379980,
+      "sha256": "281c815fec8658af5f6a49df12ceb0112021960b31ddfffa3dd30853c266cb7c"
+    },
+    {
+      "path": "target/parity-review/handoff-final/pinned/hookecho-tests.exe",
+      "bytes": 111990784,
+      "sha256": "f7cbec01a7c9ee8a216001b71be3557284a6e1aa0ca6d9e81af4ecdb01cf22c3"
+    }
+  ],
+  "limitations": [
+    "Controlled direct-message providers; no operational upstream independence",
+    "No window/compositor/scan-out or physical Android",
+    "No full-app long-duration certification",
+    "Overlapping build/check activity; GPU timings are one control sample"
+  ]
+}

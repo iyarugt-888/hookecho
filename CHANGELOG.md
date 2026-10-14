@@ -37,6 +37,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Fixed: the completed radar fallback waits for a finished scan
+
+NOAA's newest fallback file can still be uploading. HookEcho now checks the source's
+end-of-scan marker and tries recent files within one deadline. Unchanged scans reuse
+their cached gates; an outage or a radar switch cannot substitute another radar's cache.
+
+### Fixed: queued live updates cannot overwrite an archive selection
+
+Scrubbing away from live or playing a loop immediately gives the selected frame ownership
+of the pane, including while the old subscription is still being stopped. Late updates
+and progress leave its gates, source clocks and sibling panes intact.
+
+Diagnostics now includes recent accepted radar revisions with acquisition-clock bounds,
+receipt, decode, upload and GPU timing. Visible-presentation timing is explicitly unavailable
+until a display observer measures it.
+
 ### Improved: a storm's core statistics read the whole storm, tilt by tilt
 
 A storm's Core statistics, Core distribution and comparison used to read only the tilt on

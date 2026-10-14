@@ -10,9 +10,9 @@ certification. No blanket competitor parity is claimed.
 
 | Order | Workstream | Current status | Next reviewable action | Dependencies |
 | --- | --- | --- | --- | --- |
-| 1 | [Live radar](live-radar/README.md) | Partially implemented | L1: correct TGFTP completed-fallback cache admission and unchanged polling; then operational outage trace and visible-presentation correlation | Existing provider/health/receiver contracts; independent live inputs and presentation observer for certification |
-| 2 | [Radar analysis](radar-analysis/README.md) | Partially implemented | R1: finish unit/datum diagnostics across UDP import and inspection; R2: pane-owned column evaluation | Preserve formulas, missing values and recorded environment; corpus |
-| 3 | [Storm analysis](storm-analysis/README.md) | Partially implemented | S1: archive local-cell replay through the existing identity/selection owner | Time/revision integrity; pinned storm and negative cases |
+| 1 | [Live radar](live-radar/README.md) | Partially implemented; bounded L1/L3a archived | L2 operational independent outage/recovery; L3 source-pass/first-byte/observer correlation and durable capture | Existing provider/health/receiver contracts; independent live inputs and presentation observer for certification |
+| 2 | [Radar analysis](radar-analysis/README.md) | Partially implemented | Validate landed R1 import/inspection advice and R2 pane-owned column evaluation; inspect R3 vertical interrogation next | Preserve formulas, missing values and recorded environment; corpus |
+| 3 | [Storm analysis](storm-analysis/README.md) | Partially implemented | Validate landed S1 archived local-cell replay; audit S2 end-to-end workflow transitions | Time/revision integrity; pinned storm and negative cases |
 | 4 | [Broadcast](broadcast/README.md), [GIS](gis/README.md) | Partially implemented | B1: sustained independent program/capture proof; G1: external reader round trip | Existing scenes, manifests and collection model |
 | 5 | [Mobile](mobile/README.md) | Partially implemented | M1: physical phone/tablet lifecycle and input runs | Device access; stable increment and Android build |
 | Supporting | [Models/satellite](models-satellite/README.md) | Partially implemented | C1: remaining context/health/mesoscale acceptance; do not rebuild independent GOES or HREF probability work | Existing request-keyed pane state; provider availability |

@@ -1,0 +1,25 @@
+✔ a proxied response carries the edge TTL and the upstream validators (73.5167ms)
+✔ a matching If-None-Match is answered 304, bodyless, still with the TTL (1.0055ms)
+✔ the client's conditional headers are never forwarded upstream (1.4135ms)
+✔ a stale validator still gets the body (1.0152ms)
+✔ no upstream validator means no 304 is possible (0.4293ms)
+✔ If-Modified-Since compares by date, not by string (0.3954ms)
+✔ the TTL table is the one the app's cadences were chosen against (0.1893ms)
+✔ the trust boundary is unchanged (1.1785ms)
+✔ a valid byte range is forwarded and answered 206 — the GRIB .idx fetch pattern (1.0118ms)
+✔ a malformed range is dropped, not forwarded (1.8152ms)
+✔ an upstream's own not-found passes through; a busy upstream is a 502 (2.1504ms)
+✔ a job carries its op and transfers its buffer (3.9935ms)
+✔ an ordinary failure rejects that job and keeps the worker (1.7421ms)
+✔ a trap replaces the worker, and the next job uses the new one (0.4932ms)
+✔ repeated traps stop respawning, and then jobs fall back inline (0.6014ms)
+✔ no workers at all means every job decodes inline (0.3531ms)
+✔ vector tile jobs preserve their operation and transferred payload (0.2915ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 253.3852

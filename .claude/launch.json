@@ -4,7 +4,39 @@
     {
       "name": "hookecho-web",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--release", "--bin", "hookecho", "--", "--serve", "8080", "--web-root", "web"],
+      "runtimeArgs": [
+        "run",
+        "--release",
+        "--bin",
+        "hookecho",
+        "--",
+        "--serve",
+        "8080",
+        "--web-root",
+        "web"
+      ],
+      "port": 8080
+    },
+    {
+      "name": "hookecho-serve-built",
+      "runtimeExecutable": "target/release/hookecho.exe",
+      "runtimeArgs": [
+        "--serve",
+        "8080",
+        "--web-root",
+        "web"
+      ],
+      "port": 8080
+    },
+    {
+      "name": "hookecho-serve-debug",
+      "runtimeExecutable": "target/debug/hookecho.exe",
+      "runtimeArgs": [
+        "--serve",
+        "8080",
+        "--web-root",
+        "web"
+      ],
       "port": 8080
     }
   ]

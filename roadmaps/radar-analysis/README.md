@@ -16,4 +16,5 @@ Do not recreate radial-strip Observed, masked trilinear Smooth, transfer colour 
 nested shells, GPU expression comparison or per-sector Nyquist. Test missing/folded
 gates, ARL/MSL/geopotential distinctions, expiry/backward seeks and physical extrema
 unchanged by opacity. Detector-impacting dealiasing changes require the existing
-scientific owner/backtest process. Next ready task after P0: R1.
+scientific owner/backtest process. After P0, validate the landed R1/R2 slices and
+audit R3 before implementing; do not recreate the imported advice or pane ownership.

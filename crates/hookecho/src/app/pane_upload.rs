@@ -3,6 +3,16 @@
 
 use super::*;
 
+fn live_upload_receipt(v: &MapView) -> Option<Instant> {
+    v.live_render_started.filter(|_| {
+        v.timeline.following
+            && !v.timeline.playing
+            && v.volume
+                .as_ref()
+                .is_some_and(|vol| Some(&vol.name) == v.live_scan.volume.as_ref())
+    })
+}
+
 impl HookEchoApp {
     /// Radar upload for pane `idx`, binning the shared volume in `data` (usually the active pane)
     /// with pane `idx`'s product/tilt. Returns `(upload_when_changed, draw_radar)`; the pane's GPU
@@ -198,9 +208,22 @@ impl HookEchoApp {
             up.gate_alpha = trail_alpha.unwrap_or_default();
             Ok::<_, anyhow::Error>(up)
         } else {
-            let telemetry = self.views[data]
-                .live_render_started
-                .map(|started| (started, Arc::clone(&self.views[data].live_queue_timings)));
+            // A receipt pending when the operator scrubs/loops cannot time an archive upload.
+            let receipt = live_upload_receipt(&self.views[data]);
+            let telemetry = receipt.map(|started| crate::render::LiveUploadTiming {
+                started,
+                timings: Arc::clone(&self.views[data].live_queue_timings),
+                revision: Some(self.views[data].live_scan_revision),
+                draw: Some(crate::render::live_trace::DrawIdentity {
+                    pane: idx,
+                    tilt,
+                    moment: moment.short_name().to_owned(),
+                    product_key: product.as_ref().map(|(_, key)| *key),
+                    column_max,
+                    clean_reflectivity: clean,
+                    previous_visit: visit,
+                }),
+            });
             let Some(vol) = self.views[data].volume.as_mut() else {
                 return (None, true);
             };
@@ -781,6 +804,54 @@ mod observed_roi_tests {
         assert_eq!(gates.last(), Some(&59));
         assert!(!gates.contains(&50), "an empty gate stays empty");
         assert_eq!(gates.len(), 19);
+    }
+}
+
+#[cfg(test)]
+mod live_trace_tests {
+    use super::*;
+
+    #[test]
+    fn a_pending_live_receipt_cannot_time_a_scrubbed_or_foreign_volume() {
+        let scan = Arc::new(
+            level2::decode_volume(
+                include_bytes!(
+                    "../../../wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2"
+                )
+                .to_vec(),
+            )
+            .unwrap(),
+        );
+        let mut v = MapView::new(
+            Some("KFTG".into()),
+            crate::render::mercator::Camera::at_lonlat(-104.55, 39.79, 6.0),
+        );
+        let time = Identifier::new("KFTG20170508_203405_V06".into())
+            .date_time()
+            .unwrap();
+        v.show_volume(scan, "accepted".into(), time);
+        v.live_scan.accept_volume("accepted", time, Utc::now());
+        v.live_render_started = Some(Instant::now());
+        v.timeline.following = true;
+        v.timeline.playing = false;
+        assert!(live_upload_receipt(&v).is_some());
+        v.timeline.following = false;
+        assert!(
+            live_upload_receipt(&v).is_none(),
+            "archive scrub keeps its own clock"
+        );
+        v.timeline.following = true;
+        v.timeline.playing = true;
+        assert!(
+            live_upload_receipt(&v).is_none(),
+            "loop playhead is not the live receipt"
+        );
+        v.timeline.playing = false;
+        v.volume.as_mut().unwrap().name = "another-volume".into();
+        assert!(
+            live_upload_receipt(&v).is_none(),
+            "a retained receipt cannot time different data"
+        );
     }
 }
 

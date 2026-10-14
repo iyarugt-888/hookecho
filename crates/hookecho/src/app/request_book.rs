@@ -284,6 +284,7 @@ pub(crate) struct DiagnosticsBundle {
     pub(crate) cache_bytes: u64,
     pub(crate) performance_counters: std::collections::BTreeMap<&'static str, u64>,
     pub(crate) source_health: Vec<DiagnosticsSourceHealth>,
+    pub(crate) live_revision_traces: Vec<crate::render::live_trace::RevisionTrace>,
     pub(crate) recent_warnings: Vec<crate::devlog::LogEntry>,
 }
 

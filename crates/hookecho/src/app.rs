@@ -7084,6 +7084,11 @@ impl HookEchoApp {
             cache_bytes: crate::paths::cache_dir_bytes(),
             performance_counters: wxdata::stats::snapshot().into_iter().collect(),
             source_health,
+            live_revision_traces: self
+                .views
+                .iter()
+                .flat_map(|v| v.live_queue_timings.revision_traces())
+                .collect(),
             recent_warnings: crate::devlog::recent_warnings(200),
         };
         let json = match serde_json::to_string_pretty(&bundle) {
@@ -7275,7 +7280,7 @@ pub(crate) fn to_upload(
     // Only the color table changed, so the sweep and precipitation-flag bytes the GPU already
     // holds are still correct and are not copied.
     lut_only: bool,
-    telemetry: Option<(Instant, Arc<crate::render::LiveQueueTimings>)>,
+    telemetry: Option<crate::render::LiveUploadTiming>,
 ) -> RadarUpload {
     use crate::render::mercator::lonlat_to_world;
     let max_range_km = s.first_gate_km + s.gate_count as f32 * s.gate_interval_km;

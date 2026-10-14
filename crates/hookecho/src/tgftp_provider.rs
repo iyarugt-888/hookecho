@@ -3,7 +3,7 @@
 //! is usable.
 //!
 //! NOAA's public TGFTP mirror (`https://tgftp.nws.noaa.gov/data/radar/nexrad_level2/{SITE}/`)
-//! serves each site's most recent several hours of completed Level II volumes as plain Archive II
+//! serves each site's most recent several hours of Level II volumes as plain Archive II
 //! `.bz2` files (per-record bzip2, the same format `wxdata::level2::decode_volume` already
 //! decodes for the AWS archive path — confirmed against a real downloaded volume's header bytes
 //! while building this: `AR2V0006....` immediately followed by a `BZh9`-prefixed first record,
@@ -11,11 +11,14 @@
 //! `dir.list` index (`<size> <filename>` per line) cheap enough to poll on its own without ever
 //! re-fetching the full HTML directory listing (ROADMAP_NEW B6.8: "poll efficiently using the
 //! site's directory/index metadata rather than redownloading listings unnecessarily").
+//! The newest object can still be publishing. Admission requires the radar's end-of-scan marker;
+//! at most three candidates are tried within one total deadline. That marker does not assert
+//! complete angular coverage or the absence of missing gates inside a completed scan.
 //!
 //! This provider never claims progressive radials — [`wxdata::live_block::ProviderCapabilities::
 //! tgftp`] already says so (`progressive_radials: false`), and this implementation's `subscribe`
 //! never calls `on_progress` at all, matching B6.8's "do not show live chunk progress when no
-//! progressive feed exists." Every successfully decoded volume is cached in memory
+//! progressive feed exists." Every admitted completed volume is cached in memory
 //! ([`Self::last_known`]) so a total network outage degrades [`Level2LiveProvider::
 //! latest_complete_volume`] to serving the last good volume (an honest stale display) rather than
 //! erroring out to a blank pane, per B6.8's explicit ask.
@@ -40,10 +43,13 @@ const DEFAULT_BASE_URL: &str = "https://tgftp.nws.noaa.gov/data/radar/nexrad_lev
 const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const VOLUME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
 const CANCEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+const MAX_CANDIDATES: usize = 3;
 
 #[derive(Clone)]
 struct CachedVolume {
+    site: String,
     name: String,
+    listed_bytes: u64,
     time: DateTime<Utc>,
     scan: Arc<Scan>,
 }
@@ -103,17 +109,95 @@ impl NoaaTgftpLevel2Provider {
         .await?
     }
 
-    /// Fetch and decode the newest volume for `site` — network + decode, no caching or
-    /// `current_name` comparison (that's [`Level2LiveProvider::latest_complete_volume`]'s job,
-    /// which wraps this with the degraded-cache fallback).
-    async fn fetch_latest(&self, site: &str) -> anyhow::Result<(String, DateTime<Utc>, Scan)> {
+    /// Poll the small index first. A known completed object needs neither another multi-MB
+    /// download nor another decode. Retain one bounded cache entry, scoped to its actual site.
+    async fn fetch_latest(&self, site: &str) -> anyhow::Result<CachedVolume> {
         let listing = self.fetch_dir_list(site).await?;
-        let entries = parse_dir_list(&listing);
-        let (name, time) = newest_entry(&entries)
-            .ok_or_else(|| anyhow::anyhow!("no volume files found for {site} in dir.list"))?;
+        let mut entries = parse_dir_list(&listing);
+        // TGFTP publishes the newest file while it is still being written. An Archive-II
+        // prefix may decode successfully but is NOT a completed-volume fallback. Try a
+        // bounded number of previous objects, within one total download/decode deadline.
+        wxdata::task::timeout(self.volume_timeout, async {
+            let mut error = anyhow::anyhow!("no completed volume found for {site} in dir.list");
+            for _ in 0..MAX_CANDIDATES {
+                let Some((name, time)) = newest_entry_for_site(&entries, site) else {
+                    break;
+                };
+                let listed_bytes = entries
+                    .iter()
+                    .find(|(filename, _)| filename == &name)
+                    .map(|(_, size)| *size)
+                    .unwrap_or_default();
+                entries.retain(|(filename, _)| filename != &name);
+                if let Some(cached) = self.cached_for(site) {
+                    if time < cached.time
+                        || (name == cached.name && listed_bytes == cached.listed_bytes)
+                    {
+                        return Ok(cached);
+                    }
+                }
+                match self
+                    .fetch_candidate(site, name.clone(), time, listed_bytes)
+                    .await
+                {
+                    Ok(candidate) => return Ok(candidate),
+                    Err(failed) => {
+                        log::warn!("TGFTP skipped {name}: {failed}");
+                        error = failed;
+                    }
+                }
+            }
+            Err(error)
+        })
+        .await?
+    }
+
+    async fn fetch_candidate(
+        &self,
+        site: &str,
+        name: String,
+        time: DateTime<Utc>,
+        listed_bytes: u64,
+    ) -> anyhow::Result<CachedVolume> {
         let bytes = self.fetch_volume_bytes(site, &name).await?;
         let scan = wxdata::task::blocking(move || wxdata::level2::decode_volume(bytes)).await??;
-        Ok((name, time, scan))
+        anyhow::ensure!(
+            wxdata::level2::scan_complete(&scan),
+            "TGFTP volume has no end-of-scan marker (still publishing or truncated)"
+        );
+        if let Some(decoded_site) = scan.site() {
+            anyhow::ensure!(
+                decoded_site.identifier_string().eq_ignore_ascii_case(site),
+                "TGFTP volume site does not match requested {site}"
+            );
+        }
+        let candidate = CachedVolume {
+            site: site.to_ascii_uppercase(),
+            name,
+            listed_bytes,
+            time,
+            scan: Arc::new(scan),
+        };
+        let mut cache = self.last_known.lock().unwrap();
+        // Another poll may have finished while this one downloaded/decoded. A late older
+        // response cannot lower the cache's source clock, even when it was newer at admission.
+        if let Some(newer) = cache
+            .as_ref()
+            .filter(|c| c.site == candidate.site && c.time > time)
+        {
+            return Ok(newer.clone());
+        }
+        *cache = Some(candidate.clone());
+        Ok(candidate)
+    }
+
+    fn cached_for(&self, site: &str) -> Option<CachedVolume> {
+        self.last_known
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|cached| cached.site.eq_ignore_ascii_case(site))
+            .cloned()
     }
 }
 
@@ -141,6 +225,16 @@ fn parse_dir_list(body: &str) -> Vec<(String, u64)> {
 /// like `dir.list` itself appearing in the same listing before).
 fn parse_filename_time(filename: &str) -> Option<DateTime<Utc>> {
     let stem = filename.strip_suffix(".bz2")?;
+    // A directory entry is a basename, never a path/query, foreign origin or loose date.
+    if stem.len() != 20 || stem.as_bytes()[4] != b'_' || stem.as_bytes()[13] != b'_' {
+        return None;
+    }
+    if !stem.as_bytes()[..4].iter().all(u8::is_ascii_alphanumeric)
+        || !stem.as_bytes()[5..13].iter().all(u8::is_ascii_digit)
+        || !stem.as_bytes()[14..].iter().all(u8::is_ascii_digit)
+    {
+        return None;
+    }
     let mut parts = stem.splitn(3, '_');
     let _site = parts.next()?;
     let date = parts.next()?;
@@ -163,6 +257,18 @@ fn newest_entry(entries: &[(String, u64)]) -> Option<(String, DateTime<Utc>)> {
         .iter()
         .filter_map(|(name, _)| parse_filename_time(name).map(|t| (name.clone(), t)))
         .max_by_key(|(_, t)| *t)
+}
+
+fn newest_entry_for_site(entries: &[(String, u64)], site: &str) -> Option<(String, DateTime<Utc>)> {
+    let matching: Vec<_> = entries
+        .iter()
+        .filter(|(name, _)| {
+            name.get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(site))
+        })
+        .cloned()
+        .collect();
+    newest_entry(&matching)
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -254,21 +360,19 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
         site: &str,
         current_name: Option<&str>,
     ) -> anyhow::Result<LatestVolume> {
+        anyhow::ensure!(
+            site.len() == 4 && site.bytes().all(|b| b.is_ascii_alphanumeric()),
+            "invalid TGFTP radar site"
+        );
         match self.fetch_latest(site).await {
-            Ok((name, time, scan)) => {
-                let scan = Arc::new(scan);
-                *self.last_known.lock().unwrap() = Some(CachedVolume {
-                    name: name.clone(),
-                    time,
-                    scan: scan.clone(),
-                });
-                if current_name == Some(name.as_str()) {
+            Ok(cached) => {
+                if current_name == Some(cached.name.as_str()) {
                     Ok(LatestVolume::UpToDate)
                 } else {
                     Ok(LatestVolume::New {
-                        name,
-                        time,
-                        scan: (*scan).clone(),
+                        name: cached.name,
+                        time: cached.time,
+                        scan: (*cached.scan).clone(),
                     })
                 }
             }
@@ -277,7 +381,7 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
             // ROADMAP_NEW B6.8's explicit ask. Genuinely nothing cached yet (e.g. the very first
             // call, before any fetch has ever succeeded) is still a real error.
             Err(e) => {
-                let cached = self.last_known.lock().unwrap().clone();
+                let cached = self.cached_for(site);
                 if cached.is_some() {
                     log::warn!("TGFTP poll failed for {site}; retaining last known volume: {e}");
                 }
@@ -436,11 +540,260 @@ mod tests {
         assert!(provider.latest_complete_volume("KTLX", None).await.is_err());
     }
 
-    // NOAA KFTG 2017-05-08, first three Archive-II records; pinned partial coverage,
-    // NOT a complete TGFTP volume. The corpus manifest retains its source and checksum.
-    const RECOVERY_BYTES: &[u8] =
+    // Real complete NOAA TGFTP scan, with source/hash and format in tests/data/tgftp/README.md.
+    // The old partial NOAA hail fixture is retained below as a refusal control.
+    const RECOVERY_BYTES: &[u8] = include_bytes!("../tests/data/tgftp/KFTG_20261013_002258.bz2");
+    const RECOVERY_NAME: &str = "KFTG_20261013_002258.bz2";
+    const PARTIAL_BYTES: &[u8] =
         include_bytes!("../../wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2");
-    const RECOVERY_NAME: &str = "KFTG_20170508_203405.bz2";
+
+    #[tokio::test]
+    async fn a_publishing_head_falls_back_to_a_completed_scan_without_promoting_partial_gates() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let count = Arc::new(AtomicUsize::new(0));
+        let partial_count = count.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(|| async {
+                    format!(
+                        "{} KFTG_20261013_002635.bz2\n{} {RECOVERY_NAME}\n",
+                        PARTIAL_BYTES.len(),
+                        RECOVERY_BYTES.len()
+                    )
+                }),
+            )
+            .route(
+                "/KFTG/KFTG_20261013_002635.bz2",
+                axum::routing::get(move || {
+                    partial_count.fetch_add(1, Ordering::Relaxed);
+                    async { PARTIAL_BYTES }
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            );
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        let partial = wxdata::level2::decode_volume(PARTIAL_BYTES.to_vec()).unwrap();
+        assert!(
+            !partial.sweeps().is_empty(),
+            "successful decode alone is not completeness"
+        );
+        assert!(!wxdata::level2::scan_complete(&partial));
+        let LatestVolume::New { name, time, scan } =
+            provider.latest_complete_volume("KFTG", None).await.unwrap()
+        else {
+            panic!("must recover from the previous completed object");
+        };
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert_eq!(name, RECOVERY_NAME);
+        assert_eq!(time, parse_filename_time(RECOVERY_NAME).unwrap());
+        assert!(wxdata::level2::scan_complete(&scan));
+        assert_eq!(scan.site().unwrap().identifier_string(), "KFTG");
+        assert_eq!(provider.cached_for("KFTG").unwrap().name, RECOVERY_NAME);
+    }
+
+    #[tokio::test]
+    async fn partial_only_fallback_is_bounded_and_never_cached_as_complete() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let downloads = Arc::new(AtomicUsize::new(0));
+        let count = downloads.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(|| async {
+                    (0..8)
+                        .map(|n| format!("{} KFTG_20261013_002{n}00.bz2\n", PARTIAL_BYTES.len()))
+                        .collect::<String>()
+                }),
+            )
+            .fallback(axum::routing::get(move || {
+                count.fetch_add(1, Ordering::Relaxed);
+                async { PARTIAL_BYTES }
+            }));
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        assert!(provider.latest_complete_volume("KFTG", None).await.is_err());
+        assert_eq!(downloads.load(Ordering::Relaxed), MAX_CANDIDATES);
+        assert!(provider.last_known.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn unchanged_fallback_polls_only_the_index_and_keeps_original_gates() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listings = Arc::new(AtomicUsize::new(0));
+        let downloads = Arc::new(AtomicUsize::new(0));
+        let listing_count = listings.clone();
+        let download_count = downloads.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(move || {
+                    listing_count.fetch_add(1, Ordering::Relaxed);
+                    async { format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len()) }
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(move || {
+                    download_count.fetch_add(1, Ordering::Relaxed);
+                    async { RECOVERY_BYTES }
+                }),
+            );
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        let LatestVolume::New { name, time, scan } =
+            provider.latest_complete_volume("kftg", None).await.unwrap()
+        else {
+            panic!("first observation must deliver its source volume");
+        };
+        let original = provider.cached_for("KFTG").unwrap();
+        assert!(matches!(
+            provider
+                .latest_complete_volume("KFTG", Some(&name))
+                .await
+                .unwrap(),
+            LatestVolume::UpToDate
+        ));
+        // A replacement subscriber with no current volume still receives the same cached data.
+        let LatestVolume::New {
+            scan: again,
+            time: original_time,
+            ..
+        } = provider.latest_complete_volume("KFTG", None).await.unwrap()
+        else {
+            panic!("new subscriber needs the volume, not UpToDate");
+        };
+        assert_eq!(original_time, time);
+        assert_eq!(again.sweeps(), scan.sweeps());
+        assert!(Arc::ptr_eq(
+            &original.scan,
+            &provider.cached_for("KFTG").unwrap().scan
+        ));
+        assert_eq!(listings.load(Ordering::Relaxed), 3);
+        assert_eq!(downloads.load(Ordering::Relaxed), 1);
+        println!("TGFTP unchanged: 3 index polls, 1 volume download/decode; original gates and clocks retained");
+    }
+
+    #[tokio::test]
+    async fn a_foreign_or_missing_site_never_receives_another_sites_cached_volume() {
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(|| async {
+                    format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len())
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            )
+            // Misconfigured mirror: the target site's directory contains another radar.
+            .route(
+                "/KTLX/dir.list",
+                axum::routing::get(|| async {
+                    format!("{} {RECOVERY_NAME}\n", RECOVERY_BYTES.len())
+                }),
+            );
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        provider.latest_complete_volume("KFTG", None).await.unwrap();
+        assert!(provider.latest_complete_volume("KTLX", None).await.is_err());
+        assert!(provider.latest_complete_volume("KPAH", None).await.is_err());
+        assert!(provider
+            .latest_complete_volume("../KFTG", None)
+            .await
+            .is_err());
+        assert!(provider.cached_for("KFTG").is_some());
+        assert!(provider.cached_for("KTLX").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_mislabelled_decoded_volume_cannot_seed_the_fallback_cache() {
+        let app = axum::Router::new()
+            .route(
+                "/KTLX/dir.list",
+                axum::routing::get(|| async {
+                    format!("{} KTLX_20170508_203405.bz2\n", RECOVERY_BYTES.len())
+                }),
+            )
+            .route(
+                "/KTLX/KTLX_20170508_203405.bz2",
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            );
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        let result = provider.latest_complete_volume("KTLX", None).await;
+        assert!(result.is_err(), "KFTG gates must not be delivered as KTLX");
+        assert!(provider.last_known.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_regressed_directory_cannot_rewind_the_retained_fallback() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let app = axum::Router::new()
+            .route(
+                "/KFTG/dir.list",
+                axum::routing::get(move || {
+                    let first = count.fetch_add(1, Ordering::Relaxed) == 0;
+                    async move {
+                        let name = if first {
+                            RECOVERY_NAME
+                        } else {
+                            "KFTG_20170508_202405.bz2"
+                        };
+                        format!("{} {name}\n", RECOVERY_BYTES.len())
+                    }
+                }),
+            )
+            .route(
+                &format!("/KFTG/{RECOVERY_NAME}"),
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            )
+            .route(
+                "/KFTG/KFTG_20170508_202405.bz2",
+                axum::routing::get(|| async { RECOVERY_BYTES }),
+            );
+        let addr = spawn_test_server(app).await;
+        let provider = NoaaTgftpLevel2Provider::with_base_url(format!("http://{addr}"));
+        provider.latest_complete_volume("KFTG", None).await.unwrap();
+        let original = provider.cached_for("KFTG").unwrap();
+        let LatestVolume::New { name, time, scan } =
+            provider.latest_complete_volume("KFTG", None).await.unwrap()
+        else {
+            panic!("must retain the latest accepted source data");
+        };
+        assert_eq!(name, RECOVERY_NAME);
+        assert_eq!(time, original.time);
+        assert_eq!(scan.sweeps(), original.scan.sweeps());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn fallback_listing_names_are_exact_site_qualified_basenames() {
+        for bad in [
+            "../KFTG_20170508_203405.bz2",
+            "KFTG_201758_203405.bz2",
+            "KFTG_20170508_203405.bz2?other",
+            "KFTG_20170508_203405_extra.bz2",
+            "KFTG_20170508_20340é.bz2",
+        ] {
+            assert!(parse_filename_time(bad).is_none(), "{bad}");
+        }
+        let entries = vec![
+            ("KTLX_20261012_000000.bz2".into(), 1),
+            (RECOVERY_NAME.into(), 1),
+        ];
+        assert_eq!(
+            newest_entry_for_site(&entries, "kftg").unwrap().0,
+            RECOVERY_NAME
+        );
+        assert!(newest_entry_for_site(&entries, "KPAH").is_none());
+    }
 
     fn stalled_body() -> axum::body::Body {
         axum::body::Body::from_stream(futures_util::stream::once(std::future::pending::<

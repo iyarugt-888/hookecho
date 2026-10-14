@@ -1,0 +1,7 @@
+warn: could not canonicalize path C:\Users\wushi
+    Blocking waiting for file lock on build directory
+    Checking wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+    Checking hdf5lite v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hdf5lite)
+    Checking radar-ingest v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\radar-ingest)
+    Checking hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 59s

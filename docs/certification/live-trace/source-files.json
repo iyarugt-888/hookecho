@@ -1,0 +1,3747 @@
+[
+  {
+    "path": "Cargo.lock",
+    "bytes": 200939,
+    "sha256": "2883995c3f19ade02777a79726505fae382c449e152094080bccbdc4c769b345"
+  },
+  {
+    "path": "Cargo.toml",
+    "bytes": 4460,
+    "sha256": "bdc9987d05f226cab68b17bdcc3ba3bc12d5f59b3c75caff7b1c7cfc93ef6e68"
+  },
+  {
+    "path": "crates/hdf5lite/Cargo.toml",
+    "bytes": 355,
+    "sha256": "da2959087d995a841d040005b3ed47f9972b35a45c11cab2ee966edc7f716ae7"
+  },
+  {
+    "path": "crates/hdf5lite/src/btree.rs",
+    "bytes": 2539,
+    "sha256": "9ff707d0ce90c1bb4517260ab88d5e1ae5eea278fcb7579ca56671f8fe6c7eec"
+  },
+  {
+    "path": "crates/hdf5lite/src/header.rs",
+    "bytes": 25952,
+    "sha256": "9e75006db6034a77b41eae7102b78cf0bdb1c93bd544a8a779916835cd5f2098"
+  },
+  {
+    "path": "crates/hdf5lite/src/heap.rs",
+    "bytes": 13326,
+    "sha256": "ab3f49de84b8d9ad51b61dba4069388e7dbe7ee41b25940d060247e936e2ebf3"
+  },
+  {
+    "path": "crates/hdf5lite/src/lib.rs",
+    "bytes": 7514,
+    "sha256": "eeeb5a133ec57d354e227c8cf1591db4260a022bb7134057ac9ef1555dea9cb0"
+  },
+  {
+    "path": "crates/hdf5lite/src/read.rs",
+    "bytes": 8451,
+    "sha256": "853ad63f7fb4448c146792d5422a767de13f7a15f41bfb7cb8698b73e35c726c"
+  },
+  {
+    "path": "crates/hdf5lite/tests/abi_regression.rs",
+    "bytes": 2832,
+    "sha256": "ffd5af0ce5dd39c9017c35a0c9b644f2b428a6d3840f10aff8715e2162160bc5"
+  },
+  {
+    "path": "crates/hdf5lite/tests/golden.rs",
+    "bytes": 8769,
+    "sha256": "459bbe3e4e177a45a37a1dfaa0bbadf5e63d2df40782dbe0760861d1aa25a40e"
+  },
+  {
+    "path": "crates/hookecho-ffi/Cargo.toml",
+    "bytes": 472,
+    "sha256": "7138e0a60c4960e5a606712cc9cda92b1342978f29da9846199f6fb04979e05e"
+  },
+  {
+    "path": "crates/hookecho-ffi/src/lib.rs",
+    "bytes": 4933,
+    "sha256": "0dc42b2d2d52162b51cc17533eeaec12958e6a63f3e6ca6e1ce47f7b7919352b"
+  },
+  {
+    "path": "crates/hookecho-lite/Cargo.toml",
+    "bytes": 439,
+    "sha256": "14aaed93cf433840524d4a43ad99ce28a447dbc34c768c63a6bd75ce44100a0d"
+  },
+  {
+    "path": "crates/hookecho-lite/src/lib.rs",
+    "bytes": 13144,
+    "sha256": "66e6ca018c1d3d8ae6ba00e0e3e3c9c192b5a9bfb46a37b9c4f8c50ea836b7e7"
+  },
+  {
+    "path": "crates/hookecho-lite/src/palette.rs",
+    "bytes": 5337,
+    "sha256": "5365fbc3c7025aea969c379ed1a7857e68d8683683e41fb2c714017865d7f816"
+  },
+  {
+    "path": "crates/hookecho/Cargo.toml",
+    "bytes": 13851,
+    "sha256": "e5c2243e073548b42db8a791e2a29a24010d19c61e87d5cacce10292687b1127"
+  },
+  {
+    "path": "crates/hookecho/build.rs",
+    "bytes": 1525,
+    "sha256": "25ad09724b7558728c184695a9f09b8bd9bd31d5640e6c5abb4e66d892a4ffef"
+  },
+  {
+    "path": "crates/hookecho/src/alert_latency_watch.rs",
+    "bytes": 9502,
+    "sha256": "51aac96b279dec21a4ba06d7ce72ff641d9f18d22a0e77613a4d38b5e08bfba7"
+  },
+  {
+    "path": "crates/hookecho/src/alert_rollup.rs",
+    "bytes": 6077,
+    "sha256": "b6098eb2689805386e9e12fdcebd6926040e6a7d24cf56855acf35844e68dc61"
+  },
+  {
+    "path": "crates/hookecho/src/alert_snapshot.rs",
+    "bytes": 4642,
+    "sha256": "f89cc5a37418c5a140895d7913a4f57716592d12fdccb37fda9bd51fcf8eff95"
+  },
+  {
+    "path": "crates/hookecho/src/app.rs",
+    "bytes": 400269,
+    "sha256": "dfada73a130cdaa168fc972d9bedcf268865bab9f7a427047789b2f08e9e5b1d"
+  },
+  {
+    "path": "crates/hookecho/src/app/account_sync.rs",
+    "bytes": 9334,
+    "sha256": "d98fe68ee33778041b942b8d105a116fc7b74e8ce468db574749ff7a391845de"
+  },
+  {
+    "path": "crates/hookecho/src/app/acquisition.rs",
+    "bytes": 19681,
+    "sha256": "ff94d43e79ac9d828c5f1f32da6f0e5294d0164f92773b27693048b4353b60cf"
+  },
+  {
+    "path": "crates/hookecho/src/app/actions.rs",
+    "bytes": 10211,
+    "sha256": "65fdc9807b59f015dcb8fd8fae9b38dfceb166a46b673bcf5b43fc4d471ef765"
+  },
+  {
+    "path": "crates/hookecho/src/app/alert_latency.rs",
+    "bytes": 4360,
+    "sha256": "9ebc01f888167bef0bd5c8b375c752d086654deafdd5d182c1c36f3081250713"
+  },
+  {
+    "path": "crates/hookecho/src/app/alerts_watch.rs",
+    "bytes": 25911,
+    "sha256": "d74b9a3c20859b2ec3244f9512a4275866a4a31cd2aa23a6829947f3ee838342"
+  },
+  {
+    "path": "crates/hookecho/src/app/archive_calendar_tests.rs",
+    "bytes": 3161,
+    "sha256": "314d4a2414ae16556c79fcaaa27bbe2e9c40f17a668c9be9eb78ae0cd4d259e9"
+  },
+  {
+    "path": "crates/hookecho/src/app/beam_diagram.rs",
+    "bytes": 12177,
+    "sha256": "b02ae92460034722a1ed510389d2aa8b8fc59b1ae57e937fc42cb146ab542009"
+  },
+  {
+    "path": "crates/hookecho/src/app/beam_tools.rs",
+    "bytes": 9575,
+    "sha256": "3be9e99a4b1a903454734a57a26828ae1a92cfc096186071b7dab97d37a473a7"
+  },
+  {
+    "path": "crates/hookecho/src/app/boundaries.rs",
+    "bytes": 7531,
+    "sha256": "30a94ef1501e45342f5dce74f0107864cc4821173fbe44b1463220c51f61ac15"
+  },
+  {
+    "path": "crates/hookecho/src/app/camera_flight.rs",
+    "bytes": 8145,
+    "sha256": "c7d7e9cfc641dbfb96b78424acd8e8256d4e59876055caddae1a1e86c0787813"
+  },
+  {
+    "path": "crates/hookecho/src/app/capture_upload.rs",
+    "bytes": 2897,
+    "sha256": "22da667e694541c38b5724acce79b2d7b6d979c1926defe13a3984972516f8d1"
+  },
+  {
+    "path": "crates/hookecho/src/app/case.rs",
+    "bytes": 8053,
+    "sha256": "4227c54a29b13281e88177a9a340a15d601d5026a1aca56f2c20d1b3eb92d66d"
+  },
+  {
+    "path": "crates/hookecho/src/app/cell_history_tests.rs",
+    "bytes": 1206,
+    "sha256": "458432aba3a5838c5ca0289c3a4fc273ac05c7799e5bda086dc9a99755315762"
+  },
+  {
+    "path": "crates/hookecho/src/app/cell_markers.rs",
+    "bytes": 15766,
+    "sha256": "f02ce4f7d19724ad2dc9952a194ea9107fda05991b6582a0bd761553bdda1172"
+  },
+  {
+    "path": "crates/hookecho/src/app/chase.rs",
+    "bytes": 21540,
+    "sha256": "96840f946cd42591b36be1811666e72df52ac1e4d55e66135c3aac370fdad475"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/broadcast.rs",
+    "bytes": 8324,
+    "sha256": "d81fe7cbff062ed1f5ab03c3f7a3a9209977846f1e0e9c4729f8a8b7dec825c1"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/chips.rs",
+    "bytes": 20157,
+    "sha256": "885cab02a80cc279a84bd932584f347235e6040f5681cb073b5226865d433253"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/alerts.rs",
+    "bytes": 24395,
+    "sha256": "1a00598aeef0b87edc04675c976a4d3c02da03857b10239c12f8b36ee43d99cc"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/app_bar.rs",
+    "bytes": 60613,
+    "sha256": "49592362112af3575acdba6e13acd6ece944204df6091b85662734f906577408"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/cell.rs",
+    "bytes": 65487,
+    "sha256": "90db84b2a6520006677f6bf7ab0abfa82a22224847d570b3e38ffcfd39b9624d"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/footer.rs",
+    "bytes": 8453,
+    "sha256": "9ce2c4e294c1622f27a929c1a52e71760f6efbe05c87166dfa6c2c7a0005be80"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/gauges.rs",
+    "bytes": 4090,
+    "sha256": "d748cc83596a9c29cb959a98244e848b508586430c7d539340bdc9c22aec6865"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/inspector.rs",
+    "bytes": 72031,
+    "sha256": "c9521281e648cecfaa6da9c738b0d7d9baaa71db4e3ab26686ddb2e16097eee5"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/layers.rs",
+    "bytes": 34151,
+    "sha256": "fafff42981bb7f643405a9fa8374e0504aa2fb4ceffca4940c363472d0b89fc0"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/log.rs",
+    "bytes": 19079,
+    "sha256": "467c617e9c82591d3ed20417af8fdb3fca9cd614d3d9d5164bb5cd75bee2e4a9"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/menus.rs",
+    "bytes": 5869,
+    "sha256": "781b0ee60f77b435bd6df9e7ea8d0f5c7ef360458d3cf5c5a91651434fab4330"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/mod.rs",
+    "bytes": 107048,
+    "sha256": "351c28f0b890503746f439a22b7c293d71156dbd84f850d6df35ee99881fd94c"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/order.rs",
+    "bytes": 9870,
+    "sha256": "f248ff76d561521f7567a5f542d29e7167c4a50a366df57cddede6752b256a24"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/phone.rs",
+    "bytes": 47677,
+    "sha256": "b1c69c565e09f292a94d97e265a2dfd92ef2d9a37715cf7777005a362e86f137"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/prefs.rs",
+    "bytes": 5158,
+    "sha256": "576813b5a9ddbca87c2e3c48e615f1ad5149033dc97677a76785c99dde756fa4"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/rail.rs",
+    "bytes": 8115,
+    "sha256": "4e84b6d919a54bc4cb7339666e9448e66c67a5c7f6f2f210d1404f0bde1d8fed"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/region.rs",
+    "bytes": 2891,
+    "sha256": "8c89515470c1e48383daf1f18eb5738f7b7db5c2eae52eb4a68f8a41ce293599"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/settings.rs",
+    "bytes": 5276,
+    "sha256": "556d61aa5d5d20c50a57524d05825a1fbc535522fa8f8cc77e5d0615c67f6a0a"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/sounding.rs",
+    "bytes": 3010,
+    "sha256": "5869ff1f2e806ab1554b5e3378900d4edaf5971fd9bd4d29665099578de5224a"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/sources.rs",
+    "bytes": 35484,
+    "sha256": "6e5cf658a87242f33a450c546d8d300f433ce1c57664c95045a9274f1e8a581b"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/storm_associations.rs",
+    "bytes": 6632,
+    "sha256": "21e37a02b3abd4c0bc71424294d4b163187b95e47f432d425f21570658b6121a"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/storms.rs",
+    "bytes": 73563,
+    "sha256": "34e154cd63150c8e0f6b32f867726662e5ee2148a1294bc214002966a391d72d"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/timeline.rs",
+    "bytes": 35932,
+    "sha256": "d0fe1627128bdcd1e5f1b76141969e198dbd5ab935aaf09f6c2577e080711132"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/view3d.rs",
+    "bytes": 2732,
+    "sha256": "6665281e17dd761acbf00dab12d712515a5ac7d78bef6a6fdd47fb82b897cc36"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/dock/volume.rs",
+    "bytes": 3372,
+    "sha256": "de71b8c857441ec22c87846904515d6d08ff84073fa5c2d13c72959ecb078590"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/mod.rs",
+    "bytes": 625,
+    "sha256": "c8caf658f6c3710647aed0be1ef4b04bba35ce151532d3c4d366176ebd654e56"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/model_timeline.rs",
+    "bytes": 15689,
+    "sha256": "10a11d834848b6f44a3b68f34da145ec7ee0df495b8a68cf7ee84fc382154ac0"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/overlay.rs",
+    "bytes": 42384,
+    "sha256": "1e05834ed5ed3d89df96c5c09fe2cc4dcfdefa4fda7b861aec4defb25564b239"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/permalink.rs",
+    "bytes": 4953,
+    "sha256": "baaa35702880bdaeb82d2015ab93f682dd3cc2102d0f2ba60469d59809411396"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/phone_rail.rs",
+    "bytes": 18449,
+    "sha256": "249c9893e4b48a4c566642b6f44ec747f9d9f4290f4f2bb26f5b6a83d1f2969b"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/registry.rs",
+    "bytes": 86231,
+    "sha256": "00b5fd502c24955732cf91ce066ef493562dbba02ccaff8cf405526e81486147"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/ribbon.rs",
+    "bytes": 58667,
+    "sha256": "3d5c84e8584860fdcf2e86b3c91cef7b206249824896f8914ae5bf56b8f33d23"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/scrubber.rs",
+    "bytes": 66171,
+    "sha256": "83944696f449bc0407b9111ba130ef79a4b9afee6ee9f20a027df0a26d6290cf"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/state.rs",
+    "bytes": 4165,
+    "sha256": "2db083f187a09fe2e631e05501b64e7849e626ad59ee19f2d2ea6e0fee6b0c94"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/window_frame.rs",
+    "bytes": 10046,
+    "sha256": "eca570d2942748f18a71ed2690c7917a8b3dc636628c127d805ca1915cff9948"
+  },
+  {
+    "path": "crates/hookecho/src/app/chrome/windows.rs",
+    "bytes": 11598,
+    "sha256": "23f90584ff548c3f7d9a964f741dd96dccba30517b660d4542bdaa7ad458539a"
+  },
+  {
+    "path": "crates/hookecho/src/app/column_product.rs",
+    "bytes": 55160,
+    "sha256": "2acbcb995328b2acf1d1a88b465fa321d2738860cf41aff950188188b8c265b1"
+  },
+  {
+    "path": "crates/hookecho/src/app/column_trail.rs",
+    "bytes": 20914,
+    "sha256": "cf3675619e8c1b62ff3b9d5455192cf147a93fd6c45ffe793106834a82c69a17"
+  },
+  {
+    "path": "crates/hookecho/src/app/community_targets.rs",
+    "bytes": 5370,
+    "sha256": "6cc2735f0919e34fb0a8541e969e4e4ecd43901c39f00cb0348f4eaccb870b8e"
+  },
+  {
+    "path": "crates/hookecho/src/app/comparison_display_tests.rs",
+    "bytes": 1139,
+    "sha256": "fe465fd858bfd8cc4cc93063f0909c52ef65ee79ebc1f5f74bc3f1b721e9d683"
+  },
+  {
+    "path": "crates/hookecho/src/app/construct.rs",
+    "bytes": 41229,
+    "sha256": "408c3cf2ead4b92fc2ad75cf5448f5c42625d859241112304d5f0275d4517a6c"
+  },
+  {
+    "path": "crates/hookecho/src/app/contours.rs",
+    "bytes": 16654,
+    "sha256": "3a9094448fd9f66134b7ab0edbc054a7b2d87d986f2da4d9246641f426fa9f28"
+  },
+  {
+    "path": "crates/hookecho/src/app/data_age.rs",
+    "bytes": 3587,
+    "sha256": "812754844e2ce9d22316f4cea19fb81037a6ecdcbcb501c098c7877c642111c5"
+  },
+  {
+    "path": "crates/hookecho/src/app/data_poll.rs",
+    "bytes": 14433,
+    "sha256": "838777f416ce4d672b1ff2f6f9a6b193b24366f62871ede4a9e05e82f4ed0ebb"
+  },
+  {
+    "path": "crates/hookecho/src/app/delivery_fault_tests.rs",
+    "bytes": 16129,
+    "sha256": "07620634abff17a760e29f58eb1a39354a20014a5b60f736d96d913ceaa9a3b3"
+  },
+  {
+    "path": "crates/hookecho/src/app/detector_markers.rs",
+    "bytes": 58618,
+    "sha256": "03c83d4360b093a8deb9c6b67e24a7cddca2c4dab4ed860a242764d17742a27b"
+  },
+  {
+    "path": "crates/hookecho/src/app/detectors.rs",
+    "bytes": 62684,
+    "sha256": "cf44164019a5b4b6764ecd1a48a708c2e7216ca9fa46fd4ea009a1d32c0c6e92"
+  },
+  {
+    "path": "crates/hookecho/src/app/digest_brief.rs",
+    "bytes": 11546,
+    "sha256": "2f177c50fc394a2385f2afdc8d4f1d4ea42fcada9273f4f73dd9220e647dabb6"
+  },
+  {
+    "path": "crates/hookecho/src/app/draw_panes.rs",
+    "bytes": 8629,
+    "sha256": "ce6d59e4f7d0785ed70593c919a36c2943e2e91427b74c31e23457da76836091"
+  },
+  {
+    "path": "crates/hookecho/src/app/ensemble_stamps.rs",
+    "bytes": 5834,
+    "sha256": "45419d6bd88bc91856330d3c0ff5fdd32f06d2f6077c9e78a32366589f4fb812"
+  },
+  {
+    "path": "crates/hookecho/src/app/env_levels.rs",
+    "bytes": 15850,
+    "sha256": "cb4a266601eb02b78a15da19ed8eb9a01bcbd496d6b0e00c4771fe2eb07bed31"
+  },
+  {
+    "path": "crates/hookecho/src/app/feature_chooser.rs",
+    "bytes": 5498,
+    "sha256": "1e2d48611d36c63ee7e51d002e6a1150ccb12949ed520d0e543914a09e197694"
+  },
+  {
+    "path": "crates/hookecho/src/app/feature_tracking.rs",
+    "bytes": 24721,
+    "sha256": "6e556244c479f8b9a71c37fd8a5a2753c25bf316764e75f6939f38a220a55ed4"
+  },
+  {
+    "path": "crates/hookecho/src/app/fetch_schedule.rs",
+    "bytes": 34411,
+    "sha256": "18cbc02b6e05c1aa8fe5aba2ff281314bf3e705469b1affd08521a6de9f30013"
+  },
+  {
+    "path": "crates/hookecho/src/app/field_lut_tests.rs",
+    "bytes": 2898,
+    "sha256": "359cf0c2475bab57eabc6bda116c3934fcf774ff221f3e650292c6ec61c81f75"
+  },
+  {
+    "path": "crates/hookecho/src/app/field_series.rs",
+    "bytes": 8130,
+    "sha256": "7e8451087645dd273bbfecede95bc7ae0943bba7a0d67f4018ee93571e49ff1b"
+  },
+  {
+    "path": "crates/hookecho/src/app/field_state.rs",
+    "bytes": 15849,
+    "sha256": "c89a053de7de13864395418bb62c09f222b0d9594b2097c3058e6f2720e847cd"
+  },
+  {
+    "path": "crates/hookecho/src/app/floating_windows.rs",
+    "bytes": 50869,
+    "sha256": "b5ad1628edf385b0cce23be768bae03e390dec4425e3865f5ec3ad6fd5553ca8"
+  },
+  {
+    "path": "crates/hookecho/src/app/follow_tests.rs",
+    "bytes": 1773,
+    "sha256": "e3b504518efebd10483af1f68ea44350af8d8616b7e774bd88a41ef532a1cc2f"
+  },
+  {
+    "path": "crates/hookecho/src/app/frame_end.rs",
+    "bytes": 9220,
+    "sha256": "da923eeac2551ee9173239e5985478074bc6368685579f85c8d1632c6b3c75b7"
+  },
+  {
+    "path": "crates/hookecho/src/app/frame_intake.rs",
+    "bytes": 9631,
+    "sha256": "5972fb80dff0858f0602d6ad69f0cbb2ebb6ef8afc52004cc6e5f698ac910dc7"
+  },
+  {
+    "path": "crates/hookecho/src/app/gis_bundle.rs",
+    "bytes": 8996,
+    "sha256": "645fd554ed44570200018db414637730c8d6e4419e0139bca6c2edfeab428e7e"
+  },
+  {
+    "path": "crates/hookecho/src/app/gis_import.rs",
+    "bytes": 9030,
+    "sha256": "53e1e51f6dc40d2e7f823f32563c780b04989e4c1ad4cb6a01a15b222bf4775f"
+  },
+  {
+    "path": "crates/hookecho/src/app/gis_layers.rs",
+    "bytes": 74033,
+    "sha256": "b5cb13dbe26bc01040a614dfb9bb9f87a247f5936fe45c1104c3f2cf9b60cbd0"
+  },
+  {
+    "path": "crates/hookecho/src/app/goes_context.rs",
+    "bytes": 21216,
+    "sha256": "08099acab390d572d3f36e20ea3052583febaf220cd683f2927d64ecbe66eeef"
+  },
+  {
+    "path": "crates/hookecho/src/app/goes_panes.rs",
+    "bytes": 5064,
+    "sha256": "8ca67407a3e6fb665fde51d6c9c80d68efde05eaad6b2c629c7ac2cfd9239dad"
+  },
+  {
+    "path": "crates/hookecho/src/app/goes_timeline.rs",
+    "bytes": 8570,
+    "sha256": "eece75abcf50319058f50bdd697fd5b26332649b69cbfd2dd10552c5a88d112b"
+  },
+  {
+    "path": "crates/hookecho/src/app/goto.rs",
+    "bytes": 8924,
+    "sha256": "bd509f0757ee688cb7a3850a9923037d16556c9b842af19733168479af3a32b0"
+  },
+  {
+    "path": "crates/hookecho/src/app/humanize_tests.rs",
+    "bytes": 475,
+    "sha256": "7cc3de277e7c3921d29d67f540ca130e340a6fe11a4c8380c4d7fa21878e20df"
+  },
+  {
+    "path": "crates/hookecho/src/app/impact.rs",
+    "bytes": 5331,
+    "sha256": "6fd7cf7c6f2a0c43f0d8e72df5b97c47867c51d093a8f6e2388adec8bff5d898"
+  },
+  {
+    "path": "crates/hookecho/src/app/impact_report.rs",
+    "bytes": 36523,
+    "sha256": "4013298bd210c4801e8e35a38260b13a4ba344a110be4577e18ecc00973e7ddd"
+  },
+  {
+    "path": "crates/hookecho/src/app/layer_probe.rs",
+    "bytes": 34817,
+    "sha256": "353a046efc2a46f9259deb124759dcef8265546e6b157bccadd3a8dc0a274ede"
+  },
+  {
+    "path": "crates/hookecho/src/app/layer_probe_ui.rs",
+    "bytes": 11987,
+    "sha256": "f1870498dc0836e70d9d499d6a8d5ca524f6f86235cd2aca70aa9009d41647e8"
+  },
+  {
+    "path": "crates/hookecho/src/app/live_session.rs",
+    "bytes": 29906,
+    "sha256": "6e42a10c66074ede14aab38dafbec867a32c7956003979ad863fcc69e455dee1"
+  },
+  {
+    "path": "crates/hookecho/src/app/live_sweep.rs",
+    "bytes": 10399,
+    "sha256": "21119e5ba45df6a9edf912c15b54265151bab1548b38a50f5384da8a3cd68c77"
+  },
+  {
+    "path": "crates/hookecho/src/app/local_api.rs",
+    "bytes": 11457,
+    "sha256": "07b1a3cbc8130d899644c587f044b62df9cdcde90b261c03834ae107120048c9"
+  },
+  {
+    "path": "crates/hookecho/src/app/long_loop.rs",
+    "bytes": 3249,
+    "sha256": "303d3e990efca4c4b3414112723fce741fc3b446cb3820a8576fea23003b6e87"
+  },
+  {
+    "path": "crates/hookecho/src/app/loop_capture.rs",
+    "bytes": 23676,
+    "sha256": "03deaf9d015487345434170e4efca1d15f62090b7984abac62ce990199ab80eb"
+  },
+  {
+    "path": "crates/hookecho/src/app/map_click.rs",
+    "bytes": 35183,
+    "sha256": "0895256af8d88b6ba2098b2ec41b9a95677b5b17e73eb852cdb0681d3dd003e0"
+  },
+  {
+    "path": "crates/hookecho/src/app/map_volume.rs",
+    "bytes": 14828,
+    "sha256": "92767002e5c6be00ae60880c279b819a59ed400a78a9a6365c7628328b237b7a"
+  },
+  {
+    "path": "crates/hookecho/src/app/measure.rs",
+    "bytes": 28100,
+    "sha256": "d80dbab0ea9c46d4fe0222b623068981e73eb266ec5770747b9ec3489d5ba3f4"
+  },
+  {
+    "path": "crates/hookecho/src/app/memory_trim.rs",
+    "bytes": 4780,
+    "sha256": "c44ec2d6613e630421ddd9ba417eb5fbad45c1a7146bcf229cf24f34167232cd"
+  },
+  {
+    "path": "crates/hookecho/src/app/mobile/mod.rs",
+    "bytes": 17965,
+    "sha256": "81841c84bf7e6903a8e5d09e39f0dd9bbc5d8f0c4b36b91a11a9c4f817876d29"
+  },
+  {
+    "path": "crates/hookecho/src/app/mobile/sheet.rs",
+    "bytes": 7471,
+    "sha256": "f94c25b78adc2c83aca1b8a45e6e235b292010c453c1aee16cf1b5c57ad1b0ee"
+  },
+  {
+    "path": "crates/hookecho/src/app/model_cache.rs",
+    "bytes": 7011,
+    "sha256": "c4e08233ada4c414865bf6f0a2b1f1da9887ab79f840936736fa91ba120f2e1a"
+  },
+  {
+    "path": "crates/hookecho/src/app/model_context.rs",
+    "bytes": 44084,
+    "sha256": "58db7cf47379c6c27ebe326532e46b64acf412e7d91aadddb1a7f4e98d066d6c"
+  },
+  {
+    "path": "crates/hookecho/src/app/model_field.rs",
+    "bytes": 61951,
+    "sha256": "c76f2671d825063a1f86067366934a12f90fbdc4408028d20730152cb59c3db4"
+  },
+  {
+    "path": "crates/hookecho/src/app/model_groups.rs",
+    "bytes": 8111,
+    "sha256": "1896a984352e2e63259fa7fc2ec86ce202ef6369a7a00ac9b31e65be8b4c941e"
+  },
+  {
+    "path": "crates/hookecho/src/app/model_particles.rs",
+    "bytes": 9355,
+    "sha256": "9454c6a61fc98c5b048e3c98d6accff73a74bdab17447a6334a086fa71d535d9"
+  },
+  {
+    "path": "crates/hookecho/src/app/models.rs",
+    "bytes": 24401,
+    "sha256": "f50f7477f262d1fde422b96525e5a15b8df98bf454d247e07acf62300798d69c"
+  },
+  {
+    "path": "crates/hookecho/src/app/mrms_cache.rs",
+    "bytes": 5049,
+    "sha256": "4cd5e53aeaec67144bb4a72812b9c5d4627e74e64e8ca52e077cdfdcd425a180"
+  },
+  {
+    "path": "crates/hookecho/src/app/mrms_context.rs",
+    "bytes": 25512,
+    "sha256": "a29371158f80a56c6cf8402847063e87a9851888d06d47545beb8b1adc4bd06a"
+  },
+  {
+    "path": "crates/hookecho/src/app/near_storm.rs",
+    "bytes": 4430,
+    "sha256": "bb812cd0da0531c4e8ef5f314dd7e1518b050610d287b7d65be4f75dfc96d4b7"
+  },
+  {
+    "path": "crates/hookecho/src/app/nowcast_tests.rs",
+    "bytes": 622,
+    "sha256": "6a9d8c930c89b83abdfc11a88d67acf30e0a67d914b07b4c23f97184f91e1a6d"
+  },
+  {
+    "path": "crates/hookecho/src/app/output_window.rs",
+    "bytes": 20228,
+    "sha256": "4a79d36b41b759962328f93b6dcbd17a1be132a7ae0782866d4f1326310e2be4"
+  },
+  {
+    "path": "crates/hookecho/src/app/overlay_fetch.rs",
+    "bytes": 71150,
+    "sha256": "ba0815f7872c8762071103dc57ce0a5d7d376d765fa5202c5c8fd87bcde5fefc"
+  },
+  {
+    "path": "crates/hookecho/src/app/overlay_health.rs",
+    "bytes": 7180,
+    "sha256": "3ed33b01369242efda4934606f5c453ad52fe1ab7fc5a66fa5182452b2c8f5ad"
+  },
+  {
+    "path": "crates/hookecho/src/app/overlay_poll.rs",
+    "bytes": 34005,
+    "sha256": "6725ff8170036da58c8cfaec592030a6a9e4be5edd9ad58b0bdf7e45c3e02a6a"
+  },
+  {
+    "path": "crates/hookecho/src/app/overlay_toggle.rs",
+    "bytes": 7671,
+    "sha256": "1e753c7dd06c3f349e07ab951a4f30a9b0b241fc5b11be17bdc510603dfdc16c"
+  },
+  {
+    "path": "crates/hookecho/src/app/packs_soundings.rs",
+    "bytes": 18907,
+    "sha256": "c1ce57ac8a335641c0dbbf8056e788a1b544fa5c6f9977026a3599c5f267d9e7"
+  },
+  {
+    "path": "crates/hookecho/src/app/palette_apply.rs",
+    "bytes": 37973,
+    "sha256": "88243d190442e843f952959d1465df1051f301c5e3fa882c1a42e992e67fd839"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_3d_overlays.rs",
+    "bytes": 16087,
+    "sha256": "6fd138586af80379f37b9881956aa7383b8aaa98806057bd0decf5d39f367b9b"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_detect.rs",
+    "bytes": 8688,
+    "sha256": "dc9a1bd1c2311bf6f015e5f07579a0d123a734874438e63c8146627ad8555d76"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_feeds.rs",
+    "bytes": 15777,
+    "sha256": "0b639a5ea8642c966bf708b4285a3958ec647c6d7d95a765c7db1bd8ff42d853"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_gpu.rs",
+    "bytes": 23666,
+    "sha256": "21d327e750c2363d3900bb8a08dbb1b0edfd148356014ed6ed3568890089b577"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_input.rs",
+    "bytes": 17273,
+    "sha256": "c9120c1152e802612e26df80e6565321b352cc3fd2985c472c2a7762a8624b29"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_layout.rs",
+    "bytes": 17929,
+    "sha256": "0421721976e8b1c041df8dc4a991a8b20d27cbeda7978cf3660f43e72ecaf416"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_legends.rs",
+    "bytes": 12561,
+    "sha256": "d0d4376f98ba5c1f926c7963001a7180eea7456b2248b0f7f1c3248fd77b6f06"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_marks.rs",
+    "bytes": 9460,
+    "sha256": "2b5a880bc847025296b2c7a53fcee80bab67b8d7a899234b4a67d85cd9b6c55e"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_overlays.rs",
+    "bytes": 29921,
+    "sha256": "89bbbc499710083fe6fde5c7eb2ef22f23cda5c42a805118956c71e58a065490"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_places.rs",
+    "bytes": 11954,
+    "sha256": "c6dbc386596cc2b035b0cbdcc3be4a2d6b57bfc023dadeddbb7d9ea332ba0a4b"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_points.rs",
+    "bytes": 10442,
+    "sha256": "421287d28b51a86ccad92835d6a7ae895971a6b1407557604e5a332612f8b8c1"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_stations.rs",
+    "bytes": 7710,
+    "sha256": "db96f619f49206b3c5bba3dba6613ff5748c06284039ae1f7d0c0c3129cff1ea"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_sync.rs",
+    "bytes": 19219,
+    "sha256": "cec303b4be543fd6b5227a6c42010e4e46724f2571717ff71f1a19d2a8ab1724"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_time.rs",
+    "bytes": 24454,
+    "sha256": "4bca92ab317c5e5838512d2deaa120b5fff661046f00ae61e4ba32d6281958b8"
+  },
+  {
+    "path": "crates/hookecho/src/app/pane_upload.rs",
+    "bytes": 40458,
+    "sha256": "65c7d59d4b45c98515f6613d21f6f9547250815678a74d074c063d5610d54b2a"
+  },
+  {
+    "path": "crates/hookecho/src/app/place_name_tests.rs",
+    "bytes": 534,
+    "sha256": "d42bdf7ee8ee743257f3cfdefbeb128e95f01e4542d73a4daa439dd8edf25b8f"
+  },
+  {
+    "path": "crates/hookecho/src/app/placefiles_sync.rs",
+    "bytes": 4987,
+    "sha256": "a8c975372020f6989c14e430803b21d25e0cdac9881d2947670860858184d41f"
+  },
+  {
+    "path": "crates/hookecho/src/app/point_models.rs",
+    "bytes": 50575,
+    "sha256": "93d0abd85eb8a4c18f238911fa4c23890e0ea810ec26fb8a19e2b3e48670abb4"
+  },
+  {
+    "path": "crates/hookecho/src/app/prefs_app.rs",
+    "bytes": 24883,
+    "sha256": "f43a8183978aa32bf408d1ffd82804935a09e91ba7603cd549b2f9120f61ab26"
+  },
+  {
+    "path": "crates/hookecho/src/app/prefs_map.rs",
+    "bytes": 18082,
+    "sha256": "238f42d9d4d8fd3c05dca43f9d0381ffb5932561b5505b90dfab297a71332e90"
+  },
+  {
+    "path": "crates/hookecho/src/app/presentation.rs",
+    "bytes": 8087,
+    "sha256": "4e50ff977ecf2f7091cf9467fd846ef398bfb116218c47cac37cf763c6b96510"
+  },
+  {
+    "path": "crates/hookecho/src/app/probe_grid_tests.rs",
+    "bytes": 7121,
+    "sha256": "33dd09635e900457f56061d9ecc088b91652ff50861c90831aad237d55cd95bf"
+  },
+  {
+    "path": "crates/hookecho/src/app/quality.rs",
+    "bytes": 6562,
+    "sha256": "ec6ef39723489f5ba704107042da42e819dbe47741c5d6034b2da9cb12b721ff"
+  },
+  {
+    "path": "crates/hookecho/src/app/quiet_summary_tests.rs",
+    "bytes": 785,
+    "sha256": "f35504887d9ed397f52b1d0e494f74801c6b622b15b5c9119d681b77df32927e"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_feed.rs",
+    "bytes": 28065,
+    "sha256": "7ac11e51fad5e0584e4af878daf62a68dce341fef253f579da61593ef5d7e5c7"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_hint.rs",
+    "bytes": 6254,
+    "sha256": "caa52060dc0c0fb9768fd2aa1cb8dc8b49c0dd33da11245c83cef316459e2548"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_outlines.rs",
+    "bytes": 14982,
+    "sha256": "1eb73b45b8839c101006fb356f268c9b5ad5ea934eb9ac0f11dedac377b24503"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_probe.rs",
+    "bytes": 8878,
+    "sha256": "fdc0373f51717e0e5031a60a678fbfa30a76ef1e4cc97769867232aa45305604"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_products.rs",
+    "bytes": 12748,
+    "sha256": "c9838f7a546694cd700986d55bf5c3ddf29e7c2ce8b3cd395ea45fb9804a2e05"
+  },
+  {
+    "path": "crates/hookecho/src/app/radar_wind.rs",
+    "bytes": 3484,
+    "sha256": "78d4878e622ade04a266870cbacd51df3ff665a414203b4389f01960d618d448"
+  },
+  {
+    "path": "crates/hookecho/src/app/rebuild.rs",
+    "bytes": 8580,
+    "sha256": "5a87852697fe7a2589acb9bcb1c20b51a32a9a13b88f4bd1732effef8c7d8ed2"
+  },
+  {
+    "path": "crates/hookecho/src/app/region_stats.rs",
+    "bytes": 6657,
+    "sha256": "3924dce705d92395bfc65845eda2b9f5d7cdc1a84f78490359ae6ccff1440cd6"
+  },
+  {
+    "path": "crates/hookecho/src/app/report.rs",
+    "bytes": 31425,
+    "sha256": "6b600fce51e0e1136a9658b37491f655c83fa56b49047c8f1d2114aca2f330dd"
+  },
+  {
+    "path": "crates/hookecho/src/app/request_book.rs",
+    "bytes": 28574,
+    "sha256": "2c38e2e73f35e42995d670efb1d2ea355bdce8deb7f0480bcac21724121cb50a"
+  },
+  {
+    "path": "crates/hookecho/src/app/route_frame.rs",
+    "bytes": 23645,
+    "sha256": "2afbb35e16c2c857793334bfe842cb64fbfe14f9d3e4d147b4fa92be16ca5d60"
+  },
+  {
+    "path": "crates/hookecho/src/app/rules.rs",
+    "bytes": 11647,
+    "sha256": "eef069441dcde377a98c11e1044afd5b6239130f05728d33f93f6c3809a9f76c"
+  },
+  {
+    "path": "crates/hookecho/src/app/sat_loop.rs",
+    "bytes": 33941,
+    "sha256": "1413c2fbd6135e292ba91e0507558382daf12531084ae4d195842e1643bdf893"
+  },
+  {
+    "path": "crates/hookecho/src/app/scale_bar.rs",
+    "bytes": 5240,
+    "sha256": "95953d01503db03b2ec058ee7d83c11f4fac02ef494a0c53c06f3e22aa555eea"
+  },
+  {
+    "path": "crates/hookecho/src/app/scenes.rs",
+    "bytes": 50574,
+    "sha256": "5085296b8642c201bb08b820c5d7c7a3d6f3b4ce0a85e40db6d0d11b91d2e5e6"
+  },
+  {
+    "path": "crates/hookecho/src/app/self_update_ui.rs",
+    "bytes": 7426,
+    "sha256": "e74b9bb2f41aad971a7b7092248a1ed1ddd21b9fa11fca9d8bfe7d1fc1c77be6"
+  },
+  {
+    "path": "crates/hookecho/src/app/settings_bundle.rs",
+    "bytes": 1444,
+    "sha256": "6f0d18be76735de9becb65c223f6d1e5429eb63d2bafb4c3497d06e84e9ecd13"
+  },
+  {
+    "path": "crates/hookecho/src/app/sharing.rs",
+    "bytes": 10679,
+    "sha256": "1875fd31bf56710ebe2f796920005642fed97ad5fadc825221b363e17841d83c"
+  },
+  {
+    "path": "crates/hookecho/src/app/spatial_groups.rs",
+    "bytes": 19510,
+    "sha256": "72307915f19e8cc5661bb14c477a11ba14b4d6fe0ef6b0d756982361db83f78b"
+  },
+  {
+    "path": "crates/hookecho/src/app/standalone_volume.rs",
+    "bytes": 23212,
+    "sha256": "94139c37a8f4339f6676776d66407a187ea0407d9a760c4b2e2457ff55aece90"
+  },
+  {
+    "path": "crates/hookecho/src/app/storm_notes.rs",
+    "bytes": 15983,
+    "sha256": "3cb66cf71defd96c0ac2cb9ecd6563fdca7b4320da1825ef5c1833736371c2c4"
+  },
+  {
+    "path": "crates/hookecho/src/app/storm_track.rs",
+    "bytes": 98129,
+    "sha256": "f797d8cc416a304e7c9b9b6e07d451d8fe9728325cce1019453fee548577acb1"
+  },
+  {
+    "path": "crates/hookecho/src/app/storm_track_geometry.rs",
+    "bytes": 1884,
+    "sha256": "58a66f47aa96e06d008d9f7ce1295c330f8bd191e3ceeb5a02e3b5fd848364de"
+  },
+  {
+    "path": "crates/hookecho/src/app/surface_feeds.rs",
+    "bytes": 18502,
+    "sha256": "aff01bf570c74a78c0c8d6e2ee648dbe72fedc470d2de1cf05b2f84634042b54"
+  },
+  {
+    "path": "crates/hookecho/src/app/telemetry.rs",
+    "bytes": 3245,
+    "sha256": "97febb0a4d3c52b57574012d7c0b25149786f72179a673088dded7f52bb4fe37"
+  },
+  {
+    "path": "crates/hookecho/src/app/terrain3d.rs",
+    "bytes": 5189,
+    "sha256": "1d2d5e0169771679afa1191d07ed33df6146e6f34190dcf52e43ee715c7728d6"
+  },
+  {
+    "path": "crates/hookecho/src/app/terrain_cache.rs",
+    "bytes": 3916,
+    "sha256": "4cc92e8475236e0d24a3ee991ed0d6eaef7d220449cf2d71fff768fe661d8714"
+  },
+  {
+    "path": "crates/hookecho/src/app/tests.rs",
+    "bytes": 20098,
+    "sha256": "c1379a7927351ca3a1cae45365830fc2293e937430cbc3f43d34e2a823c2dd3b"
+  },
+  {
+    "path": "crates/hookecho/src/app/time_layers.rs",
+    "bytes": 3212,
+    "sha256": "6597dbad807b9a092a7b711e67302689c3cbd905d7881e4309a15bda3943731a"
+  },
+  {
+    "path": "crates/hookecho/src/app/tornado_surveys.rs",
+    "bytes": 29926,
+    "sha256": "d6319ff8bb6ec0db5c9fff04cee315841894fb997ac75942474aeceec9952bbc"
+  },
+  {
+    "path": "crates/hookecho/src/app/touch_hover.rs",
+    "bytes": 6508,
+    "sha256": "ce689c4bd2aa5bf468575d29c0fa14a94728b37ccc89b3409dac9f5e4a988740"
+  },
+  {
+    "path": "crates/hookecho/src/app/trail.rs",
+    "bytes": 19720,
+    "sha256": "0c9e68567b7eae5933b689259f7a9b302183b3129ea0674f5b09bed9e57b70ec"
+  },
+  {
+    "path": "crates/hookecho/src/app/trail_status_tests.rs",
+    "bytes": 1009,
+    "sha256": "5a9b9508647716e788018c0f57d7a81d338b6e79e5f370c1c87bda03e290e8ca"
+  },
+  {
+    "path": "crates/hookecho/src/app/two_finger_slide_tests.rs",
+    "bytes": 1018,
+    "sha256": "28175e8d863bfd3b874b2f3789c37e6ebdfb9ffbcda4c681816fdf3e87d7a6b0"
+  },
+  {
+    "path": "crates/hookecho/src/app/view3d_state.rs",
+    "bytes": 58891,
+    "sha256": "e018a892f309cb807fcc3cb5ec8e7ca7be49ecc8d0b05b3c3ca98231dc15537c"
+  },
+  {
+    "path": "crates/hookecho/src/app/volume3d_fuse.rs",
+    "bytes": 12486,
+    "sha256": "54dbbe40404b871da49721bc739c1724b1370ee3795eb23cb32433c29d5567fa"
+  },
+  {
+    "path": "crates/hookecho/src/app/warning_scope_tests.rs",
+    "bytes": 1087,
+    "sha256": "03c0ac66c525f2ca311b375ecdcda41747578280d35a4f14d4f7021875e39933"
+  },
+  {
+    "path": "crates/hookecho/src/app/wire_alerts.rs",
+    "bytes": 4190,
+    "sha256": "83a0de7220e6de9628ca568aa51e5f8f3dd78bc6e586f2f5d38e991547f44be8"
+  },
+  {
+    "path": "crates/hookecho/src/app/workspace_apply.rs",
+    "bytes": 9107,
+    "sha256": "5cbd809fba2cc794f9098dad0c475d0838da4d316ae3bd0460217f1ee235dc45"
+  },
+  {
+    "path": "crates/hookecho/src/app/xsection_edit.rs",
+    "bytes": 24546,
+    "sha256": "3c37fdff77c68bc76d7393a5e6c1868b3d55648c460375f908addda84111e024"
+  },
+  {
+    "path": "crates/hookecho/src/app/xsection_fuse.rs",
+    "bytes": 12989,
+    "sha256": "f107179552eb73b1623ff59d84de9ab6f76231ac0d3f5783cf259e471fbf4eae"
+  },
+  {
+    "path": "crates/hookecho/src/app/yall_mode.rs",
+    "bytes": 13589,
+    "sha256": "d6fd4bbd38e94d1746242d783ed665fed16a1ee055468bae4f1a677a7ac9c5f9"
+  },
+  {
+    "path": "crates/hookecho/src/astro.rs",
+    "bytes": 15100,
+    "sha256": "4220b4af8aa90ce538d04a3b24ccd6c035f5784ce7a0664ba35cac30f1d2b111"
+  },
+  {
+    "path": "crates/hookecho/src/audio.rs",
+    "bytes": 11896,
+    "sha256": "91e4eca2d936b96721c3e3dc4330e7e711958bfcdebca03de870780d3b859cb0"
+  },
+  {
+    "path": "crates/hookecho/src/backtest.rs",
+    "bytes": 7063,
+    "sha256": "6d42137e802506e1c7d0e14ecb03ed783ae690654923d4b861f66088c7ea04be"
+  },
+  {
+    "path": "crates/hookecho/src/basemap_style.rs",
+    "bytes": 16183,
+    "sha256": "245ab5b835359f122b08098b3249f1ced7fbca51be5963af0a9b74f09915cd0e"
+  },
+  {
+    "path": "crates/hookecho/src/broadcast.rs",
+    "bytes": 14033,
+    "sha256": "8c0ef40aa7a39593bbd8253d3ebea6c737bbc109246209c141a4f72f94d3bac6"
+  },
+  {
+    "path": "crates/hookecho/src/cam.rs",
+    "bytes": 17035,
+    "sha256": "785db5963b7cbe764b325169c19a4c9c44b96164d139e75eec81b5a5caa386b2"
+  },
+  {
+    "path": "crates/hookecho/src/capture_manifest.rs",
+    "bytes": 9246,
+    "sha256": "a241b62321a0c8ad8aa9667aa5a31c6c7b876f1c7bc7f118fb6168325d5e6d0c"
+  },
+  {
+    "path": "crates/hookecho/src/case.rs",
+    "bytes": 12643,
+    "sha256": "7ac08d8c85c460d4ea1684757c6b97770377e9f09fa4bdcbcec204a427fb3d98"
+  },
+  {
+    "path": "crates/hookecho/src/chase.rs",
+    "bytes": 6451,
+    "sha256": "2220928abf272ef46fefb6e6bfae9dc0f3fff9d06d427dd8ad742f09491f704f"
+  },
+  {
+    "path": "crates/hookecho/src/chaselog.rs",
+    "bytes": 11689,
+    "sha256": "00853601ee59548a276e3e58bbe9894f6750e93102a226bc2ed3af39eb6dba9f"
+  },
+  {
+    "path": "crates/hookecho/src/chrome.rs",
+    "bytes": 25795,
+    "sha256": "f1b814f5514947ee51f76d680d3af452c757dda8eb5dea85ef00d8d6e600342e"
+  },
+  {
+    "path": "crates/hookecho/src/cloud.rs",
+    "bytes": 23132,
+    "sha256": "8966da65a3f6c1c96158078b9002b08297c649f764ab2aa4eff98074d8b7b747"
+  },
+  {
+    "path": "crates/hookecho/src/colormap.rs",
+    "bytes": 52255,
+    "sha256": "a6d89927463a3c2014eee8e26e323b8026e29ef84f0c75b76c1eb389902ce5cf"
+  },
+  {
+    "path": "crates/hookecho/src/coverage_compare.rs",
+    "bytes": 8409,
+    "sha256": "30ac7a64753a3e1d61a0673de86198725e24d84ee3438ec2b993f4e2055fd6c0"
+  },
+  {
+    "path": "crates/hookecho/src/crash.rs",
+    "bytes": 3729,
+    "sha256": "22c1c8cc91682fdaf7fd8be4b1054bc04d16203eb4b063437307bd248e1ddf43"
+  },
+  {
+    "path": "crates/hookecho/src/daynight_draw.rs",
+    "bytes": 7766,
+    "sha256": "7bcf3d52597720a7e0f5f58f8c2aa9223b27473b60567a3d1b92dfd8f38f93f9"
+  },
+  {
+    "path": "crates/hookecho/src/devlog.rs",
+    "bytes": 22031,
+    "sha256": "734510bce3f21589fb297be7e548691fc975fafe11371b403f8148b43d8fa195"
+  },
+  {
+    "path": "crates/hookecho/src/devlog_admin.rs",
+    "bytes": 33359,
+    "sha256": "ba195f45d4cfb57a98bb41fd1059dc64a6cb15569dc7fcd15fdd5b4ae7162feb"
+  },
+  {
+    "path": "crates/hookecho/src/dialog.rs",
+    "bytes": 17106,
+    "sha256": "a1884c83c6f3909b7abf6c7b6793d3ea215bdec9b356619e866213a33fff4bb5"
+  },
+  {
+    "path": "crates/hookecho/src/digest.rs",
+    "bytes": 9239,
+    "sha256": "3fd3516929f392df611a28489e1ad43349fa3a64735e84af4e65fabea5bd0bfe"
+  },
+  {
+    "path": "crates/hookecho/src/elevation.rs",
+    "bytes": 28024,
+    "sha256": "f7b60aa9314c9a44130821e2eefef961b6a998c2133249a5a10794024b190708"
+  },
+  {
+    "path": "crates/hookecho/src/ensemble_layer.rs",
+    "bytes": 24085,
+    "sha256": "c61cd22789e12cd0a4a8294ce6fb031a4ff62247527af08e22a79777bc90062b"
+  },
+  {
+    "path": "crates/hookecho/src/events.rs",
+    "bytes": 4281,
+    "sha256": "b851b5653fa148483970ede5f88aeef723ab41dc091e1ba726417489cf7ee796"
+  },
+  {
+    "path": "crates/hookecho/src/failover_arbiter.rs",
+    "bytes": 23807,
+    "sha256": "adefeb3c44b9fe27faa23f11e379e68cac4bc99a2b009d807a308fba7599c994"
+  },
+  {
+    "path": "crates/hookecho/src/field_fade.rs",
+    "bytes": 7667,
+    "sha256": "a7f722e6bbed4f7a1004d21a9ee633b1957161cb2fcda64758939c6dd58223cb"
+  },
+  {
+    "path": "crates/hookecho/src/fielddiff.rs",
+    "bytes": 45987,
+    "sha256": "17bd4a85eb918b5600c9d24ec40eff4a24ca91f263446e383ef9bb5d20635d9f"
+  },
+  {
+    "path": "crates/hookecho/src/fonts.rs",
+    "bytes": 9478,
+    "sha256": "e892f3f6f84421e64b713d1ff028f31129d7293105929351844783e2eec54845"
+  },
+  {
+    "path": "crates/hookecho/src/fronts_draw.rs",
+    "bytes": 6653,
+    "sha256": "6355c1f47db10437bd20910eb7994a63bbb708cff993fa8ee1f7fc80fe4d4c4f"
+  },
+  {
+    "path": "crates/hookecho/src/geo.rs",
+    "bytes": 10511,
+    "sha256": "09e1f804c5ab271243b97e0ac46ce303430776d9bfdca5af1f4ad650f972ab40"
+  },
+  {
+    "path": "crates/hookecho/src/gis_export.rs",
+    "bytes": 16737,
+    "sha256": "7c523da8114f45e9a3dfa7171063707af0f25694a05df3d88944a89508053345"
+  },
+  {
+    "path": "crates/hookecho/src/gis_filter.rs",
+    "bytes": 14225,
+    "sha256": "13fe1ee80b68ff38eac12dfd78ff49b3b95bdfae7f6751b6e66739c6ddfcaf66"
+  },
+  {
+    "path": "crates/hookecho/src/gis_import.rs",
+    "bytes": 56572,
+    "sha256": "1421d14d6e243c9d7b6d01760248f61a0b8876b344285b3cfdccefff1a5c0bbb"
+  },
+  {
+    "path": "crates/hookecho/src/gps.rs",
+    "bytes": 5736,
+    "sha256": "12c2922b5dccfc81508f9b8fba1e5fd774be4f9e92a4d073433daeb1601e82dd"
+  },
+  {
+    "path": "crates/hookecho/src/headless.rs",
+    "bytes": 313519,
+    "sha256": "8edf8ccaaaaf0f82634034ac1b422f00945881b5087c5b569090be5b34dece52"
+  },
+  {
+    "path": "crates/hookecho/src/headless_corpus.rs",
+    "bytes": 42003,
+    "sha256": "f0cd46e3848802a1c8539a6583bb215f4d23696b1e7d20a713ebdbd83ee3ed61"
+  },
+  {
+    "path": "crates/hookecho/src/headless_field_fade.rs",
+    "bytes": 12958,
+    "sha256": "654bf7d4067459c210598f4600b4f985bae31b49acf6c02aa95a7c223b4adc53"
+  },
+  {
+    "path": "crates/hookecho/src/headless_fusion.rs",
+    "bytes": 9156,
+    "sha256": "0808db47905d498f5e9f933a5161f0718e47e84b01a24650b1ae4c6eb417a7be"
+  },
+  {
+    "path": "crates/hookecho/src/headless_model_panes.rs",
+    "bytes": 7042,
+    "sha256": "2be688a18a8f035d3663a1527c985cb29d6c3a23c474888da3c7b33658ab1323"
+  },
+  {
+    "path": "crates/hookecho/src/headless_mrms_panes.rs",
+    "bytes": 10494,
+    "sha256": "9b3e3c2c97561cbe8e3334bd9ed172f924c4982af4a5e4da45e835f6e34c59af"
+  },
+  {
+    "path": "crates/hookecho/src/headless_tile_context.rs",
+    "bytes": 8365,
+    "sha256": "d0daa49f5db1fecb74221dbbb540e5e560e11dba2d022c1825e089529832266a"
+  },
+  {
+    "path": "crates/hookecho/src/headless_ui.rs",
+    "bytes": 3611,
+    "sha256": "3e96ffb6ae4738637f2f6087ce7120f3eaec9d0887062429db1e5d0423bd10a6"
+  },
+  {
+    "path": "crates/hookecho/src/headless_volume.rs",
+    "bytes": 15587,
+    "sha256": "574d71c48fb4a01cedbd339cf6ab74d2e18c719126171f65d9d9eaaf3c161961"
+  },
+  {
+    "path": "crates/hookecho/src/hotkeys.rs",
+    "bytes": 28697,
+    "sha256": "497a4d8b4f897d98bbe43a0168780476e969f948e4b18b23f7befafd60fce530"
+  },
+  {
+    "path": "crates/hookecho/src/icon.rs",
+    "bytes": 3098,
+    "sha256": "43d445dd6203fb31913314ca8a35ecad36b5a556c3e4e1c0b9b187782229a078"
+  },
+  {
+    "path": "crates/hookecho/src/labelplace.rs",
+    "bytes": 8132,
+    "sha256": "15719c523c4b8e07a3f42ec09c52c8497c85ce39ef4f72262c48620b2ac343cc"
+  },
+  {
+    "path": "crates/hookecho/src/lib.rs",
+    "bytes": 22023,
+    "sha256": "7577c0dc2dba95b970ae08b9bb44dcf6ccb0dbcf773946e93b354b35809cc282"
+  },
+  {
+    "path": "crates/hookecho/src/live_scan.rs",
+    "bytes": 64337,
+    "sha256": "c0c9dcbeb268606ae843fc62f32c221fd713ce98bb6c8731df608fb5048d02bb"
+  },
+  {
+    "path": "crates/hookecho/src/local_api.rs",
+    "bytes": 17914,
+    "sha256": "077beeef421c98c251a52dd8f9202165df608ba67ca1c8d4cd867f6a253fb9e8"
+  },
+  {
+    "path": "crates/hookecho/src/loop3d.rs",
+    "bytes": 72672,
+    "sha256": "e160866fa38fe2167e0545c954d8bcab70d8748b82699560f620d1d4e233279e"
+  },
+  {
+    "path": "crates/hookecho/src/loopexport.rs",
+    "bytes": 23433,
+    "sha256": "0e2ff7b93b3df558b1b92b9df45c76fc3d329075e05ef046a7abf5fcd43b7700"
+  },
+  {
+    "path": "crates/hookecho/src/main.rs",
+    "bytes": 59719,
+    "sha256": "557d84817152fb03053dd483cbbf1ddb77e8d9947e6952fb1cc6852724cc1f89"
+  },
+  {
+    "path": "crates/hookecho/src/model_browser.rs",
+    "bytes": 54976,
+    "sha256": "bd72e338820eb6419ed781d98ce3884d2eaea85fcccb0ec35d996f8424741d71"
+  },
+  {
+    "path": "crates/hookecho/src/model_pane.rs",
+    "bytes": 10783,
+    "sha256": "2d307b77f7955cfb26c1e12abf4ddca20539298c97496bea0ebe158394807190"
+  },
+  {
+    "path": "crates/hookecho/src/mqtt.rs",
+    "bytes": 24388,
+    "sha256": "ac1208852db9dda25d563c6f8cd371fcf9fac860bc749e0b3436880904c0baa3"
+  },
+  {
+    "path": "crates/hookecho/src/notify.rs",
+    "bytes": 12391,
+    "sha256": "aae6caa1c65548b5130e2339eaa0344ca5b9624759d8edec88e1bd8fdb5fb3f9"
+  },
+  {
+    "path": "crates/hookecho/src/nwr.rs",
+    "bytes": 12823,
+    "sha256": "e43f147b6940a17e83e03c4767b38ccf5f588579e612c2114e7f62cff8dadab9"
+  },
+  {
+    "path": "crates/hookecho/src/object_store.rs",
+    "bytes": 11466,
+    "sha256": "5f47c0e6019aae7589acbee0a9c95084481c1677f53cb1dc5362420403b4ba46"
+  },
+  {
+    "path": "crates/hookecho/src/outage_draw.rs",
+    "bytes": 4728,
+    "sha256": "fa07d63ce4716282574df44974b463801a5200a819cc7c442a459f8c916f6dc4"
+  },
+  {
+    "path": "crates/hookecho/src/overlay_build.rs",
+    "bytes": 29545,
+    "sha256": "1f6fbc9cf038c78978b9ff392c697045947d5927a522468ac7f80820c42bb29a"
+  },
+  {
+    "path": "crates/hookecho/src/pane_links.rs",
+    "bytes": 2598,
+    "sha256": "e8d27de0d9451b736c0a1e32d945dcdf516b2313f32248c46dabc61ab8527677"
+  },
+  {
+    "path": "crates/hookecho/src/paths.rs",
+    "bytes": 7908,
+    "sha256": "7938d30e5f6016a1068c69dc5dde463457fe927e2297b8bdbbe0f90520c3beba"
+  },
+  {
+    "path": "crates/hookecho/src/perf.rs",
+    "bytes": 5072,
+    "sha256": "526b806d8aeb283c357d9d6e533de0b59565a424741e5408d02a7950c9bcf018"
+  },
+  {
+    "path": "crates/hookecho/src/platform.rs",
+    "bytes": 72749,
+    "sha256": "0b1d4eb95217c6de815d05d27e87a6c8548962ccec6a4342279daf6ea0f728d7"
+  },
+  {
+    "path": "crates/hookecho/src/plugins.rs",
+    "bytes": 8252,
+    "sha256": "2f75e9881241ea42f975e31dc11641d698fc6c2f518f825d4c5eb2b3adf35481"
+  },
+  {
+    "path": "crates/hookecho/src/products.rs",
+    "bytes": 5084,
+    "sha256": "8f1ad3abd7d93b00da168603e8bcc04f73f2489a201038b20f11541eaed365bc"
+  },
+  {
+    "path": "crates/hookecho/src/profiling.rs",
+    "bytes": 8070,
+    "sha256": "586fbe046875566248961a6e7d0ceb1b30109694e1c9e99191e2122a52833cb0"
+  },
+  {
+    "path": "crates/hookecho/src/provider_health.rs",
+    "bytes": 36275,
+    "sha256": "4f4c11f04a0c0ccb53cd5bc8453a405041b26cca71af640b12bfb465a234a2f8"
+  },
+  {
+    "path": "crates/hookecho/src/quality.rs",
+    "bytes": 5135,
+    "sha256": "2e981ea3d53bec9d1bf1c13d9c43e475437bd92750d103aa738a193c243623ea"
+  },
+  {
+    "path": "crates/hookecho/src/radar_precision_tests.rs",
+    "bytes": 11542,
+    "sha256": "6bbe75e456346937ca18c9369aa3264c7f2f45f9fd8d2a5f09d2008b8e80a838"
+  },
+  {
+    "path": "crates/hookecho/src/radar_provider_manager.rs",
+    "bytes": 28610,
+    "sha256": "ab02be74737f5db381dd957830d1de0ed791275f91cf2f903fc05d544d9dc8ae"
+  },
+  {
+    "path": "crates/hookecho/src/rain_arrival.rs",
+    "bytes": 8907,
+    "sha256": "5584234023c25ab8512646eb97ce000e667530a2920efedaa50f72cada75144f"
+  },
+  {
+    "path": "crates/hookecho/src/relay_provider.rs",
+    "bytes": 67736,
+    "sha256": "a38c13d99713607e5501d6df0fc0359543583a5db2a55bf4b41c039480415f69"
+  },
+  {
+    "path": "crates/hookecho/src/render/field_ramps.rs",
+    "bytes": 55501,
+    "sha256": "d1929be7df84c5bd17d24a62c44bc63c82a21fa9cd90455e41eae73515f17dfa"
+  },
+  {
+    "path": "crates/hookecho/src/render/live_trace.rs",
+    "bytes": 10048,
+    "sha256": "2a737f0b102e07890c8e06b48884f9c2492e00f5252f87c7b662efd04077ca76"
+  },
+  {
+    "path": "crates/hookecho/src/render/mercator.rs",
+    "bytes": 29191,
+    "sha256": "9eae2c9eacd04b5beea96c7013331c4a00b59924cdb2cfcdd69ae9ef7ee70fbf"
+  },
+  {
+    "path": "crates/hookecho/src/render/mod.rs",
+    "bytes": 145461,
+    "sha256": "76c4f6c9dd1f21c0548848e56383ee25304d1489ef3d36f17ba45038e73ceedc"
+  },
+  {
+    "path": "crates/hookecho/src/render3d.rs",
+    "bytes": 136668,
+    "sha256": "1f601148b30298ba24f4bc660bb5e0a9d490f2c797d92b54534f45d6e2b0cb33"
+  },
+  {
+    "path": "crates/hookecho/src/rt.rs",
+    "bytes": 2377,
+    "sha256": "c2a2be3d44e64cc02e778484f815ff190b44f82b875f46f1d27d4ea72025d58a"
+  },
+  {
+    "path": "crates/hookecho/src/rules.rs",
+    "bytes": 15623,
+    "sha256": "5b75b3d3d93df1100b91b1a6d05078d87ca5fa7fa31b454dd9721956642fde53"
+  },
+  {
+    "path": "crates/hookecho/src/secret.rs",
+    "bytes": 1444,
+    "sha256": "a9d9eded2f0abcccce7351c6f816182fa32446aecefc8414dc8a03f38c6a93f7"
+  },
+  {
+    "path": "crates/hookecho/src/self_update.rs",
+    "bytes": 10424,
+    "sha256": "8c2f5b93808444a2f83d953bb4b9017475cb191e6232d0dad02dc2c1e14353b7"
+  },
+  {
+    "path": "crates/hookecho/src/serve.rs",
+    "bytes": 89172,
+    "sha256": "e880b76860f684183c6ab85182f561241ddf8224fa12e9f006dcc79e7349dda1"
+  },
+  {
+    "path": "crates/hookecho/src/settings.rs",
+    "bytes": 179598,
+    "sha256": "86dd208150b973c7e40f9bddeef5d3f5688fad7ea8cd211b1a6a97997e184809"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/globe.wgsl",
+    "bytes": 2174,
+    "sha256": "a2a332f1de666d56e80e23eb06e9b6355d64664663c2ccfc0a0d2291150a7c0d"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/mrms.wgsl",
+    "bytes": 3730,
+    "sha256": "d0ec06e9c66e2f84640903e1fcc98a04ed6bd6b44275db6df3370a5a550d407f"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/overlay.wgsl",
+    "bytes": 1409,
+    "sha256": "7e6cb1ddc4d386336bd0fc2ea4aba5328f62e9659d193d51c131febb000aed9c"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/radar.wgsl",
+    "bytes": 9494,
+    "sha256": "1d69d5c7ab2cf25a6a019cfac53ad1fce7a15abdeb5d2f22ded8b41031fb5f37"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/radar_observed.wgsl",
+    "bytes": 12309,
+    "sha256": "020a087b836d21ead1d824fed5aeed9eb05ef7ec1ef62113b258f32d20416549"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/radar_polar.wgsl",
+    "bytes": 2825,
+    "sha256": "2b04bdc4745d58a89ee8e276947d0119c39b14b16a25cc9a352120bb51981296"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/raymarch.wgsl",
+    "bytes": 16463,
+    "sha256": "8e7bd7c83e2332104f01e2a18733789ee332b37825919a520bbdd1e27ab6f050"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/tiles.wgsl",
+    "bytes": 1026,
+    "sha256": "76ba9a80c43be69ce2c1dedfd0d16ac0418f9a6e5156fe41795c12d9d8585fa4"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/volume_blit.wgsl",
+    "bytes": 1026,
+    "sha256": "663161d77811b4130f3c03aaf8f16e029cf978865011fb64f66b0231e106c52f"
+  },
+  {
+    "path": "crates/hookecho/src/shaders/wind.wgsl",
+    "bytes": 7197,
+    "sha256": "68262ca1290516452784106d105f920b1b315e2b4887f8620718919d88dbb2cb"
+  },
+  {
+    "path": "crates/hookecho/src/share.rs",
+    "bytes": 8748,
+    "sha256": "18d67a608ac646a81afd3b33c617429f660585366a85862d83d48ee1071ef525"
+  },
+  {
+    "path": "crates/hookecho/src/soak.rs",
+    "bytes": 30690,
+    "sha256": "831aa6dee11659190e22410befea56b7185370fae608043f2fb176ca2b03944a"
+  },
+  {
+    "path": "crates/hookecho/src/source_health.rs",
+    "bytes": 16098,
+    "sha256": "31b6b3760a8cbe41c0f7f4b6039d6836386dd8ccc634c211c2d558ec3b8d2409"
+  },
+  {
+    "path": "crates/hookecho/src/spaghetti.rs",
+    "bytes": 19773,
+    "sha256": "378fc2e4b8c632cc4c7ea45639be1167a55e777a04046d3941ea2320813193dd"
+  },
+  {
+    "path": "crates/hookecho/src/speech.rs",
+    "bytes": 28382,
+    "sha256": "c350f7caa3584ad1bbbd8933266600b6c0553512d1ab1c124c708aad83b604ed"
+  },
+  {
+    "path": "crates/hookecho/src/spotlight.rs",
+    "bytes": 3882,
+    "sha256": "0193d98aafd738358a1abfb36eb1ccc0b617e819e3b470d792ff98f833745807"
+  },
+  {
+    "path": "crates/hookecho/src/stationlayer.rs",
+    "bytes": 16000,
+    "sha256": "686594b77264d0548095f4c27da0436ab7d6bf66fbf9992c6108c8ee8613fa5d"
+  },
+  {
+    "path": "crates/hookecho/src/status.rs",
+    "bytes": 19708,
+    "sha256": "05539bc4be2f8de53b011b875da0ad1375c7becd611e7aaa167350fdf202fcfe"
+  },
+  {
+    "path": "crates/hookecho/src/storage.rs",
+    "bytes": 5217,
+    "sha256": "c1d70cd1caed2756e8daa6b9aa8459dd04c96dba0884ff7413abadf888fd7c0b"
+  },
+  {
+    "path": "crates/hookecho/src/storm_brief.rs",
+    "bytes": 23176,
+    "sha256": "9ddeda948aa17e78752ea691ab825d05142fc484cf685fe017b5069a596c793a"
+  },
+  {
+    "path": "crates/hookecho/src/textview.rs",
+    "bytes": 9689,
+    "sha256": "b55fe627553089b62e044e598a188b2869ae334c1c937305d384b53da84057ad"
+  },
+  {
+    "path": "crates/hookecho/src/tgftp_provider.rs",
+    "bytes": 44543,
+    "sha256": "9519056d5a24201a8a0bc6653f48ef3b0e7c6cc05e43bf9edeee395d88d2e541"
+  },
+  {
+    "path": "crates/hookecho/src/theme.rs",
+    "bytes": 16872,
+    "sha256": "03c124b05f74128ea05269659133ef3baaa12d2ded953130f3e6b047a7d92296"
+  },
+  {
+    "path": "crates/hookecho/src/tiles.rs",
+    "bytes": 140757,
+    "sha256": "e2a05a08c48bf307f92a5ede83666f0c3e6e468d4aaa315c2b2072b049cd9eff"
+  },
+  {
+    "path": "crates/hookecho/src/timefmt.rs",
+    "bytes": 2703,
+    "sha256": "6dbd559d518b8482d7c08a932162a0867c35149bdac32ea504e5d692b5581228"
+  },
+  {
+    "path": "crates/hookecho/src/timeline.rs",
+    "bytes": 42161,
+    "sha256": "adab21eba7128f0208d6b869f11179bc63c372c75361f96880545e0259a40cb8"
+  },
+  {
+    "path": "crates/hookecho/src/tray.rs",
+    "bytes": 7519,
+    "sha256": "29d76b6e5866e2eab96661e4334e4839df57bc8b830cc18ba7bb60660a623921"
+  },
+  {
+    "path": "crates/hookecho/src/tropical_draw.rs",
+    "bytes": 10682,
+    "sha256": "58361e479347e6a019e95806ec233a94b4d78365486368c0fb858c32635c011c"
+  },
+  {
+    "path": "crates/hookecho/src/udp_gpu.rs",
+    "bytes": 15442,
+    "sha256": "ff02f49a5c0097a46c5b8bc0c8cc385f6565159112d51f1f9e189cf2e2d037ae"
+  },
+  {
+    "path": "crates/hookecho/src/ui/a11y.rs",
+    "bytes": 1818,
+    "sha256": "41e77c01a72d5c2a3828189091939c5cff82841c8dc8ab8061d63ed51423f221"
+  },
+  {
+    "path": "crates/hookecho/src/ui/about_window.rs",
+    "bytes": 7460,
+    "sha256": "0afe4b7f4ec7c23b0e72afa8d28c6bda346edcd98b327e18bc2d9194f5ff80b2"
+  },
+  {
+    "path": "crates/hookecho/src/ui/acquisition_inventory.rs",
+    "bytes": 49313,
+    "sha256": "a7c80abc1f95f1eae36097642c9f9fef3d6e4ccc8fd918963f231cfefba57e81"
+  },
+  {
+    "path": "crates/hookecho/src/ui/afd_window.rs",
+    "bytes": 2099,
+    "sha256": "b81f9e58c0d711d0a786bee4f47664f8b5c8155b316337e0feb00424eb50565f"
+  },
+  {
+    "path": "crates/hookecho/src/ui/alert_panel.rs",
+    "bytes": 12733,
+    "sha256": "ce3c6f6d5a7a1b0be3c54244f4fcd6a90d36be099a446a9e85991c15f6754387"
+  },
+  {
+    "path": "crates/hookecho/src/ui/analyst_log_window.rs",
+    "bytes": 6637,
+    "sha256": "a0d2f870e16e0d8796435790c8451ddadda56ed7e0a550a5cfa32bc2addd17d1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/basemap_picker.rs",
+    "bytes": 7415,
+    "sha256": "5857808dc73582f4e732a6474065192ed302a14e2a78de4fb0cb582311781604"
+  },
+  {
+    "path": "crates/hookecho/src/ui/cappi_window.rs",
+    "bytes": 2464,
+    "sha256": "4f2a835b54ea3858d7f1d55f63de2f5a551a239e6305f7866102a7f394bd30b7"
+  },
+  {
+    "path": "crates/hookecho/src/ui/cell_window.rs",
+    "bytes": 11657,
+    "sha256": "35fb0a824ef6491dfe5105d0eed2068bd1068647364ef8f6ef3ef817efd30b09"
+  },
+  {
+    "path": "crates/hookecho/src/ui/cells_window.rs",
+    "bytes": 14815,
+    "sha256": "e428d59de0c0767d84c8d10de23e44799348979bd8bd275a3d862e5cdf6aa00b"
+  },
+  {
+    "path": "crates/hookecho/src/ui/changelog.rs",
+    "bytes": 24352,
+    "sha256": "fa687e3e086bd9199640f3e2733ae8e76b30d42fb5345ae7a1e1d72210a7b10a"
+  },
+  {
+    "path": "crates/hookecho/src/ui/chase_replay.rs",
+    "bytes": 10759,
+    "sha256": "03538e0b82ea127bb3b740ed931a126576eae728ba6238fcc46b1692a2fba562"
+  },
+  {
+    "path": "crates/hookecho/src/ui/cheatsheet.rs",
+    "bytes": 4540,
+    "sha256": "bbd84413f1518501897052bbea669fbe61518cf8bdb4398a483be7344113119b"
+  },
+  {
+    "path": "crates/hookecho/src/ui/comparison_status.rs",
+    "bytes": 2837,
+    "sha256": "a931c5a8f2dcd36eb7cdff9c600f25d1b0604fcee8e3bd932ec209934946aec8"
+  },
+  {
+    "path": "crates/hookecho/src/ui/cursor_probe.rs",
+    "bytes": 4810,
+    "sha256": "d631a1ecd592771ec2a3a3434b19bebe09d73d8c9cea2bbbe058881728c114bc"
+  },
+  {
+    "path": "crates/hookecho/src/ui/data_inspector.rs",
+    "bytes": 5322,
+    "sha256": "349afc9e16d031ebd6b60c4aad61e6f87ba6c72e6cccb74ea1863add36cc2242"
+  },
+  {
+    "path": "crates/hookecho/src/ui/detail_window.rs",
+    "bytes": 4712,
+    "sha256": "3451ad17ead47ac6eb97de875b0e8d43aa92e7e9c0dbb41c1b4d3287a225d83b"
+  },
+  {
+    "path": "crates/hookecho/src/ui/digest_window.rs",
+    "bytes": 3741,
+    "sha256": "5b54e7398e38ea5c5d62f5034d0c8799c4fcb9816df708cbd6d348becd2e1371"
+  },
+  {
+    "path": "crates/hookecho/src/ui/drawer.rs",
+    "bytes": 18061,
+    "sha256": "63eaf0f77114618407d7bef96dda2ee9ede7d8ff8d07a0ff0c68ee8c550aae75"
+  },
+  {
+    "path": "crates/hookecho/src/ui/event_window.rs",
+    "bytes": 5711,
+    "sha256": "1181b72db568cc6ba9297655bb7d95b5ea0f7d79320900a64c68275999a5c4ca"
+  },
+  {
+    "path": "crates/hookecho/src/ui/firstrun.rs",
+    "bytes": 8623,
+    "sha256": "eacf683431109ba5878a66fb273e53b8229c5ec6e68b2273f0cad38e18dd8cd1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/flood_impact.rs",
+    "bytes": 24758,
+    "sha256": "77f467ace2ca8adef90c19a36d1a3aaac505e8b473d7e2f58a63864e7260e4af"
+  },
+  {
+    "path": "crates/hookecho/src/ui/forecast_window.rs",
+    "bytes": 40778,
+    "sha256": "1499b86f46672f98294d0c24ee594325310b322b5fee7ce9d13049169e40d739"
+  },
+  {
+    "path": "crates/hookecho/src/ui/freshness.rs",
+    "bytes": 4084,
+    "sha256": "b4cebb0341c33c706d1d1d133f2d95c95b8d82331b91b89a04803f0ad47b35ac"
+  },
+  {
+    "path": "crates/hookecho/src/ui/gate_inspector.rs",
+    "bytes": 48344,
+    "sha256": "7fa93919f2d16637b65974d98af7a00f8b1024cb69ab386f54fd51fd83447c23"
+  },
+  {
+    "path": "crates/hookecho/src/ui/gauge_card.rs",
+    "bytes": 60576,
+    "sha256": "f6a9df74264763437fe8354d9cdbff4ef3168f7f0ced4b6eee29c6ed54756aa7"
+  },
+  {
+    "path": "crates/hookecho/src/ui/gauge_dashboard.rs",
+    "bytes": 49210,
+    "sha256": "569cbfbaf9ed09cd2661291c2587a0fd6ce5957611a465a5128ec0b11440824e"
+  },
+  {
+    "path": "crates/hookecho/src/ui/glossary.rs",
+    "bytes": 8986,
+    "sha256": "c5c54b49cc66262d11045f136da1688f618758e67870ffd958f6bb9d4cce34ae"
+  },
+  {
+    "path": "crates/hookecho/src/ui/help_hub.rs",
+    "bytes": 12262,
+    "sha256": "eba9276b65299478773e3566b683929cc6d6aa7512220398ab19c634390e857a"
+  },
+  {
+    "path": "crates/hookecho/src/ui/hodograph_window.rs",
+    "bytes": 10199,
+    "sha256": "8a0adf9332cb6256a5ec46f1b8caa2be7a6e0e36109d2a120c9a0779f250549f"
+  },
+  {
+    "path": "crates/hookecho/src/ui/layer_options.rs",
+    "bytes": 64032,
+    "sha256": "4b34239c52667e77390c37fbb0bf7f2031d05e7e7488e597dc9769dc4b5636c1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/layer_window.rs",
+    "bytes": 27342,
+    "sha256": "e1597598a09507816eefa01396530d24ea919b527b131f5ad978d8f8b5bb5ca2"
+  },
+  {
+    "path": "crates/hookecho/src/ui/layers_panel.rs",
+    "bytes": 85017,
+    "sha256": "394c8e6e44f8a90b818c06bf541d9d222a750353073285bc616992224a976a26"
+  },
+  {
+    "path": "crates/hookecho/src/ui/legend.rs",
+    "bytes": 30579,
+    "sha256": "2cff2bbeb40483e48380e0765a6ca638925e6429078cf95395c14670226ea712"
+  },
+  {
+    "path": "crates/hookecho/src/ui/m3.rs",
+    "bytes": 10587,
+    "sha256": "dc06583b24757ad77c42d9f743e7c0108491b17939951202253bd2668898cc1f"
+  },
+  {
+    "path": "crates/hookecho/src/ui/marker_popup.rs",
+    "bytes": 2501,
+    "sha256": "88f9ae74b9a86d3e014d0d7a5cacc582d545daebc6e8be1e08960a0f13c2213a"
+  },
+  {
+    "path": "crates/hookecho/src/ui/marker_window.rs",
+    "bytes": 10163,
+    "sha256": "e3c43c2f3b7098dc9676eaa8577bdaf20f01266a3c4f4399a5e0a3c8fc0edd0d"
+  },
+  {
+    "path": "crates/hookecho/src/ui/mod.rs",
+    "bytes": 5801,
+    "sha256": "1f95c723ef8c42cab01ece485c62b4562d3390d80b3f383384f725d872ab3719"
+  },
+  {
+    "path": "crates/hookecho/src/ui/model_panel.rs",
+    "bytes": 15306,
+    "sha256": "ff5eeed2b8055c6f5bd78d878f385816b191a714bf86c344440cbb7a9fcef879"
+  },
+  {
+    "path": "crates/hookecho/src/ui/model_verify_window.rs",
+    "bytes": 20563,
+    "sha256": "d0ded6eff27884505d74498a99743752635296359afe95e2b2a5bb8315ad2713"
+  },
+  {
+    "path": "crates/hookecho/src/ui/motion.rs",
+    "bytes": 8423,
+    "sha256": "8c290c477a4586bc6d6271aa94843311e944b408931b2686ec8a46951db96630"
+  },
+  {
+    "path": "crates/hookecho/src/ui/palette_editor.rs",
+    "bytes": 9830,
+    "sha256": "839ec2f65f84406a23e372c1b0856fbfb62fae25d9176be8cb77f9f45dd6dc97"
+  },
+  {
+    "path": "crates/hookecho/src/ui/phone_design.rs",
+    "bytes": 10332,
+    "sha256": "4d5370b98e67121cdb7c081cb60fec0371d5cea7bdddc387a6b83ee31e47c487"
+  },
+  {
+    "path": "crates/hookecho/src/ui/placefile_window.rs",
+    "bytes": 8089,
+    "sha256": "5440b3c2a0ce9a3de5a5f965b8b827a2d7219b1c5bc54f65c285d62c3d5e0ba1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/popover.rs",
+    "bytes": 4701,
+    "sha256": "9928fbdfef29f9eb348e6703c9ddff42e46ca41dea402b435be26d5388ff3d9e"
+  },
+  {
+    "path": "crates/hookecho/src/ui/region_stats_window.rs",
+    "bytes": 37224,
+    "sha256": "3f56792ee08b8c4daad3ebccb87b782204177cb633cb51fff163ea41262a87e0"
+  },
+  {
+    "path": "crates/hookecho/src/ui/route_window.rs",
+    "bytes": 11073,
+    "sha256": "74a49f00cbcb47c4fc397b149d2ea79f01366499d5053442ff941dfae39a377a"
+  },
+  {
+    "path": "crates/hookecho/src/ui/rules_window.rs",
+    "bytes": 18029,
+    "sha256": "bf5c5381373c9953e3a61c36a6ba56e9217510bd1c8b794f8c01bb5508521bbf"
+  },
+  {
+    "path": "crates/hookecho/src/ui/sensor_window.rs",
+    "bytes": 5129,
+    "sha256": "baf17173f5aea274aec3031ec652a53704b13700f4976530d484f99e6606dd0a"
+  },
+  {
+    "path": "crates/hookecho/src/ui/settings_window.rs",
+    "bytes": 85535,
+    "sha256": "e4f1a6227b9f9bf226a7b1a5be483e1e98c05cc426807417ecdf5b6d27629652"
+  },
+  {
+    "path": "crates/hookecho/src/ui/site_dialog.rs",
+    "bytes": 11451,
+    "sha256": "e5ff589005dbd9c1e2924b0d2e61cfc0d7f57af7646883361050ed6e019c30a1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/sounding_window.rs",
+    "bytes": 37822,
+    "sha256": "99dbecbcefbd1369b0ca1e7ea60b03f13a89f56b564975beff42e362dbfc1f08"
+  },
+  {
+    "path": "crates/hookecho/src/ui/source_health_window.rs",
+    "bytes": 14288,
+    "sha256": "fad9c3bb2a6184fb7d5444f4bf27909d43174e591e775e5534865a19bf9c5bc2"
+  },
+  {
+    "path": "crates/hookecho/src/ui/station_card.rs",
+    "bytes": 23653,
+    "sha256": "ae891188ce0e38efe41a298693d8e447f98a2f893c3b11fd63b9afa33abcfc24"
+  },
+  {
+    "path": "crates/hookecho/src/ui/style.rs",
+    "bytes": 7578,
+    "sha256": "1d0beaae514b5499562d8689ad127901fe98eed4929961ae93ca12bb66f0661d"
+  },
+  {
+    "path": "crates/hookecho/src/ui/suitability_popup.rs",
+    "bytes": 4659,
+    "sha256": "bc5effa174a7355379255dca750ca11c48fae9f805dceb91a302d0e4348207ef"
+  },
+  {
+    "path": "crates/hookecho/src/ui/tour.rs",
+    "bytes": 14910,
+    "sha256": "fc7327b95121387daf0f0e5632ab81e7fc9a15949dbaa652af6847719136ff51"
+  },
+  {
+    "path": "crates/hookecho/src/ui/tropical_window.rs",
+    "bytes": 24754,
+    "sha256": "b80d630e7772a38c93a031d86f73f76023b6cc1ff6ad7338e3deb2d1b76564dc"
+  },
+  {
+    "path": "crates/hookecho/src/ui/udp_window.rs",
+    "bytes": 18621,
+    "sha256": "a1567c27195e280c73579d9bd2364e0a4f43f57c67d1c79e742d88096e3dcfcb"
+  },
+  {
+    "path": "crates/hookecho/src/ui/verify_window.rs",
+    "bytes": 8318,
+    "sha256": "524e6c9eb59a2bd741a70df27369a5cc2846640610b800c41e93e18012db5aec"
+  },
+  {
+    "path": "crates/hookecho/src/ui/video_window.rs",
+    "bytes": 5874,
+    "sha256": "f295c693f9350b6db16e3e4895d32d26c53755184d9d429224911ea1d610a60e"
+  },
+  {
+    "path": "crates/hookecho/src/ui/volume3d_window.rs",
+    "bytes": 51607,
+    "sha256": "2d7fb01a61bf21e8f10a753110b61b5a32df6eb785c3b02c358a9ef0a1d275c0"
+  },
+  {
+    "path": "crates/hookecho/src/ui/warning_window.rs",
+    "bytes": 7378,
+    "sha256": "293a6ead5af19b503ba9a556d7c72a6707dbdd85857335ca0898a123e56567b2"
+  },
+  {
+    "path": "crates/hookecho/src/ui/whats_new.rs",
+    "bytes": 10296,
+    "sha256": "c55f6d0c5cbb8a4d25fc85e63f13a01af512a9907c65c115a460fd60a58dddac"
+  },
+  {
+    "path": "crates/hookecho/src/ui/workstation.rs",
+    "bytes": 74654,
+    "sha256": "47e77345e292a0aaa87c5fcfc4b71bfe3513d5dedc2f7a6dab9632c90a105da1"
+  },
+  {
+    "path": "crates/hookecho/src/ui/wsv3.rs",
+    "bytes": 11605,
+    "sha256": "626635bd2efc7433c5f80175897376688441003ec3c82781fb5a535b04d51e74"
+  },
+  {
+    "path": "crates/hookecho/src/ui/xsection_window.rs",
+    "bytes": 34410,
+    "sha256": "5fc519b962628e0669290f5fecc506cb686560b2aace11f388e47183a673f9d5"
+  },
+  {
+    "path": "crates/hookecho/src/vector_tiles.rs",
+    "bytes": 58555,
+    "sha256": "d6e560cd77da8000e78e098b34577726275eeb395cafe170734e66201a92e99e"
+  },
+  {
+    "path": "crates/hookecho/src/view.rs",
+    "bytes": 106225,
+    "sha256": "53a1d35844c49824a5655c117410b8c998dd79a0a857e57bdcd4baa0eff71cd7"
+  },
+  {
+    "path": "crates/hookecho/src/volume.rs",
+    "bytes": 13610,
+    "sha256": "684e96c86f059a40e9acff1a36c7acb028f3bb5678da03564a6ceadfa42434b6"
+  },
+  {
+    "path": "crates/hookecho/src/watch.rs",
+    "bytes": 33346,
+    "sha256": "3338ec94ca3b24fccb0701046c849ef3afdfa0131925a2f36ba5e0a3db073d6d"
+  },
+  {
+    "path": "crates/hookecho/src/webcache.rs",
+    "bytes": 33507,
+    "sha256": "5c8f5561218c278c0d783e65830f2cc61352f2089c12ede784cfcde4a08c5de7"
+  },
+  {
+    "path": "crates/hookecho/src/wind_draw.rs",
+    "bytes": 24420,
+    "sha256": "e23fc102991a362ff639ba35fa8965ddcad8dbd3d32c0a7c1af781c4a24246ac"
+  },
+  {
+    "path": "crates/hookecho/src/wind_gpu.rs",
+    "bytes": 28339,
+    "sha256": "15ec65ba7f2764bc267eb145765f50eea645f36cd8582dc5425be0603f40dea1"
+  },
+  {
+    "path": "crates/hookecho/src/wind_streamlines.rs",
+    "bytes": 19599,
+    "sha256": "393ebbadd79fd62b67982a4a99d18b2d5b1868c4937f25319075c77a5565d92f"
+  },
+  {
+    "path": "crates/hookecho/src/workspace.rs",
+    "bytes": 67248,
+    "sha256": "f62413a64181ee8a12aca51575bd73c28cfc9cd4a7fa83bf6b8862c7c1ef867c"
+  },
+  {
+    "path": "crates/hookecho/src/yall.rs",
+    "bytes": 18014,
+    "sha256": "157efb0299766a0ace16b33fe42c5da6e3dff58c66f00f1eaa4f5519e37b690b"
+  },
+  {
+    "path": "crates/hookecho/src/zipwrite.rs",
+    "bytes": 6898,
+    "sha256": "7e806d2545bde02d44a14bb80c6ff1755e4548c5b30d904360c11010f0ebe828"
+  },
+  {
+    "path": "crates/hookecho/tests/flatpak_sources.rs",
+    "bytes": 3615,
+    "sha256": "7efc9d91ef95ec267c9dc88503b3e0adf7cee93d662885d8064ba4d779abbbbf"
+  },
+  {
+    "path": "crates/hookecho/tests/wasm_clock.rs",
+    "bytes": 2524,
+    "sha256": "2e57ec80a164eb008ae91e2d6f82036b3963df073a225df90bc6d22153f91037"
+  },
+  {
+    "path": "crates/nexrad-level3/Cargo.toml",
+    "bytes": 626,
+    "sha256": "717d4d7c43bbb3873239cdd59ac57b53e4b15f48f138a3522059a3f318d3c67f"
+  },
+  {
+    "path": "crates/nexrad-level3/src/lib.rs",
+    "bytes": 25490,
+    "sha256": "c6acaf27b792a5792e4e9137658ec3a30373ea7ef902cd7c7916e7fa59783c12"
+  },
+  {
+    "path": "crates/nexrad-level3/tests/clocks.rs",
+    "bytes": 5336,
+    "sha256": "8daf28ef92edf74f79759c296b76b65449809b52bf2537686191dd622c12a2ac"
+  },
+  {
+    "path": "crates/nexrad-level3/tests/golden.rs",
+    "bytes": 9839,
+    "sha256": "adac5fb16129cf8ee4574afb19b75c31c5e839756ac9d518ea3d6e982a8c1d7b"
+  },
+  {
+    "path": "crates/radar-ingest/Cargo.toml",
+    "bytes": 2628,
+    "sha256": "e23967b71e3b4336cfd729f457e8b2717763e08ac0b8c0b41b5785cdf3b1673c"
+  },
+  {
+    "path": "crates/radar-ingest/src/block_store.rs",
+    "bytes": 9718,
+    "sha256": "298b934ee4f12d50dbbaeee0338271244ec0a84b23c047856d14651878bbcca4"
+  },
+  {
+    "path": "crates/radar-ingest/src/fixture.rs",
+    "bytes": 3033,
+    "sha256": "6d17b50655c0d5d0b0f5e0460adaea148a6b4fa60920993c936f82b20a473093"
+  },
+  {
+    "path": "crates/radar-ingest/src/input.rs",
+    "bytes": 7259,
+    "sha256": "7fdd56ff415410274da105cbc3836dd0596262a8a1498e36540261f9702e6530"
+  },
+  {
+    "path": "crates/radar-ingest/src/ldm.rs",
+    "bytes": 7683,
+    "sha256": "077391924968b5700d5571d6939dbc5a1469238951c25f3cbd3df46c1179efb9"
+  },
+  {
+    "path": "crates/radar-ingest/src/lib.rs",
+    "bytes": 3013,
+    "sha256": "2b031136dd89a5815dd5c1e5fbbb3b728ff6724a060d7693605c1fb35586e781"
+  },
+  {
+    "path": "crates/radar-ingest/src/main.rs",
+    "bytes": 10390,
+    "sha256": "88680f838bf3dbce82f44de47cc932a1c5ac196a81263bf6bc2cdce53cdc3d3a"
+  },
+  {
+    "path": "crates/radar-ingest/src/pipeline.rs",
+    "bytes": 12333,
+    "sha256": "43a74a80c37cdd61e72e80f89fa1a29ead50907c01740b00c499015b32d78329"
+  },
+  {
+    "path": "crates/radar-ingest/src/rechunk.rs",
+    "bytes": 28451,
+    "sha256": "04a97b22a27ed0d95237786ae06c485deb9c9a85f7f069f8a7152454abf06873"
+  },
+  {
+    "path": "crates/radar-ingest/src/server.rs",
+    "bytes": 26206,
+    "sha256": "7f685944444c4e7de0ff4c9cf6399199437fdcd5da3b74b57e5483f5834fb25e"
+  },
+  {
+    "path": "crates/radar-ingest/src/store.rs",
+    "bytes": 12382,
+    "sha256": "aea71c650f4a6cad0ae7bc72797b43aabf027c4a31f3e1acfe7b79465f6211d3"
+  },
+  {
+    "path": "crates/radar-ingest/src/wire.rs",
+    "bytes": 3247,
+    "sha256": "b4ff9d1a9823da77f45b3d96ee2a9422df3d64ceb7927eb8f460b5673b1dd184"
+  },
+  {
+    "path": "crates/wxdata/Cargo.toml",
+    "bytes": 5248,
+    "sha256": "5f5ed88df41a43f3a1ce89c02e48337c60bb3da15961eab9b6c9dc9a990062d0"
+  },
+  {
+    "path": "crates/wxdata/benches/hot_paths.rs",
+    "bytes": 3623,
+    "sha256": "fc1b7b5dc3002d801bdae0cc1bd11bfa5fca2721f1b32ba9ef9be9adf6ffd846"
+  },
+  {
+    "path": "crates/wxdata/examples/env_sample.rs",
+    "bytes": 7097,
+    "sha256": "ad72a8bbb61bf5cdc1c6dd3bb74e0b1146783ec543b6e0e8855a563300c9f450"
+  },
+  {
+    "path": "crates/wxdata/examples/nexrad_sites.rs",
+    "bytes": 3850,
+    "sha256": "855c4adee5ccbdab1678e3c868d8f82a5acad81738fa9d517e93bab8fae1cc3e"
+  },
+  {
+    "path": "crates/wxdata/examples/sites_json.rs",
+    "bytes": 690,
+    "sha256": "7e938399f02d2153dc9317b3b2d55ad910be67aa66e7281a6a7d6e4d2c727287"
+  },
+  {
+    "path": "crates/wxdata/src/afd.rs",
+    "bytes": 4200,
+    "sha256": "6fc41c7171a528ebc9522640d178528a103fbeac86637cc7a79fae61c953367e"
+  },
+  {
+    "path": "crates/wxdata/src/airnow.rs",
+    "bytes": 5052,
+    "sha256": "5d18edf98ec70848599b70cc62916d269bab0b787d3a0f360e5b5cf8f66f896d"
+  },
+  {
+    "path": "crates/wxdata/src/alert_latency.rs",
+    "bytes": 11402,
+    "sha256": "c0e9ac028dd11431e0e2201208f55c99bae3e911870707307d6644afa5295c75"
+  },
+  {
+    "path": "crates/wxdata/src/alerts.rs",
+    "bytes": 33627,
+    "sha256": "4bbf7f351ffd6eab299ce5744677a0733a5563f50434aa6d607646291d614d15"
+  },
+  {
+    "path": "crates/wxdata/src/archive_mds.rs",
+    "bytes": 6019,
+    "sha256": "ff320ee1bd9a9494aa1db0151b3328affc3ee35f92bb6c438fc38efd45737ae2"
+  },
+  {
+    "path": "crates/wxdata/src/archive_warnings.rs",
+    "bytes": 14902,
+    "sha256": "169bd9e2ac32d7f9652a579efd2dec79fd5d0f23e47e30cc7a176adbc58c1c0d"
+  },
+  {
+    "path": "crates/wxdata/src/atcf.rs",
+    "bytes": 31319,
+    "sha256": "9e2db46d0334de16ef3bb0c463d2a5ee6435b1ccabde26976320e336f5ec5d79"
+  },
+  {
+    "path": "crates/wxdata/src/aviation.rs",
+    "bytes": 16588,
+    "sha256": "25ccbe6271f2b9a81a63ac70535948ec6217e49d7c350343f6ddb1ab2d862713"
+  },
+  {
+    "path": "crates/wxdata/src/azshear.rs",
+    "bytes": 32729,
+    "sha256": "cc87dbc3c5a7f09083ad509a71717e77e8417e3f9686a935ff7eb4b9a87a0fa4"
+  },
+  {
+    "path": "crates/wxdata/src/banding.rs",
+    "bytes": 8353,
+    "sha256": "67d90a47f8b30a8bd69a39c8625ec5bca524c949b57290ae55364872d9d02e1d"
+  },
+  {
+    "path": "crates/wxdata/src/beam_geometry.rs",
+    "bytes": 16110,
+    "sha256": "f17fb63eb45fb2fc65f4a03612bb51505be70b15a424970035d3205ba5844ba3"
+  },
+  {
+    "path": "crates/wxdata/src/cellscore.rs",
+    "bytes": 15005,
+    "sha256": "ae7f7c9f852581ed227e2aafa1b4700e83a1d0eca70cce6dc76ca2f238fb849b"
+  },
+  {
+    "path": "crates/wxdata/src/celltrack.rs",
+    "bytes": 24090,
+    "sha256": "7d97df84cfd629e7bbeae1512f295023c66965577eead8f1a7625782743dd45d"
+  },
+  {
+    "path": "crates/wxdata/src/census.rs",
+    "bytes": 15405,
+    "sha256": "41dc1ab73983ef032e4a34e8c07c802eff928444834e4d06c40d91f6f0f193f8"
+  },
+  {
+    "path": "crates/wxdata/src/cfradial.rs",
+    "bytes": 19274,
+    "sha256": "4a4cdd7ab1034bd5d54d6be2c4e1f21ae47a596f41dd6b262451d126893990cb"
+  },
+  {
+    "path": "crates/wxdata/src/clock.rs",
+    "bytes": 1103,
+    "sha256": "546b5a7a8d97c578a526c1b1922442c38bc7da5264fd789b9d369a0e530348c7"
+  },
+  {
+    "path": "crates/wxdata/src/confirm.rs",
+    "bytes": 12328,
+    "sha256": "81e11684091ad6ae63990a2c96bc7e5a2ecdd5c5495396103bea7bef0ce1211f"
+  },
+  {
+    "path": "crates/wxdata/src/continuation.rs",
+    "bytes": 29383,
+    "sha256": "4a4a92aa65bd0e7a7b87a9233385e0874a33aeb729fd0fee2611c3e498b1a247"
+  },
+  {
+    "path": "crates/wxdata/src/contour.rs",
+    "bytes": 11096,
+    "sha256": "07eea3956b5e1d85844e5d20b04b05849e166b0455312e0506136f8b3a4da0c0"
+  },
+  {
+    "path": "crates/wxdata/src/cvd.rs",
+    "bytes": 5201,
+    "sha256": "4ed9234482b6bffc7368ce38dce44bd1d44a2580c6d9f1f2f526448bd1fa63f4"
+  },
+  {
+    "path": "crates/wxdata/src/dat.rs",
+    "bytes": 32520,
+    "sha256": "7eb5f46263cd462073e9d5e90760e7a0b7961a895e04e23ebabf84eb8dfe4fd1"
+  },
+  {
+    "path": "crates/wxdata/src/dealias.rs",
+    "bytes": 34882,
+    "sha256": "a35334c17d6f4061449fc34cf254a1e15e5c86cba375cbb50878ad1531f448b6"
+  },
+  {
+    "path": "crates/wxdata/src/debris_class.rs",
+    "bytes": 12906,
+    "sha256": "ca9e114c6a186f1fd42df4695543f599b2bb4f528f2a2f47a351e3f49ad5388c"
+  },
+  {
+    "path": "crates/wxdata/src/derived.rs",
+    "bytes": 29186,
+    "sha256": "dc70b3d23e007c0873ba5f7afee2b919e3d3374fc38b5066816ad079d945cd8a"
+  },
+  {
+    "path": "crates/wxdata/src/detbaseline.rs",
+    "bytes": 31951,
+    "sha256": "60fe0c118afbb319f3319402f82b303b59f439b7df4f82cef04e0f537bbde760"
+  },
+  {
+    "path": "crates/wxdata/src/detection_lineage.rs",
+    "bytes": 24943,
+    "sha256": "567ee43d5628d57b70271c46617a57636183d4caf1c86f4f68f9fa8daf7da427"
+  },
+  {
+    "path": "crates/wxdata/src/detverify.rs",
+    "bytes": 24098,
+    "sha256": "68a149ae27ee6a3a3214351fc4ff2af434d586465d3d0c893c764f0e7e59b2fd"
+  },
+  {
+    "path": "crates/wxdata/src/doppler_wind.rs",
+    "bytes": 8632,
+    "sha256": "a8e7986849bed62b03efaa52257a5c8eb932510585500e88ede4f41bb405a09a"
+  },
+  {
+    "path": "crates/wxdata/src/dotcams.rs",
+    "bytes": 10607,
+    "sha256": "c5f17d661aa8b3810fb116f7c7ff2730c4176f9eb43ec542423c4c6827271fe1"
+  },
+  {
+    "path": "crates/wxdata/src/dualpol.rs",
+    "bytes": 21705,
+    "sha256": "66b54b7ee7092c472ea977a57fd11fed016b2fa18e36066f07f4fa9b2214a74a"
+  },
+  {
+    "path": "crates/wxdata/src/dwd.rs",
+    "bytes": 28750,
+    "sha256": "374b1d07bf85c5ee632996aeb8bc398c9abd62d065ca05f4933341b41c7771c4"
+  },
+  {
+    "path": "crates/wxdata/src/eccc.rs",
+    "bytes": 12061,
+    "sha256": "9b2808b8915b2677c31223a267f4ce36fc2725a9286dd50d7aa8d6e5ec62fba8"
+  },
+  {
+    "path": "crates/wxdata/src/efield.rs",
+    "bytes": 12542,
+    "sha256": "87139359748e85ebbf005538b04d556a3690886202613f81dff8f4a719e2fbd6"
+  },
+  {
+    "path": "crates/wxdata/src/ensemble.rs",
+    "bytes": 28008,
+    "sha256": "3b8f3ebd015ccba6b5615ea87fa90557acb63dc847be1bba269921432f0bec78"
+  },
+  {
+    "path": "crates/wxdata/src/ensemble_sounding.rs",
+    "bytes": 18388,
+    "sha256": "cf362e68f60050246279ab9166510f331c137bdb47c3705d7e5ed6d25034b892"
+  },
+  {
+    "path": "crates/wxdata/src/ero.rs",
+    "bytes": 4793,
+    "sha256": "06f50f55981128b345885bbcbc96efad2ef66042ee076161f7f90080c9f2ba52"
+  },
+  {
+    "path": "crates/wxdata/src/evidence.rs",
+    "bytes": 953,
+    "sha256": "656990def543726f6cef800d2bd36eac4a639d288e83e6f64c8d1d8f46e0648d"
+  },
+  {
+    "path": "crates/wxdata/src/extrema.rs",
+    "bytes": 57527,
+    "sha256": "2a0b9cd802de2e2a9044b17521a55482ee3dbd67da611b77a43eed76923008e1"
+  },
+  {
+    "path": "crates/wxdata/src/feature_track.rs",
+    "bytes": 47567,
+    "sha256": "3fa5cbdf813c3d6c5a0835c6c7fdea10b1dec32393c465fea223e7092483d5b0"
+  },
+  {
+    "path": "crates/wxdata/src/field.rs",
+    "bytes": 3290,
+    "sha256": "17f2743f321860b6a6376cde37813c4127d31dd5e1effbc3c530af05d06fdb4b"
+  },
+  {
+    "path": "crates/wxdata/src/field/descriptor.rs",
+    "bytes": 12221,
+    "sha256": "687c37693c772ab6ae0213dd532a6acc352abbe60bac3e3cf9bfa4f3e497ab22"
+  },
+  {
+    "path": "crates/wxdata/src/field/grid.rs",
+    "bytes": 10756,
+    "sha256": "67ad220d0a0958262c0d7c58e165a979b00897b67717fa907538b30279f12f3b"
+  },
+  {
+    "path": "crates/wxdata/src/firewx.rs",
+    "bytes": 7952,
+    "sha256": "578fadb4d7cbda82434ac50759a290b4bda87def801364bcf57dc345f7114781"
+  },
+  {
+    "path": "crates/wxdata/src/flood_fim.rs",
+    "bytes": 13568,
+    "sha256": "6f9595bdffb08ebe8cf83454d657d989b2428fae4636515c74d3a59ed11ae2ed"
+  },
+  {
+    "path": "crates/wxdata/src/forecast.rs",
+    "bytes": 10527,
+    "sha256": "c6adbacfc6ec4e101aaca9c00818b375a16bc5d921d6885c74a21c0dde95e1b7"
+  },
+  {
+    "path": "crates/wxdata/src/fronts.rs",
+    "bytes": 12492,
+    "sha256": "c76340d1b27ec13d52737ad19d0b994a02fd06eefa39dc76726ad9d20ed6cd1a"
+  },
+  {
+    "path": "crates/wxdata/src/geocode.rs",
+    "bytes": 3745,
+    "sha256": "43214c6a13ff2e4c463cd9b7e866deafd3a311d5f44228dc3c1228227dfe1c7c"
+  },
+  {
+    "path": "crates/wxdata/src/geotiff.rs",
+    "bytes": 8572,
+    "sha256": "f5756562519dba5bb81572707c1b4cb452efb6e1d5afe2ffe2c598128552239e"
+  },
+  {
+    "path": "crates/wxdata/src/gis.rs",
+    "bytes": 19933,
+    "sha256": "efcc1ab8e50759340ab7e836499d332b10c951a783b6dbf111fbd044385a7f0f"
+  },
+  {
+    "path": "crates/wxdata/src/glm.rs",
+    "bytes": 25970,
+    "sha256": "031354dd564fa9405d698efbf40021419a8c9c353fabc62565c0be45c54f570c"
+  },
+  {
+    "path": "crates/wxdata/src/global.rs",
+    "bytes": 52025,
+    "sha256": "3e0e0e8492217bdf759a90028ebe9bb80434348f5f37658124bbb6e8393d1301"
+  },
+  {
+    "path": "crates/wxdata/src/goes_abi.rs",
+    "bytes": 87135,
+    "sha256": "c2add5417f7675e9aa4cde60b0460240fca057b853288a7f7b87c07e2ac50c93"
+  },
+  {
+    "path": "crates/wxdata/src/goes_rgb.rs",
+    "bytes": 41038,
+    "sha256": "8b58d12d20b07ead11910a62aa8b473b240154c55fd64406e5cd12a78c3c09c8"
+  },
+  {
+    "path": "crates/wxdata/src/grib_split.rs",
+    "bytes": 5902,
+    "sha256": "f48c391b4f345f700fdeec3a0db78d56e0c7a9513f0a3aad4beb51aaa82e0940"
+  },
+  {
+    "path": "crates/wxdata/src/gribcache.rs",
+    "bytes": 7956,
+    "sha256": "fb96f2df5ae6c110cada8a63c50b961da85162aedb2ab82b6f715b3560586f89"
+  },
+  {
+    "path": "crates/wxdata/src/grid_winds.rs",
+    "bytes": 7902,
+    "sha256": "1661b5f8ab8eeaf66f66d6d9c2e7e1025efb59b174b2e163ca62aec36e5ffce3"
+  },
+  {
+    "path": "crates/wxdata/src/gridverify.rs",
+    "bytes": 33984,
+    "sha256": "1b05dfe6f8a554a3c17f5c4713370f4041fd36a79bf230641f8432c35f3e0c83"
+  },
+  {
+    "path": "crates/wxdata/src/hrrr.rs",
+    "bytes": 80061,
+    "sha256": "a1de9335c12cd2b897f4d86084d063b2c7205697ce43c1d8e2d6c6eb829d8291"
+  },
+  {
+    "path": "crates/wxdata/src/isosurface.rs",
+    "bytes": 12476,
+    "sha256": "2b5b1e6a1b2e141b0eb418f8aa4cf79d3db63fcf8ac2b1e1e87cf4fd19793230"
+  },
+  {
+    "path": "crates/wxdata/src/kdp.rs",
+    "bytes": 6787,
+    "sha256": "0bb683f4b74fb893cfd62aab062bc011d32bdae46a3a6783a70c804e7d90dfde"
+  },
+  {
+    "path": "crates/wxdata/src/kml.rs",
+    "bytes": 26126,
+    "sha256": "663ca5365c2f4975436355ff7ff7b8876813b387fcb74466e4d5e7c3f8857d44"
+  },
+  {
+    "path": "crates/wxdata/src/level2.rs",
+    "bytes": 180096,
+    "sha256": "69e0c91bc18a9bdf4165c0b31e0792980ec8f1c43a8813c9ebf83481aaabf863"
+  },
+  {
+    "path": "crates/wxdata/src/level2/temporal.rs",
+    "bytes": 16584,
+    "sha256": "e1b96104a62c623b8483378d32d5c964fa5631d62e27e4e504a13fce0c15418e"
+  },
+  {
+    "path": "crates/wxdata/src/level3.rs",
+    "bytes": 44395,
+    "sha256": "0c3dbf3f516d4c24db7cbe931a3502b9d53f9ca29879da99474f5b89398ea49d"
+  },
+  {
+    "path": "crates/wxdata/src/lib.rs",
+    "bytes": 5773,
+    "sha256": "a790ff381b2fce78fa1b92456919da418521b841e141f60be1e57be6fcc4e82d"
+  },
+  {
+    "path": "crates/wxdata/src/live.rs",
+    "bytes": 53535,
+    "sha256": "fa63796f63cb1054339ed460f181f7d4e5b785773f090c7b0eb2cb410bd1852d"
+  },
+  {
+    "path": "crates/wxdata/src/live_beam.rs",
+    "bytes": 7091,
+    "sha256": "956bee54785d0188f72a3025f16bcd94f11f2a443bd03ad8d0a9f3d5b724f934"
+  },
+  {
+    "path": "crates/wxdata/src/live_block.rs",
+    "bytes": 29048,
+    "sha256": "13ada721d3ee65df9e95946ccac31fa48dddee877642ebf4205baa60ffc1a09f"
+  },
+  {
+    "path": "crates/wxdata/src/live_pass.rs",
+    "bytes": 33945,
+    "sha256": "bb185c0937e161a276045fe84e02454ecbd9f39dfc6d41ac43fc1571cf0e6cd6"
+  },
+  {
+    "path": "crates/wxdata/src/live_sequence.rs",
+    "bytes": 10942,
+    "sha256": "e1da2052b160a542b09f6e20be253e58eedcf2b40ee34b77b5461f6eb077af23"
+  },
+  {
+    "path": "crates/wxdata/src/llsd_analyst.rs",
+    "bytes": 55100,
+    "sha256": "91e4e3ed06e2209f877f8dad7414151fcac1c6cc249be79ebeec25bc94a5969f"
+  },
+  {
+    "path": "crates/wxdata/src/low_passes.rs",
+    "bytes": 12641,
+    "sha256": "78e656704d79f7df3b75a03ad404c64134b3ebe401ab33ed1d2268fc0b664b91"
+  },
+  {
+    "path": "crates/wxdata/src/lsr.rs",
+    "bytes": 5868,
+    "sha256": "def611136fc94b260b2e24a7d6e5741eead451c67c9770bd820d401c5d5d1834"
+  },
+  {
+    "path": "crates/wxdata/src/metar.rs",
+    "bytes": 15693,
+    "sha256": "64066b38777f17452448ade21a6234ed6f7195620715628c6a78a1ca61e18672"
+  },
+  {
+    "path": "crates/wxdata/src/meteoalarm.rs",
+    "bytes": 46533,
+    "sha256": "ae32042986f386a3fd9b837daed553c9c6c8b1011147ef671dad2c09ad6ad8b3"
+  },
+  {
+    "path": "crates/wxdata/src/model.rs",
+    "bytes": 39469,
+    "sha256": "03e81a1a100839950ba15ab056bd2c5612227e30698a820a585134643da03167"
+  },
+  {
+    "path": "crates/wxdata/src/model_inventory.rs",
+    "bytes": 44654,
+    "sha256": "5c605cfb52389e6dc2cde9c95fab205dc2a4b9f8c342a4fd4ca9bae813d67ce4"
+  },
+  {
+    "path": "crates/wxdata/src/mosaic.rs",
+    "bytes": 8841,
+    "sha256": "a41928a9679403f80e6a799bc735504e61d8324747bf595c448f46421ac18306"
+  },
+  {
+    "path": "crates/wxdata/src/mping.rs",
+    "bytes": 7190,
+    "sha256": "0d13e07366de981820cf7f17bc1d984b51f2fd73f83725009cb32a57759db0f1"
+  },
+  {
+    "path": "crates/wxdata/src/mrms.rs",
+    "bytes": 55253,
+    "sha256": "8f5219beff3e720ee4d5459278caa73d66da0c1f61e13dcb04a31ceb16e211c4"
+  },
+  {
+    "path": "crates/wxdata/src/mrms/catalog.rs",
+    "bytes": 39192,
+    "sha256": "ff1a1b49f5a9bf3c39bf7a5aa88dc57f6a2d1961abf06a88fb96d28b7a5b5549"
+  },
+  {
+    "path": "crates/wxdata/src/multiradar.rs",
+    "bytes": 39927,
+    "sha256": "6bb68ca915a7ae8a46249858864ca478c82542fb953dde657ef7a912a286f322"
+  },
+  {
+    "path": "crates/wxdata/src/ndbc.rs",
+    "bytes": 7448,
+    "sha256": "f81b0010ba20213a0e97e55b0b1cb52e74a0ea0b288cd31bcd81f8bf2c1f44b9"
+  },
+  {
+    "path": "crates/wxdata/src/ndfd.rs",
+    "bytes": 7903,
+    "sha256": "aa588953a10f492cfc9530876317d43f2f83a7330b600bbb31d7a7d335f7bd70"
+  },
+  {
+    "path": "crates/wxdata/src/near_flow.rs",
+    "bytes": 5743,
+    "sha256": "f2310ea4414685d982647d9c77bb8dafdd2bcee2691157def518ce0ea6ecf7e0"
+  },
+  {
+    "path": "crates/wxdata/src/near_storm.rs",
+    "bytes": 23971,
+    "sha256": "169781f9844b81bc5c2008090920643e045eb31370fdabaedda0a23efca29b7c"
+  },
+  {
+    "path": "crates/wxdata/src/net.rs",
+    "bytes": 13574,
+    "sha256": "dc01ec66c0e5467ef7742b838e3fbdc8ead543e5e7a41535aa6d56249ab2d82f"
+  },
+  {
+    "path": "crates/wxdata/src/netcdf.rs",
+    "bytes": 19174,
+    "sha256": "a3cb8454e6702629e9087119127eeb3c9ae8d6bd9f66af2a9fa2e02869fa536e"
+  },
+  {
+    "path": "crates/wxdata/src/nohrsc.rs",
+    "bytes": 10672,
+    "sha256": "cf3c91c0726dc8c5272f4531f826a95dbc336fd0c75850a0f9cff1d33c4ac921"
+  },
+  {
+    "path": "crates/wxdata/src/nwws.rs",
+    "bytes": 16384,
+    "sha256": "70b03559273be9f5272c03084135f3257a004677a6a60614096a884dc6a3b0d3"
+  },
+  {
+    "path": "crates/wxdata/src/objcache.rs",
+    "bytes": 13427,
+    "sha256": "f4a8e71e0bebac3ba872a5034cdeec51da8289cea848ee2d95dc31caa7356470"
+  },
+  {
+    "path": "crates/wxdata/src/obs.rs",
+    "bytes": 8233,
+    "sha256": "7d173d72939f56e701a04961b9bba41e8b67643de11b3dc1b9eb56ea3e3965d3"
+  },
+  {
+    "path": "crates/wxdata/src/odim.rs",
+    "bytes": 17604,
+    "sha256": "374fd7c0fae4a1816e02ece2fe00934ff07b5e409dba497cde05a6c51a327330"
+  },
+  {
+    "path": "crates/wxdata/src/openmeteo.rs",
+    "bytes": 10352,
+    "sha256": "84f24b57c86823396bd5f7e34ad2d2ebb47d1eb54356208db72f4856c993bb8d"
+  },
+  {
+    "path": "crates/wxdata/src/opera.rs",
+    "bytes": 18192,
+    "sha256": "f124bb16b98bdcbb4ff3926810b6347e6e6860c1ce9e842e1964c1b7f1dda19f"
+  },
+  {
+    "path": "crates/wxdata/src/outages.rs",
+    "bytes": 11936,
+    "sha256": "21a6901b7ecaa50b091b358dfad336561713e0cd77d66984e352e7ad9dab00c5"
+  },
+  {
+    "path": "crates/wxdata/src/overlay.rs",
+    "bytes": 24642,
+    "sha256": "0771da81c20b50543ab72c1e78caed088ffeb4d3267b8ff368a96a0f130c0b5d"
+  },
+  {
+    "path": "crates/wxdata/src/placefile.rs",
+    "bytes": 34344,
+    "sha256": "a4a72055fb360d6b11319e55e2621fedad9be5367d10849bebfd17f7bf04e2f0"
+  },
+  {
+    "path": "crates/wxdata/src/probsevere.rs",
+    "bytes": 5809,
+    "sha256": "ec59321a26ca75db88aa7a7262890fc61a73e3fab6d7c503407bd328a00e6f90"
+  },
+  {
+    "path": "crates/wxdata/src/projection.rs",
+    "bytes": 26911,
+    "sha256": "ebc73c3360e029e2d3eeb6295f12fde8224ac4ddde727409e339f81c6a37d15f"
+  },
+  {
+    "path": "crates/wxdata/src/provider_topology.rs",
+    "bytes": 10794,
+    "sha256": "6326062e87a8154fb8e043a528df06d904cda43738b2ffc7e9ad003c4605d276"
+  },
+  {
+    "path": "crates/wxdata/src/raob.rs",
+    "bytes": 31980,
+    "sha256": "954c1382b22765764bc2be9435134075c9e49db50ba2aefb1b1496ca1e6f72f6"
+  },
+  {
+    "path": "crates/wxdata/src/raob/environment.rs",
+    "bytes": 11827,
+    "sha256": "c48234e20a357be6d743ee4f594696ebb36b727de7713de6673b02c1a1e2e8f5"
+  },
+  {
+    "path": "crates/wxdata/src/recon.rs",
+    "bytes": 10334,
+    "sha256": "c1d1bf8826fa5e72ee4c2e2dcfcdfa852ebf445ea9bcf1e3b72b29e9e0152a88"
+  },
+  {
+    "path": "crates/wxdata/src/regionstats.rs",
+    "bytes": 15076,
+    "sha256": "255fe0fd29431b0bc11f981ac7ee29ff6549baf77f0ce0790021384eccc85465"
+  },
+  {
+    "path": "crates/wxdata/src/relay_wire.rs",
+    "bytes": 8294,
+    "sha256": "02ee254ceeff3fce2679f4651a7d8894e1c298ac90a52e0330f15ba7e598a5c3"
+  },
+  {
+    "path": "crates/wxdata/src/river.rs",
+    "bytes": 37688,
+    "sha256": "ed2cca792edfaf2508eec2604c2ce4201ef5d8e67ce1871d1bfc557458e9a52d"
+  },
+  {
+    "path": "crates/wxdata/src/rotation.rs",
+    "bytes": 71455,
+    "sha256": "4334033261edb879adb44899e283cc9fe945c79673c73f84d7c028724268b2f2"
+  },
+  {
+    "path": "crates/wxdata/src/rotation_columns.rs",
+    "bytes": 22563,
+    "sha256": "d2c07653091e27a3e7d56ef76a6b09e0c91b7827fa4b886a6ea324312775d853"
+  },
+  {
+    "path": "crates/wxdata/src/rotation_objects.rs",
+    "bytes": 36345,
+    "sha256": "58d9a5e976b2c69c2db6b2828595ed1fc9bec185a69000a43e376f491c3c336c"
+  },
+  {
+    "path": "crates/wxdata/src/rotation_tracks.rs",
+    "bytes": 17679,
+    "sha256": "da8b41cf39402d061861f255c6af7fe0ba3a563203815f926466190956d47b9b"
+  },
+  {
+    "path": "crates/wxdata/src/route.rs",
+    "bytes": 54134,
+    "sha256": "03bc3967d1cb80fdeba305cecca4c752f4d6262c4e0186486d028011b64d4368"
+  },
+  {
+    "path": "crates/wxdata/src/rtma.rs",
+    "bytes": 24124,
+    "sha256": "47f41726143bb839b36c9f91ae54150eb1f063fc815c0643f81ce3f6029b3b35"
+  },
+  {
+    "path": "crates/wxdata/src/scan_age.rs",
+    "bytes": 7275,
+    "sha256": "521615360c81933814e76ed7eeab122f3fe09b92796cf971d79c4272b38d7d6e"
+  },
+  {
+    "path": "crates/wxdata/src/scoretrack.rs",
+    "bytes": 10620,
+    "sha256": "b5646dc485a167fae76e0855fc756fd810d0495c084dc78fea50e9c2d93f1a61"
+  },
+  {
+    "path": "crates/wxdata/src/severe.rs",
+    "bytes": 23748,
+    "sha256": "9b52a6696eb0c10864db8644f7b222329a2fa1ad84f395033b93bdab974a66d6"
+  },
+  {
+    "path": "crates/wxdata/src/shapefile.rs",
+    "bytes": 47543,
+    "sha256": "1e7a828b84a3ec0eff0229920ea07ffccbb908fae1beb29e1a85f258d3f1ed82"
+  },
+  {
+    "path": "crates/wxdata/src/size_sorting.rs",
+    "bytes": 7105,
+    "sha256": "502042aff6684a623138f775087192d5c7d7d21eeea38b4df3abcba584a121dd"
+  },
+  {
+    "path": "crates/wxdata/src/sounding.rs",
+    "bytes": 69113,
+    "sha256": "b12a698fd8b01154de0397416e4c330bdeac207d06040f8d50ef8dfb420664fa"
+  },
+  {
+    "path": "crates/wxdata/src/source_lineage.rs",
+    "bytes": 6361,
+    "sha256": "f961ea137ef4ddb220c53a674fc227a0fafee0be92ffcc12fb645b884428b10f"
+  },
+  {
+    "path": "crates/wxdata/src/spc.rs",
+    "bytes": 23251,
+    "sha256": "78d87d4fa783aa1800c8c8f492250f2bc80d6a6e48f9956d31be514e77521bf8"
+  },
+  {
+    "path": "crates/wxdata/src/spoken.rs",
+    "bytes": 26680,
+    "sha256": "b82ed08ffaf50e3fee0ae8217060c099abd849e0a63ad3aa4e68daaf93d4758b"
+  },
+  {
+    "path": "crates/wxdata/src/spotters.rs",
+    "bytes": 6884,
+    "sha256": "22d9b0aeaf59a7030ec4b9f8305f7bd5b9a4a6dd0baf701dc9668d6d13116681"
+  },
+  {
+    "path": "crates/wxdata/src/stations.rs",
+    "bytes": 20334,
+    "sha256": "cc6cef9519efef50203e523c7a324522b83cb48ded071e1f310e3dfb356d8b46"
+  },
+  {
+    "path": "crates/wxdata/src/stats.rs",
+    "bytes": 4467,
+    "sha256": "a9210574e9309d09be9c2a4622061dcb6f5377fa12b04a07fdda036fa855f190"
+  },
+  {
+    "path": "crates/wxdata/src/storm_evidence.rs",
+    "bytes": 19735,
+    "sha256": "82cdb7a5cd1097c446eda83fd096e712e2c920dddd6af589a6c5ddf9aff76d0d"
+  },
+  {
+    "path": "crates/wxdata/src/storm_history.rs",
+    "bytes": 28072,
+    "sha256": "df293f05ea21710b7a2921c806ed3d982fbfa902491e72a452d82ad1d42d0861"
+  },
+  {
+    "path": "crates/wxdata/src/storm_mode.rs",
+    "bytes": 9985,
+    "sha256": "e27bafe182e5b1171d9c8b6737046bf6df6975167ce259b14d81bf87c09ca4b0"
+  },
+  {
+    "path": "crates/wxdata/src/suitability.rs",
+    "bytes": 13509,
+    "sha256": "a88602e726225d65e43624b83add6dd713942084b1a860e62ea597ff65ef55c5"
+  },
+  {
+    "path": "crates/wxdata/src/synoptic.rs",
+    "bytes": 7480,
+    "sha256": "522bea6239cfb440cfb15e041066e214e0fdc692e801ed23b4b37c284d973f09"
+  },
+  {
+    "path": "crates/wxdata/src/task.rs",
+    "bytes": 6115,
+    "sha256": "6e7026ce08fec4664b5999e7f2cec2a61fa78d4b5c05c877eb61e48f36d7422b"
+  },
+  {
+    "path": "crates/wxdata/src/tds.rs",
+    "bytes": 92608,
+    "sha256": "03194d7d4a3bed0f57f6bae42db5e4df5ed159f6d75862c279cd11ea449e816c"
+  },
+  {
+    "path": "crates/wxdata/src/tdwr.rs",
+    "bytes": 21480,
+    "sha256": "8b716435ff4ee8468565467d6225e64d889888e7d2bbf979a17221a3f4d1a469"
+  },
+  {
+    "path": "crates/wxdata/src/terrain.rs",
+    "bytes": 5725,
+    "sha256": "32419f27e192d1a82dfb821b9331c80ca6403ed55175ac10a21d27f676487839"
+  },
+  {
+    "path": "crates/wxdata/src/tfr.rs",
+    "bytes": 12976,
+    "sha256": "9f8f324cbc24065c56ad95504701fb34a55bde1999f1258e6967a9d27b19e9b9"
+  },
+  {
+    "path": "crates/wxdata/src/time_align.rs",
+    "bytes": 8644,
+    "sha256": "66a78d3aec6bf7c63c770b9470eec871c693ebf1133eb96f4e8e61ea222e7d6a"
+  },
+  {
+    "path": "crates/wxdata/src/torclimo.rs",
+    "bytes": 5832,
+    "sha256": "e9b2e692b0e4f74e21562e19c9e84ebe8ba47b94e51c31e04522fb748bf1379c"
+  },
+  {
+    "path": "crates/wxdata/src/tornado_fusion.rs",
+    "bytes": 17535,
+    "sha256": "ca2480ca02823268444dd5f6eb58e2b07acabf0fa93255c16bf2462ec25f517d"
+  },
+  {
+    "path": "crates/wxdata/src/tornado_id.rs",
+    "bytes": 33793,
+    "sha256": "6d49c05b18115f02624a3c961b27e74abf87502e15b7ca46822c9a7856efe604"
+  },
+  {
+    "path": "crates/wxdata/src/towers.rs",
+    "bytes": 5589,
+    "sha256": "74e3401da96e4ca7f3fc33d6c7271b9c0e1a767dd48dcae75694d8bf675d2c0f"
+  },
+  {
+    "path": "crates/wxdata/src/tropical.rs",
+    "bytes": 20657,
+    "sha256": "72da278aa29683c2f8e06fe9fe1a40ea051cbc1dc3b226a9d3204c9fcac2647f"
+  },
+  {
+    "path": "crates/wxdata/src/tz.rs",
+    "bytes": 10685,
+    "sha256": "fcc2fbfa2625424eeac34b72845c1634a236db32200687d2602af72ed437201c"
+  },
+  {
+    "path": "crates/wxdata/src/udp.rs",
+    "bytes": 73400,
+    "sha256": "c92760847e8f438ff2eff6472737c6b176e79f13dc2c845239355b32a5df787c"
+  },
+  {
+    "path": "crates/wxdata/src/udp/units.rs",
+    "bytes": 15514,
+    "sha256": "38f6706b6f7fd154716da2e48c8210890f0de9021c6842488e0d22ee114bdddd"
+  },
+  {
+    "path": "crates/wxdata/src/udp/wgsl.rs",
+    "bytes": 11540,
+    "sha256": "a818448dd5966c916ff776df4a82c44bc212430cb12e8f6f1ffb2b9775c45bed"
+  },
+  {
+    "path": "crates/wxdata/src/udp_column.rs",
+    "bytes": 31339,
+    "sha256": "88f7ecf0c5b825cc060575e97c7441c7165ce9fa2970b911abee47dc1678f37f"
+  },
+  {
+    "path": "crates/wxdata/src/udp_file.rs",
+    "bytes": 23523,
+    "sha256": "ec56133b6d3e4d98fe599f4b174f2f2fa22d51a7a4a53ab38cf05beaccd46684"
+  },
+  {
+    "path": "crates/wxdata/src/udp_volume.rs",
+    "bytes": 15717,
+    "sha256": "a3701221f5ce3887ee5c67fe09b27921565448962baa536e893c99d06871f29e"
+  },
+  {
+    "path": "crates/wxdata/src/ugc.rs",
+    "bytes": 12742,
+    "sha256": "449f7165a9018f234bd04fffff54418e3d598e2ba204a53ca12ca08fc5480725"
+  },
+  {
+    "path": "crates/wxdata/src/verify.rs",
+    "bytes": 13622,
+    "sha256": "69e1ac77750bbcd19f9befe0c03dd0ecd99f5884ba35b15b47a6b2ad6e0c6e8e"
+  },
+  {
+    "path": "crates/wxdata/src/volume3d.rs",
+    "bytes": 41853,
+    "sha256": "69805acea190534e372e428da0d9e9b0a59c8b375d8ccea053c44c7637403e1a"
+  },
+  {
+    "path": "crates/wxdata/src/vtec.rs",
+    "bytes": 8172,
+    "sha256": "01b614fd9e1f74e655ae2b7c2991e1574ce5640c3530344216b10f342254225b"
+  },
+  {
+    "path": "crates/wxdata/src/wasm_worker.rs",
+    "bytes": 3918,
+    "sha256": "83a2fdf2172dff7c9c2afe35588be8570199a0e3fb11806ac43e725767123418"
+  },
+  {
+    "path": "crates/wxdata/src/webcams.rs",
+    "bytes": 16362,
+    "sha256": "5171b4b9e4662c71821824c0d7ad664c2e1e483d45945ea1a4ea2d01b139359e"
+  },
+  {
+    "path": "crates/wxdata/src/wfigs.rs",
+    "bytes": 8033,
+    "sha256": "c76f55fc32da5f9bba6b05af676171731de8f7e19140220128054435d679a953"
+  },
+  {
+    "path": "crates/wxdata/src/wind_turbines.rs",
+    "bytes": 4289,
+    "sha256": "59aef7367b9519a21ed350750ddddf523d4a46fd1983f28ea2d85fad5bed1772"
+  },
+  {
+    "path": "crates/wxdata/src/wssi.rs",
+    "bytes": 5774,
+    "sha256": "e00ca016584878329eea6220465204fbd9afffb48880d2a815e9ed9241032454"
+  },
+  {
+    "path": "crates/wxdata/src/xsection.rs",
+    "bytes": 21486,
+    "sha256": "86b6ca225fdbcb6248e79fb0bd97a42de861cdd1ad639c1dce19fcea84ff8cfc"
+  },
+  {
+    "path": "crates/wxdata/src/zip.rs",
+    "bytes": 9100,
+    "sha256": "d9348a2ee89048c1dac0d4b7d77c6fdd818a97064bf85d5946616c786afb383d"
+  },
+  {
+    "path": "crates/wxdata/tests/clutter_corpus.rs",
+    "bytes": 8522,
+    "sha256": "8591c632d7bd5a579202170c53bab6fb3fd45239d4694631a997e9636b4410ec"
+  },
+  {
+    "path": "crates/wxdata/tests/detection_regressions.rs",
+    "bytes": 18655,
+    "sha256": "d29a95bc38efe2c42fc054b6ab61ace941b5a8be8e6b2a987c86c70d3ebf5c95"
+  },
+  {
+    "path": "crates/wxdata/tests/failure_injection.rs",
+    "bytes": 7639,
+    "sha256": "0864a737e73be1f2f1ae5bb7355d01d55197d7466a380572359a1d8dc3ef80ed"
+  },
+  {
+    "path": "crates/wxdata/tests/gis_census.rs",
+    "bytes": 5525,
+    "sha256": "e3e085961a95467bc15ef3e8b4ef545cba71a62727981309df98b4c8688710f9"
+  },
+  {
+    "path": "crates/wxdata/tests/gis_kml.rs",
+    "bytes": 4715,
+    "sha256": "67320c5cad12075984b93c4ebbdd8b2d6d215ff5c2909b2b6df238ee2c661f51"
+  },
+  {
+    "path": "crates/wxdata/tests/gis_projected.rs",
+    "bytes": 4005,
+    "sha256": "59b51abf61f375db423cfe473b569fd29adaa65caae1487b9c2e681acc6dac23"
+  },
+  {
+    "path": "crates/wxdata/tests/goes_offline.rs",
+    "bytes": 3450,
+    "sha256": "93e096d4fd079feb37806c20102cc79513b12c725d5feb95b424c3dc65484edc"
+  },
+  {
+    "path": "crates/wxdata/tests/golden_events.rs",
+    "bytes": 24054,
+    "sha256": "05492542f020c1e35fc91a07579bff06775b7953cd962b9130815e55d7f5f077"
+  },
+  {
+    "path": "crates/wxdata/tests/live_shared_sweeps.rs",
+    "bytes": 6283,
+    "sha256": "f350cfb3521483c4825b29de239e8464e19c648f2237573ab506f6b889738944"
+  },
+  {
+    "path": "crates/wxdata/tests/mrms_offline.rs",
+    "bytes": 3357,
+    "sha256": "9d104cfd3540095aa48fcc42c61ef3dddb61fb6d574620a335cffb4182ba2058"
+  },
+  {
+    "path": "crates/wxdata/tests/network_injection.rs",
+    "bytes": 6641,
+    "sha256": "ce79ebb5182269dfcfab0bdf4d4f8363ed41d2d24f445ce19918dbacd16d77f3"
+  },
+  {
+    "path": "crates/wxdata/tests/nyquist_backtest.rs",
+    "bytes": 11037,
+    "sha256": "9ffcbbe0961d5b3adcbb8cc043feba6b915c0abf1d464769b7bff34437ff8b99"
+  },
+  {
+    "path": "crates/wxdata/tests/scientific_corpus.rs",
+    "bytes": 69059,
+    "sha256": "724fdd8897c47266411bda4ea0ba0feda7fcba72e4e2583871c4730ffe5392c0"
+  },
+  {
+    "path": "crates/wxdata/tests/scit_history.rs",
+    "bytes": 7584,
+    "sha256": "f8354d7cf92c42fc145ef3083373f799e693f1ab4873c1fec30b218fde72a0ae"
+  },
+  {
+    "path": "crates/wxdata/tests/support/corpus.rs",
+    "bytes": 24812,
+    "sha256": "41970710868d815f41157e0973922911f745639f6c9ef3e355769b1d8fdf0141"
+  },
+  {
+    "path": "crates/wxdata/tests/tdwr_feasibility.rs",
+    "bytes": 7862,
+    "sha256": "ca9ddf83e03a13b2a1c938520d40f0a8263576ebff2bbc4348611092d7693ea0"
+  },
+  {
+    "path": "crates/wxdata/tests/terrain_sites.rs",
+    "bytes": 2126,
+    "sha256": "0519e90c5cd6d0aaa72e2790dc33b0b255c07628374c574bee6677f5d8ad80b2"
+  },
+  {
+    "path": "crates/wxdata/tests/udp_missing_real.rs",
+    "bytes": 2660,
+    "sha256": "98e2879b06c27ed2375b2fc75549e7361f0c91ec44372791099a73bbdc94185d"
+  },
+  {
+    "path": "crates/wxdata/tests/udp_presets.rs",
+    "bytes": 4528,
+    "sha256": "59eaa2e2ed6656749bad4f743f4b406ba875585f200cce12387f12ad33b606ae"
+  },
+  {
+    "path": "vendor/gribberish/Cargo.toml",
+    "bytes": 2206,
+    "sha256": "0f43e74c011131ee48e50521123f66cacf2aa3b3a42c05fe66eb6007cb51902d"
+  },
+  {
+    "path": "vendor/gribberish/examples/decode_one.rs",
+    "bytes": 1048,
+    "sha256": "a9ae87cc0607ddd8bb8c823bed3d7a773d64c9a36288a4bcce9d032b55bcc894"
+  },
+  {
+    "path": "vendor/gribberish/examples/message_dump.rs",
+    "bytes": 3767,
+    "sha256": "42cee4a7064170804a55cb89ed2400d91dd160fa6de4771e16372de420f47552"
+  },
+  {
+    "path": "vendor/gribberish/examples/split_messages.rs",
+    "bytes": 2141,
+    "sha256": "aec125ea3fca7f7f51c74b4b36467719d11cfe88bb9e61949f3d330b050b2406"
+  },
+  {
+    "path": "vendor/gribberish/src/data_message.rs",
+    "bytes": 863,
+    "sha256": "acfb80fc2b89a198fcbf2015e085bfeb5f98a780339ec14f97fe2c1cc675e2ab"
+  },
+  {
+    "path": "vendor/gribberish/src/error.rs",
+    "bytes": 592,
+    "sha256": "2482834b6266f9f1553aa20b3bc191b792e2c414534a023819d2879fb766aea9"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/binary_data.rs",
+    "bytes": 8801,
+    "sha256": "f0d09d8d50d43077e771b21ff0da37e10b504794806c9ed29e826327f4d9ddd5"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/bitmap.rs",
+    "bytes": 3054,
+    "sha256": "54d01fe9412c2457e4b7a065b2ffbe028ba966ec2dc462ef91e334320c4f77e8"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/ecmwf_table_128.rs",
+    "bytes": 15053,
+    "sha256": "36df2c9c81cac064bca8bd492915d39e53aa5dea9b6bb5cc432a8afb20560f14"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/ecmwf_table_140.rs",
+    "bytes": 3148,
+    "sha256": "d9f088d8a4a253a1bef4fe50b4c57d7d4b9e1ec04fa458b79f5777b9430aa9f6"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/grid_description.rs",
+    "bytes": 16043,
+    "sha256": "48fdd3a78be6c01627e34d0f305ff52d7c5ac19c090ac36966a63a569e9e0011"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/indicator.rs",
+    "bytes": 1599,
+    "sha256": "d55c538eddca021393397f63a499d6f8c4aece50a1a54dcd30c336771e89d565"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/message.rs",
+    "bytes": 8439,
+    "sha256": "ef25dad6b120a8e6523d9023c79b9d7ba4d420825b9b2472b1fafda255c6c98b"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/mod.rs",
+    "bytes": 749,
+    "sha256": "c58480e7a94cd89077b4d13c0c34cbe3fba36632d8f4d759d9abb6cac2f1cd91"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/parameters.rs",
+    "bytes": 17222,
+    "sha256": "3f624d2dc1a51d27c46009a40e873fce9ed72a1f9c587332922fb495acc912ac"
+  },
+  {
+    "path": "vendor/gribberish/src/grib1/product_definition.rs",
+    "bytes": 10330,
+    "sha256": "b8e61760fcd77415366aaee77d2bcd706bbfac37a12f03e467b8bab6f6dce691"
+  },
+  {
+    "path": "vendor/gribberish/src/index.rs",
+    "bytes": 8491,
+    "sha256": "16e808dc2a97a1b784c7a48d7963653a08a3f07fbe53fa401a37454ad67b4a38"
+  },
+  {
+    "path": "vendor/gribberish/src/lib.rs",
+    "bytes": 300,
+    "sha256": "24c40b3c45fb29e4f1f3234e55fa4f1eee1fceba9cba4a53b47b1bc9cf1c3733"
+  },
+  {
+    "path": "vendor/gribberish/src/message.rs",
+    "bytes": 35241,
+    "sha256": "6abf3574213d94782ad8c5b1d167c0dff43b76c9c150f6c27fa8dc3f1dc717d4"
+  },
+  {
+    "path": "vendor/gribberish/src/message_metadata.rs",
+    "bytes": 8290,
+    "sha256": "7effd281e66c3e3bf34a898d963396287f5577049b713ff2048b72bcef615829"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/bitmap.rs",
+    "bytes": 2664,
+    "sha256": "0c9f61df597df6c64daaf1b4c4c2d7959724d0a67cd7c8df534ad7039d14a44f"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/data.rs",
+    "bytes": 551,
+    "sha256": "0534a6b20b4331acfa0d3d8318c933fd265214684accef4c53480f67b3564e5f"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/data_representation.rs",
+    "bytes": 2377,
+    "sha256": "5c559b2f4a2d695aa5fdb4506e7bd72d00c685a856a0bb8954a99cd38c73e052"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/end.rs",
+    "bytes": 747,
+    "sha256": "b088170ee5603893db85ba72ce52d130874cd8d6efdcdace056fb54dd02e4806"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/grib_section.rs",
+    "bytes": 152,
+    "sha256": "86cf6e2939a65283a7703551d97de4b1314ab13686eb618c159cb40bf05d58c4"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/grid_definition.rs",
+    "bytes": 2967,
+    "sha256": "0317a9df70d487ed2f4797746b0c54f5e90d5f18eca134a703221eff6f61311e"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/identification.rs",
+    "bytes": 3076,
+    "sha256": "3182bd3fb3432a72af8c2f056bc1b1ec8a9a54553a751bf90ae537dc5e04bab8"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/indicator.rs",
+    "bytes": 1967,
+    "sha256": "23fbe6172526bd857612f1744a52147f2d3da978eedb72f9b5154d3d98858191"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/local_use.rs",
+    "bytes": 488,
+    "sha256": "d5cb47ee5c5a2ff5fca8889d3bdc276328cd2437698bb9d52e467949c7479701"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/mod.rs",
+    "bytes": 237,
+    "sha256": "873dc2a0b20509aa99b13f8dafe736284e091e435922b152155577a44a9d21be"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/product_definition.rs",
+    "bytes": 3980,
+    "sha256": "d5378fe6efa8eea526400d7025b9e84b59d999d4085a7ce73441e89d7cbbeb4c"
+  },
+  {
+    "path": "vendor/gribberish/src/sections/section.rs",
+    "bytes": 6436,
+    "sha256": "011685bf78acd609e64b547b32be243560755fb2ede016cd67f03ad6207492bd"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/ccsds_template.rs",
+    "bytes": 3732,
+    "sha256": "b6074125189b7d98d84f554dd234309e719dde4fb31b4eda2605c6f160007787"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/complex_packing_template.rs",
+    "bytes": 6863,
+    "sha256": "9f524d86cf749445af16089fbef18f1195d59371ea84e918991dc646f84a22e5"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/complex_spatial_packing_template.rs",
+    "bytes": 10273,
+    "sha256": "5bee1a13069767fe2b312ae3e90121e9c7e143f0f56e45ebe43e2e6567c8f217"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/data_representation_template.rs",
+    "bytes": 288,
+    "sha256": "5caf5ed9e733d99229d85d09e9069d741debc612177b56cca8fe33896b1e9969"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/jpeg_template.rs",
+    "bytes": 2737,
+    "sha256": "26f4d8313039a45a570f3b38a7c860bb11e4682c682cd762bfc59ed0c923d988"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/mod.rs",
+    "bytes": 831,
+    "sha256": "b60ab50a1e214785525f6f7ce9abd492da944dcd7a9ae98d6af622fadc1f7cf0"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/png_template.rs",
+    "bytes": 3021,
+    "sha256": "bebcd363738f7bc5109fd785923e38bbba006c28f44e8e9af76a390d04934aba"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/simple_packing_template.rs",
+    "bytes": 2952,
+    "sha256": "030133551533a09e6b814947c9e3d727b589f487748e703d208dc8a83870d07c"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/data_representation/tables.rs",
+    "bytes": 1955,
+    "sha256": "da9f651276355190da737b3652160348e58d8246027f89fc0c126b93f04a0b3e"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/grid_definition/grid_definition_template.rs",
+    "bytes": 480,
+    "sha256": "f93484ef41be0cc34fe3e846a172febec9ecbbb52ef3be3a8f23978e40f34692"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/grid_definition/lambert_conformal_template.rs",
+    "bytes": 15044,
+    "sha256": "fac75cc3d5da583bfbee79afa54896e31558a7a1a4d37712d22c8ccae0eeb25b"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/grid_definition/latlng_template.rs",
+    "bytes": 6537,
+    "sha256": "1655a574ced117ca4813b574b6a0f049810c0fc2a906817c912cc0fac5c0ea58"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/grid_definition/mod.rs",
+    "bytes": 281,
+    "sha256": "a685df19aeba62885b235006e5fff9a4c4c517933312fd7119e23f7dcc42bb77"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/grid_definition/tables.rs",
+    "bytes": 7176,
+    "sha256": "da905cfd53e4c6739ffcf77660fd15606ae9c18c4bdff781e1188120187d4ad7"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/mod.rs",
+    "bytes": 93,
+    "sha256": "c508be59febdfd6d0ce1f4e7f25693ada73885e1b084b7d3890927c9cddeb401"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/average_accumulation_extreme_horizontal_analysis_template.rs",
+    "bytes": 5452,
+    "sha256": "b9ccfcc11f9b7e3fe603c702c4330e8e66ee04c0f39d17686c3290acc03d1677"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/derived_ensemble_forecast_time_interval_reference_template.rs",
+    "bytes": 4994,
+    "sha256": "577482e59221aca1c0c680d9ee78ca73efe0e24195fb007e380d7bfa95f72c20"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/derived_ensemble_horizontal_analysis_template.rs",
+    "bytes": 4603,
+    "sha256": "6120e11549859aba4c522e3400eb88c0a1fed8eb76e5c8ed445b53ae2f688d48"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/derived_ensemble_horizontal_forecast_time_interval_template.rs",
+    "bytes": 5394,
+    "sha256": "fb562ee860a6ddee29f2f15412aa2d75f9db93bee9f049c10c98ae693afd83da"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/ensemble_forecast_time_interval_template.rs",
+    "bytes": 8222,
+    "sha256": "f377662d9dd9786e72e082e743255a06810eaa17bc1aa296f40b426a1454ab39"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/horizontal_analysis_template.rs",
+    "bytes": 4597,
+    "sha256": "339859cbd18e754a6172bff4f4339158f16a5304b7f782474499f13a5fc18ba8"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/horizontal_ensemble_template.rs",
+    "bytes": 5122,
+    "sha256": "71d3e76ca5e673cdd1369eb6a51a877aba47639f29997cc2dcd3cdf7d90bc2f0"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/mod.rs",
+    "bytes": 1739,
+    "sha256": "904b01313efa3c10b9289c1825cd7588ba4f63c0f3a690bbc9b995195264f22a"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/ecmwf.rs",
+    "bytes": 2840,
+    "sha256": "6417d097f8978a7a49cd7322b2ff8589ee803d601a8a804529ccd144c927d7f2"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/hydrology.rs",
+    "bytes": 1580,
+    "sha256": "8fe3050d5bf6ce7d8b80ddcf652de1363fac7ad2cc9c1d81580a7c439205972c"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/land_surface.rs",
+    "bytes": 5290,
+    "sha256": "ee8a4b945871ff9893237eb860d5122e6dc4ce002fcd560e4a77c62df8d09484"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/meteorological.rs",
+    "bytes": 37011,
+    "sha256": "5f0898448d407f4d6ab4d4533085585a06651d32adaa763a5837f54d0bed8034"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/mod.rs",
+    "bytes": 1797,
+    "sha256": "918b695b85a5bdceb7ff5c07cbf2a2dce46f397e97ff0e268a5711c555e81233"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/mrms.rs",
+    "bytes": 11862,
+    "sha256": "71b8a4c432b6e1c0c79d9492c2b6c7090363f11f08cfff1f071dee68f5827a63"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/oceanographic.rs",
+    "bytes": 12102,
+    "sha256": "38e01a3980aea64712e4559533bbf07aeee7676fb86a4fe0a8ae3a5ef3f659fb"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/parameters/space.rs",
+    "bytes": 1322,
+    "sha256": "c8791a57472c6ef4f8b78bb073eb714801cd37aa5394188c7643d3fb22a36105"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/percentile_horizontal_template.rs",
+    "bytes": 6305,
+    "sha256": "1160389df3626945602e9cae4aa2e140ca8650a8be2d8e66db42ef57e20d6180"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/percentile_horizontal_time_interval_template.rs",
+    "bytes": 5154,
+    "sha256": "6f50bbb52992a338c0f8dabd8c54e0243640fa842cf38d078b171e262e5eeb9f"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/probability_horizontal_template.rs",
+    "bytes": 6548,
+    "sha256": "88c52041a143a25df25a70333d0f311715d1d1cc7e05c0dd3d0e68089beeec44"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/probability_horizontal_time_interval_template.rs",
+    "bytes": 6810,
+    "sha256": "57dd21f33b775da1d33ecef7acc2aa1caaf1d1a8823cddd26731c03b6eab61b7"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/product_template.rs",
+    "bytes": 3407,
+    "sha256": "09ca94c7c123686a156cb7b55dfdec27ea7944a58bf47d8934b23309fbfc894d"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/tables.rs",
+    "bytes": 25294,
+    "sha256": "9d9cf44ce86276537b694f8c8113a6b0d95f775e6e8f531c5d189bdf911a5348"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/product/wave_period_range_horizontal_template.rs",
+    "bytes": 6115,
+    "sha256": "75a0aa9ae26f6c78dee41cd58d5873e93ec6141611ecca5d8aad3748c46f0de2"
+  },
+  {
+    "path": "vendor/gribberish/src/templates/template.rs",
+    "bytes": 427,
+    "sha256": "182ac51867a4cd7d554035bcfded8210c9cb5bac86f066e09453cf6207f12ae5"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/ccsds.rs",
+    "bytes": 29436,
+    "sha256": "091f1ce312e268c51d9189c3c8179e17aefb2395de665e22640290159c8a6a54"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/ccsds_libaec.rs",
+    "bytes": 11822,
+    "sha256": "14fc2c68c61882ff2d1561565ebbb321c2861e2d9c7d19ca6a460ca53524e49f"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/convert.rs",
+    "bytes": 2545,
+    "sha256": "c0d3ae6cf9af4e8cb1059b372dc4c671714e53daa5e941eeabbbddf4c3cef42c"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/iter/grib_value.rs",
+    "bytes": 1406,
+    "sha256": "3ba261701aebde7bf6113cc44fd36026267eaf6de5e5c2906c9411fc9e4fa1fe"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/iter/mod.rs",
+    "bytes": 64,
+    "sha256": "38b12902a38fa69a377d03445327e698e79fd6e5f412a22e1d755a7be2594a3e"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/iter/projection.rs",
+    "bytes": 32260,
+    "sha256": "46a06f04324cbbaca7c52db146397e099547af4957fa4b46f602e57fe1ec90fb"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/jpeg.rs",
+    "bytes": 6946,
+    "sha256": "309e793d6a16e004dcee567b99c35083d72b375da56347866251fbcb391a487d"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/macros.rs",
+    "bytes": 748,
+    "sha256": "41b73b34be0f5ca54091c92becc8b76252104b5d85f4374883076cdc4a1e72c8"
+  },
+  {
+    "path": "vendor/gribberish/src/utils/mod.rs",
+    "bytes": 259,
+    "sha256": "0839da62a50306fd748a3e9bdc35d76290b247762b765a8066de26edbdbb7e32"
+  },
+  {
+    "path": "vendor/nexrad-data/Cargo.toml",
+    "bytes": 4762,
+    "sha256": "2417d6c4b5890c3229e9da33f6e67bda11b10e2274285fd534bd3d24448f0ef9"
+  },
+  {
+    "path": "vendor/nexrad-data/benches/scan.rs",
+    "bytes": 564,
+    "sha256": "018010ec2bf292e5fe64f49f04dc033967cafe9276458f5bef9d4786fadf50cc"
+  },
+  {
+    "path": "vendor/nexrad-data/examples/chunk_iterator.rs",
+    "bytes": 5443,
+    "sha256": "596f4bf232c81365ebf4b5307ac6fbc9c3b9acfc810e8b72fff0c58ff9aa50b6"
+  },
+  {
+    "path": "vendor/nexrad-data/examples/realtime.rs",
+    "bytes": 4738,
+    "sha256": "e5b5e96b9aa95ee6a6631a2aadf5e8ec67886c5cbd6c1444d58f179966b3c5a5"
+  },
+  {
+    "path": "vendor/nexrad-data/examples/trim_fixture.rs",
+    "bytes": 10417,
+    "sha256": "d815bc3134ca7e44ad161d624465fecd0dc12bb55492aaae31543244ee7d4b6f"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws.rs",
+    "bytes": 1052,
+    "sha256": "d09c4f170d3c27a510373e264c574087bf9fe7625200036143b67eea2cdd701b"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/archive.rs",
+    "bytes": 1024,
+    "sha256": "1d96817d0ae35217f54d5252bb906779327ec730fdade23a084b308fd59985f6"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/archive/download_file.rs",
+    "bytes": 923,
+    "sha256": "9dfb61aabf234a1884029f3d534fab6211398aad498cd984d27a03b0ca5ceab0"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/archive/identifier.rs",
+    "bytes": 1165,
+    "sha256": "b90ee7667ed78b19a174d6771443bd16a328a9b1a7f2f7272e427ba8a9d8022c"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/archive/list_files.rs",
+    "bytes": 1032,
+    "sha256": "a4467befe29bb64e50387e5773672abbcb0d47d5c5d8e2e5f990bbf5904902bf"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/client.rs",
+    "bytes": 3763,
+    "sha256": "523de237caddf897dc85dae1a513985dbabd01718409ad5ea36b5142bd0b0332"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime.rs",
+    "bytes": 2597,
+    "sha256": "a37ebd17d909a2c66aac4a51e601c77a03ee15c16e55f9b47b67d07f25600bec"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/assemble.rs",
+    "bytes": 9322,
+    "sha256": "a7d65486d82a2a7fef9d49e5c705842a2b30ef5d580fe5121422953f6c27203e"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk.rs",
+    "bytes": 2022,
+    "sha256": "0bada7e905759fa6ac9068e1615a0ad835fb6fee6b224ef2b02acf012b8c7911"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk_identifier.rs",
+    "bytes": 5459,
+    "sha256": "d08eeabf0822896fddaf8e13ff921b6920675ec9e75c2d0823b471ac296d582f"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk_iterator.rs",
+    "bytes": 22301,
+    "sha256": "faa4044390b9ecef0da2cf7e79ea08fc121b50b9d5fb98943beb2098e75ca3fd"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk_timing_model.rs",
+    "bytes": 5201,
+    "sha256": "629a587b9d78a1cefe59b5cd1b94fccf9282c33cb13d0825d38b390727a61339"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk_timing_stats.rs",
+    "bytes": 3895,
+    "sha256": "63603c42e724c87288c66743e9668e7ee69a8b717468678b00faf5c3be8ed9b4"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/chunk_type.rs",
+    "bytes": 1125,
+    "sha256": "75a8870bb8f10b1b2510749831383d7d27b304c2f419dc5b0472be07e69e0210"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/download_chunk.rs",
+    "bytes": 819,
+    "sha256": "055e760e16a47fd2c8d0c9cf376e665c0bc6caa60be68cba932890c80c2ca6f5"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/elevation_chunk_mapper.rs",
+    "bytes": 7198,
+    "sha256": "c1fe2e65fdb1042b16507b9825c1ef4706a9289f98953be7e73907c18dfc880d"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/estimate_next_chunk_time.rs",
+    "bytes": 5875,
+    "sha256": "397b260bf4906b4d1d953389ead6a1d2e318cc2b2e546c1b74663c529aa98f04"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/get_latest_volume.rs",
+    "bytes": 1596,
+    "sha256": "925e5879f9e72e79e7f6da2c3cd1fd445b258054ab8b8631bda87fe3a6ccf26d"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/list_chunks_in_volume.rs",
+    "bytes": 3197,
+    "sha256": "f0c9896f15b4fa355c5b3b3d374e4c94b2c59492a8db8a03109eac2fed1a88d9"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/poll_chunks.rs",
+    "bytes": 11011,
+    "sha256": "fdcc4d60ff43713a4c527ee22bf6e48a42f536957cf19afa362f1571af269a07"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/retry_policy.rs",
+    "bytes": 7959,
+    "sha256": "ecee54917f3510a04e30910c830b8ddd561c9c8356224fbf271649759add9000"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/scan_timing_projection.rs",
+    "bytes": 8413,
+    "sha256": "53187c9a9803daaecf968093008c9a672b28b648f27780407d97f788da49b6f4"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/search.rs",
+    "bytes": 10750,
+    "sha256": "bdae8fafd0d4439742087603c73e4f157ac298f98ca1b94c893124cbdfa846e1"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/realtime/volume_index.rs",
+    "bytes": 816,
+    "sha256": "6c881ad8a1386aea6f7b82f0d3e0aef08cb3b2abb4c2cee0f02b4013c4fc3285"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3.rs",
+    "bytes": 241,
+    "sha256": "640de5bf64774d7fc8ea5b70ca297d00d6729dfcc2635879da4502a7911d1723"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/bucket_list_result.rs",
+    "bytes": 335,
+    "sha256": "1a2be9dd5186bf490d5e54bfec4bc7d85eff5ed7ea6ee46c9c761daabe21ecf9"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/bucket_object.rs",
+    "bytes": 372,
+    "sha256": "c1748fbfb5435b7a9ad0ad0536694de57919b5eacbcff9dd1c8919f27fcbf9da"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/bucket_object_field.rs",
+    "bytes": 510,
+    "sha256": "65229ca5d084fb52eaba2ed1df973ee264f0e2f8456136af3333099638e9a205"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/download_object.rs",
+    "bytes": 2960,
+    "sha256": "27dffa3a9eb0546c09455f03e8b1e48d159e459d1b24f0d14335b193cdf10b32"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/downloaded_bucket_object.rs",
+    "bytes": 321,
+    "sha256": "5863bc2d6a38351e1afc39dae90119eea132a3108de09a204ba5e8fbb2e64640"
+  },
+  {
+    "path": "vendor/nexrad-data/src/aws/s3/list_objects.rs",
+    "bytes": 4716,
+    "sha256": "8d1b54812a6922a136b9a7fd6977ae25e688ced9079c0fa8c5c1924e6f7c14d4"
+  },
+  {
+    "path": "vendor/nexrad-data/src/lib.rs",
+    "bytes": 3224,
+    "sha256": "2c2d2c3e677faeee64b60f9a2cea60773e9aa805834c452d7be3d1c86cfafcc4"
+  },
+  {
+    "path": "vendor/nexrad-data/src/result.rs",
+    "bytes": 5202,
+    "sha256": "80d46bcec37a9b2ada85b63d2b8726efc82a030552a0cadb2ba03c7c2fbe488f"
+  },
+  {
+    "path": "vendor/nexrad-data/src/volume.rs",
+    "bytes": 937,
+    "sha256": "38ecfc19a2487ae5a43f562dea4f9e05cb062a2694dc1fffdd8dc8b8ad074ded"
+  },
+  {
+    "path": "vendor/nexrad-data/src/volume/file.rs",
+    "bytes": 13524,
+    "sha256": "8a7036846948d3a0658c534a79d7d9b25c7f8662accce5d5a6dbadd506b82d14"
+  },
+  {
+    "path": "vendor/nexrad-data/src/volume/header.rs",
+    "bytes": 3053,
+    "sha256": "41eccadc8fa6dd49fb37e3b3e9f7b08190485695b9ca1a06fc8b10af1122d733"
+  },
+  {
+    "path": "vendor/nexrad-data/src/volume/record.rs",
+    "bytes": 9867,
+    "sha256": "e5f3218754460b747b6e424c93ae3416aa21b6e0316e12c1b80814b38c7f1963"
+  },
+  {
+    "path": "vendor/nexrad-data/src/volume/util.rs",
+    "bytes": 699,
+    "sha256": "a2ec47de2b9ebf2f809de2490629ded9ad5c0a0a6ea38e348dc6a4e00044e8ae"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/aws_archive.rs",
+    "bytes": 11537,
+    "sha256": "b4cc02cd5f0bb4b8108cc812409dd01313fa9cf23a2ff7340fe60080f0ad6cf7"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/aws_realtime_network.rs",
+    "bytes": 12963,
+    "sha256": "19dd3bce26b672e7c8540cddad7c0f600970b62258894c977fb3f9660704be65"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/aws_realtime_polling.rs",
+    "bytes": 27629,
+    "sha256": "8d39c4a6a3710e459ca9ef3b60d88c3db3ceb8e87887a3224a75ffc31058e289"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/aws_realtime_types.rs",
+    "bytes": 13229,
+    "sha256": "226ab5ea95bcc22be505af7e70c2607fcade47a12d844034ed50f53f04eaa119"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/error_handling.rs",
+    "bytes": 2047,
+    "sha256": "c1527b157db8c32e7dc3d56832ef24908cb7dd6d8507e3433b6e94e8de1e2d80"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/fixture_integration.rs",
+    "bytes": 20125,
+    "sha256": "fca644cc507aedde30e7e09aef84500ce524c12da218d025b37763af72f5bd0c"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/live_decode.rs",
+    "bytes": 10487,
+    "sha256": "4835c79ef14f0d126fa9ff673aa00bfa3bc83d36ccfd6c9e76fd4b45ae606bcb"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/malformed_records.rs",
+    "bytes": 7667,
+    "sha256": "25ed67f79e29b28fd7e83f545671259a7ca5f2f25521d351e0526e716ae37db3"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/volume_header.rs",
+    "bytes": 985,
+    "sha256": "e2f13553dbbcd05e6601482c665fbf5dfb66efcadbb61a0516574d9a3caf20a2"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/volume_records.rs",
+    "bytes": 10888,
+    "sha256": "841d3a2eca85de9bd4d38c2d7484a591647e580ec75df1339932b20800f2665c"
+  },
+  {
+    "path": "vendor/nexrad-data/tests/volume_scan.rs",
+    "bytes": 13188,
+    "sha256": "410487cefa53d42f6bfcf714ab7b4e2e5b937f08d677f0131500219c3347c2bb"
+  },
+  {
+    "path": "vendor/nexrad-model/Cargo.toml",
+    "bytes": 1810,
+    "sha256": "61a086a76f366f98f8e57b28bbc19116e010cb15d3b2ff75bccb02e59a09c3e2"
+  },
+  {
+    "path": "vendor/nexrad-model/src/binary_data.rs",
+    "bytes": 2077,
+    "sha256": "b36b8a5ac4e853415566ae10215592575ec30a992f35a8b8b677b5364e964407"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data.rs",
+    "bytes": 940,
+    "sha256": "ac09fff1968250a14326247907653434af9db1428a4ab56122cb1f6d4b9b94a0"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/channel_configuration.rs",
+    "bytes": 946,
+    "sha256": "174b4b7d09eb8ad44563592aeff440fc1acffe17b2366806e95c123f348f1eec"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/elevation_cut.rs",
+    "bytes": 7199,
+    "sha256": "b821f8b841b7a9369dec62f5c02ce4015b8086a46253f6c450a612f8af9e5ca5"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/field.rs",
+    "bytes": 26931,
+    "sha256": "acc83f800cf0b9db21716fb2d6fd6d7174938b9ab3e6088daae0edf5507ccc34"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/moment.rs",
+    "bytes": 14431,
+    "sha256": "24d39f7747ed1fbc15184b9a9db5e6a24af972f02b6f1fdfeffac66dd0e99b11"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/product.rs",
+    "bytes": 4370,
+    "sha256": "4eac3f65ad9bbc320bcf4b398fed0e55d6bbb07b7b510066471e9ddd045cb333"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/pulse_width.rs",
+    "bytes": 715,
+    "sha256": "5b6e78fd4f792b4934b21a089867f362446253d309378be97c49eac4916ecb21"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/radial.rs",
+    "bytes": 8769,
+    "sha256": "72f5623011be06b98417824c5a444902a226bad00fc9bd2279a7259993391510"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/scan.rs",
+    "bytes": 3896,
+    "sha256": "70d8714452a8fcef31fc8ba53514eca369da6d9f6206d47da0e4f9bf0e1f8277"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/sweep.rs",
+    "bytes": 6625,
+    "sha256": "326060bfec0c480e8669393d14a5fba1d815028994a702c2d0fdebd9073da68e"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/vcp_number.rs",
+    "bytes": 5287,
+    "sha256": "cebbca1875937763c69f216f3f8647d92850dfccf5bc069badadd6b8edd4dd3c"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/volume_coverage_pattern.rs",
+    "bytes": 5360,
+    "sha256": "823ad01f46088d754629666caef015d5d9d28f0270553fb098fc12680fb7f4c4"
+  },
+  {
+    "path": "vendor/nexrad-model/src/data/waveform_type.rs",
+    "bytes": 1165,
+    "sha256": "d96c039ab1dc43ce404652801e6c14a851128451cb162021ee5291f5877c2d27"
+  },
+  {
+    "path": "vendor/nexrad-model/src/geo.rs",
+    "bytes": 11939,
+    "sha256": "5ec9f1150f1087b6f5d495ce8b5f63e1cd02165d4efe1d9409437144a543aa30"
+  },
+  {
+    "path": "vendor/nexrad-model/src/lib.rs",
+    "bytes": 3117,
+    "sha256": "a8d570de955c1f559002ab04187e2a2168c7e5e472534fdbb6c88ea625762e5e"
+  },
+  {
+    "path": "vendor/nexrad-model/src/meta/mod.rs",
+    "bytes": 942,
+    "sha256": "ab384d639a9faf531dbfb5830eda73daf5235cfb8af72cecb493793cc1deb08b"
+  },
+  {
+    "path": "vendor/nexrad-model/src/meta/registry.rs",
+    "bytes": 33603,
+    "sha256": "21dce2b01069fec218c3801965bd2eaed43761eb71a623ede4e17b4f7993084b"
+  },
+  {
+    "path": "vendor/nexrad-model/src/meta/site.rs",
+    "bytes": 2514,
+    "sha256": "bff2c5bfa56d7258a51e18fbf3996d0a60a973c64c65ffe2a965b09cdf67a79e"
+  },
+  {
+    "path": "vendor/nexrad-model/src/result.rs",
+    "bytes": 632,
+    "sha256": "67c8d3bc604ca1d2869ca78aee09438fc71cb6cc69a9a11660ce6ca04ee797a4"
+  }
+]

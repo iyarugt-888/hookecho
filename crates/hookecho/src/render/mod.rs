@@ -2,6 +2,7 @@
 //! inside egui's render pass via [`egui_wgpu::CallbackTrait`].
 
 pub mod field_ramps;
+pub mod live_trace;
 pub mod mercator;
 
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use wgpu::util::DeviceExt;
 /// up to a frame late and never early. Display scan-out (presentation) is not measured here.
 #[derive(Default)]
 pub struct LiveQueueTimings {
+    revision_traces: live_trace::RevisionTraces,
     latest_micros: std::sync::atomic::AtomicU64,
     samples_micros: std::sync::Mutex<std::collections::VecDeque<u64>>,
     latest_gpu_done_micros: std::sync::atomic::AtomicU64,
@@ -26,6 +28,20 @@ pub struct LiveQueueTimings {
 
 impl LiveQueueTimings {
     const CAPACITY: usize = 128;
+
+    pub fn accept_revision(
+        &self,
+        identity: live_trace::RevisionIdentity,
+        received: Option<wxdata::clock::Instant>,
+        decode_work: std::time::Duration,
+    ) {
+        self.revision_traces
+            .accept(identity, received.map(|r| r.elapsed()), decode_work);
+    }
+
+    pub fn revision_traces(&self) -> Vec<live_trace::RevisionTrace> {
+        self.revision_traces.snapshot()
+    }
 
     pub fn latest_micros(&self) -> u64 {
         self.latest_micros
@@ -97,7 +113,31 @@ type GpuMark = (
     wxdata::clock::Instant,
     wxdata::clock::Instant,
     std::sync::Arc<LiveQueueTimings>,
+    Option<u64>,
 );
+
+/// Immutable correlation carried with a particular upload, including across delayed callbacks.
+#[derive(Clone)]
+pub struct LiveUploadTiming {
+    pub started: wxdata::clock::Instant,
+    pub timings: std::sync::Arc<LiveQueueTimings>,
+    pub revision: Option<u64>,
+    pub draw: Option<live_trace::DrawIdentity>,
+}
+
+impl LiveUploadTiming {
+    pub fn untracked(
+        started: wxdata::clock::Instant,
+        timings: std::sync::Arc<LiveQueueTimings>,
+    ) -> Self {
+        Self {
+            started,
+            timings,
+            revision: None,
+            draw: None,
+        }
+    }
+}
 
 /// How long after a live upload's frame its completion may still be registered and trusted.
 const GPU_MARK_MAX_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
@@ -174,7 +214,7 @@ pub struct RadarUpload {
     /// One-shot live-update timing: client transport receipt to GPU queue writes completed.
     /// `wxdata::clock::Instant`, not `std::time::Instant` — the latter can't measure elapsed time
     /// on wasm32, and every caller already carries the former (`View::live_render_started`).
-    pub telemetry: Option<(wxdata::clock::Instant, std::sync::Arc<LiveQueueTimings>)>,
+    pub telemetry: Option<LiveUploadTiming>,
 }
 
 #[repr(C)]
@@ -2396,25 +2436,33 @@ impl RenderResources {
     fn upload_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, cb: &MapCallback) {
         // This pane's previous frame has been submitted by now: ask the device to report when
         // the work it drew is finished.
-        for (started, queued, timings) in self.gpu_marks.remove(&cb.pane).unwrap_or_default() {
+        for (started, queued, timings, revision) in
+            self.gpu_marks.remove(&cb.pane).unwrap_or_default()
+        {
             // Registered too long after the drawing frame (the app idled before repainting), the
             // callback could fire long after the work finished: excluded, not overstated.
             if queued.elapsed() > GPU_MARK_MAX_WAIT {
                 timings.note_unobserved();
+                timings.revision_traces.unobserved(revision);
                 continue;
             }
-            queue.on_submitted_work_done(move || timings.record_gpu_done(started.elapsed()));
+            queue.on_submitted_work_done(move || {
+                let elapsed = started.elapsed();
+                timings.record_gpu_done(elapsed);
+                timings.revision_traces.gpu_done(revision, elapsed);
+            });
         }
-        if let Some((started, timings)) = cb
+        if let Some(mark) = cb
             .radar_upload
             .as_ref()
             .filter(|r| !r.lut_only)
             .and_then(|r| r.telemetry.as_ref())
         {
             self.gpu_marks.entry(cb.pane).or_default().push((
-                *started,
+                mark.started,
                 wxdata::clock::Instant::now(),
-                std::sync::Arc::clone(timings),
+                std::sync::Arc::clone(&mark.timings),
+                mark.revision,
             ));
         }
         // --- Shared caches ---
@@ -3133,8 +3181,12 @@ fn ancestor_uv(x: u32, y: u32, up: u8) -> ([f32; 2], [f32; 2]) {
 }
 
 fn record_radar_queue_time(upload: &RadarUpload) {
-    if let Some((started, timings)) = &upload.telemetry {
-        timings.record_elapsed(started.elapsed());
+    if let Some(mark) = &upload.telemetry {
+        let elapsed = mark.started.elapsed();
+        mark.timings.record_elapsed(elapsed);
+        mark.timings
+            .revision_traces
+            .queued(mark.revision, elapsed, mark.draw.as_ref());
     }
 }
 

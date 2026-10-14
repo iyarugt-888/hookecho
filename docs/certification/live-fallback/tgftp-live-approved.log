@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'tgftp_provider::tests::latest_complete_volume_fetches_and_decodes_a_real_tgftp_volume' (10160) panicked at crates\hookecho\src\tgftp_provider.rs:449:67:
+called `Result::unwrap()` on an `Err` value: volume has no sweeps
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tgftp_provider::tests::latest_complete_volume_fetches_and_decodes_a_real_tgftp_volume ... FAILED
+
+failures:
+
+failures:
+    tgftp_provider::tests::latest_complete_volume_fetches_and_decodes_a_real_tgftp_volume
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1579 filtered out; finished in 0.32s
+

@@ -2011,6 +2011,101 @@ mod tests {
         );
     }
 
+    /// The same outline over the resampled (smooth) volume: there the gates sit at their height
+    /// above sea level (`highlight_screen`'s other branch), in the volume's own frame. The app
+    /// builds the volume off-thread, so the pane is drawn until it is accepted, then captured with
+    /// and without the outline. Run alone as `app_cell_card_reads_the_whole_cell` is.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn app_core_outline_sits_in_the_smooth_volume() {
+        let (mut app, state, centre, out) = headless_moore_app();
+        let started = std::time::Instant::now();
+        let core = loop {
+            match app.cell_cores(0, &[centre], None).remove(0) {
+                CellCore::Ready(s) => break s,
+                CellCore::Empty => panic!("no gates around the Moore storm"),
+                _ => {
+                    assert!(started.elapsed().as_secs() < 300);
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        };
+        let z = core.index_of(Moment::Reflectivity).unwrap();
+        let gates: Vec<crate::app::region_stats::HighlightGate> = core
+            .rows
+            .iter()
+            .filter(|r| r.values[z].is_some_and(|v| v >= 65.0))
+            .map(|r| crate::app::region_stats::HighlightGate {
+                ll: [r.lon, r.lat],
+                az_deg: r.az_deg,
+                range_km: r.range_km,
+                elevation_deg: r.elevation_deg,
+            })
+            .collect();
+        app.views[0].moment = Moment::Reflectivity;
+        app.views[0].camera = crate::render::mercator::Camera::at_lonlat(centre.0, centre.1, 10.0);
+        app.views[0].camera.pitch = 55.0;
+        app.views[0].map_3d.enabled = true;
+        app.views[0].map_3d.representation = crate::view::Map3dRepresentation::SmoothVolume;
+        let size = (900u32, 700u32);
+        let shoot = |label: &str, app: &mut HookEchoApp, frames: usize, outline: bool| {
+            app.region.set_highlight(
+                if outline { 1_000_000 } else { 0 },
+                if outline { gates.clone() } else { Vec::new() },
+            );
+            crate::headless::ui::save_with_state(
+                &state,
+                &out.join(format!("{label}.png")),
+                size,
+                frames,
+                |ui| {
+                    let rect = ui.max_rect();
+                    let ctx = ui.ctx().clone();
+                    app.render_pane(ui, &ctx, 0, rect, false, false, true, true, &[]);
+                },
+            )
+            .unwrap();
+        };
+        // Drawing starts the build off-thread; drawing again collects it.
+        let waited = std::time::Instant::now();
+        while app.smooth_vol_key[0].is_none() {
+            assert!(waited.elapsed().as_secs() < 300, "the smooth volume is built");
+            shoot("app-outline-smooth-warmup", &mut app, 2, false);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        println!(
+            "smooth volume accepted after {:.1} s",
+            waited.elapsed().as_secs_f32()
+        );
+        shoot("app-outline-smooth", &mut app, 6, true);
+        shoot("app-outline-smooth-none", &mut app, 6, false);
+        let _ = std::fs::remove_file(out.join("app-outline-smooth-warmup.png"));
+        let img = |l: &str| image::open(out.join(format!("{l}.png"))).unwrap().to_rgba8();
+        let (with, without) = (img("app-outline-smooth"), img("app-outline-smooth-none"));
+        let changed = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
+            a.0.iter().zip(b.0).take(3).any(|(x, y)| x.abs_diff(y) > 60)
+        };
+        let mut mask = image::RgbaImage::new(with.width(), with.height());
+        let (mut n, mut y_lo, mut y_hi) = (0usize, u32::MAX, 0u32);
+        for (x, y, p) in with.enumerate_pixels() {
+            let q = without.get_pixel(x, y);
+            if changed(p, q) {
+                n += 1;
+                y_lo = y_lo.min(y);
+                y_hi = y_hi.max(y);
+                mask.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            } else {
+                let g = (q.0[0] as u16 + q.0[1] as u16 + q.0[2] as u16) / 12;
+                mask.put_pixel(x, y, image::Rgba([g as u8, g as u8, g as u8, 255]));
+            }
+        }
+        mask.save(out.join("app-outline-smooth-mask.png")).unwrap();
+        println!("{n} pixels changed by the outline, rows {y_lo}..{y_hi}");
+        assert!(n > 100, "the outline is drawn over the smooth volume");
+        assert!(y_hi - y_lo > 60, "spread up the storm, not one flat patch");
+    }
+
     /// The card's Core statistics and By tilt rows for the Moore storm (KTLX 2013-05-20 20:16Z),
     /// read on every tilt by the card's own job and drawn with its own rows, for review
     /// (`target/parity-review/cell-core-tilts/`). Network on first run (volume cached in

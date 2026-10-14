@@ -1,0 +1,14 @@
+Verified mayfield-2021-partial: 358290 bytes SHA-256 7ff2afe7bb52dec13b14d68c75e7654c18536eb9c39da8615c3bd1583cdc7332
+Verified denver-hail-2017-partial: 462169 bytes SHA-256 ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c
+Verified clear-air-2019-partial: 442616 bytes SHA-256 d0e6ac4b459b1c30e1687f749ab7d43e7aaf734c965b45cf734152e1410721d5
+Verified truth moore-warnings-during: 95294 bytes SHA-256 8a87b3a4e86666d519e67ab58273152d8c32c56ad5c0d7a8c4c4b11cf380e153
+Verified truth moore-warnings-before: 63396 bytes SHA-256 b3dcacbd987bb9fe898b8c4851c4ef41db33461e841c43d34c09ab3d5ae6af44
+Verified truth moore-reports: 21491 bytes SHA-256 a8026a4e12b0a9a81b26f4558d1048b6da9cd1905523b524fcf5035e361938a9
+Verified truth el-reno-reports: 20221 bytes SHA-256 ec95198542058b8b488608ad316b090ff88a6facd925be7d322dab9f8b9ddd82
+Verified truth washington-reports: 37507 bytes SHA-256 ff879a71611f82f10a995a49be81330ae0a03bb727cd132c6328ad5e3ad3bcf1
+Verified truth vilonia-reports: 12172 bytes SHA-256 8f4a14e937f01978379311c902ade11e9bc76553541847340744562ee5b21ab4
+Verified truth nashville-reports: 11001 bytes SHA-256 b6334a90529a7ff0b549c5613c0e581cea72dd93deb02cb84e15ee779b7af88f
+Verified truth iowa-qlcs-reports: 59251 bytes SHA-256 04a25f153600de71283b8feca41272f043f9f8bc1350156e7c3d0db5cd571752
+Verified track knierim-2021-damage-track: 47 vertices SHA-256 aad822104783bfadd6645f66ce4460f6f88d8b6eeaed44b3d0bfd80136b68674
+Verified track somers-2021-damage-track: 22 vertices SHA-256 9d3d3c9513472fe5911f8e13b6e04b6c4c8902539b3532c8f68dcc5d31e2df3e
+Verified classification tlx-clutter-2020-labels: 2363 AP/ground-clutter gates SHA-256 e135a96cd1c2ad31fe6563d6af4dd403dd368c244383f38b047699b2e4ef7057

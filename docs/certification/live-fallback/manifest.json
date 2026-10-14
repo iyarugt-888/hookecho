@@ -1,0 +1,147 @@
+{
+  "recorded_utc": "2026-10-13T14:44:07.332745+00:00",
+  "head": "bdb4809c7cc0a6fa45ea7560bbec9d795e9468fa",
+  "attribution": "shared dirty working tree; HEAD alone is not the tested source",
+  "status": [
+    " M .claude/launch.json",
+    " M crates/hdf5lite/tests/golden.rs",
+    " M crates/hookecho/src/app/column_product.rs",
+    " M crates/hookecho/src/app/data_poll.rs",
+    " M crates/hookecho/src/app/floating_windows.rs",
+    " M crates/hookecho/src/app/live_session.rs",
+    " M crates/hookecho/src/headless.rs",
+    " M crates/hookecho/src/tgftp_provider.rs",
+    " M crates/hookecho/src/ui/xsection_window.rs",
+    " M roadmaps/README.md",
+    " M roadmaps/archive/README.md",
+    " M roadmaps/live-radar/README.md",
+    " M roadmaps/radar-analysis/README.md",
+    "?? 1008.md",
+    "?? 1010.md",
+    "?? crates/hookecho/src/app/delivery_fault_tests.rs",
+    "?? crates/hookecho/tests/data/",
+    "?? docs/certification/live-fallback/"
+  ],
+  "artifacts": [
+    {
+      "path": "docs/certification/live-fallback/workspace-no-pdb.log",
+      "bytes": 270028,
+      "sha256": "d0afe29dd977f296f2a0b220e7d31aacf69868b9911166aa3ecc49bdeeeb8308"
+    },
+    {
+      "path": "docs/certification/live-fallback/workspace-no-pdb.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-fallback/clippy-final.log",
+      "bytes": 576,
+      "sha256": "dc88f1b2ceb97a6d419803f50b09d147553f4940c11e43b6e49ee0d2774636d4"
+    },
+    {
+      "path": "docs/certification/live-fallback/clippy-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-fallback/wasm-final.log",
+      "bytes": 3293,
+      "sha256": "e7dd8dbeaf78d817f85f886d0dcc43ef6efc185895d1495865088dcf12f0f1f8"
+    },
+    {
+      "path": "docs/certification/live-fallback/wasm-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-fallback/tgftp-live-final.log",
+      "bytes": 220,
+      "sha256": "49be9b2955ac55b316f89f4bf8a3764626027eb32d1d808fc5b3bd7314bc424c"
+    },
+    {
+      "path": "docs/certification/live-fallback/tgftp-live-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-fallback/gpu-final.log",
+      "bytes": 263,
+      "sha256": "697c93eb8e802ca8661b20775c3a139501d4b2f610c16f63cdc2d821e73a6513"
+    },
+    {
+      "path": "docs/certification/live-fallback/gpu-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-fallback/corpus.log",
+      "bytes": 1729,
+      "sha256": "fe1d02a478f130d4f352452922e8fd38a220ca2aaa7780e4177528bb67849583"
+    },
+    {
+      "path": "docs/certification/live-fallback/workspace.log",
+      "bytes": 14900,
+      "sha256": "5d29f7f2e47301864f01c07cd680ea9b03ff8c98a2f469980cffd1621ef233ba"
+    },
+    {
+      "path": "docs/certification/live-fallback/workspace.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/live-fallback/workspace-release.log",
+      "bytes": 143946,
+      "sha256": "4a1fd3ed9af0c6bd61e435a22ee13289d0b3908a82e5154a7bcd7fb26b00a53a"
+    },
+    {
+      "path": "docs/certification/live-fallback/workspace-release.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/live-fallback/tgftp-live-approved.log",
+      "bytes": 654,
+      "sha256": "124d1c023913f804190dcf333d9482b9aa2fb2abe4d571fc931b4e54347b5aad"
+    },
+    {
+      "path": "docs/certification/live-fallback/tgftp-live-approved.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/live-fallback/fmt.log",
+      "bytes": 20370,
+      "sha256": "52b8369c6712e2ce129428ddcc1482bd4c11968d2335d13f1c953cf2d0e5423e"
+    },
+    {
+      "path": "docs/certification/live-fallback/fmt.exit",
+      "bytes": 3,
+      "sha256": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+    },
+    {
+      "path": "docs/certification/live-fallback/tested-tgftp-provider.rs.txt",
+      "bytes": 45591,
+      "sha256": "3fc9a092254da680e5f7ba04a63c76f73e7c1cd418ea45f11f46c5df08795842",
+      "source_path": "crates/hookecho/src/tgftp_provider.rs",
+      "note": "Exact tested bytes; working file normalized to repository LF afterward, no code changes."
+    },
+    {
+      "path": "crates/hookecho/tests/data/tgftp/KFTG_20261013_002258.bz2",
+      "bytes": 3379980,
+      "sha256": "281c815fec8658af5f6a49df12ceb0112021960b31ddfffa3dd30853c266cb7c"
+    },
+    {
+      "path": "target/debug/deps/hookecho-94d18808a3966026.exe",
+      "bytes": 105505280,
+      "sha256": "4d156ee8d9d55a9665bf67c13cf14c43bd601f2cafb44a10aa912d9deea329ca",
+      "retained": false,
+      "note": "Hash identifies the L1-tested executable; Cargo subsequently replaced this build-output path during L3. Exact L1 source snapshot and raw logs are retained."
+    },
+    {
+      "path": "crates/hookecho/src/tgftp_provider.rs",
+      "bytes": 44543,
+      "sha256": "9519056d5a24201a8a0bc6653f48ef3b0e7c6cc05e43bf9edeee395d88d2e541",
+      "note": "LF-normalized tested source"
+    }
+  ]
+}

@@ -2,6 +2,11 @@
 
 Current priorities and continuous validation tracks: [roadmaps](../../roadmaps/README.md).
 
+Increment evidence outside the historical card ledgers: [completed fallback](live-fallback/README.md)
+and [accepted-revision timing](live-trace/README.md), plus the
+[Codex/Claude handoff verification](handoff-2026-10-14/README.md). Their local manifests include dirty-tree
+checks; the historical manifest below describes committed evidence only.
+
 **Not a release certification.** This index gathers the evidence reviewed so far. Release
 readiness is **not claimed**, for these reasons:
 

@@ -10,6 +10,10 @@ Parent M2.1–M2.4; ROADMAP_NEW R3/R4/K3/K4/L; suggestions §§4,6–9.
 | S3 | Certification-only | Desktop and physical Android walkthroughs of manual point/line creation, cancellation, split/merge history, notes, feature correction, town/asset entry and print/share. Measure the existing five-second creation criterion. |
 | S4 | Partially implemented | Offline chase case portability: choosing satellite/MRMS/GIS data ahead of time and explicit pack dependencies. Recent cached frames, radar pack saving, feature/case notes and online routing already exist. Forecast route exposure and routing graphs remain deferred unless tied to a concrete field workflow. |
 
+The whole-cell card and observed/smooth 3D outline now have isolated real-app captures.
+The [handoff](../../docs/certification/handoff-2026-10-14/README.md) verifies the unfinished
+smooth-volume control; S2 still needs interactive hover, end-to-end workflow and devices.
+
 Feature tracking for mesocyclone/core/BWER/contour, suitability recommendations and
 community polygon entry times are implemented; continue their validation, not a
 second tracker/impact engine. Track D includes adjacent/crossing storms, ambiguous

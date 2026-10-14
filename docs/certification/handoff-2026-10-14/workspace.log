@@ -1,0 +1,13 @@
+warn: could not canonicalize path C:\Users\wushi
+warning: output filename collision at C:\Users\wushi\hookecho\target\debug\deps\hookecho.pdb
+  |
+  = note: the bin target `hookecho` in package `hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)` has the same output filename as the lib target `hookecho` in package `hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+   Compiling radar-ingest v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\radar-ingest)
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+error: failed to remove file `C:\Users\wushi\hookecho\target\debug\hookecho.exe`
+
+Caused by:
+  Access is denied. (os error 5)

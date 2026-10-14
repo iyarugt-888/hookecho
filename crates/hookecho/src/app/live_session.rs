@@ -96,6 +96,20 @@ impl LiveSession {
             .as_ref()
             .is_some_and(|session| session.scope.view == view && session.generation == generation)
     }
+    /// Payload ownership is narrower than transport ownership: UI intake precedes stream
+    /// reconciliation, so a still-current generation may already belong to an archive/loop.
+    /// End events retain `accepts` so they can retire that transport even after a scrub.
+    pub fn accepts_delivery(
+        &self,
+        view: usize,
+        generation: u64,
+        views: &[crate::view::MapView],
+    ) -> bool {
+        self.accepts(view, generation)
+            && views
+                .get(view)
+                .is_some_and(|pane| pane.timeline.following && !pane.timeline.playing)
+    }
     fn retire(&mut self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
         self.running = None;
@@ -340,6 +354,67 @@ mod tests {
             .reconcile(Some(primary(0, "KTLX")), now + Duration::from_secs(3))
             .start
             .is_some());
+    }
+
+    #[test]
+    fn queued_payloads_cannot_own_a_timeline_that_has_left_live() {
+        let mut session = LiveSession::default();
+        let start = session
+            .reconcile(Some(primary(0, "KTLX")), Instant::now())
+            .start
+            .unwrap();
+        let mut views = [crate::view::MapView::new(
+            Some("KTLX".into()),
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 6.0),
+        )];
+        assert!(session.accepts_delivery(0, start.generation, &views));
+        views[0].timeline.following = false;
+        assert!(
+            session.accepts(0, start.generation),
+            "reconciliation has not retired it yet"
+        );
+        assert!(!session.accepts_delivery(0, start.generation, &views));
+        views[0].timeline.following = true;
+        views[0].timeline.playing = true;
+        assert!(!session.accepts_delivery(0, start.generation, &views));
+        views[0].timeline.playing = false;
+        assert!(session.accepts_delivery(0, start.generation, &views));
+        views[0].timeline.following = false;
+        assert!(
+            session.finish(0, start.generation, false),
+            "archive must still allow transport End"
+        );
+    }
+
+    #[test]
+    fn payload_checks_keep_pane_bounds_and_generation_ownership() {
+        let mut session = LiveSession::default();
+        let now = Instant::now();
+        let first = session
+            .reconcile(Some(primary(0, "KTLX")), now)
+            .start
+            .unwrap();
+        let mut views = [
+            crate::view::MapView::new(
+                Some("KTLX".into()),
+                crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 6.0),
+            ),
+            crate::view::MapView::new(
+                Some("KTLX".into()),
+                crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 6.0),
+            ),
+        ];
+        assert!(!session.accepts_delivery(0, first.generation, &[]));
+        assert!(!session.accepts_delivery(1, first.generation, &views));
+        let next = session
+            .reconcile(Some(primary(1, "KTLX")), now)
+            .start
+            .unwrap();
+        assert!(!session.accepts_delivery(0, first.generation, &views));
+        assert!(!session.accepts_delivery(1, first.generation, &views));
+        assert!(session.accepts_delivery(1, next.generation, &views));
+        views[1].timeline.playing = true;
+        assert!(!session.accepts_delivery(1, next.generation, &views));
     }
 
     fn pane(site: &str) -> (crate::view::MapView, crate::live_scan::AcquisitionSnapshot) {

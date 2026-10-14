@@ -1,0 +1,8 @@
+warn: could not canonicalize path C:\Users\wushi
+    Checking nexrad-model v1.0.0-rc.2 (C:\Users\wushi\hookecho\vendor\nexrad-model)
+    Checking nexrad-decode v1.0.0-rc.3
+    Checking nexrad-data v1.0.0-rc.7 (C:\Users\wushi\hookecho\vendor\nexrad-data)
+    Checking wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+    Checking radar-ingest v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\radar-ingest)
+    Checking hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 19s

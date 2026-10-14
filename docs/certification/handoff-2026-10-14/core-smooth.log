@@ -1,0 +1,8 @@
+
+running 1 test
+smooth volume accepted after 6.3 s
+144 pixels changed by the outline, rows 285..350
+test app::chrome::dock::cell::tests::app_core_outline_sits_in_the_smooth_volume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1612 filtered out; finished in 36.46s
+

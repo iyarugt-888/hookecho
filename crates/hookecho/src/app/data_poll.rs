@@ -3,6 +3,10 @@
 
 use super::*;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "delivery_fault_tests.rs"]
+mod delivery_fault_tests;
+
 impl HookEchoApp {
     pub(crate) fn poll_messages(&mut self) {
         self.drain_feed_errors();
@@ -24,8 +28,10 @@ impl HookEchoApp {
                 continue; // view gone or its site changed since the fetch spawned
             }
             if let DataMsg::Live { gen, .. } | DataMsg::LiveProgress { gen, .. } = &msg {
-                if !self.live_session.accepts(idx, *gen) {
-                    continue; // a superseded provider must never rewind this pane
+                if !self.live_session.accepts_delivery(idx, *gen, &self.views) {
+                    // Intake precedes manage_stream: a just-scrubbed/looping pane can still
+                    // have the old transport generation. Neither gates nor progress own it.
+                    continue;
                 }
             }
             match msg {
@@ -161,6 +167,9 @@ impl HookEchoApp {
                     v.live_sweep = radial_coverage.as_ref().and_then(|coverage| {
                         live_sweep::LiveSweep::capture(&scan, v.site.as_deref(), coverage)
                     });
+                    let raw_acquisition = radial_coverage
+                        .as_ref()
+                        .map(crate::render::live_trace::RawAcquisition::from_coverage);
                     let acquisition = radial_coverage
                         .and_then(|coverage| v.live_scan.capture_acquisition(coverage, Utc::now()));
                     v.live_render_started = received_at;
@@ -183,6 +192,19 @@ impl HookEchoApp {
                         }
                     }
                     v.live_scan_revision = v.live_scan_revision.wrapping_add(1);
+                    v.live_queue_timings.accept_revision(
+                        crate::render::live_trace::RevisionIdentity {
+                            receiver_pane: view,
+                            site: v.site.clone(),
+                            provider: v.live_scan.provider.clone(),
+                            volume: v.live_scan.volume.clone().unwrap_or_default(),
+                            volume_start_unix_ms: time.timestamp_millis(),
+                            accepted_revision: v.live_scan_revision,
+                            raw_acquisition,
+                        },
+                        received_at,
+                        decode_time,
+                    );
                     // Phase B5's "follow newest low-level cut": jump to the lowest tilt the
                     // instant a sweep there lands, including a SAILS/MRLE mid-volume rescan,
                     // rather than waiting for the tilt already selected or the volume as a whole.

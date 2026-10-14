@@ -39,5 +39,6 @@ growth after warmup, outstanding jobs/resources, exit verdict, artifact hashes a
 limitations. Missing required observations fail certification rather than defaulting
 to zero. Keep proposed budgets in the preserved parity roadmap §5 unchanged.
 
-The ready queue is E1 plus L1 regressions now; E2–E5 run alongside every stable A
-increment. No final “certification phase” is scheduled.
+The ready queue is E1 plus operational L2 and observer L3/L4 acceptance. L1's adapter
+regressions and the bounded revision-trace increment have their own dated evidence.
+E2–E5 run alongside every stable A increment. No final “certification phase” is scheduled.

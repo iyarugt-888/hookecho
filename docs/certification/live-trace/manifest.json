@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-13T14:59:59.273889+00:00",
+  "head": "bdb4809c7cc0a6fa45ea7560bbec9d795e9468fa",
+  "attribution": "shared dirty working tree; final focused and GPU controls follow full workspace run; source snapshot captured after checks, not a clean commit",
+  "status": [
+    " M .claude/launch.json",
+    " M crates/hdf5lite/tests/golden.rs",
+    " M crates/hookecho/src/app.rs",
+    " M crates/hookecho/src/app/column_product.rs",
+    " M crates/hookecho/src/app/data_poll.rs",
+    " M crates/hookecho/src/app/floating_windows.rs",
+    " M crates/hookecho/src/app/live_session.rs",
+    " M crates/hookecho/src/app/pane_upload.rs",
+    " M crates/hookecho/src/app/request_book.rs",
+    " M crates/hookecho/src/headless.rs",
+    " M crates/hookecho/src/headless_corpus.rs",
+    " M crates/hookecho/src/render/mod.rs",
+    " M crates/hookecho/src/tgftp_provider.rs",
+    " M crates/hookecho/src/ui/xsection_window.rs",
+    " M docs/certification/README.md",
+    " M roadmaps/README.md",
+    " M roadmaps/archive/README.md",
+    " M roadmaps/certification/README.md",
+    " M roadmaps/live-radar/README.md",
+    " M roadmaps/radar-analysis/README.md",
+    " M scripts/certification/readme.py",
+    "?? 1008.md",
+    "?? 1010.md",
+    "?? crates/hookecho/src/app/delivery_fault_tests.rs",
+    "?? crates/hookecho/src/render/live_trace.rs",
+    "?? crates/hookecho/tests/data/",
+    "?? docs/certification/live-fallback/",
+    "?? docs/certification/live-trace/"
+  ],
+  "artifacts": [
+    {
+      "path": "docs/certification/live-trace/trace-workspace.log",
+      "bytes": 255439,
+      "sha256": "70ca26569b138ce4fc79ce893ff7f1222b887922853b6e7213e59fa79a309c95"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-workspace.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-final-controls.log",
+      "bytes": 8086,
+      "sha256": "153f44dc15305066c01f65ea5234c5378413144f0017f3ae5c8907053bcc8737"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-final-controls.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-gpu-final.log",
+      "bytes": 263,
+      "sha256": "05da63ac92162fa00f69711ec0bae5ab528f872b1bf60f7d6992372d2547b67b"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-gpu-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-clippy-final.log",
+      "bytes": 204,
+      "sha256": "da97fdcce89412bc874d0c068bcbe9f04382805f17312e8d498fc206cc8c6a59"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-clippy-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-wasm-final.log",
+      "bytes": 3008,
+      "sha256": "ff37c2e3ee5151aa4765dfd811473aad0c8ebc8659c965543d0c4b87833dc963"
+    },
+    {
+      "path": "docs/certification/live-trace/trace-wasm-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "target/parity-review/live-trace-pinned/hookecho-tests.exe",
+      "bytes": 106030080,
+      "sha256": "114d52130e1568776df374ed5e9035dea94930176e5a642cf249319976ed15d7"
+    },
+    {
+      "path": "docs/certification/live-trace/source-files.json",
+      "bytes": 125840,
+      "sha256": "811c7cd3a82e81c809018c7036aede52bf85a6b3a1e99fe012f54d3b2476f2ce"
+    }
+  ]
+}

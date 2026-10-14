@@ -525,9 +525,35 @@ fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
     let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
     let timings = std::sync::Arc::new(crate::render::LiveQueueTimings::default());
     let received = wxdata::clock::Instant::now();
+    timings.accept_revision(
+        crate::render::live_trace::RevisionIdentity {
+            receiver_pane: 0,
+            site: Some("KPAH".into()),
+            provider: Some("pinned Mayfield fixture".into()),
+            volume: "KPAH20211211_032349_V06 (partial fixture)".into(),
+            volume_start_unix_ms: chrono::DateTime::parse_from_rfc3339("2021-12-11T03:23:49Z")
+                .unwrap().timestamp_millis(),
+            accepted_revision: 1,
+            raw_acquisition: None,
+        },
+        Some(received),
+        std::time::Duration::ZERO,
+    );
     let mut cb = callback(&sweep, &camera);
     if let Some(up) = cb.radar_upload.as_mut() {
-        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+        up.telemetry = Some(crate::render::LiveUploadTiming {
+            revision: Some(1),
+            draw: Some(crate::render::live_trace::DrawIdentity {
+                pane: 0,
+                tilt: 0,
+                moment: "REF".into(),
+                product_key: None,
+                column_max: false,
+                clean_reflectivity: false,
+                previous_visit: None,
+            }),
+            ..crate::render::LiveUploadTiming::untracked(received, std::sync::Arc::clone(&timings))
+        });
     }
     resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
     assert_eq!(
@@ -557,11 +583,20 @@ fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
     );
     eprintln!("receipt → queue {queued} µs, → GPU done {} µs", done[0]);
     // A LUT-only recolour is not a live update and adds no sample.
+    let rows = timings.revision_traces();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity.accepted_revision, 1);
+    assert_eq!(rows[0].receipt_to_queue_writes_us, Some(queued));
+    assert_eq!(rows[0].receipt_to_gpu_callback_us, Some(done[0]));
+    assert!(rows[0].receipt_to_visible_presentation_us.is_none());
     let mut recolour = callback(&sweep, &camera);
     if let Some(up) = recolour.radar_upload.as_mut() {
         up.lut_only = true;
         up.data.clear();
-        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+        up.telemetry = Some(crate::render::LiveUploadTiming::untracked(
+            received,
+            std::sync::Arc::clone(&timings),
+        ));
     }
     resources.render_once(&device, &queue, &view, &recolour, BACKGROUND);
     resources.render_once(&device, &queue, &view, &next, BACKGROUND);
@@ -573,7 +608,7 @@ fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
     let mut late = callback(&sweep, &camera);
     if let Some(up) = late.radar_upload.as_mut() {
         up.data[0] ^= 1; // a real change, so it is a live write
-        up.telemetry = Some((
+        up.telemetry = Some(crate::render::LiveUploadTiming::untracked(
             wxdata::clock::Instant::now(),
             std::sync::Arc::clone(&timings),
         ));
@@ -642,7 +677,10 @@ fn gpu_correlated_latency_trace() {
         let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
         let mut cb = callback(&sweep, &camera);
         if let Some(up) = cb.radar_upload.as_mut() {
-            up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+            up.telemetry = Some(crate::render::LiveUploadTiming::untracked(
+                received,
+                std::sync::Arc::clone(&timings),
+            ));
         }
         resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
         let mut next = callback(&sweep, &camera);

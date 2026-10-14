@@ -4347,7 +4347,7 @@ pub(crate) fn sweep_callback(
 }
 
 /// Read a `size×size` RGBA render target back to a tightly-packed byte vec.
-fn read_target(
+pub(crate) fn read_target(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     target: &wgpu::Texture,
