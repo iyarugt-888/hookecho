@@ -121,8 +121,8 @@
     },
     {
       "path": "docs/certification/monitor-retirement/README.md",
-      "bytes": 1976,
-      "sha256": "3dff78552a80e25b6bc4052d2f0ff095e03b1c21d498148de8ce0583fc830dcd"
+      "bytes": 2228,
+      "sha256": "a7246a4514795ee7319629a11af93add06bfa6a4ec564e4577f8e78aa914a091"
     },
     {
       "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.exit",
@@ -159,5 +159,13 @@
     "WASM library target passed with nine existing warnings; initial desktop binary WASM invocation is retained as unsupported-target failure.",
     "Offscreen Windows physical GPU control, not visible presentation or real upstream outage.",
     "No socket, detached job, physical Android or full-application long-duration measurements."
+  ],
+  "metadata_corrections": [
+    {
+      "recorded_utc": "2026-10-14T06:22:52.366061+00:00",
+      "path": "docs/certification/monitor-retirement/README.md",
+      "previous_sha256": "3dff78552a80e25b6bc4052d2f0ff095e03b1c21d498148de8ce0583fc830dcd",
+      "reason": "README was expanded after the original local manifest capture. Correct this artifact metadata to the committed bytes; test results, measurement dates, logs and source/executable hashes are unchanged."
+    }
   ]
 }
