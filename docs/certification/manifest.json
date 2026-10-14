@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-13T22:31:53+00:00",
-  "generated_from_commit": "aff34ff85dbd82355436a38d4c5a84b7579b0086",
+  "generated_utc": "2026-10-14T01:41:56+00:00",
+  "generated_from_commit": "86f02cc663711fcf31279417347eaa7479f2d6a9",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1139,13 +1139,18 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "2b3798911b53611199692e9ada6ef2f1d46b4075354e87a560e62f9c80f430f5",
-      "bytes": 9649
+      "sha256": "ba0006434841da99ed073b73977b56dea4e34e9ff9eaf5174cba8ee869066737",
+      "bytes": 13508
     },
     {
       "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
       "sha256": "b2fe506347c9b8b451fa9c349bc6cb0eb5618de93e2440849d5268360e6f56a0",
       "bytes": 91293
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-moore-whole-cell-rows.png",
+      "sha256": "ce182df90707607afab163fa137d0b2caa2681c91ebec820e386ed073de79908",
+      "bytes": 75140
     },
     {
       "path": "docs/certification/m2.2/radar-hint-card.png",
@@ -1724,8 +1729,8 @@
     },
     {
       "path": "docs/certification/m6.3/README.md",
-      "sha256": "7423690f21064d7a6512bda53b0609d748a77590584f84a0c10679d3c1063242",
-      "bytes": 8524
+      "sha256": "0adc7c7e73b9a72df64ed5d61e1fb95fae1bbe2bf87ddcc83e49c8f18bfd0a36",
+      "bytes": 11158
     },
     {
       "path": "docs/certification/m6.3/gate-choice.txt",
