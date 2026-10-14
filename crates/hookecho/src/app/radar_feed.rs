@@ -252,6 +252,10 @@ impl HookEchoApp {
     /// Runs on the web too: the chunk objects are on a bucket that allows cross-origin reads, and
     /// the streamer's waits and backfill were already written without tokio.
     pub(crate) fn manage_stream(&mut self, ctx: &egui::Context) {
+        self.manage_stream_at(ctx, Instant::now());
+    }
+
+    pub(crate) fn manage_stream_at(&mut self, ctx: &egui::Context, now: Instant) {
         let idx = self.active;
         let (want, site, base) = {
             let v = &self.views[idx];
@@ -311,7 +315,25 @@ impl HookEchoApp {
         } else {
             None
         };
-        let decision = self.live_session.reconcile(wanted, Instant::now());
+        let decision = self.live_session.reconcile(wanted, now);
+        if let Some(idle) = self.live_session.delivery_idle(wanted, now) {
+            if idle.remaining.is_zero() {
+                self.live_ended(
+                    idle.view,
+                    idle.generation,
+                    true,
+                    Some("progressive delivery made no source-clock advance for 180 s".into()),
+                );
+                log::warn!(
+                    "live delivery idle: pane {}; retiring generation {}",
+                    idle.view,
+                    idle.generation
+                );
+                ctx.request_repaint();
+                return; // next frame evaluates feedback before selecting the retry provider
+            }
+            ctx.request_repaint_after(idle.remaining);
+        }
         if let Some(ended_view) = decision.stopped_view {
             if let Some(v) = self.views.get_mut(ended_view) {
                 v.live_progress = None;

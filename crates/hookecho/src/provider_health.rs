@@ -17,6 +17,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wxdata::level2::Scan;
+use wxdata::live::update_source_clock;
 use wxdata::live_block::ProviderCapabilities;
 use wxdata::provider_topology::{DeclarationUnavailable, ProviderTopology};
 
@@ -126,28 +127,6 @@ impl ProviderHealth {
 /// [`Level2LiveProvider::label`]. Cheap to clone (an `Arc`) and safe to read from the UI thread at
 /// any time — a monitor only ever holds the lock for the duration of one field update.
 pub type HealthBoard = Arc<Mutex<HashMap<&'static str, ProviderHealth>>>;
-
-/// One shared source-clock rule for observed and accepted deliveries. The merged
-/// scan and client receipt cannot lend freshness to unknown arriving raw clocks.
-pub(crate) fn update_source_clock(
-    volume_start: DateTime<Utc>,
-    coverage: Option<&wxdata::live::RadialCoverage>,
-) -> DateTime<Utc> {
-    coverage
-        .and_then(|coverage| {
-            coverage
-                .radials
-                .iter()
-                .filter_map(|&(number, time)| {
-                    if !(1..=720).contains(&number) || time <= 0 {
-                        return None;
-                    }
-                    DateTime::from_timestamp_millis(time)
-                })
-                .max()
-        })
-        .unwrap_or(volume_start)
-}
 
 /// Runs one provider's `subscribe` in a reconnect loop (restarting on error or a clean end, while
 /// `active` stays true) purely to observe its health — it never calls a caller-supplied

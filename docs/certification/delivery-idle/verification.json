@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T05:31:11.989867+00:00",
+  "baseline_commit": "ff55764ca65e752ee03e52d8f2ba1d04210442f3",
+  "basis": "shared working-tree bytes; concurrent linked-storm-pane edits present, outside watchdog ownership",
+  "status": [
+    " M crates/hookecho/src/app.rs",
+    " M crates/hookecho/src/app/chrome/dock/cell.rs",
+    " M crates/hookecho/src/app/chrome/dock/mod.rs",
+    " M crates/hookecho/src/app/chrome/dock/storms.rs",
+    " M crates/hookecho/src/app/construct.rs",
+    " M crates/hookecho/src/app/data_poll.rs",
+    " M crates/hookecho/src/app/delivery_fault_tests.rs",
+    " M crates/hookecho/src/app/live_session.rs",
+    " M crates/hookecho/src/app/pane_sync.rs",
+    " M crates/hookecho/src/app/radar_feed.rs",
+    " M crates/hookecho/src/provider_health.rs",
+    " M crates/wxdata/src/live.rs",
+    " M roadmaps/archive/README.md",
+    " M roadmaps/live-radar/README.md",
+    "?? docs/certification/delivery-idle/"
+  ],
+  "results": {
+    "libraries": 0,
+    "clippy": 0,
+    "wasm": 0,
+    "app-gpu": 0
+  },
+  "artifacts": [
+    {
+      "path": "docs/certification/delivery-idle/controls.log",
+      "bytes": 1912,
+      "sha256": "3c912dfcb5b2b9c06428d518400bf1ac14c472c8f0567b79f5102acbd6361ac3"
+    },
+    {
+      "path": "docs/certification/delivery-idle/controls.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/delivery-idle/libraries.log",
+      "bytes": 243769,
+      "sha256": "d964a7898bbd8d5d3b4a1ee926abd9099c4637d0f780464635cdf7db767844be"
+    },
+    {
+      "path": "docs/certification/delivery-idle/libraries.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/delivery-idle/clippy.log",
+      "bytes": 423,
+      "sha256": "1a3edb02e979abdbdb464a2857e21063e6c735d7bf7e83c9103b43bfbcdefe10"
+    },
+    {
+      "path": "docs/certification/delivery-idle/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/delivery-idle/wasm.log",
+      "bytes": 3085,
+      "sha256": "2e0aacbe4f928a6ead290612e4bf193d7b4c6e8962b0686d7ec45405bd1e05a9"
+    },
+    {
+      "path": "docs/certification/delivery-idle/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-gpu.log",
+      "bytes": 232,
+      "sha256": "53d2a4e3b3747bf3d8084bd0a72a77516d331e22e8f730239f3b624d7e3c7bde"
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-gpu.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-observations.json",
+      "bytes": 21750,
+      "sha256": "f3ba082cc6d97d6b06c97b9bb43f8262b6d2206efe219a7320f55ca921ea7191"
+    },
+    {
+      "path": "crates/hookecho/src/app/live_session.rs",
+      "bytes": 46439,
+      "sha256": "0c8f618fec7b3551e2ddfc9cd8aa7e0f673354b104d26e4098020b061dc03cee"
+    },
+    {
+      "path": "crates/hookecho/src/app/radar_feed.rs",
+      "bytes": 28955,
+      "sha256": "923365e36081171105b4a1e95e0e9ea8b9e3186fdc75079ff8cd16ef447070d0"
+    },
+    {
+      "path": "crates/hookecho/src/app/data_poll.rs",
+      "bytes": 14838,
+      "sha256": "e885b95528e22b1f795c6fbfc19813fef789ce1f9e7684f5ecb3d47e8b09ec0f"
+    },
+    {
+      "path": "crates/hookecho/src/app/delivery_fault_tests.rs",
+      "bytes": 19803,
+      "sha256": "c4668e13e3ecea5478239a479f85e48c0b6feb10ba3f39430172903512ff3789"
+    },
+    {
+      "path": "crates/hookecho/src/provider_health.rs",
+      "bytes": 36970,
+      "sha256": "5ab1226bab5ffe68cdbec8ff90ed22c0714d1278c9d02e4d07c8d48efe9b3818"
+    },
+    {
+      "path": "crates/wxdata/src/live.rs",
+      "bytes": 54295,
+      "sha256": "271bb1ca4b2bb1dfed13e5da8264bf5835bbf67f10fe01eb2b2d9e8f368e9ee3"
+    },
+    {
+      "path": "target/parity-review/delivery-idle/pinned/hookecho-tests.exe",
+      "bytes": 115812864,
+      "sha256": "58e13ee3c61d58ebda2994d7ff9f75c651c582965f6a89ecd2d5cdb4ba545e37"
+    }
+  ],
+  "limitations": [
+    "Accelerated monotonic deadline control; not a real 180-second/long-duration run",
+    "Controlled direct messages and offscreen GPU; no operational upstream or visible presentation",
+    "Library suites only; physical platforms unverified"
+  ]
+}

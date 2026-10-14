@@ -165,9 +165,8 @@ impl HookEchoApp {
                     if !v.live_scan.accept_volume(&name, time, Utc::now()) {
                         continue; // late chunk from an older volume cannot reverse display time
                     }
-                    #[cfg(not(target_arch = "wasm32"))]
                     let source_clock =
-                        crate::provider_health::update_source_clock(time, radial_coverage.as_ref());
+                        wxdata::live::update_source_clock(time, radial_coverage.as_ref());
                     v.live_sweep = radial_coverage.as_ref().and_then(|coverage| {
                         live_sweep::LiveSweep::capture(&scan, v.site.as_deref(), coverage)
                     });
@@ -196,7 +195,6 @@ impl HookEchoApp {
                         }
                     }
                     v.live_scan_revision = v.live_scan_revision.wrapping_add(1);
-                    #[cfg(not(target_arch = "wasm32"))]
                     self.live_session.record_accepted_delivery(
                         view,
                         _accepted_generation,

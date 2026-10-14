@@ -9,6 +9,8 @@ use std::time::Duration;
 use wxdata::clock::Instant;
 
 pub(super) const RETRY_INTERVAL: Duration = Duration::from_secs(60);
+/// Progressive subscriptions must deliver an advancing source clock within this window.
+pub(super) const DELIVERY_IDLE_AFTER: Duration = Duration::from_secs(180);
 
 /// Shared by subscription ownership and monitor configuration, matching provider construction.
 pub(super) fn relay_endpoint_key(url: &str) -> &str {
@@ -54,6 +56,14 @@ impl Scope {
 struct Running {
     scope: Scope,
     generation: u64,
+    advanced_at: Instant,
+    source_clock: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub(super) struct DeliveryIdle {
+    pub view: usize,
+    pub generation: u64,
+    pub remaining: Duration,
 }
 struct Attempt {
     scope: Scope,
@@ -83,6 +93,26 @@ pub(super) struct LiveSession {
 }
 
 impl LiveSession {
+    pub fn delivery_idle(
+        &self,
+        wanted: Option<StreamRequest<'_>>,
+        now: Instant,
+    ) -> Option<DeliveryIdle> {
+        let request = wanted?;
+        let running = self.running.as_ref().filter(|r| r.scope.matches(request))?;
+        if !matches!(
+            running.scope.provider,
+            "Unidata Level II (AWS S3)" | "HookEcho Relay"
+        ) {
+            return None;
+        }
+        Some(DeliveryIdle {
+            view: running.scope.view,
+            generation: running.generation,
+            remaining: DELIVERY_IDLE_AFTER
+                .saturating_sub(now.saturating_duration_since(running.advanced_at)),
+        })
+    }
     pub fn token(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.generation)
     }
@@ -170,21 +200,28 @@ impl LiveSession {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn record_accepted_delivery(
-        &self,
+        &mut self,
         view: usize,
         generation: u64,
         source_time: chrono::DateTime<chrono::Utc>,
         pane: &mut crate::view::MapView,
     ) {
-        let Some(running) = self
-            .running
-            .as_ref()
-            .filter(|_| self.accepts(view, generation))
-        else {
+        self.record_accepted_delivery_at(view, generation, source_time, pane, Instant::now());
+    }
+
+    fn record_accepted_delivery_at(
+        &mut self,
+        view: usize,
+        generation: u64,
+        source_time: chrono::DateTime<chrono::Utc>,
+        pane: &mut crate::view::MapView,
+        now: Instant,
+    ) {
+        if !self.accepts(view, generation) {
             return;
-        };
+        }
+        let running = self.running.as_mut().unwrap();
         let scope = &running.scope;
         if pane.site.as_deref() != Some(scope.site.as_str())
             || pane.live_scan.site.as_deref() != Some(scope.site.as_str())
@@ -193,6 +230,11 @@ impl LiveSession {
         {
             return;
         }
+        if running.source_clock.is_none_or(|clock| source_time > clock) {
+            running.source_clock = Some(source_time);
+            running.advanced_at = now;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(providers) = pane.radar_providers.as_mut() {
             providers.record_delivery_accepted(
                 &scope.site,
@@ -252,7 +294,12 @@ impl LiveSession {
             scope: scope.clone(),
             at: now,
         });
-        self.running = Some(Running { scope, generation });
+        self.running = Some(Running {
+            scope,
+            generation,
+            advanced_at: now,
+            source_clock: None,
+        });
         decision
     }
 }
@@ -260,6 +307,127 @@ impl LiveSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progressive_delivery_deadline_ignores_duplicates_and_foreign_generations() {
+        let mono = Instant::now();
+        let mut session = LiveSession::default();
+        let start = session
+            .reconcile(Some(primary(0, "KTLX")), mono)
+            .start
+            .unwrap();
+        let (mut view, receipt) = pane("KTLX");
+        let source =
+            chrono::DateTime::from_timestamp_millis(receipt.inventory().volume_start_ms.unwrap())
+                .unwrap();
+        assert_eq!(
+            session
+                .delivery_idle(Some(primary(0, "KTLX")), mono)
+                .unwrap()
+                .remaining,
+            DELIVERY_IDLE_AFTER
+        );
+        session.record_accepted_delivery_at(
+            0,
+            start.generation,
+            source,
+            &mut view,
+            mono + Duration::from_secs(100),
+        );
+        session.record_accepted_delivery_at(
+            0,
+            start.generation,
+            source,
+            &mut view,
+            mono + Duration::from_secs(200),
+        );
+        session.record_accepted_delivery_at(
+            0,
+            start.generation + 1,
+            source + chrono::Duration::seconds(1),
+            &mut view,
+            mono + Duration::from_secs(250),
+        );
+        assert_eq!(
+            session
+                .delivery_idle(Some(primary(0, "KTLX")), mono + Duration::from_secs(279))
+                .unwrap()
+                .remaining,
+            Duration::from_secs(1)
+        );
+        assert!(session
+            .delivery_idle(Some(primary(0, "KTLX")), mono + Duration::from_secs(280))
+            .unwrap()
+            .remaining
+            .is_zero());
+        session.record_accepted_delivery_at(
+            0,
+            start.generation,
+            source + chrono::Duration::seconds(1),
+            &mut view,
+            mono + Duration::from_secs(280),
+        );
+        assert_eq!(
+            session
+                .delivery_idle(Some(primary(0, "KTLX")), mono + Duration::from_secs(280))
+                .unwrap()
+                .remaining,
+            DELIVERY_IDLE_AFTER
+        );
+        assert!(session.delivery_idle(None, mono).is_none());
+        assert!(session
+            .delivery_idle(Some(primary(1, "KTLX")), mono)
+            .is_none());
+        assert!(session
+            .delivery_idle(Some(primary(0, "KFWS")), mono)
+            .is_none());
+        let mut views = [view];
+        session.finish_into(
+            0,
+            start.generation,
+            true,
+            Some("idle delivery".into()),
+            &mut views,
+        );
+        assert!(!session.accepts(0, start.generation));
+        let resumed = session
+            .reconcile(Some(primary(0, "KTLX")), mono + Duration::from_secs(460))
+            .start
+            .unwrap();
+        assert_ne!(resumed.generation, start.generation);
+        assert_eq!(
+            session
+                .delivery_idle(Some(primary(0, "KTLX")), mono + Duration::from_secs(460))
+                .unwrap()
+                .remaining,
+            DELIVERY_IDLE_AFTER
+        );
+    }
+
+    #[test]
+    fn completed_fallback_has_no_progressive_deadline_and_resume_starts_a_new_window() {
+        let mono = Instant::now();
+        let mut session = LiveSession::default();
+        let completed = StreamRequest {
+            view: 0,
+            site: "KTLX",
+            provider: "NOAA TGFTP (degraded)",
+            relay_endpoint: None,
+        };
+        session.reconcile(Some(completed), mono);
+        assert!(session
+            .delivery_idle(Some(completed), mono + Duration::from_secs(900))
+            .is_none());
+        session.reconcile(None, mono + Duration::from_secs(900));
+        session.reconcile(Some(primary(0, "KTLX")), mono + Duration::from_secs(1000));
+        assert_eq!(
+            session
+                .delivery_idle(Some(primary(0, "KTLX")), mono + Duration::from_secs(1000))
+                .unwrap()
+                .remaining,
+            DELIVERY_IDLE_AFTER
+        );
+    }
     fn primary(view: usize, site: &str) -> StreamRequest<'_> {
         StreamRequest {
             view,

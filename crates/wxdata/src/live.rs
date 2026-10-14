@@ -136,6 +136,28 @@ pub struct RadialCoverage {
     pub source_scope: Option<Arc<crate::continuation::SourceScopeReceipt>>,
 }
 
+/// One shared source-clock rule for observed and accepted deliveries. The merged
+/// scan and client receipt cannot lend freshness to unknown arriving raw clocks.
+pub fn update_source_clock(
+    volume_start: chrono::DateTime<chrono::Utc>,
+    coverage: Option<&RadialCoverage>,
+) -> chrono::DateTime<chrono::Utc> {
+    coverage
+        .and_then(|coverage| {
+            coverage
+                .radials
+                .iter()
+                .filter_map(|&(number, time)| {
+                    if !(1..=720).contains(&number) || time <= 0 {
+                        return None;
+                    }
+                    chrono::DateTime::from_timestamp_millis(time)
+                })
+                .max()
+        })
+        .unwrap_or(volume_start)
+}
+
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
 /// to ten minutes, so twenty allows a slow upload and a clear-air VCP.
 const MAX_LIVE_VOLUME_AGE_MIN: i64 = 20;

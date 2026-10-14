@@ -19,8 +19,10 @@ verifies recovery from three advances in one volume. L2 remains partial.
 The [displayed-subscription increment](../../docs/certification/display-feedback/README.md) now
 records owned losses, rejects invalid contexts, compares a fresh backup to accepted
 source clocks and preserves failback hysteresis. L2 still requires independent
-operational inputs and sustained recovery. Next code gap: silent consumer stalls
-without an end event, with lifecycle/task accounting through the full application.
+operational inputs and sustained recovery. A [progressive idle watchdog](../../docs/certification/delivery-idle/README.md)
+now retires consumers without source advances or an End event after a bounded window;
+completed cadence is excluded. Next: provider task/socket accounting and full-app
+long-running recovery profiles alongside operational source validation.
 
 The [handoff control](../../docs/certification/handoff-2026-10-14/README.md) now exercises
 the actual application channel, upload cache and GPU through controlled loss, a late

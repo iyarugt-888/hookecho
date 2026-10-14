@@ -562,6 +562,51 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         ),
         sibling
     );
+    // No callback and no End: the production lifecycle must retire the silent consumer.
+    app.settings.radar_relay_url = "http://backup.control".into();
+    app.settings.radar_provider_override = crate::settings::RadarProviderOverride::Backup;
+    app.manage_stream_at(
+        &egui::Context::default(),
+        Instant::now() + std::time::Duration::from_secs(300),
+    );
+    assert!(!app.live_session.accepts(0, backup.generation));
+    assert!(app.views[0]
+        .live_scan
+        .last_stream_error
+        .as_deref()
+        .unwrap()
+        .contains("180 s"));
+    assert_eq!(
+        app.views[0]
+            .radar_providers
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .delivery_failures,
+        [1, 1, 0]
+    );
+    send(
+        &app,
+        0,
+        backup.generation,
+        "late-after-idle",
+        partial.clone(),
+    );
+    app.poll_messages();
+    assert_eq!(app.views[0].live_scan_revision, 3);
+    assert_eq!(
+        frame(
+            &mut app,
+            &state,
+            &full,
+            0,
+            "silent-idle-keeps-last-good",
+            &dir,
+            &mut frames
+        ),
+        recovered
+    );
+
     std::fs::write(dir.join("observations.json"), serde_json::to_vec_pretty(&serde_json::json!({
         "gpu": format!("{} ({:?}, {:?})", gpu.name, gpu.backend, gpu.device_type),
         "input": NAME, "frames": frames,
