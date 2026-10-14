@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T04:15:12.850046+00:00",
+  "baseline_commit": "f0e52dd4e0e0c481bc7e6862df99ed5ae1f04ff7",
+  "basis": "working-tree source bytes; library suite followed by strengthened focused recovery control, app/GPU control and final Clippy; normal preview executable untouched",
+  "results": {
+    "final-control": 0,
+    "workspace-libraries": 0,
+    "clippy-final": 0,
+    "wasm": 0,
+    "app-gpu": 0
+  },
+  "library_suites": 7,
+  "library_passed": 2683,
+  "library_ignored": 206,
+  "artifacts": [
+    {
+      "path": "docs/certification/live-source-clock/before.log",
+      "bytes": 1333,
+      "sha256": "1ad41365163a692d41fc92bd43cbeca9d590077cc9c03e8d9f959dba6d45a84e"
+    },
+    {
+      "path": "docs/certification/live-source-clock/before.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/live-source-clock/after.log",
+      "bytes": 1739,
+      "sha256": "314ff11e7720194a12bc34c0620b314a42785d1f1664fa291bf978c711bafe03"
+    },
+    {
+      "path": "docs/certification/live-source-clock/after.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/workspace-libraries.log",
+      "bytes": 242552,
+      "sha256": "8a626f7f06fad7b92f48b098dfc5c9e1b7e237ce5268d2e1b7d6d59458e81720"
+    },
+    {
+      "path": "docs/certification/live-source-clock/workspace-libraries.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/final-control.log",
+      "bytes": 1739,
+      "sha256": "e2ad0d88dbb30c95d7e7e2166bd130189fcf8bfaba27bb645bf3d48f6260ac6d"
+    },
+    {
+      "path": "docs/certification/live-source-clock/final-control.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy.log",
+      "bytes": 259,
+      "sha256": "f7d47c156e58945b2561d2f19031fb02fbe336302e3341ad6c253fd2a9aa21a5"
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy-final.log",
+      "bytes": 204,
+      "sha256": "5e7152d08ba3c9cb2a0bf2c30d76c16b9676761632fa0fb3bd4f17ebc42f33c6"
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy-final.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/wasm.log",
+      "bytes": 2953,
+      "sha256": "7edb3301041e8ee64d858e143304041160164ba81750963c5f7647dd2fbb22fa"
+    },
+    {
+      "path": "docs/certification/live-source-clock/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/live-source-clock/app-gpu.log",
+      "bytes": 232,
+      "sha256": "91901b68af333779c23989fcdceb941834859c688f960a67b213a30bd7f78bd4"
+    },
+    {
+      "path": "docs/certification/live-source-clock/app-gpu.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "crates/hookecho/src/provider_health.rs",
+      "bytes": 37393,
+      "sha256": "5a74d8dbc0d78949be8651ffca58f20d4757782da4a548b80e33153976c56c5e"
+    },
+    {
+      "path": "crates/hookecho/src/radar_provider_manager.rs",
+      "bytes": 34539,
+      "sha256": "a6274f6d813b16377917a36f908a2b1b5c6ac336ee7cad4b17a5fea925930b4e"
+    },
+    {
+      "path": "crates/hookecho/tests/data/tgftp/KFTG_20261013_002258.bz2",
+      "bytes": 3379980,
+      "sha256": "281c815fec8658af5f6a49df12ceb0112021960b31ddfffa3dd30853c266cb7c"
+    },
+    {
+      "path": "target/parity-review/source-clock/pinned/hookecho-tests.exe",
+      "bytes": 115396608,
+      "sha256": "5bd8f664cf6b751538139ede196a908c559296102b9aa0f67efb799703a851ab"
+    }
+  ],
+  "case": {
+    "volume_start_utc": "2026-10-13T00:22:58Z",
+    "latest_native_utc": "2026-10-13T00:26:24.601Z",
+    "evaluation_utc": "2026-10-13T00:26:29.601Z",
+    "volume_age_seconds": 211.601
+  },
+  "limitations": [
+    "Source-clock extraction and manager arbitration on pinned native radials, not operational progressive transport",
+    "Library suites only; integration/doc suites not rerun",
+    "No visible-presentation, physical-device or long-run certification"
+  ]
+}

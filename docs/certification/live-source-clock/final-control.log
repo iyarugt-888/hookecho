@@ -1,0 +1,46 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `test` profile [unoptimized] target(s) in 40.94s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-e1b9f64e42c835da.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-94d18808a3966026.exe)
+
+running 1 test
+test radar_provider_manager::tests::a_real_scans_late_cut_keeps_the_progressive_provider_fresh ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1613 filtered out; finished in 0.21s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_ffi-1a6dbe73ee3aad11.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_lite-a6281212a91a79a6.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\nexrad_level3-bbc4778718677cfa.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\radar_ingest-d461e350a7d28f3b.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\wxdata-0c8f3cc7111ce690.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1214 filtered out; finished in 0.00s
+

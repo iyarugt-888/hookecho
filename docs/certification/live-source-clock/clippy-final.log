@@ -1,0 +1,3 @@
+warn: could not canonicalize path C:\Users\wushi
+    Checking hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.99s

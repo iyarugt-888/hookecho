@@ -39,6 +39,10 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ### Fixed: the completed radar fallback waits for a finished scan
 
+A progressive feed's health now follows the arriving radials' acquisition clocks.
+Previously it could look stale after a few minutes even while the radar kept sending
+fresh cuts, because health used the unchanged start time of the whole volume.
+
 NOAA's newest fallback file can still be uploading. HookEcho now checks the source's
 end-of-scan marker and tries recent files within one deadline. Unchanged scans reuse
 their cached gates; an outage or a radar switch cannot substitute another radar's cache.

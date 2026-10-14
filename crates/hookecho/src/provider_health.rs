@@ -33,7 +33,8 @@ pub struct ProviderHealth {
     pub topology: ProviderTopology,
     pub topology_checked_at: Option<DateTime<Utc>>,
     pub last_declared_topology: Option<(DateTime<Utc>, ProviderTopology)>,
-    /// The most recent radar-time timestamp this provider has delivered, if any.
+    /// Most recent valid clock in delivered raw native radials; volume start is the
+    /// fallback when the adapter supplies no usable native clocks. Never client receipt.
     pub newest_radar_time: Option<DateTime<Utc>>,
     /// Wall-clock time this provider last successfully delivered an update.
     pub last_receipt_at: Option<DateTime<Utc>>,
@@ -87,6 +88,33 @@ impl ProviderHealth {
         self.successes = self.successes.saturating_add(1);
         self.consecutive_failures = 0;
         self.last_error = None;
+    }
+
+    pub(crate) fn record_observed_update(
+        &mut self,
+        update: &wxdata::live::Update,
+        receipt: DateTime<Utc>,
+    ) {
+        // A volume's name/time stays fixed while the antenna scans for several minutes.
+        // Fresh progressive delivery must use the arriving raw radials, before stitching:
+        // neither the volume start nor an older retained sweep describes that arrival.
+        let source_time = update
+            .radial_coverage
+            .as_ref()
+            .and_then(|coverage| {
+                coverage
+                    .radials
+                    .iter()
+                    .filter_map(|&(number, time)| {
+                        if !(1..=720).contains(&number) || time <= 0 {
+                            return None;
+                        }
+                        DateTime::from_timestamp_millis(time)
+                    })
+                    .max()
+            })
+            .unwrap_or(update.time);
+        self.record_update(source_time, receipt);
     }
 
     pub(crate) fn record_topology(
@@ -178,7 +206,7 @@ pub async fn monitor_provider(
                     }
                     let mut board = board_for_updates.lock().unwrap();
                     if let Some(health) = board.get_mut(label) {
-                        health.record_update(update.time, Utc::now());
+                        health.record_observed_update(&update, Utc::now());
                     }
                 }),
                 Box::new(|_progress| {}),

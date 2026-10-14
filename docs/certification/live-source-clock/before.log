@@ -1,0 +1,28 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `test` profile [unoptimized] target(s) in 29.86s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-e1b9f64e42c835da.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-94d18808a3966026.exe)
+
+running 1 test
+
+thread 'radar_provider_manager::tests::a_real_scans_late_cut_keeps_the_progressive_provider_fresh' (29016) panicked at crates\hookecho\src\radar_provider_manager.rs:497:9:
+assertion `left == right` failed: freshness uses arriving raw source clocks, not the four-minute-old volume start
+  left: Some(2026-10-13T00:22:58Z)
+ right: Some(2026-10-13T00:26:24.601Z)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test radar_provider_manager::tests::a_real_scans_late_cut_keeps_the_progressive_provider_fresh ... FAILED
+
+failures:
+
+failures:
+    radar_provider_manager::tests::a_real_scans_late_cut_keeps_the_progressive_provider_fresh
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1613 filtered out; finished in 0.21s
+
+error: test failed, to rerun pass `-p hookecho --lib`

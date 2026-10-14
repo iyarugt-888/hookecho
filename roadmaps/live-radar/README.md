@@ -12,6 +12,12 @@ CODEX_GOAL A. [Evidence](../../docs/certification/m1.3/).
 | L5 | Partially implemented | Carry source/pass/accepted revision consistently through remaining derived, 3D, probe/export and retained live/relay disk receipt paths. Extend existing lineage; do not invent source clocks or zero-fill gaps. |
 | L6 | Partially implemented | Live animation/shared-sweep frame-time proof. Shared immutable sweeps and receiver ownership controls already exist as peer edits; validate integrated costs without claiming this audit implemented them. |
 
+Provider health now uses arriving native radial clocks rather than the fixed volume
+start for progressive freshness. The [source-clock increment](../../docs/certification/live-source-clock/README.md)
+reproduces false staleness on a pinned scan, preserves unknown/duplicate clocks and
+verifies recovery from three advances in one volume. L2 remains partial; the next
+code slice is displayed-subscription failure feedback distinct from monitor health.
+
 The [handoff control](../../docs/certification/handoff-2026-10-14/README.md) now exercises
 the actual application channel, upload cache and GPU through controlled loss, a late
 old generation, archive/loop selection and resume. It protects visible archive gates

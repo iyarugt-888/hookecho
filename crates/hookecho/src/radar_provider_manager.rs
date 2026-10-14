@@ -438,6 +438,145 @@ mod tests {
     }
 
     #[test]
+    fn a_real_scans_late_cut_keeps_the_progressive_provider_fresh() {
+        let scan = Arc::new(
+            wxdata::level2::decode_volume(
+                include_bytes!("../tests/data/tgftp/KFTG_20261013_002258.bz2").to_vec(),
+            )
+            .unwrap(),
+        );
+        let volume_time = wxdata::level2::Identifier::new("KFTG20261013_002258_V06".into())
+            .date_time()
+            .unwrap();
+        let last_cut = scan.sweeps().last().unwrap();
+        let native: Vec<_> = last_cut
+            .radials()
+            .iter()
+            .map(|r| (r.azimuth_number(), r.collection_timestamp()))
+            .collect();
+        let latest_native = native.iter().map(|(_, t)| *t).max().unwrap();
+        let now = DateTime::from_timestamp_millis(latest_native).unwrap() + Duration::seconds(5);
+        assert!(
+            now - volume_time > DEGRADED_AFTER,
+            "the pinned scan must outlast the fallback threshold"
+        );
+        let mut update = wxdata::live::Update {
+            name: "KFTG20261013_002258_V06".into(),
+            time: volume_time,
+            received_at: None,
+            radial_coverage: Some(wxdata::live::RadialCoverage {
+                progress: wxdata::live::ScanProgress {
+                    volume_start_ms: Some(volume_time.timestamp_millis()),
+                    vcp_number: Some(scan.coverage_pattern_number().number()),
+                    cut_kind: wxdata::live::CutKind::Standard,
+                    elevation_number: usize::from(last_cut.elevation_number()),
+                    total_elevations: scan.coverage_pattern().elevation_cuts().len(),
+                    elevation_angle_deg: f64::from(last_cut.elevation_angle_degrees().unwrap()),
+                    azimuth_rate_dps: 0.0,
+                    azimuth_start_deg: 0.0,
+                    azimuth_end_deg: 0.0,
+                    chunk_index: 1,
+                    chunks_in_sweep: 1,
+                },
+                radials: native.clone(),
+                source_passes: None,
+                source_sequences: None,
+                source_attribution: None,
+                source_scope: None,
+            }),
+            scan,
+            changed: Vec::new(),
+            retries: 0,
+            decode_time: std::time::Duration::ZERO,
+        };
+        let mut primary = ProviderHealth::new(
+            PRIMARY_LABEL,
+            wxdata::live_block::ProviderCapabilities::unidata(),
+        );
+        primary.record_observed_update(&update, now);
+        assert_eq!(
+            primary.newest_radar_time,
+            Some(DateTime::from_timestamp_millis(latest_native).unwrap()),
+            "freshness uses arriving raw source clocks, not the four-minute-old volume start"
+        );
+        let board = board_with(vec![(PRIMARY_LABEL, primary)]);
+        let mut providers = SiteProviders::for_test(None, board.clone());
+        providers.tick_at(now, std::time::Duration::from_secs(600));
+        assert_eq!(providers.selected_tier(), SelectedTier::Primary);
+
+        // Repeat and out-of-order source deliveries do not create recovery observations.
+        board
+            .lock()
+            .unwrap()
+            .get_mut(PRIMARY_LABEL)
+            .unwrap()
+            .record_observed_update(&update, now + Duration::seconds(1));
+        update.radial_coverage.as_mut().unwrap().radials = native.iter().copied().take(1).collect();
+        board
+            .lock()
+            .unwrap()
+            .get_mut(PRIMARY_LABEL)
+            .unwrap()
+            .record_observed_update(&update, now + Duration::seconds(2));
+        assert_eq!(
+            board.lock().unwrap()[PRIMARY_LABEL].advancing_observations,
+            1
+        );
+
+        // The same completed stitched scan cannot lend a fresh clock to an unknown raw arrival.
+        let raw = update.radial_coverage.as_mut().unwrap();
+        raw.radials = vec![
+            (1, 0),
+            (0, latest_native),
+            (721, latest_native),
+            (2, i64::MAX),
+        ];
+        let mut unknown = ProviderHealth::new(
+            PRIMARY_LABEL,
+            wxdata::live_block::ProviderCapabilities::unidata(),
+        );
+        unknown.record_observed_update(&update, now);
+        assert_eq!(unknown.newest_radar_time, Some(volume_time));
+        let mut stale = SiteProviders::for_test(None, board_with(vec![(PRIMARY_LABEL, unknown)]));
+        stale.tick_at(now, std::time::Duration::from_secs(600));
+        assert_eq!(stale.selected_tier(), SelectedTier::Degraded);
+
+        // Three actual advances within this SAME source volume can establish recovery;
+        // repeated UI ticks while holding each chunk cannot accelerate the decision.
+        let board = board_with(vec![(PRIMARY_LABEL, health(volume_time, 0))]);
+        let mut recovery = SiteProviders::for_test(None, board.clone());
+        recovery.tick_at(now, std::time::Duration::from_secs(600));
+        assert_eq!(recovery.selected_tier(), SelectedTier::Degraded);
+        for (index, chunk) in native.chunks(native.len().div_ceil(3)).enumerate() {
+            update.radial_coverage.as_mut().unwrap().radials = chunk.to_vec();
+            board
+                .lock()
+                .unwrap()
+                .get_mut(PRIMARY_LABEL)
+                .unwrap()
+                .record_observed_update(&update, now);
+            for _ in 0..10 {
+                recovery.tick_at(now, std::time::Duration::from_secs(600));
+            }
+            assert_eq!(
+                recovery.selected_tier(),
+                if index < 2 {
+                    SelectedTier::Degraded
+                } else {
+                    SelectedTier::Primary
+                }
+            );
+        }
+        assert_eq!(
+            recovery
+                .snapshot()
+                .last_transition
+                .map(|(_, reason, _)| reason),
+            Some(ProviderSwitchReason::Recovery)
+        );
+    }
+
+    #[test]
     fn alternate_provider_labels_follow_the_selected_tier_and_relay_configuration() {
         let snapshot = |selected, has_backup| FailoverSnapshot {
             selected,
