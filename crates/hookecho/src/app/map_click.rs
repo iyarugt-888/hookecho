@@ -107,11 +107,13 @@ impl HookEchoApp {
                 })
                 .flatten();
             // A live station under an interrogate click. Ranked above the FAA cameras: where
-            // both sit on one airport, the card carries the camera and the telemetry.
+            // both sit on one airport, the card carries the camera and the telemetry. Not on a
+            // pane scrubbed back, where the stations are not drawn (`paint_live_stations`).
             let station_hit = (marker_hit.is_none()
                 && !picked_site
                 && tool == MapTool::Interrogate
-                && self.show_stations)
+                && self.show_stations
+                && self.pane_is_live(idx))
                 .then(|| {
                     let to_screen = |lon: f64, lat: f64| {
                         let w = crate::render::mercator::lonlat_to_world(lon, lat);
