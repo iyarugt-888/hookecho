@@ -179,3 +179,20 @@ Tests: `a_cell_reads_every_tilt_and_splits_back_tilt_by_tilt` (wxdata), `a_core_
 heights, flags, captions). Network control `a_full_volume_core_reads_the_storm_on_many_tilts`: the
 Moore storm at KTLX 20:16Z reads on 14 tilts from 0.5° to 19.6°, 74,907 gates, 70 dBZ at most and
 64 dBZ still at 19.6°. Not seen in a run (the browser pane was hidden).
+
+Then rendered with the card's own rows for the Moore storm (KTLX 20:16Z, centre 35.32 N 97.51 W;
+`gpu_moore_whole_cell_rows`, RTX 2060, network + GPU, ignored by default):
+[cell-core-moore-whole-cell-rows.png](cell-core-moore-whole-cell-rows.png), SHA-256 `ce182df90707607afab163fa137d0b2caa2681c91ebec820e386ed073de79908`.
+It showed two faults, both fixed before this capture:
+
+- The whole-cell ΔV read 161 m/s (312 kt): the most inbound gate of one tilt against the most
+  outbound of another. A couplet is on one tilt. ΔV is now the widest single tilt's spread,
+  named when the core reads several ("123 m/s (240 kt) at 0.5°"), and the compare view takes the
+  same (`couplet_spread`; the test now gives the upper tilt a steady 50 m/s that would read 80
+  across tilts).
+- The By tilt values ran past the card's width ("· Z…"). They are now a table under a header row,
+  "Tilt · height | dBZ · ΔV · CC · ZDR", with "–" where a tilt lacks a value.
+
+The capture reads 74,907 gates on 14 tilts. The core peaks at 70 dBZ on 0.9° and still holds
+64 dBZ at 19.6° (25 kft). CC p5 is 0.39–0.51 through the low tilts, the debris, and rises to 0.6
+above 6.5°.

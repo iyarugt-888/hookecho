@@ -78,17 +78,26 @@ pub(super) fn core_rows(s: &RegionSamples) -> Vec<(&'static str, String, bool)> 
         rows.push(("CC (p5)", format!("{v:.2}"), v < 0.8));
     }
     if let Some(v) = summary(Moment::Velocity) {
-        let delta = v.max - v.min;
         rows.push((
             "Velocity",
             format!("{:+.0} / {:+.0} m/s", v.min, v.max),
             false,
         ));
-        // Inbound and outbound within the core: the rotational couplet's full spread.
+    }
+    // Inbound and outbound within the core: the rotational couplet's full spread, on the one tilt
+    // where it is widest (a couplet is on one tilt; one tilt's inbound against another's outbound
+    // is not one), named when the core reads several.
+    if let Some((lo, hi, e)) = couplet_spread(s) {
+        let delta = hi - lo;
+        let at = if s.tilts().len() > 1 {
+            format!(" at {e:.1}\u{b0}")
+        } else {
+            String::new()
+        };
         rows.push((
             "\u{394}V",
-            format!("{delta:.0} m/s ({:.0} kt)", delta * 1.943_844),
-            v.min < -10.0 && v.max > 10.0 && delta >= 40.0,
+            format!("{delta:.0} m/s ({:.0} kt){at}", delta * 1.943_844),
+            lo < -10.0 && hi > 10.0 && delta >= 40.0,
         ));
     }
     if let Some(v) = summary(Moment::SpectrumWidth) {
@@ -124,28 +133,40 @@ pub(super) fn tilt_rows(
             };
             let summary = |m: Moment| t.index_of(m).and_then(|i| t.summary(i));
             let n = CoreNumbers::of(&t);
-            let (mut parts, mut hot) = (Vec::new(), false);
-            if let Some(z) = summary(Moment::Reflectivity) {
-                parts.push(format!("{:.0} dBZ", z.max));
+            // Columns as `TILT_COLUMNS` names them; "–" where the tilt has none, so they align.
+            let none = || "\u{2013}".to_string();
+            let mut hot = false;
+            let z = summary(Moment::Reflectivity).map_or_else(none, |z| {
                 hot |= z.max >= 60.0;
-            }
-            if let Some(v) = summary(Moment::Velocity) {
+                format!("{:.0}", z.max)
+            });
+            let dv = summary(Moment::Velocity).map_or_else(none, |v| {
                 let delta = v.max - v.min;
-                parts.push(format!("\u{394}V {delta:.0}"));
                 hot |= v.min < -10.0 && v.max > 10.0 && delta >= 40.0;
-            }
-            if let Some(cc) = n.cc {
-                parts.push(format!("CC {cc:.2}"));
+                format!("{delta:.0}")
+            });
+            let cc = n.cc.map_or_else(none, |cc| {
                 hot |= cc < 0.8;
-            }
-            if let Some(zdr) = n.zdr {
-                parts.push(format!("ZDR {zdr:.1}"));
+                format!("{cc:.2}")
+            });
+            let zdr = n.zdr.map_or_else(none, |zdr| {
                 hot |= zdr >= 4.0;
-            }
-            Some((label, parts.join(" \u{b7} "), hot))
+                format!("{zdr:.1}")
+            });
+            Some((
+                label,
+                format!("{z} \u{b7} {dv} \u{b7} {cc} \u{b7} {zdr}"),
+                hot,
+            ))
         })
         .collect()
 }
+
+/// The By tilt table's header row: what the label and each column of [`tilt_rows`] hold.
+pub(super) const TILT_COLUMNS: (&str, &str) = (
+    "Tilt \u{b7} height",
+    "dBZ \u{b7} \u{394}V \u{b7} CC \u{b7} ZDR",
+);
 
 /// What the cell card's core covers: every tilt (how many have gates there), or the displayed
 /// tilt while every tilt is still being read (tilts done, of how many).
@@ -187,10 +208,7 @@ struct CoreNumbers {
 impl CoreNumbers {
     fn of(s: &RegionSamples) -> CoreNumbers {
         let q = |m: Moment, at: f32| core_quantiles(s, m).map(|q| q(at));
-        let delta_v = s
-            .index_of(Moment::Velocity)
-            .and_then(|i| s.summary(i))
-            .map(|v| v.max - v.min);
+        let delta_v = couplet_spread(s).map(|(lo, hi, _)| hi - lo);
         CoreNumbers {
             zdr: q(Moment::DifferentialReflectivity, 0.95),
             kdp: q(Moment::SpecificDifferentialPhase, 0.95),
@@ -198,6 +216,28 @@ impl CoreNumbers {
             delta_v,
         }
     }
+}
+
+/// The core's widest velocity spread on any one tilt: that tilt's most inbound and most
+/// outbound value, and the tilt. One pass over the rows, which on a whole cell are tens of
+/// thousands. `None` without velocity.
+fn couplet_spread(s: &RegionSamples) -> Option<(f32, f32, f32)> {
+    let i = s.index_of(Moment::Velocity)?;
+    let mut per: Vec<(f32, f32, f32)> = Vec::new();
+    for r in &s.rows {
+        let Some(v) = r.values[i].filter(|v| v.is_finite()) else {
+            continue;
+        };
+        match per.iter_mut().find(|p| p.2 == r.elevation_deg) {
+            Some(p) => {
+                p.0 = p.0.min(v);
+                p.1 = p.1.max(v);
+            }
+            None => per.push((v, v, r.elevation_deg)),
+        }
+    }
+    per.into_iter()
+        .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
 /// Echo at least this strong is the "core" the dual-pol rows read.
@@ -839,11 +879,12 @@ impl HookEchoApp {
                                     if !by_tilt.is_empty() {
                                         let n = by_tilt.len().to_string();
                                         ws::fold_section(ui, &t, "cell_tilts", "By tilt", Some(&n), false, |ui| {
+                                            ws::kv(ui, &t, TILT_COLUMNS.0, TILT_COLUMNS.1, Some(t.text_faint));
                                             for (k, v, hot) in &by_tilt {
                                                 ws::kv(ui, &t, k, v, hot.then_some(t.warn));
                                             }
                                             ui.label(ws::text(
-                                                "Each tilt's gates in the core box: peak dBZ, velocity spread, and the lowest CC (p5) and highest ZDR (p95) of its \u{2265}40 dBZ core; height above the radar",
+                                                "Each tilt's gates in the core box: peak dBZ, velocity spread (m/s), and the lowest CC (p5) and highest ZDR (p95) of its \u{2265}40 dBZ core; height above the radar",
                                                 10.5,
                                                 t.text_faint,
                                             ));
@@ -1705,6 +1746,80 @@ mod tests {
         assert!(!get("Max dBZ").2, "59 dBZ is under the 60 flag");
     }
 
+    /// The card's Core statistics and By tilt rows for the Moore storm (KTLX 2013-05-20 20:16Z),
+    /// read on every tilt by the card's own job and drawn with its own rows, for review
+    /// (`target/parity-review/cell-core-tilts/`). Network on first run (volume cached in
+    /// `target/trail-volumes`) and a GPU.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu + network: writes the Moore storm's whole-cell card rows"]
+    fn gpu_moore_whole_cell_rows() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let id = wxdata::level2::Identifier::new("KTLX20130520_201643_V06.gz".into());
+        let scan = std::sync::Arc::new(
+            rt.block_on(wxdata::level2::download_scan(
+                id,
+                Some(repo.join("target/trail-volumes")),
+            ))
+            .unwrap(),
+        );
+        let centre = (-97.51, 35.32);
+        let mut job = crate::app::cell_core::CoreJob::new(scan, vec![centre]);
+        while !job.step() {}
+        let core = job.finish().remove(0).1.expect("the Moore storm");
+        let radar = wxdata::sites::site_by_id("KTLX").unwrap();
+        let ground_km = crate::geo::great_circle(
+            [f64::from(radar.longitude), f64::from(radar.latitude)],
+            [centre.0, centre.1],
+        )
+        .0;
+        let rows = core_rows(&core);
+        let tilts = tilt_rows(&core, Some(ground_km), false);
+        let scope = CoreScope::Every(core.tilts().len());
+        let out = repo.join("target/parity-review/cell-core-tilts");
+        std::fs::create_dir_all(&out).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter");
+        gpu.save(
+            &out.join("moore-whole-cell-rows.png"),
+            CELL_W as u32,
+            620,
+            |ui| {
+                egui::Frame::new()
+                    .fill(t.panel)
+                    .inner_margin(8.0)
+                    .show(ui, |ui| {
+                        ws::section_rule(
+                            ui,
+                            &t,
+                            &format!(
+                                "Core statistics \u{b7} {CORE_KM:.0} km \u{b7} {} tilts",
+                                core.tilts().len()
+                            ),
+                        );
+                        for (k, v, hot) in &rows {
+                            ws::kv(ui, &t, k, v, hot.then_some(t.warn));
+                        }
+                        ui.label(ws::text(scope.caption(), 10.5, t.text_faint));
+                        ws::section_rule(ui, &t, "By tilt");
+                        ws::kv(ui, &t, TILT_COLUMNS.0, TILT_COLUMNS.1, Some(t.text_faint));
+                        for (k, v, hot) in &tilts {
+                            ws::kv(ui, &t, k, v, hot.then_some(t.warn));
+                        }
+                    });
+            },
+        )
+        .unwrap();
+        for (k, v, _) in rows
+            .iter()
+            .map(|(k, v, h)| (k.to_string(), v, h))
+            .chain(tilts.iter().map(|(k, v, h)| (k.clone(), v, h)))
+        {
+            println!("{k}: {v}");
+        }
+    }
+
     /// A whole cell reads tilt by tilt: one row per tilt, lowest first, each with the beam's
     /// height over the centre and that tilt's own values; a couplet or debris on one tilt flags
     /// that tilt only, and the whole cell's Core statistics read every tilt's gates.
@@ -1722,7 +1837,8 @@ mod tests {
         let mut rows: Vec<GateRow> = (0..10)
             .map(|i| gate(0.5, 55.0 + i as f32, if i < 5 { -30.0 } else { 30.0 }, 0.7))
             .collect();
-        rows.extend((0..10).map(|_| gate(9.9, 45.0, 5.0, 0.98)));
+        // Upper tilt: a steady 50 m/s. Against the low tilt's -30 it would read 80 across tilts.
+        rows.extend((0..10).map(|_| gate(9.9, 45.0, 50.0, 0.98)));
         let s = RegionSamples {
             moments: vec![
                 Moment::Reflectivity,
@@ -1754,9 +1870,12 @@ mod tests {
             km(&t[1].0) > km(&t[0].0) + 5.0,
             "the upper tilt is kilometres higher"
         );
-        assert_eq!(t[0].1, "64 dBZ \u{b7} \u{394}V 60 \u{b7} CC 0.70");
+        assert_eq!(
+            t[0].1, "64 \u{b7} 60 \u{b7} 0.70 \u{b7} \u{2013}",
+            "no ZDR here"
+        );
         assert!(t[0].2, "the low tilt's couplet and debris");
-        assert_eq!(t[1].1, "45 dBZ \u{b7} \u{394}V 0 \u{b7} CC 0.98");
+        assert_eq!(t[1].1, "45 \u{b7} 0 \u{b7} 0.98 \u{b7} \u{2013}");
         assert!(!t[1].2);
         // Feet, and no height without the radar's distance.
         assert!(tilt_rows(&s, Some(40.0), false)[1].0.ends_with(" kft"));
@@ -1764,6 +1883,13 @@ mod tests {
         // The whole cell: every tilt's gates.
         let whole = core_rows(&s);
         assert_eq!(whole.iter().find(|r| r.0 == "Gates").unwrap().1, "20");
+        let dv = whole.iter().find(|r| r.0 == "\u{394}V").unwrap();
+        assert_eq!(
+            dv.1, "60 m/s (117 kt) at 0.5\u{b0}",
+            "the widest single tilt, named"
+        );
+        assert!(dv.2);
+        assert_eq!(CoreNumbers::of(&s).delta_v, Some(60.0));
         assert_eq!(
             CoreScope::Every(2).caption(),
             "Every tilt within 8 km of the cell center; dual-pol rows read gates \u{2265}40 dBZ"
