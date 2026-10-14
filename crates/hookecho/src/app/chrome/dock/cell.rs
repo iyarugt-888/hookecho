@@ -422,6 +422,50 @@ impl HookEchoApp {
         }
     }
 
+    /// The selected storm's trend while it is in the table: a storm that has left it, or one
+    /// picked on another radar, has none to add to, and its ID may be another storm's.
+    pub(super) fn card_trend(&self, c: &Cell) -> Vec<crate::ui::cell_window::CellSample> {
+        match self.selected_storm_live() {
+            Some((_, true)) => self.storm_trend(&c.id),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The selected storm's persistent identity across scans (ROADMAP_PARITY M2.1). A storm
+    /// SCIT no longer reports, or one picked on another radar, is shown as it was and says why;
+    /// its ID may be another storm's here, so nothing is looked up by it.
+    pub(super) fn card_identity(&self, c: &Cell, tz: Option<wxdata::tz::Tz>) -> Option<String> {
+        let as_of = || {
+            c.time
+                .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                .unwrap_or_else(|| "its selection".into())
+        };
+        if self.cell_popup.is_some() && self.cell_popup_site.as_deref() != self.storm_table_site() {
+            return Some(format!(
+                "picked on {} — shown as of {}",
+                self.cell_popup_site.as_deref().unwrap_or("another radar"),
+                as_of()
+            ));
+        }
+        let gone = self.cell_popup.as_ref().and_then(|p| {
+            match self
+                .dock
+                .storm_ids
+                .resolve(&p.id, p.time.map(|t| t.timestamp()))
+            {
+                super::Resolved::Gone(storm) => Some(self.dock.storm_ids.gone_note(storm)),
+                _ => None,
+            }
+        });
+        match gone {
+            Some(why) => Some(format!(
+                "not in the latest SCIT table ({why}) — shown as of {}",
+                as_of()
+            )),
+            None => self.dock.storm_ids.describe(&c.id),
+        }
+    }
+
     pub(super) fn dock_cell(&mut self, host: Host<'_>) {
         let ctx = match &host {
             Host::Docked(ui) => ui.ctx().clone(),
@@ -518,30 +562,9 @@ impl HookEchoApp {
         };
         let trends: Vec<Vec<crate::ui::cell_window::CellSample>> =
             open.iter().map(|(o, _)| self.storm_trend(&o.id)).collect();
-        let trend = self.storm_trend(&c.id);
-        // Its persistent identity across scans (ROADMAP_PARITY M2.1).
+        let trend = self.card_trend(&c);
         let in_table = self.selected_storm_live().is_some_and(|(_, live)| live);
-        let gone = self.cell_popup.as_ref().and_then(|p| {
-            match self
-                .dock
-                .storm_ids
-                .resolve(&p.id, p.time.map(|t| t.timestamp()))
-            {
-                super::Resolved::Gone(storm) => Some(self.dock.storm_ids.gone_note(storm)),
-                _ => None,
-            }
-        });
-        // A storm SCIT no longer reports is shown as it was, and says why; its old ID may be
-        // another storm's now, so nothing is looked up by it.
-        let identity = match &gone {
-            Some(why) => Some(format!(
-                "not in the latest SCIT table ({why}) — shown as of {}",
-                c.time
-                    .map(|d| crate::timefmt::fmt_clock(d, tz, false))
-                    .unwrap_or_else(|| "its selection".into())
-            )),
-            None => self.dock.storm_ids.describe(&c.id),
-        };
+        let identity = self.card_identity(&c, tz);
         // What it has been linked to over those scans, each by the rule that linked it.
         let evidence = if !in_table {
             Vec::new()
@@ -1958,6 +1981,25 @@ mod tests {
         app.sync_open_cells();
         assert!(app.dock.cells_open.is_empty(), "{:?}", app.dock.cells_open);
         let kinx_a3 = app.active_storm_cells()[0].clone();
+        app.cell_trends.insert(
+            "A3".into(),
+            vec![crate::ui::cell_window::CellSample {
+                vil: Some(40.0),
+                top: None,
+                dbz: Some(60.0),
+                severity: None,
+                time: Some(time),
+                dbz_hgt: None,
+            }],
+        );
+        assert_eq!(app.storm_trend("A3").len(), 1, "KINX's A3 has a trend");
+        assert!(
+            app.card_trend(&sel).is_empty(),
+            "KINX's A3 trend on the KTLX pick"
+        );
+        let tz = app.active_tz();
+        let identity = app.card_identity(&sel, tz).unwrap();
+        assert!(identity.starts_with("picked on KTLX"), "{identity}");
         assert!(
             app.manual_tracks_for(&kinx_a3).is_empty(),
             "KTLX's track shown for KINX's A3"
