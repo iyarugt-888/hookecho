@@ -1764,16 +1764,17 @@ mod tests {
         assert!(!get("Max dBZ").2, "59 dBZ is under the 60 flag");
     }
 
-    /// The real cell card in a real app: the app built headlessly with its storage isolated
-    /// under `target/` and its network denied (run with `HOOKECHO_APP_CARD_CAPTURE=1` and every
-    /// proxy at `http://127.0.0.1:9`, in its own process), the Moore volume (KTLX 2013-05-20
-    /// 20:16Z, cached in `target/trail-volumes`) on its pane, the Moore storm selected. The card
-    /// first shows the displayed tilt while the app's own job reads every tilt; once read, it
-    /// shows the whole cell. Both frames are written to `target/parity-review/cell-core-tilts/`.
+    /// A headless app for the full-app captures: storage isolated under `target/`, network
+    /// denied (asserted), the cached Moore volume (KTLX 2013-05-20 20:16Z) on pane 0, archive
+    /// mode, the Moore storm selected and the cell card open. Returns the app, its render state,
+    /// the storm's centre and the capture folder.
     #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
-    fn app_cell_card_reads_the_whole_cell() {
+    fn headless_moore_app() -> (
+        HookEchoApp,
+        eframe::egui_wgpu::RenderState,
+        (f64, f64),
+        std::path::PathBuf,
+    ) {
         assert_eq!(
             std::env::var("HOOKECHO_APP_CARD_CAPTURE").as_deref(),
             Ok("1")
@@ -1831,7 +1832,7 @@ mod tests {
             surface_config: eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY,
         };
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
-        cc.wgpu_render_state = Some(state);
+        cc.wgpu_render_state = Some(state.clone());
         let mut app = HookEchoApp::new(&cc);
         let time = wxdata::level2::Identifier::new(name.into())
             .date_time()
@@ -1853,6 +1854,20 @@ mod tests {
         app.cell_details = true;
         app.dock.cell.open = true;
         app.dock.cell_available = true;
+        (app, state, centre, out)
+    }
+
+    /// The real cell card in a real app: the app built headlessly with its storage isolated
+    /// under `target/` and its network denied (run with `HOOKECHO_APP_CARD_CAPTURE=1` and every
+    /// proxy at `http://127.0.0.1:9`, in its own process), the Moore volume (KTLX 2013-05-20
+    /// 20:16Z, cached in `target/trail-volumes`) on its pane, the Moore storm selected. The card
+    /// first shows the displayed tilt while the app's own job reads every tilt; once read, it
+    /// shows the whole cell. Both frames are written to `target/parity-review/cell-core-tilts/`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn app_cell_card_reads_the_whole_cell() {
+        let (mut app, _state, centre, out) = headless_moore_app();
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter");
         let capture = |label: &str, app: &mut HookEchoApp| {
             gpu.save(
@@ -1894,6 +1909,106 @@ mod tests {
             .iter()
             .any(|r| r.0 == "\u{394}V" && r.1.ends_with("at 0.5\u{b0}")));
         println!("read in {:.1} s", started.elapsed().as_secs_f32());
+    }
+
+    /// The Core distribution outline in the real pane, in 3D: the app built as for the card,
+    /// its whole-cell core read, the gates of the core's top reflectivity bar (>= 65 dBZ) set as
+    /// the hovered outline, and pane 0 drawn by the app's own `render_pane` through its own
+    /// renderer, over the observed sweeps in 3D, then flat for comparison, and in 3D without the
+    /// outline. Run alone as `app_cell_card_reads_the_whole_cell` is.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn app_core_outline_sits_on_its_tilts_in_3d() {
+        let (mut app, state, centre, out) = headless_moore_app();
+        let started = std::time::Instant::now();
+        let core = loop {
+            match app.cell_cores(0, &[centre], None).remove(0) {
+                CellCore::Ready(s) => break s,
+                CellCore::Empty => panic!("no gates around the Moore storm"),
+                _ => {
+                    assert!(started.elapsed().as_secs() < 300);
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        };
+        let z = core.index_of(Moment::Reflectivity).unwrap();
+        let gates: Vec<crate::app::region_stats::HighlightGate> = core
+            .rows
+            .iter()
+            .filter(|r| r.values[z].is_some_and(|v| v >= 65.0))
+            .map(|r| crate::app::region_stats::HighlightGate {
+                ll: [r.lon, r.lat],
+                az_deg: r.az_deg,
+                range_km: r.range_km,
+                elevation_deg: r.elevation_deg,
+            })
+            .collect();
+        let tilts: std::collections::BTreeSet<u32> = gates
+            .iter()
+            .map(|g| (g.elevation_deg * 10.0) as u32)
+            .collect();
+        println!("{} gates >= 65 dBZ on {} tilts", gates.len(), tilts.len());
+        assert!(tilts.len() > 3, "the top bar spans tilts: {tilts:?}");
+        app.views[0].camera = crate::render::mercator::Camera::at_lonlat(centre.0, centre.1, 10.0);
+        app.views[0].camera.pitch = 55.0;
+        app.views[0].map_3d.representation = crate::view::Map3dRepresentation::ObservedSweeps;
+        let size = (900u32, 700u32);
+        let shoot = |label: &str, app: &mut HookEchoApp, three_d: bool, outline: bool| {
+            app.views[0].map_3d.enabled = three_d;
+            // Kept on: the outline draws while something keeps hovering, which here is always.
+            app.region.set_highlight(
+                if outline { 1_000_000 } else { 0 },
+                if outline { gates.clone() } else { Vec::new() },
+            );
+            crate::headless::ui::save_with_state(
+                &state,
+                &out.join(format!("{label}.png")),
+                size,
+                8,
+                |ui| {
+                    let rect = ui.max_rect();
+                    let ctx = ui.ctx().clone();
+                    app.render_pane(ui, &ctx, 0, rect, false, false, true, true, &[]);
+                },
+            )
+            .unwrap();
+        };
+        shoot("app-outline-3d", &mut app, true, true);
+        shoot("app-outline-3d-none", &mut app, true, false);
+        shoot("app-outline-flat", &mut app, false, true);
+        // Where the outline changes the 3D frame: a mask of those pixels, and their spread. Gates
+        // on their tilts rise up the storm; on the ground they would lie in a flat patch.
+        let img = |l: &str| {
+            image::open(out.join(format!("{l}.png")))
+                .unwrap()
+                .to_rgba8()
+        };
+        let (with, without) = (img("app-outline-3d"), img("app-outline-3d-none"));
+        let changed = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
+            a.0.iter().zip(b.0).take(3).any(|(x, y)| x.abs_diff(y) > 60)
+        };
+        let mut mask = image::RgbaImage::new(with.width(), with.height());
+        let (mut n, mut y_lo, mut y_hi) = (0usize, u32::MAX, 0u32);
+        for (x, y, p) in with.enumerate_pixels() {
+            let q = without.get_pixel(x, y);
+            if changed(p, q) {
+                n += 1;
+                y_lo = y_lo.min(y);
+                y_hi = y_hi.max(y);
+                mask.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            } else {
+                let g = (q.0[0] as u16 + q.0[1] as u16 + q.0[2] as u16) / 12;
+                mask.put_pixel(x, y, image::Rgba([g as u8, g as u8, g as u8, 255]));
+            }
+        }
+        mask.save(out.join("app-outline-3d-mask.png")).unwrap();
+        println!("{n} pixels changed by the outline, rows {y_lo}..{y_hi}");
+        assert!(n > 100, "the outline is drawn in 3D");
+        assert!(
+            y_hi - y_lo > 60,
+            "spread up the storm's tilts, not one flat patch"
+        );
     }
 
     /// The card's Core statistics and By tilt rows for the Moore storm (KTLX 2013-05-20 20:16Z),

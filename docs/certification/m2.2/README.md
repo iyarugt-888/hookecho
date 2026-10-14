@@ -220,3 +220,22 @@ gates, ΔV 123 m/s at 0.5°, and By tilt with 14 rows
 the archive fixes of this session: "ProbSevere: not kept for past times", "Arrivals: no local
 motion to project", and the local cell's trends line. Still not seen: the card in an interactive
 window, and the distribution outline on the 3D tilts. This harness draws the card, not a pane.
+
+**The Core distribution outline in the real pane, in 3D** (2026-10-13; `app_core_outline_sits_on_its_tilts_in_3d`,
+same isolated headless app). The core is read, and the gates of its top reflectivity bar
+(≥65 dBZ: 160 gates on 10 tilts) are set as the hovered outline. Pane 0 is drawn by the app's own
+`render_pane` through the app's own renderer (`headless::ui::save_with_state`, so the radar and 3D
+paint callbacks draw), in 3D over the observed sweeps, camera pitched 55°. Against the same
+frame without the outline, 233 pixels change, spread over 65 screen rows: a dense patch at the
+base of the core (the low tilts, where most such gates are) and dots up the storm between the
+4 km and 8 km marks of the height ruler, matching the 65 dBZ that By tilt reports on 12.5° and
+15.7° at 15–20 kft. Drawn flat, the same gates lie in one patch on the ground at the hook.
+
+| File | What | SHA-256 |
+| --- | --- | --- |
+| [cell-core-app-outline-3d.png](cell-core-app-outline-3d.png) | The 3D pane with the outline | `afd6d9553fb3aeda7607d2343867592f7501fa46926fb48b192e50bb2aa3fd06` |
+| [cell-core-app-outline-3d-mask.png](cell-core-app-outline-3d-mask.png) | White where the outline changes the frame | `c2e80cacd17ee6762d1a3de8a5151d891cad0aff4e6fdcd34afdae0ccf0ba8d4` |
+| [cell-core-app-outline-flat.png](cell-core-app-outline-flat.png) | The same gates on the flat map | `704611f20b96294cacbee9c30067df2dd1f062c23703841976fe4f6a9cf01444` |
+
+Not established: the hover itself (the test sets the outline a hover would), an interactive
+window, the resampled-volume placement, desktop and Android.
