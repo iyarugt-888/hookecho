@@ -134,6 +134,7 @@ fn frame(
         "playing": v.timeline.playing, "sha256_rgba": format!("{:x}", Sha256::digest(&pixels)),
         "source_phase_at_host_clock": v.live_scan.phase(Utc::now(), 90).label(),
         "revision_traces": v.live_queue_timings.revision_traces(),
+        "display_failures": v.radar_providers.as_ref().map(|p| p.snapshot().delivery_failures),
         "source_radials": volume.scan.sweeps().iter().map(|s| s.radials().len()).sum::<usize>(),
     }));
     pixels
@@ -237,13 +238,19 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
     }
     app.views[1].timeline.following = false;
     app.views[1].show_volume(full.clone(), NAME.into(), time);
+    app.views[0].radar_providers =
+        Some(crate::radar_provider_manager::SiteProviders::for_test_site(
+            SITE,
+            Some("http://backup.control".into()),
+            Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        ));
     let primary = app
         .live_session
         .reconcile(
             Some(live_session::StreamRequest {
                 view: 0,
                 site: SITE,
-                provider: "primary control",
+                provider: crate::radar_provider_manager::PRIMARY_LABEL,
                 relay_endpoint: None,
             }),
             Instant::now(),
@@ -301,6 +308,15 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         .poll_reason()
         .starts_with("live stream unavailable"));
     assert_eq!(
+        app.views[0]
+            .radar_providers
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .delivery_failures,
+        [1, 0, 0]
+    );
+    assert_eq!(
         frame(
             &mut app,
             &state,
@@ -318,7 +334,7 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
             Some(live_session::StreamRequest {
                 view: 0,
                 site: SITE,
-                provider: "backup control",
+                provider: crate::radar_provider_manager::BACKUP_LABEL,
                 relay_endpoint: Some("http://backup.control"),
             }),
             Instant::now(),
@@ -339,6 +355,16 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         .unwrap();
     app.poll_messages();
     assert_eq!(app.views[0].live_scan_revision, 1);
+    assert_eq!(
+        app.views[0]
+            .radar_providers
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .delivery_failures,
+        [1, 0, 0],
+        "late primary End is not another loss"
+    );
     assert!(app.live_session.accepts(0, backup.generation));
     assert_eq!(
         frame(
@@ -352,9 +378,52 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         ),
         sibling
     );
+    app.msg_tx
+        .send(DataMsg::LiveEnded {
+            view: 0,
+            site: SITE.into(),
+            gen: backup.generation,
+            lost: true,
+            error: Some("backup display socket lost".into()),
+        })
+        .unwrap();
+    app.poll_messages();
+    assert_eq!(
+        app.views[0]
+            .radar_providers
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .delivery_failures,
+        [1, 1, 0]
+    );
+    let backup = app
+        .live_session
+        .reconcile(
+            Some(live_session::StreamRequest {
+                view: 0,
+                site: SITE,
+                provider: crate::radar_provider_manager::BACKUP_LABEL,
+                relay_endpoint: Some("http://backup.control"),
+            }),
+            Instant::now() + std::time::Duration::from_secs(60),
+        )
+        .start
+        .unwrap();
+    app.views[0].live_scan.stream_started(backup.provider, true);
     send(&app, 0, backup.generation, "backup-full", full.clone());
     app.poll_messages();
     assert_eq!(app.views[0].live_scan_revision, 2);
+    assert_eq!(
+        app.views[0]
+            .radar_providers
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .delivery_failures,
+        [1, 0, 0],
+        "accepted new native clocks clear only the backup's delivery failure"
+    );
     let recovered = frame(&mut app, &state, &full, 0, "backup-full", &dir, &mut frames);
     assert_ne!(
         recovered, first,

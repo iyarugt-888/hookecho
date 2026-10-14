@@ -131,6 +131,15 @@ pub(super) fn failover_details(
         }
     };
     out.push(("Failover state", state.to_string()));
+    if snap.delivery_failures.iter().any(|&count| count != 0) {
+        out.push((
+            "Display failures",
+            format!(
+                "primary {}, backup {}, completed fallback {} (awaiting source advance)",
+                snap.delivery_failures[0], snap.delivery_failures[1], snap.delivery_failures[2]
+            ),
+        ));
+    }
     out.push(("Primary upstream", snap.primary_topology().detail()));
     if snap.has_backup {
         let topology = snap.backup_topology();
@@ -2157,6 +2166,7 @@ mod tests {
             has_backup: false,
             primary: Some(primary),
             backup: None,
+            delivery_failures: [0; 3],
             manual_override: false,
             last_transition: None,
         };

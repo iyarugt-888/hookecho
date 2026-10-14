@@ -1,0 +1,10 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+error[E0063]: missing field `delivery_failures` in initializer of `radar_provider_manager::FailoverSnapshot`
+   --> crates\hookecho\src\app\chrome\dock\sources.rs:535:24
+    |
+535 |         let snapshot = FailoverSnapshot {
+    |                        ^^^^^^^^^^^^^^^^ missing `delivery_failures`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `hookecho` (lib test) due to 1 previous error

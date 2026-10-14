@@ -49,6 +49,11 @@ their cached gates; an outage or a radar switch cannot substitute another radar'
 
 ### Fixed: queued live updates cannot overwrite an archive selection
 
+Automatic failover now accounts for losses in the subscription feeding the pane,
+even if a separate health observer is still receiving data. New accepted source
+clocks establish recovery; a late end from an old radar or relay cannot penalize
+the replacement. Source health lists these display losses separately.
+
 Scrubbing away from live or playing a loop immediately gives the selected frame ownership
 of the pane, including while the old subscription is still being stopped. Late updates
 and progress leave its gates, source clocks and sibling panes intact.

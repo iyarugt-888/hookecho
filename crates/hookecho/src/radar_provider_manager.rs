@@ -63,6 +63,22 @@ pub enum SelectedTier {
     Degraded,
 }
 
+impl SelectedTier {
+    fn index(self) -> usize {
+        match self {
+            Self::Primary => 0,
+            Self::Backup => 1,
+            Self::Degraded => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct DeliveryFailure {
+    consecutive: u32,
+    observer_baseline: u64,
+}
+
 /// Stable label for [`SelectedTier`], for UI/diagnostics — mirrors each provider's own `label()`.
 pub fn label_for_tier(tier: SelectedTier) -> &'static str {
     match tier {
@@ -92,6 +108,8 @@ pub struct FailoverSnapshot {
     pub has_backup: bool,
     pub primary: Option<ProviderHealth>,
     pub backup: Option<ProviderHealth>,
+    /// Display-subscription failures, separate from observers: primary, backup, completed.
+    pub delivery_failures: [u32; 3],
     pub manual_override: bool,
     pub last_transition: Option<(DateTime<Utc>, ProviderSwitchReason, SelectedTier)>,
 }
@@ -157,6 +175,8 @@ pub struct SiteProviders {
     relay_url: Option<String>,
     arbiter: SiteArbiter,
     board: HealthBoard,
+    delivery_failures: [DeliveryFailure; 3],
+    accepted_source_floor: Option<DateTime<Utc>>,
     active_flag: Arc<AtomicBool>,
     degraded: bool,
     started_at: wxdata::clock::Instant,
@@ -186,12 +206,15 @@ impl SiteProviders {
             let flag = active_flag.clone();
             Arc::new(move || flag.load(Ordering::Relaxed))
         };
+        let accepted_source_floor = scan_source_floor(&base, &site);
         let board = spawn_dual_feed_monitor(spawner, site.clone(), providers, base, active);
         Self {
             site,
             relay_url,
             arbiter: SiteArbiter::new(ArbiterConfig::default()),
             board,
+            delivery_failures: [DeliveryFailure::default(); 3],
+            accepted_source_floor,
             active_flag,
             degraded: false,
             started_at: wxdata::clock::Instant::now(),
@@ -208,6 +231,105 @@ impl SiteProviders {
 
     pub fn relay_url(&self) -> Option<&str> {
         self.relay_url.as_deref()
+    }
+
+    fn delivery_tier(
+        &self,
+        site: &str,
+        provider: &str,
+        endpoint: Option<&str>,
+    ) -> Option<SelectedTier> {
+        if self.site != site {
+            return None;
+        }
+        match provider {
+            PRIMARY_LABEL if endpoint.is_none() => Some(SelectedTier::Primary),
+            DEGRADED_LABEL if endpoint.is_none() => Some(SelectedTier::Degraded),
+            BACKUP_LABEL
+                if self.relay_url.is_some()
+                    && self
+                        .relay_url
+                        .as_deref()
+                        .map(|url| url.trim().trim_end_matches('/'))
+                        == endpoint.map(|url| url.trim().trim_end_matches('/')) =>
+            {
+                Some(SelectedTier::Backup)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn record_delivery_failure(
+        &mut self,
+        site: &str,
+        provider: &str,
+        endpoint: Option<&str>,
+    ) {
+        let Some(tier) = self.delivery_tier(site, provider, endpoint) else {
+            return;
+        };
+        let baseline = self
+            .board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(label_for_tier(tier))
+            .map_or(0, |health| health.advancing_observations);
+        let failure = &mut self.delivery_failures[tier.index()];
+        failure.consecutive = failure.consecutive.saturating_add(1);
+        failure.observer_baseline = baseline;
+    }
+
+    pub(crate) fn record_delivery_accepted(
+        &mut self,
+        site: &str,
+        provider: &str,
+        endpoint: Option<&str>,
+        source_time: DateTime<Utc>,
+    ) {
+        let Some(tier) = self.delivery_tier(site, provider, endpoint) else {
+            return;
+        };
+        if self
+            .accepted_source_floor
+            .is_none_or(|floor| source_time > floor)
+        {
+            self.delivery_failures[tier.index()].consecutive = 0;
+            self.accepted_source_floor = Some(source_time);
+        }
+    }
+
+    fn effective_input(
+        &mut self,
+        tier: SelectedTier,
+        health: &Option<ProviderHealth>,
+        displayed: SelectedTier,
+        now: DateTime<Utc>,
+    ) -> ArbiterInput {
+        let mut input = to_arbiter_input(health);
+        let delivery = &mut self.delivery_failures[tier.index()];
+        if delivery.consecutive != 0 {
+            // Only an inactive candidate can establish readiness via its observer.
+            // The active rendering path must accept data to clear its own failure streak.
+            if tier != displayed
+                && input.consecutive_failures == 0
+                && input.advancing_observations > delivery.observer_baseline
+                && !is_older_than(
+                    input.newest_radar_time,
+                    now,
+                    ArbiterConfig::default().staleness_threshold,
+                )
+            {
+                delivery.consecutive = 0;
+            } else {
+                input.consecutive_failures = input.consecutive_failures.max(delivery.consecutive);
+                if tier == displayed {
+                    // The observer's newest frame was never delivered to this pane.
+                    // A backup must advance the accepted source clock, not that observer clock.
+                    input.newest_radar_time = self.accepted_source_floor;
+                }
+            }
+        }
+        input
     }
 
     fn health_pair(&self) -> (Option<ProviderHealth>, Option<ProviderHealth>) {
@@ -261,8 +383,9 @@ impl SiteProviders {
         }
         let previous_tier = self.selected_tier();
         let (primary, backup) = self.health_pair();
-        let primary_input = to_arbiter_input(&primary);
-        let backup_input = to_arbiter_input(&backup);
+        let primary_input =
+            self.effective_input(SelectedTier::Primary, &primary, previous_tier, now);
+        let backup_input = self.effective_input(SelectedTier::Backup, &backup, previous_tier, now);
 
         let transition = self.arbiter.evaluate(now, primary_input, backup_input);
 
@@ -275,6 +398,14 @@ impl SiteProviders {
             || uptime >= std::time::Duration::from_secs(DEGRADED_AFTER.num_seconds() as u64),
             |time| is_older_than(Some(time), now, DEGRADED_AFTER),
         );
+        let transport_failed =
+            active_input.consecutive_failures >= ArbiterConfig::default().max_consecutive_failures;
+        let displayed_transport_failed = self.delivery_failures[match self.arbiter.active() {
+            ActiveSide::Primary => SelectedTier::Primary.index(),
+            ActiveSide::Backup => SelectedTier::Backup.index(),
+        }]
+        .consecutive
+            >= ArbiterConfig::default().max_consecutive_failures;
         let now_degraded = if self.degraded {
             let baseline = match self.arbiter.active() {
                 ActiveSide::Primary => &mut self.degraded_primary_baseline,
@@ -297,7 +428,7 @@ impl SiteProviders {
                     < u64::from(ArbiterConfig::default().failback_consecutive_healthy.max(1))
             }
         } else {
-            stale
+            stale || displayed_transport_failed
         };
         if now_degraded != self.degraded {
             if now_degraded {
@@ -309,7 +440,11 @@ impl SiteProviders {
         let tier = self.selected_tier();
         if tier != previous_tier {
             let reason = if tier == SelectedTier::Degraded {
-                ProviderSwitchReason::StaleData
+                if transport_failed {
+                    ProviderSwitchReason::TransportError
+                } else {
+                    ProviderSwitchReason::StaleData
+                }
             } else if previous_tier == SelectedTier::Degraded {
                 ProviderSwitchReason::Recovery
             } else {
@@ -353,6 +488,7 @@ impl SiteProviders {
             has_backup: self.relay_url.is_some(),
             primary,
             backup,
+            delivery_failures: self.delivery_failures.map(|failure| failure.consecutive),
             manual_override: self.manual_override.is_some(),
             last_transition: self.last_transition,
         }
@@ -363,11 +499,18 @@ impl SiteProviders {
     /// deterministic, network-free fixtures.
     #[cfg(test)]
     pub(crate) fn for_test(relay_url: Option<String>, board: HealthBoard) -> Self {
+        Self::for_test_site("KTLX", relay_url, board)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_site(site: &str, relay_url: Option<String>, board: HealthBoard) -> Self {
         Self {
-            site: "KTLX".to_string(),
+            site: site.to_string(),
             relay_url,
             arbiter: SiteArbiter::new(ArbiterConfig::default()),
             board,
+            delivery_failures: [DeliveryFailure::default(); 3],
+            accepted_source_floor: None,
             active_flag: Arc::new(AtomicBool::new(false)),
             degraded: false,
             started_at: wxdata::clock::Instant::now(),
@@ -387,6 +530,26 @@ impl Drop for SiteProviders {
         // fire-and-forget cancellation in this codebase).
         self.active_flag.store(false, Ordering::Relaxed);
     }
+}
+
+fn scan_source_floor(scan: &Scan, site: &str) -> Option<DateTime<Utc>> {
+    if !scan
+        .site()
+        .is_some_and(|actual| actual.identifier_string().eq_ignore_ascii_case(site))
+    {
+        return None;
+    }
+    scan.sweeps()
+        .iter()
+        .flat_map(|s| s.radials())
+        .filter_map(|r| {
+            let time = r.collection_timestamp();
+            if time <= 0 || !(1..=720).contains(&r.azimuth_number()) {
+                return None;
+            }
+            DateTime::from_timestamp_millis(time)
+        })
+        .max()
 }
 
 fn to_arbiter_input(health: &Option<ProviderHealth>) -> ArbiterInput {
@@ -583,6 +746,7 @@ mod tests {
             has_backup,
             primary: None,
             backup: None,
+            delivery_failures: [0; 3],
             manual_override: false,
             last_transition: None,
         };
@@ -602,6 +766,78 @@ mod tests {
             snapshot(SelectedTier::Degraded, true).alternate_provider_labels(),
             [PRIMARY_LABEL, BACKUP_LABEL]
         );
+    }
+
+    #[test]
+    fn display_losses_degrade_without_rewinding_to_an_older_backup_and_respect_override() {
+        let now = Utc::now();
+        for has_backup in [false, true] {
+            let mut entries = vec![(PRIMARY_LABEL, health(now, 0))];
+            if has_backup {
+                entries.push((BACKUP_LABEL, health(now - Duration::seconds(30), 0)));
+            }
+            let mut providers = SiteProviders::for_test(
+                has_backup.then(|| "http://relay.control".into()),
+                board_with(entries),
+            );
+            providers.record_delivery_accepted(
+                "KTLX",
+                PRIMARY_LABEL,
+                None,
+                now - Duration::seconds(10),
+            );
+            for _ in 0..3 {
+                providers.record_delivery_failure("KTLX", PRIMARY_LABEL, None);
+            }
+            providers.set_manual_override(SelectedTier::Primary);
+            providers.tick_at(now, std::time::Duration::ZERO);
+            assert_eq!(providers.selected_tier(), SelectedTier::Primary);
+            providers.clear_manual_override();
+            providers.tick_at(now, std::time::Duration::ZERO);
+            assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+            assert_eq!(
+                providers.snapshot().last_transition.unwrap().1,
+                ProviderSwitchReason::TransportError
+            );
+            assert_eq!(
+                providers.snapshot().primary.unwrap().consecutive_failures,
+                0,
+                "observer health remains an independent measurement"
+            );
+        }
+    }
+
+    #[test]
+    fn display_and_observer_losses_are_not_added_as_duplicate_failures() {
+        let now = Utc::now();
+        let board = board_with(vec![
+            (PRIMARY_LABEL, health(now, 2)),
+            (BACKUP_LABEL, health(now, 0)),
+        ]);
+        let mut providers = SiteProviders::for_test(Some("http://relay.control".into()), board);
+        providers.record_delivery_accepted(
+            "KTLX",
+            PRIMARY_LABEL,
+            None,
+            now - Duration::seconds(10),
+        );
+        providers.record_delivery_failure("KTLX", PRIMARY_LABEL, None);
+        providers.tick_at(now, std::time::Duration::ZERO);
+        assert_eq!(providers.selected_tier(), SelectedTier::Primary, "two observer errors and one display loss cannot masquerade as three consecutive errors in one path");
+        assert_eq!(providers.snapshot().delivery_failures, [1, 0, 0]);
+    }
+
+    #[test]
+    fn the_initial_display_clock_floor_requires_the_same_actual_radar() {
+        let scan = wxdata::level2::decode_volume(
+            include_bytes!("../tests/data/tgftp/KFTG_20261013_002258.bz2").to_vec(),
+        )
+        .unwrap();
+        assert_eq!(
+            scan_source_floor(&scan, "KFTG"),
+            Some(DateTime::from_timestamp_millis(1_791_851_184_601).unwrap())
+        );
+        assert!(scan_source_floor(&scan, "KTLX").is_none());
     }
 
     #[test]

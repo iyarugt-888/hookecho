@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T05:09:59.423553+00:00",
+  "baseline_commit": "5c993b6449af4ae2abd6fe08e07f3bba274ffe1d",
+  "basis": "working-tree source bytes; final library/Clippy/WASM and pinned isolated app control",
+  "library_passed": 2689,
+  "library_ignored": 206,
+  "results": {
+    "final-libraries": 0,
+    "clippy": 0,
+    "wasm": 0,
+    "app-gpu": 0
+  },
+  "artifacts": [
+    {
+      "path": "docs/certification/display-feedback/before.log",
+      "bytes": 576,
+      "sha256": "7d1aedba34abfc1182dd9714f87696b2df28f25c2c43a8e91a7fb56a8acc43a6"
+    },
+    {
+      "path": "docs/certification/display-feedback/before.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/display-feedback/before-behavior.log",
+      "bytes": 2306,
+      "sha256": "92d6488c644c241d7790c3326d0377635ee3e8f69e85a7bf3bfa78bf1b046122"
+    },
+    {
+      "path": "docs/certification/display-feedback/before-behavior.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/display-feedback/before-fixed-control.log",
+      "bytes": 2403,
+      "sha256": "996f5d4ac18f4a24588c63bd74c16e972a1b1ca1613e2fd094c6190968e8d62b"
+    },
+    {
+      "path": "docs/certification/display-feedback/before-fixed-control.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/display-feedback/after.log",
+      "bytes": 1746,
+      "sha256": "65d24eb6fbda1af8dc9e5f2abdedf9bc30332724787575eec7bf2a4a82aa829c"
+    },
+    {
+      "path": "docs/certification/display-feedback/after.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/controls.log",
+      "bytes": 3480,
+      "sha256": "a61c37fb122e19c3dc7c428b011a5f2eeff131f3c8b7448910afae915c6ef518"
+    },
+    {
+      "path": "docs/certification/display-feedback/controls.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/workspace-libraries.log",
+      "bytes": 243087,
+      "sha256": "418060edbbff50e489b9486c3e493d00191e1f7f289b175157efc56066daace8"
+    },
+    {
+      "path": "docs/certification/display-feedback/workspace-libraries.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/final-libraries.log",
+      "bytes": 243302,
+      "sha256": "8b27c218d6e5b162f7173588724df5320b6d28400c375f19c3ce25e12ed38409"
+    },
+    {
+      "path": "docs/certification/display-feedback/final-libraries.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/clippy.log",
+      "bytes": 259,
+      "sha256": "27bb7a70150cb0b07e559d2800731fb939941415e57cd7a65888bfc08b26f658"
+    },
+    {
+      "path": "docs/certification/display-feedback/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/wasm.log",
+      "bytes": 3009,
+      "sha256": "f80914416b3e61a0fd311972fac2daedf2e820ca8ee3356df9ad2a668a6fb9c4"
+    },
+    {
+      "path": "docs/certification/display-feedback/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/app-gpu.log",
+      "bytes": 232,
+      "sha256": "e50e3ca3885447d5a2a52373f41b340fee6858fac06183f62c68a1208b730532"
+    },
+    {
+      "path": "docs/certification/display-feedback/app-gpu.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/display-feedback/app-observations.json",
+      "bytes": 17797,
+      "sha256": "5abca4fe92dc61222ece6745b3234baf4a6fb9aff12fad6aadc30ce0da042570"
+    },
+    {
+      "path": "crates/hookecho/src/radar_provider_manager.rs",
+      "bytes": 43376,
+      "sha256": "4ca9765cdc7736494f00416d20a1165725fac0df659585fc142326047c11feb9"
+    },
+    {
+      "path": "crates/hookecho/src/provider_health.rs",
+      "bytes": 37672,
+      "sha256": "fabd2c0a40264f1b12952ec5569205fe4f445c860ffd8e28887644c2e29fe16c"
+    },
+    {
+      "path": "crates/hookecho/src/app/live_session.rs",
+      "bytes": 40784,
+      "sha256": "cb0f0d3780daad8e652cbaf7dfe13d2296c7d27d9f09ee0b6458929b719f1c16"
+    },
+    {
+      "path": "crates/hookecho/src/app/data_poll.rs",
+      "bytes": 14960,
+      "sha256": "ff16e9e0bf033258a97c1e75a3108fc17a75abfd486df50b60c1822b8ae19028"
+    },
+    {
+      "path": "crates/hookecho/src/app/delivery_fault_tests.rs",
+      "bytes": 18608,
+      "sha256": "ec2f7c41d7e26d30b4a4566f0c24477760cc7886967365851a76cb846d9288a4"
+    },
+    {
+      "path": "crates/hookecho/src/app/chrome/registry.rs",
+      "bytes": 86625,
+      "sha256": "d00a529b5b339dda17360e42c142926a60d0784a872dad2063123174b0d94edc"
+    },
+    {
+      "path": "crates/hookecho/src/app/chrome/dock/sources.rs",
+      "bytes": 35523,
+      "sha256": "083d79f1dab847fb81d79bb804034c689c0dff6b918adb7ce0c6479749b5e978"
+    },
+    {
+      "path": "crates/hookecho/tests/data/tgftp/KFTG_20261013_002258.bz2",
+      "bytes": 3379980,
+      "sha256": "281c815fec8658af5f6a49df12ceb0112021960b31ddfffa3dd30853c266cb7c"
+    },
+    {
+      "path": "crates/wxdata/tests/data/corpus/denver-hail-2017-first-records.ar2",
+      "bytes": 462169,
+      "sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c"
+    },
+    {
+      "path": "target/parity-review/display-feedback/pinned/hookecho-tests.exe",
+      "bytes": 115446784,
+      "sha256": "1fbd15dba41096dda6f15ac8991ebe1ad12382164a24326c3d750b05cc9ce8f0"
+    }
+  ],
+  "limitations": [
+    "Controlled historical clocks and direct app messages; no operational independent upstreams",
+    "No compositor/display or physical Android",
+    "Library suites only; integration/doc suites not rerun",
+    "No full-application long-run certification"
+  ]
+}

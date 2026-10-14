@@ -537,6 +537,7 @@ mod tests {
             has_backup: true,
             primary: Some(primary),
             backup: Some(backup),
+            delivery_failures: [0; 3],
             manual_override: false,
             last_transition: None,
         };

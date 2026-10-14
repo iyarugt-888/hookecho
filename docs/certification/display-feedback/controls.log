@@ -1,0 +1,63 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `test` profile [unoptimized] target(s) in 26.50s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-e1b9f64e42c835da.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-94d18808a3966026.exe)
+
+running 12 tests
+test app::comparison_display_tests::only_the_upper_comparison_side_is_dimmed_and_user_opacity_is_preserved ... ok
+test headless::corpus::gpu_gate_opacity_fades_display_only ... ignored, gpu: explicitly provision an adapter for real radar visual certification
+test app::comparison_display_tests::the_workstation_steps_aside_at_phone_width_only ... ok
+test app::comparison_display_tests::mask_readout_names_the_class_and_keeps_the_underlying_magnitude ... ok
+test source_health::tests::ids_are_stable_machine_names_not_display_labels ... ok
+test app::radar_probe::tests::displayed_units_preserve_small_values_and_unitless_precision ... ok
+test radar_provider_manager::tests::display_losses_degrade_without_rewinding_to_an_older_backup_and_respect_override ... ok
+test app::model_field::tests::components_follow_the_display_lattice_by_nearest_cell ... ok
+test app::live_session::tests::displayed_failures_survive_healthy_observers_and_choose_a_fresh_backup ... ok
+test app::live_session::tests::displayed_failure_feedback_ignores_paused_retired_and_reconfigured_owners ... ok
+test view::tests::displayed_time_follows_tilt_and_live_rescans_instead_of_volume_start ... ok
+test app::live_sweep::tests::the_marker_is_owned_by_the_displayed_scan_site_tilt_and_moment ... ok
+
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 1606 filtered out; finished in 0.19s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_ffi-1a6dbe73ee3aad11.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_lite-a6281212a91a79a6.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\nexrad_level3-bbc4778718677cfa.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\radar_ingest-d461e350a7d28f3b.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\wxdata-0c8f3cc7111ce690.exe)
+
+running 6 tests
+test ensemble::tests::display_conversions_round_trip_and_spread_ignores_the_offset ... ok
+test field::descriptor::tests::data_source_has_separate_stable_and_display_identity ... ok
+test tornado_id::tests::tornado_id_reads_raw_evidence_not_the_corroborated_display_scores ... ok
+test mrms::tests::display_reduction_records_native_geometry_and_keeps_categories_discrete ... ok
+test mrms::tests::display_decimation_retains_source_provenance ... ok
+test live_pass::tests::provider_history_retains_late_pass_evidence_that_does_not_replace_displayed_gates ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1208 filtered out; finished in 0.36s
+

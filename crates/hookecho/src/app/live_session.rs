@@ -142,7 +142,8 @@ impl LiveSession {
         else {
             return;
         };
-        let site = running.scope.site.clone();
+        let scope = running.scope.clone();
+        let site = scope.site.clone();
         self.finish(view, generation, lost);
         if let Some(v) = views.get_mut(view).filter(|v| {
             v.site.as_deref() == Some(site.as_str())
@@ -152,10 +153,53 @@ impl LiveSession {
             v.live_progress_at = None;
             v.live_retries = 0;
             if lost {
+                #[cfg(not(target_arch = "wasm32"))]
+                if v.timeline.following && !v.timeline.playing {
+                    if let Some(providers) = v.radar_providers.as_mut() {
+                        providers.record_delivery_failure(
+                            &site,
+                            scope.provider,
+                            scope.endpoint.as_deref(),
+                        );
+                    }
+                }
                 v.live_scan.stream_ended_with_error(error);
             } else {
                 v.live_scan.stream_stopped();
             }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn record_accepted_delivery(
+        &self,
+        view: usize,
+        generation: u64,
+        source_time: chrono::DateTime<chrono::Utc>,
+        pane: &mut crate::view::MapView,
+    ) {
+        let Some(running) = self
+            .running
+            .as_ref()
+            .filter(|_| self.accepts(view, generation))
+        else {
+            return;
+        };
+        let scope = &running.scope;
+        if pane.site.as_deref() != Some(scope.site.as_str())
+            || pane.live_scan.site.as_deref() != Some(scope.site.as_str())
+            || !pane.timeline.following
+            || pane.timeline.playing
+        {
+            return;
+        }
+        if let Some(providers) = pane.radar_providers.as_mut() {
+            providers.record_delivery_accepted(
+                &scope.site,
+                scope.provider,
+                scope.endpoint.as_deref(),
+                source_time,
+            );
         }
     }
     /// The app's per-frame sync uses this decision before spawning or accepting work.
@@ -425,6 +469,264 @@ mod tests {
         let (receiver, receipt) = crate::live_scan::acquisition_fixture(site);
         view.live_scan = receiver;
         (view, receipt)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn displayed_failures_survive_healthy_observers_and_choose_a_fresh_backup() {
+        use crate::provider_health::{HealthBoard, ProviderHealth};
+        use crate::radar_provider_manager::{
+            SelectedTier, SiteProviders, BACKUP_LABEL, PRIMARY_LABEL,
+        };
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        let (view, receipt) = pane("KTLX");
+        let clock =
+            chrono::DateTime::from_timestamp_millis(receipt.inventory().volume_start_ms.unwrap())
+                .unwrap();
+        let now = clock + chrono::Duration::seconds(20);
+        let mut primary_health = ProviderHealth::new(
+            PRIMARY_LABEL,
+            wxdata::live_block::ProviderCapabilities::unidata(),
+        );
+        let mut backup_health = ProviderHealth::new(
+            BACKUP_LABEL,
+            wxdata::live_block::ProviderCapabilities::relay(),
+        );
+        primary_health.record_update(now, now);
+        backup_health.record_update(now, now);
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::from([
+            (PRIMARY_LABEL, primary_health),
+            (BACKUP_LABEL, backup_health),
+        ])));
+        let mut views = [view];
+        views[0].radar_providers = Some(SiteProviders::for_test(
+            Some("http://relay.control".into()),
+            board.clone(),
+        ));
+        let mut session = LiveSession::default();
+        let mono = Instant::now();
+        for attempt in 0..3 {
+            let start = session
+                .reconcile(
+                    Some(primary(0, "KTLX")),
+                    mono + Duration::from_secs(attempt * 60),
+                )
+                .start
+                .unwrap();
+            views[0].live_scan.stream_started(start.provider, false);
+            if attempt == 0 {
+                assert!(views[0]
+                    .live_scan
+                    .accept_volume("initial-control", clock, clock));
+                session.record_accepted_delivery(0, start.generation, clock, &mut views[0]);
+            }
+            session.finish_into(
+                0,
+                start.generation,
+                true,
+                Some("display socket lost".into()),
+                &mut views,
+            );
+            // Separate observer sockets keep advancing; they cannot erase display failures.
+            let at = now + chrono::Duration::seconds(attempt as i64 + 1);
+            {
+                let mut observed = board.lock().unwrap();
+                observed
+                    .get_mut(PRIMARY_LABEL)
+                    .unwrap()
+                    .record_update(at, at);
+                observed
+                    .get_mut(BACKUP_LABEL)
+                    .unwrap()
+                    .record_update(at, at);
+            }
+            let providers = views[0].radar_providers.as_mut().unwrap();
+            providers.tick_at(at, Duration::ZERO);
+            assert_eq!(
+                providers.selected_tier(),
+                if attempt < 2 {
+                    SelectedTier::Primary
+                } else {
+                    SelectedTier::Backup
+                },
+                "only the displayed subscription is failing, while both observers advance"
+            );
+        }
+        let providers = views[0].radar_providers.as_mut().unwrap();
+        assert_eq!(
+            providers.snapshot().primary.unwrap().consecutive_failures,
+            0
+        );
+        assert_eq!(providers.snapshot().delivery_failures, [3, 0, 0]);
+        assert_eq!(
+            providers.snapshot().last_transition.unwrap().1,
+            wxdata::live_block::ProviderSwitchReason::TransportError
+        );
+
+        // A candidate's new source clocks allow the existing three-observation failback.
+        for observation in 1..=3 {
+            let at = now + chrono::Duration::seconds(10 + observation);
+            board
+                .lock()
+                .unwrap()
+                .get_mut(PRIMARY_LABEL)
+                .unwrap()
+                .record_update(at, at);
+            for _ in 0..10 {
+                providers.tick_at(at, Duration::ZERO);
+            }
+            assert_eq!(
+                providers.selected_tier(),
+                if observation < 3 {
+                    SelectedTier::Backup
+                } else {
+                    SelectedTier::Primary
+                }
+            );
+        }
+        assert_eq!(
+            providers.snapshot().last_transition.unwrap().1,
+            wxdata::live_block::ProviderSwitchReason::Recovery
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn displayed_failure_feedback_ignores_paused_retired_and_reconfigured_owners() {
+        use crate::radar_provider_manager::SiteProviders;
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        for scenario in [
+            "paused",
+            "looping",
+            "radar changed",
+            "relay changed",
+            "intentional",
+            "retired",
+        ] {
+            let (mut view, _) = pane("KTLX");
+            let board = Arc::new(Mutex::new(HashMap::new()));
+            view.radar_providers = Some(SiteProviders::for_test(
+                Some("http://relay.control".into()),
+                board.clone(),
+            ));
+            let mut views = [view];
+            let mut session = LiveSession::default();
+            let mono = Instant::now();
+            let start = session
+                .reconcile(Some(relay("http://relay.control")), mono)
+                .start
+                .unwrap();
+            match scenario {
+                "paused" => views[0].timeline.following = false,
+                "looping" => views[0].timeline.playing = true,
+                "radar changed" => views[0].site = Some("KFWS".into()),
+                "relay changed" => {
+                    views[0].radar_providers = Some(SiteProviders::for_test(
+                        Some("http://replacement.control".into()),
+                        board,
+                    ))
+                }
+                "retired" => {
+                    session.reconcile(Some(primary(0, "KTLX")), mono);
+                }
+                _ => {}
+            }
+            session.finish_into(
+                0,
+                start.generation,
+                scenario != "intentional",
+                None,
+                &mut views,
+            );
+            assert_eq!(
+                views[0]
+                    .radar_providers
+                    .as_ref()
+                    .unwrap()
+                    .snapshot()
+                    .delivery_failures,
+                [0; 3],
+                "{scenario}"
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn only_current_advancing_accepted_delivery_clears_its_failure_streak() {
+        use crate::radar_provider_manager::SiteProviders;
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        let (mut view, receipt) = pane("KTLX");
+        let clock =
+            chrono::DateTime::from_timestamp_millis(receipt.inventory().volume_start_ms.unwrap())
+                .unwrap();
+        view.radar_providers = Some(SiteProviders::for_test(
+            Some("http://relay.control".into()),
+            Arc::new(Mutex::new(HashMap::new())),
+        ));
+        let mut views = [view];
+        let mut session = LiveSession::default();
+        let mono = Instant::now();
+        let first = session
+            .reconcile(Some(relay("http://relay.control")), mono)
+            .start
+            .unwrap();
+        session.record_accepted_delivery(0, first.generation, clock, &mut views[0]);
+        session.finish_into(0, first.generation, true, None, &mut views);
+        let current = session
+            .reconcile(
+                Some(relay("http://relay.control/")),
+                mono + Duration::from_secs(60),
+            )
+            .start
+            .unwrap();
+        let count = |v: &crate::view::MapView| {
+            v.radar_providers
+                .as_ref()
+                .unwrap()
+                .snapshot()
+                .delivery_failures
+        };
+        session.record_accepted_delivery(
+            0,
+            first.generation,
+            clock + chrono::Duration::seconds(10),
+            &mut views[0],
+        );
+        assert_eq!(
+            count(&views[0]),
+            [0, 1, 0],
+            "retired generation cannot report recovery"
+        );
+        session.record_accepted_delivery(0, current.generation, clock, &mut views[0]);
+        assert_eq!(
+            count(&views[0]),
+            [0, 1, 0],
+            "duplicate source clock cannot establish recovery"
+        );
+        views[0].timeline.following = false;
+        session.record_accepted_delivery(
+            0,
+            current.generation,
+            clock + chrono::Duration::seconds(10),
+            &mut views[0],
+        );
+        assert_eq!(count(&views[0]), [0, 1, 0]);
+        views[0].timeline.following = true;
+        session.record_accepted_delivery(
+            0,
+            current.generation,
+            clock + chrono::Duration::seconds(10),
+            &mut views[0],
+        );
+        assert_eq!(
+            count(&views[0]),
+            [0; 3],
+            "same normalized relay and an actual source advance recover"
+        );
     }
 
     #[test]

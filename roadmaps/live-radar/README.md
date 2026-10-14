@@ -15,8 +15,12 @@ CODEX_GOAL A. [Evidence](../../docs/certification/m1.3/).
 Provider health now uses arriving native radial clocks rather than the fixed volume
 start for progressive freshness. The [source-clock increment](../../docs/certification/live-source-clock/README.md)
 reproduces false staleness on a pinned scan, preserves unknown/duplicate clocks and
-verifies recovery from three advances in one volume. L2 remains partial; the next
-code slice is displayed-subscription failure feedback distinct from monitor health.
+verifies recovery from three advances in one volume. L2 remains partial.
+The [displayed-subscription increment](../../docs/certification/display-feedback/README.md) now
+records owned losses, rejects invalid contexts, compares a fresh backup to accepted
+source clocks and preserves failback hysteresis. L2 still requires independent
+operational inputs and sustained recovery. Next code gap: silent consumer stalls
+without an end event, with lifecycle/task accounting through the full application.
 
 The [handoff control](../../docs/certification/handoff-2026-10-14/README.md) now exercises
 the actual application channel, upload cache and GPU through controlled loss, a late

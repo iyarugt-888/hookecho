@@ -1,0 +1,57 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+warning: method `index` is never used
+  --> crates\hookecho\src\radar_provider_manager.rs:67:8
+   |
+66 | impl SelectedTier {
+   | ----------------- method in this implementation
+67 |     fn index(self) -> usize {
+   |        ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `observer_baseline` is never read
+  --> crates\hookecho\src\radar_provider_manager.rs:79:5
+   |
+77 | struct DeliveryFailure {
+   |        --------------- field in this struct
+78 |     consecutive: u32,
+79 |     observer_baseline: u64,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `DeliveryFailure` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `accepted_source_floor` is never read
+   --> crates\hookecho\src\radar_provider_manager.rs:179:5
+    |
+173 | pub struct SiteProviders {
+    |            ------------- field in this struct
+...
+179 |     accepted_source_floor: Option<DateTime<Utc>>,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hookecho` (lib test) generated 3 warnings
+    Finished `test` profile [unoptimized] target(s) in 56.28s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-e1b9f64e42c835da.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-94d18808a3966026.exe)
+
+running 1 test
+
+thread 'app::live_session::tests::displayed_failures_survive_healthy_observers_and_choose_a_fresh_backup' (5408) panicked at crates\hookecho\src\app\live_session.rs:483:48:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test app::live_session::tests::displayed_failures_survive_healthy_observers_and_choose_a_fresh_backup ... FAILED
+
+failures:
+
+failures:
+    app::live_session::tests::displayed_failures_survive_healthy_observers_and_choose_a_fresh_backup
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1614 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p hookecho --lib`
