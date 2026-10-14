@@ -52,7 +52,7 @@ manifest = {
     'generated_from_commit': commit,
     'branch': branch,
     'measurement_host': 'Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)',
-    'hash_basis': 'bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF',
+    'hash_basis': 'exact bytes as stored in the recorded Git commit, including each artifact\'s stored line endings; checkout conversion can change working-tree bytes',
     'release_certified': False,
     'why_not_certified': [
         'No Android device evidence for any card (M7.2 open).',
