@@ -216,10 +216,15 @@ impl HookEchoApp {
                 cores.done.put(k, s.map(Arc::new));
             }
         }
+        // Each once: comparing, the selected storm is usually one of the open ones too.
+        let mut seen = std::collections::HashSet::new();
         let missing: Vec<(f64, f64)> = centres
             .iter()
             .copied()
-            .filter(|&(lon, lat)| !cores.done.contains(&key_of(lon, lat)))
+            .filter(|&(lon, lat)| {
+                let k = key_of(lon, lat);
+                !cores.done.contains(&k) && seen.insert(k)
+            })
             .collect();
         let playing = self.views[idx].timeline.playing;
         if cores.running.is_none() && !missing.is_empty() && !playing {
