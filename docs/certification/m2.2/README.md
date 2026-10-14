@@ -204,3 +204,19 @@ its next tilt (`cell_core::Cancel`, raised when its handle is dropped; test
 `dropping_a_gathering_stops_its_worker`). Nothing is gathered while the pane's loop plays: the
 card shows the displayed tilt ("while the loop plays; every tilt once it stops") and reads every
 tilt when the loop stops.
+
+**Seen in the real card** (2026-10-13; `app_cell_card_reads_the_whole_cell`, GPU, run alone with
+`HOOKECHO_APP_CARD_CAPTURE=1` and every proxy at a closed port). The app is built headlessly, with
+storage isolated under `target/` and the network denied. The Moore volume (KTLX 20:16Z, from the
+local cache) is on its pane and a storm is selected at 35.32 N 97.51 W. The real `dock_cell`
+draws offscreen with the app's renderer and fonts. The first frame shows the displayed tilt,
+"8 km · this tilt", 5,662 gates, "(0 of 14)"
+([cell-core-app-card-displayed-tilt.png](cell-core-app-card-displayed-tilt.png), SHA-256
+`4a822dc73a72726ccb1a1b2cf59b88229071d7cda0fdc54eaa02b8a5c90b7975`). The app's own worker read
+every tilt in 8.4 s (debug build). The next frame shows the whole cell: "8 km · 14 tilts", 74,907
+gates, ΔV 123 m/s at 0.5°, and By tilt with 14 rows
+([cell-core-app-card-whole-cell.png](cell-core-app-card-whole-cell.png), SHA-256
+`d5b4ff4f8c185dfedcd0af929208e28f1b5741054c0ce76a079d7b1c8467c14c`). The same card also shows
+the archive fixes of this session: "ProbSevere: not kept for past times", "Arrivals: no local
+motion to project", and the local cell's trends line. Still not seen: the card in an interactive
+window, and the distribution outline on the 3D tilts. This harness draws the card, not a pane.

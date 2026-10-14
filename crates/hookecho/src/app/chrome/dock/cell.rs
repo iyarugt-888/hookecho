@@ -1764,6 +1764,138 @@ mod tests {
         assert!(!get("Max dBZ").2, "59 dBZ is under the 60 flag");
     }
 
+    /// The real cell card in a real app: the app built headlessly with its storage isolated
+    /// under `target/` and its network denied (run with `HOOKECHO_APP_CARD_CAPTURE=1` and every
+    /// proxy at `http://127.0.0.1:9`, in its own process), the Moore volume (KTLX 2013-05-20
+    /// 20:16Z, cached in `target/trail-volumes`) on its pane, the Moore storm selected. The card
+    /// first shows the displayed tilt while the app's own job reads every tilt; once read, it
+    /// shows the whole cell. Both frames are written to `target/parity-review/cell-core-tilts/`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn app_cell_card_reads_the_whole_cell() {
+        assert_eq!(
+            std::env::var("HOOKECHO_APP_CARD_CAPTURE").as_deref(),
+            Ok("1")
+        );
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"] {
+            assert_eq!(std::env::var(key).as_deref(), Ok("http://127.0.0.1:9"));
+        }
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let out = repo.join("target/parity-review/cell-core-tilts");
+        let storage = out.join(format!("storage-{}", std::process::id()));
+        std::fs::create_dir_all(&storage).unwrap();
+        crate::paths::set_base(storage.clone());
+        let config = crate::paths::config_dir().unwrap();
+        assert!(config.starts_with(&storage));
+        std::fs::create_dir_all(&config).unwrap();
+        let settings = crate::settings::Settings {
+            default_site: "KTLX".into(),
+            setup_done: true,
+            scan_chime: false,
+            overlays_on: Some(Vec::new()),
+            ..Default::default()
+        };
+        std::fs::write(
+            config.join("settings.json"),
+            serde_json::to_vec(&settings).unwrap(),
+        )
+        .unwrap();
+        // The volume comes from the local cache only: the network is denied.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let name = "KTLX20130520_201643_V06.gz";
+        let scan = std::sync::Arc::new(
+            rt.block_on(wxdata::level2::download_scan(
+                wxdata::level2::Identifier::new(name.into()),
+                Some(repo.join("target/trail-volumes")),
+            ))
+            .expect("the Moore volume cached by a_full_volume_core_reads_the_storm_on_many_tilts"),
+        );
+        let (device, queue, adapter) = crate::headless::init_gpu(&rt).unwrap();
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let renderer = eframe::egui_wgpu::Renderer::new(
+            &device,
+            format,
+            eframe::egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let state = eframe::egui_wgpu::RenderState {
+            available_adapters: vec![adapter.clone()],
+            adapter,
+            device,
+            queue,
+            target_format: format,
+            renderer: std::sync::Arc::new(egui::mutex::RwLock::new(renderer)),
+            surface_config: eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY,
+        };
+        let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        cc.wgpu_render_state = Some(state);
+        let mut app = HookEchoApp::new(&cc);
+        let time = wxdata::level2::Identifier::new(name.into())
+            .date_time()
+            .unwrap();
+        app.active = 0;
+        app.views[0].site = Some("KTLX".into());
+        app.views[0].show_volume(scan, name.into(), time);
+        app.views[0].timeline.following = false;
+        app.views[0].timeline.playing = false;
+        let centre = (-97.51, 35.32);
+        app.cell_popup = Some(Cell {
+            id: "L-1".into(),
+            title: "L-1".into(),
+            lon: centre.0,
+            lat: centre.1,
+            time: Some(time),
+            ..Default::default()
+        });
+        app.cell_details = true;
+        app.dock.cell.open = true;
+        app.dock.cell_available = true;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter");
+        let capture = |label: &str, app: &mut HookEchoApp| {
+            gpu.save(
+                &out.join(format!("{label}.png")),
+                CELL_W as u32,
+                900,
+                |ui| {
+                    app.dock_cell(super::super::Host::Docked(ui));
+                },
+            )
+            .unwrap();
+        };
+        // The first frame asks for the whole cell and shows the displayed tilt.
+        capture("app-card-displayed-tilt", &mut app);
+        let first = app.cell_cores(0, &[centre], None);
+        assert!(matches!(first[0], CellCore::Gathering(..)), "being read");
+        // The app's own worker reads every tilt.
+        let started = std::time::Instant::now();
+        let core = loop {
+            match app.cell_cores(0, &[centre], None).remove(0) {
+                CellCore::Ready(s) => break s,
+                CellCore::Empty => panic!("no gates around the Moore storm"),
+                _ => {
+                    assert!(started.elapsed().as_secs() < 300, "read in five minutes");
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        };
+        assert_eq!(core.tilts().len(), 14);
+        capture("app-card-whole-cell", &mut app);
+        let rows = app
+            .whole_cores
+            .card
+            .as_ref()
+            .expect("the card's rows for it");
+        assert_eq!(rows.tilts.len(), 14, "By tilt: one row per tilt");
+        assert!(rows
+            .core
+            .iter()
+            .any(|r| r.0 == "\u{394}V" && r.1.ends_with("at 0.5\u{b0}")));
+        println!("read in {:.1} s", started.elapsed().as_secs_f32());
+    }
+
     /// The card's Core statistics and By tilt rows for the Moore storm (KTLX 2013-05-20 20:16Z),
     /// read on every tilt by the card's own job and drawn with its own rows, for review
     /// (`target/parity-review/cell-core-tilts/`). Network on first run (volume cached in
