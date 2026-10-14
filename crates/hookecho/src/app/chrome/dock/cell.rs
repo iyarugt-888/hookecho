@@ -2280,6 +2280,163 @@ mod tests {
         assert!(y_hi - y_lo > 60, "spread up the storm, not one flat patch");
     }
 
+    /// A column product's height along the 3D cut (roadmaps/radar-analysis R3), in the real pane:
+    /// "Echo top 18" = `last_height_above(REF, 18)` built by the app's own column job on the Moore
+    /// volume, a section cut across the storm, the smooth volume with the section's vertical cut
+    /// in it. Captured with the cut's column line and without (the plane stays), the line's
+    /// pixels are where the line's own points project: on the cut, at the echo top's height.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "GPU + isolated app storage/proxy: invoke this exact test in its own process"]
+    fn app_column_height_follows_the_3d_cut() {
+        let (mut app, state, centre, out) = headless_moore_app();
+        app.settings.udp_products.push(wxdata::udp::ProductDef {
+            id: String::new(),
+            name: "Echo top 18".into(),
+            units: "m".into(),
+            expression: "last_height_above(REF, 18)".into(),
+            range: None,
+            palette: None,
+        });
+        app.views[0].column_product = Some("Echo top 18".into());
+        app.views[0]
+            .fields_on
+            .insert(crate::render::FieldLayer::UserColumn);
+        let ctx = egui::Context::default();
+        let started = std::time::Instant::now();
+        while app.column_shown(0).is_none() {
+            assert!(
+                started.elapsed().as_secs() < 300,
+                "the column product is built"
+            );
+            app.recompute_column_product(&ctx);
+            app.poll_overlays();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        println!(
+            "column product built in {:.1} s",
+            started.elapsed().as_secs_f32()
+        );
+        // A 50 km cut across the storm, south-west to north-east.
+        let (a, b) = (
+            [centre.0 - 0.25, centre.1 - 0.12],
+            [centre.0 + 0.25, centre.1 + 0.12],
+        );
+        app.xsection_pts = vec![a, b];
+        app.xsection_cut_3d = true;
+        app.views[0].moment = Moment::Reflectivity;
+        app.views[0].camera = crate::render::mercator::Camera::at_lonlat(centre.0, centre.1, 9.0);
+        app.views[0].camera.pitch = 55.0;
+        app.views[0].map_3d.enabled = true;
+        app.views[0].map_3d.representation = crate::view::Map3dRepresentation::SmoothVolume;
+        let size = (900u32, 700u32);
+        let shoot = |label: &str, app: &mut HookEchoApp, frames: usize| {
+            crate::headless::ui::save_with_state(
+                &state,
+                &out.join(format!("{label}.png")),
+                size,
+                frames,
+                |ui| {
+                    let rect = ui.max_rect();
+                    let ctx = ui.ctx().clone();
+                    app.render_pane(ui, &ctx, 0, rect, false, false, true, true, &[]);
+                },
+            )
+            .unwrap();
+        };
+        let waited = std::time::Instant::now();
+        while app.smooth_vol_key[0].is_none() {
+            assert!(
+                waited.elapsed().as_secs() < 300,
+                "the smooth volume is built"
+            );
+            shoot("app-cut-warmup", &mut app, 2);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        let _ = std::fs::remove_file(out.join("app-cut-warmup.png"));
+        app.sync_xsection_3d(0);
+        assert!(
+            app.views[0].map_3d.plane.is_some(),
+            "the section is cut in 3D"
+        );
+        let line = app.xsection_line().unwrap();
+        let height = app.column_height_line(0, &line).expect("a height line");
+        let antenna = app.antenna_msl_km(0).unwrap();
+        let tops: Vec<f32> = height.above_antenna_km.iter().flatten().copied().collect();
+        let peak = tops.iter().copied().fold(0.0, f32::max);
+        println!(
+            "{} of {} points have an echo top, highest {peak:.1} km above the antenna",
+            tops.len(),
+            height.above_antenna_km.len()
+        );
+        shoot("app-cut-column", &mut app, 6);
+        app.xsection_cut_3d = false;
+        shoot("app-cut-plain", &mut app, 6);
+        app.xsection_cut_3d = true;
+        let img = |l: &str| {
+            image::open(out.join(format!("{l}.png")))
+                .unwrap()
+                .to_rgba8()
+        };
+        let (with, without) = (img("app-cut-column"), img("app-cut-plain"));
+        let changed = |x: u32, y: u32| {
+            let (p, q) = (with.get_pixel(x, y), without.get_pixel(x, y));
+            p.0.iter().zip(q.0).take(3).any(|(m, n)| m.abs_diff(n) > 60)
+        };
+        let mut mask = image::RgbaImage::new(with.width(), with.height());
+        let mut n = 0usize;
+        for (x, y, q) in without.enumerate_pixels() {
+            if changed(x, y) {
+                n += 1;
+                mask.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            } else {
+                let g = (q.0[0] as u16 + q.0[1] as u16 + q.0[2] as u16) / 12;
+                mask.put_pixel(x, y, image::Rgba([g as u8, g as u8, g as u8, 255]));
+            }
+        }
+        // Where the line's own points project, with the pane's camera over the whole capture.
+        let cam = app.views[0].camera;
+        let vex = app.views[0].map_3d.vertical_exaggeration as f64;
+        let vp = (size.0 as f32, size.1 as f32);
+        let (mut placed, mut near) = (0usize, 0usize);
+        for run in column_product_line(a, b, &height.above_antenna_km, antenna) {
+            for (lon, lat, km) in run {
+                let Some((x, y)) = crate::render3d::lonlat_alt_screen(&cam, vp, lon, lat, km, vex)
+                else {
+                    continue;
+                };
+                let (x, y) = (x.round() as i64, y.round() as i64);
+                if x < 2 || y < 2 || x >= size.0 as i64 - 2 || y >= size.1 as i64 - 2 {
+                    continue;
+                }
+                placed += 1;
+                let hit = (-2..=2)
+                    .flat_map(|dx| (-2..=2).map(move |dy| (dx, dy)))
+                    .any(|(dx, dy)| changed((x + dx) as u32, (y + dy) as u32));
+                near += usize::from(hit);
+                mask.put_pixel(x as u32, y as u32, image::Rgba([255, 0, 0, 255]));
+            }
+        }
+        mask.save(out.join("app-cut-column-mask.png")).unwrap();
+        println!("{n} pixels changed by the line; {near} of {placed} projected points on it");
+        assert!(n > 100, "the column line is drawn in the 3D cut");
+        assert!(placed > 20, "the line's points are on screen");
+        assert!(
+            near * 10 >= placed * 9,
+            "the drawn line is where its points project"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn column_product_line(
+        a: [f64; 2],
+        b: [f64; 2],
+        above_antenna_km: &[Option<f32>],
+        antenna_msl_km: f64,
+    ) -> Vec<Vec<(f64, f64, f64)>> {
+        crate::app::column_product::height_line_msl(a, b, above_antenna_km, antenna_msl_km)
+    }
+
     /// The card's Core statistics and By tilt rows for the Moore storm (KTLX 2013-05-20 20:16Z),
     /// read on every tilt by the card's own job and drawn with its own rows, for review
     /// (`target/parity-review/cell-core-tilts/`). Network on first run (volume cached in

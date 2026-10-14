@@ -160,9 +160,25 @@ near 12 km over the core and lower on its flanks, with the caption readable over
 The first capture of the run had the caption drawn straight over the gates and unreadable over
 the core; it now sits on a dark backing.
 
-Not established: the desktop and Android windows, the 3D cut, a pane whose column product and
-section come from different volumes, and other environmental fields on the section (none is
-added here: only quantities that are heights are drawn).
+**The same line in the 3D cut** (2026-10-14; `app_column_height_follows_the_3d_cut`, isolated
+headless app as for the cell card, network denied). "Echo top 18" is built by the app's own
+column job on the cached Moore volume (KTLX 2013-05-20 20:16Z, 14 tilts, 0.6 s). A 50 km cut
+crosses the storm south-west to north-east, and pane 0 is drawn by the app's own `render_pane`
+in the smooth volume with the section's vertical cut. Against the same frame with the cut's
+column line switched off (the plane stays), 454 pixels change. All 125 points of the line
+that have an echo top project (`render3d::lonlat_alt_screen`, the pane's camera) onto changed
+pixels, within 2 px. The line peaks 8.1 km above the antenna. This cut lies 20–45 km from the
+radar, where the highest tilt (19.5°) reaches only about 7–9 km, so the product's "last height
+above" is bounded by the volume scan here, not by the storm.
+
+| File | What | SHA-256 |
+| --- | --- | --- |
+| [r3-app-cut-column.png](r3-app-cut-column.png) | The smooth volume with the cut and its column line | `5efec3beec0d2abf7b483aa3cc274f89924dfed041fdacf86ffd8a3d39b8bf91` |
+| [r3-app-cut-column-mask.png](r3-app-cut-column-mask.png) | White: pixels the line changes; red: where its points project | `556945a75138b99f48ed220c1c3cf235741de7a6e93a91989052e6cf4b420b70` |
+
+Not established: the desktop and Android windows, the 3D cut in an interactive window, a pane
+whose column product and section come from different volumes, and other environmental fields on
+the section (none is added here: only quantities that are heights are drawn).
 
 ## Two archived panes, two soundings; a busy service no longer substitutes an older one (2026-10-13, R2)
 
