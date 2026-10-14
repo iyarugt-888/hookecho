@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T03:45:17+00:00",
-  "generated_from_commit": "134ef7f16b78d0b71b82b1fbb370a286c2887054",
+  "generated_utc": "2026-10-14T04:17:01+00:00",
+  "generated_from_commit": "ffc7d310fd6ec8f8b921aad7fcc9cf68cbb1ba06",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -761,6 +761,96 @@
       "path": "docs/certification/live-fallback/workspace.log",
       "sha256": "5d29f7f2e47301864f01c07cd680ea9b03ff8c98a2f469980cffd1621ef233ba",
       "bytes": 14900
+    },
+    {
+      "path": "docs/certification/live-source-clock/README.md",
+      "sha256": "05d47c4a9eb8a4449f29d62d7c35a986dbc24d19f2dc046c22b0e0ade1d5e73c",
+      "bytes": 3589
+    },
+    {
+      "path": "docs/certification/live-source-clock/after.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/after.log",
+      "sha256": "314ff11e7720194a12bc34c0620b314a42785d1f1664fa291bf978c711bafe03",
+      "bytes": 1739
+    },
+    {
+      "path": "docs/certification/live-source-clock/app-gpu.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/app-gpu.log",
+      "sha256": "91901b68af333779c23989fcdceb941834859c688f960a67b213a30bd7f78bd4",
+      "bytes": 232
+    },
+    {
+      "path": "docs/certification/live-source-clock/before.exit",
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95",
+      "bytes": 5
+    },
+    {
+      "path": "docs/certification/live-source-clock/before.log",
+      "sha256": "1ad41365163a692d41fc92bd43cbeca9d590077cc9c03e8d9f959dba6d45a84e",
+      "bytes": 1333
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy-final.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy-final.log",
+      "sha256": "5e7152d08ba3c9cb2a0bf2c30d76c16b9676761632fa0fb3bd4f17ebc42f33c6",
+      "bytes": 204
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/clippy.log",
+      "sha256": "f7d47c156e58945b2561d2f19031fb02fbe336302e3341ad6c253fd2a9aa21a5",
+      "bytes": 259
+    },
+    {
+      "path": "docs/certification/live-source-clock/final-control.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/final-control.log",
+      "sha256": "e2ad0d88dbb30c95d7e7e2166bd130189fcf8bfaba27bb645bf3d48f6260ac6d",
+      "bytes": 1739
+    },
+    {
+      "path": "docs/certification/live-source-clock/verification.json",
+      "sha256": "349d1481bac1bc1e890d96485ce6a82c4040ae9402d2de6cadbb03b30c700cd3",
+      "bytes": 4709
+    },
+    {
+      "path": "docs/certification/live-source-clock/wasm.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/wasm.log",
+      "sha256": "7edb3301041e8ee64d858e143304041160164ba81750963c5f7647dd2fbb22fa",
+      "bytes": 2953
+    },
+    {
+      "path": "docs/certification/live-source-clock/workspace-libraries.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/live-source-clock/workspace-libraries.log",
+      "sha256": "8a626f7f06fad7b92f48b098dfc5c9e1b7e237ce5268d2e1b7d6d59458e81720",
+      "bytes": 242552
     },
     {
       "path": "docs/certification/live-trace/README.md",
