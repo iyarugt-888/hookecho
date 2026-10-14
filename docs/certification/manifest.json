@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T06:21:14+00:00",
-  "generated_from_commit": "41af73f1cd36670e17c5463a1f3c1a85fa27dc0b",
+  "generated_utc": "2026-10-14T06:23:42+00:00",
+  "generated_from_commit": "61621cac18c16d5e97e187ac68fcefc268f694e0",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -2839,8 +2839,8 @@
     },
     {
       "path": "docs/certification/monitor-retirement/verification.json",
-      "sha256": "8708808919a59bbc2247783beefd9e0c9a4b6d69bdd41404ebd9b8ed363604e7",
-      "bytes": 6473
+      "sha256": "7e369577e264aaeef893244bc42afc3c5f48e5679cc4d592dcba62026afba6ba",
+      "bytes": 6952
     },
     {
       "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.exit",
