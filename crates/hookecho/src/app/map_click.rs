@@ -114,15 +114,15 @@ impl HookEchoApp {
                 && tool == MapTool::Interrogate
                 && self.show_stations
                 && self.pane_is_live(idx))
-                .then(|| {
-                    let to_screen = |lon: f64, lat: f64| {
-                        let w = crate::render::mercator::lonlat_to_world(lon, lat);
-                        let (sx, sy) = cam.world_to_screen(w, vp);
-                        egui::pos2(prect.left() + sx, prect.top() + sy)
-                    };
-                    self.stations.hit(pos, tap_r2(12.0), to_screen)
-                })
-                .flatten();
+            .then(|| {
+                let to_screen = |lon: f64, lat: f64| {
+                    let w = crate::render::mercator::lonlat_to_world(lon, lat);
+                    let (sx, sy) = cam.world_to_screen(w, vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                };
+                self.stations.hit(pos, tap_r2(12.0), to_screen)
+            })
+            .flatten();
             let cam_site = if station_hit.is_some() {
                 None
             } else {
