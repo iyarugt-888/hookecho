@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T05:13:05+00:00",
-  "generated_from_commit": "9d3af076d8a7832e474dec66787f6cb21dfda849",
+  "generated_utc": "2026-10-14T05:32:57+00:00",
+  "generated_from_commit": "6ead9d5b9015d67733b7bd1087f1875bc1a0cf1f",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -421,6 +421,71 @@
       "path": "docs/certification/chase/route-storms-escape-browser.jpg",
       "sha256": "286cb8fc67103abe1f0dca7fe4145b5416c5be44ddf46f4b894afe36e9a998d6",
       "bytes": 81549
+    },
+    {
+      "path": "docs/certification/delivery-idle/README.md",
+      "sha256": "9575b4ac2f164edfd5f06f5d750ef174d358b99abf517e968ab9b707d904f528",
+      "bytes": 2899
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-gpu.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-gpu.log",
+      "sha256": "53d2a4e3b3747bf3d8084bd0a72a77516d331e22e8f730239f3b624d7e3c7bde",
+      "bytes": 232
+    },
+    {
+      "path": "docs/certification/delivery-idle/app-observations.json",
+      "sha256": "f3ba082cc6d97d6b06c97b9bb43f8262b6d2206efe219a7320f55ca921ea7191",
+      "bytes": 21750
+    },
+    {
+      "path": "docs/certification/delivery-idle/clippy.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/delivery-idle/clippy.log",
+      "sha256": "1a3edb02e979abdbdb464a2857e21063e6c735d7bf7e83c9103b43bfbcdefe10",
+      "bytes": 423
+    },
+    {
+      "path": "docs/certification/delivery-idle/controls.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/delivery-idle/controls.log",
+      "sha256": "3c912dfcb5b2b9c06428d518400bf1ac14c472c8f0567b79f5102acbd6361ac3",
+      "bytes": 1912
+    },
+    {
+      "path": "docs/certification/delivery-idle/libraries.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/delivery-idle/libraries.log",
+      "sha256": "d964a7898bbd8d5d3b4a1ee926abd9099c4637d0f780464635cdf7db767844be",
+      "bytes": 243769
+    },
+    {
+      "path": "docs/certification/delivery-idle/verification.json",
+      "sha256": "0addd3fd98912ecacf85ceffed895dfed20b5b6631cf30bf75d59f0c7ee269cc",
+      "bytes": 4555
+    },
+    {
+      "path": "docs/certification/delivery-idle/wasm.exit",
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "bytes": 3
+    },
+    {
+      "path": "docs/certification/delivery-idle/wasm.log",
+      "sha256": "2e0aacbe4f928a6ead290612e4bf193d7b4c6e8962b0686d7ec45405bd1e05a9",
+      "bytes": 3085
     },
     {
       "path": "docs/certification/display-feedback/README.md",
