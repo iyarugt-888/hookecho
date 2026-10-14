@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T01:41:56+00:00",
-  "generated_from_commit": "86f02cc663711fcf31279417347eaa7479f2d6a9",
+  "generated_utc": "2026-10-14T02:31:59+00:00",
+  "generated_from_commit": "d21013547befb6701c779d49c7374cc2e95368ae",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "bytes as stored in the repository; text files have LF line endings there, and a checkout with core.autocrlf may show them with CRLF",
@@ -1139,13 +1139,38 @@
     },
     {
       "path": "docs/certification/m2.2/README.md",
-      "sha256": "ba0006434841da99ed073b73977b56dea4e34e9ff9eaf5174cba8ee869066737",
-      "bytes": 13508
+      "sha256": "75fedf49bd8a4446cbf336264dea3b3b31cf6ec8a7ab32897c498ca8993f7b52",
+      "bytes": 17008
     },
     {
       "path": "docs/certification/m2.2/archive-local-cells-browser.jpg",
       "sha256": "b2fe506347c9b8b451fa9c349bc6cb0eb5618de93e2440849d5268360e6f56a0",
       "bytes": 91293
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-card-displayed-tilt.png",
+      "sha256": "4a822dc73a72726ccb1a1b2cf59b88229071d7cda0fdc54eaa02b8a5c90b7975",
+      "bytes": 81435
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-card-whole-cell.png",
+      "sha256": "d5b4ff4f8c185dfedcd0af929208e28f1b5741054c0ce76a079d7b1c8467c14c",
+      "bytes": 80796
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-outline-3d-mask.png",
+      "sha256": "c2e80cacd17ee6762d1a3de8a5151d891cad0aff4e6fdcd34afdae0ccf0ba8d4",
+      "bytes": 621246
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-outline-3d.png",
+      "sha256": "afd6d9553fb3aeda7607d2343867592f7501fa46926fb48b192e50bb2aa3fd06",
+      "bytes": 909980
+    },
+    {
+      "path": "docs/certification/m2.2/cell-core-app-outline-flat.png",
+      "sha256": "704611f20b96294cacbee9c30067df2dd1f062c23703841976fe4f6a9cf01444",
+      "bytes": 369921
     },
     {
       "path": "docs/certification/m2.2/cell-core-moore-whole-cell-rows.png",
