@@ -607,6 +607,23 @@ fn app_delivery_recovery_keeps_archive_and_sibling_frames_owned() {
         recovered
     );
 
+    // Switching to the frozen sibling after End also retires the old comparison manager.
+    app.active = 1;
+    app.sync_radar_providers(1, false, None, None);
+    assert!(app.views.iter().all(|view| view.radar_providers.is_none()));
+    assert_eq!(
+        frame(
+            &mut app,
+            &state,
+            &full,
+            0,
+            "monitor-retirement-keeps-last-good",
+            &dir,
+            &mut frames
+        ),
+        recovered
+    );
+
     std::fs::write(dir.join("observations.json"), serde_json::to_vec_pretty(&serde_json::json!({
         "gpu": format!("{} ({:?}, {:?})", gpu.name, gpu.backend, gpu.device_type),
         "input": NAME, "frames": frames,

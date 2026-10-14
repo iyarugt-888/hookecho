@@ -1,0 +1,651 @@
+warn: could not canonicalize path C:\Users\wushi
+    Blocking waiting for file lock on build directory
+   Compiling serde_core v1.0.228
+    Checking cfg-if v1.0.4
+    Checking once_cell v1.21.4
+    Checking memchr v2.8.3
+    Checking unicode-ident v1.0.24
+    Checking futures-core v0.3.33
+   Compiling serde v1.0.228
+   Compiling libm v0.2.16
+   Compiling wasm-bindgen-shared v0.2.126
+    Checking pin-project-lite v0.2.17
+   Compiling num-traits v0.2.19
+   Compiling thiserror v2.0.18
+    Checking futures-io v0.3.33
+    Checking futures-task v0.3.33
+    Checking slab v0.4.12
+    Checking futures-sink v0.3.33
+    Checking bytemuck v1.25.1
+    Checking log v0.4.33
+    Checking arrayvec v0.7.8
+   Compiling wasm-bindgen v0.2.126
+    Checking stable_deref_trait v1.2.1
+   Compiling zerocopy v0.8.54
+    Checking bitflags v2.13.1
+    Checking zerofrom v0.1.8
+    Checking foldhash v0.2.0
+   Compiling parking_lot_core v0.9.12
+    Checking equivalent v1.0.2
+    Checking scopeguard v1.2.0
+    Checking simd-adler32 v0.3.10
+    Checking futures-util v0.3.33
+   Compiling crc32fast v1.5.0
+    Checking litemap v0.8.2
+    Checking adler2 v2.0.1
+    Checking writeable v0.6.3
+    Checking polycool v0.4.0
+    Checking yoke v0.8.3
+    Checking hashbrown v0.17.1
+    Checking lock_api v0.4.14
+    Checking utf8_iter v1.0.4
+    Checking typenum v1.20.1
+    Checking profiling v1.0.18
+    Checking miniz_oxide v0.8.9
+   Compiling icu_properties_data v2.2.0
+   Compiling icu_normalizer_data v2.2.0
+   Compiling generic-array v0.14.7
+    Checking zerovec v0.11.6
+    Checking zerotrie v0.2.4
+    Checking color v0.3.3
+   Compiling naga v29.0.4
+   Compiling slotmap v1.1.1
+    Checking either v1.16.0
+    Checking bit-vec v0.9.1
+    Checking itoa v1.0.18
+    Checking flate2 v1.1.9
+    Checking linebender_resource_handle v0.1.1
+    Checking unicode-width v0.2.2
+    Checking bit-set v0.9.1
+    Checking hashbrown v0.16.1
+    Checking indexmap v2.14.0
+    Checking raw-window-handle v0.6.2
+    Checking fearless_simd v0.4.1
+    Checking percent-encoding v2.3.2
+    Checking codespan-reporting v0.13.1
+    Checking hexf-parse v0.2.1
+    Checking rustc-hash v1.1.0
+    Checking tinystr v0.8.3
+    Checking potential_utf v0.1.5
+   Compiling unicode-general-category v1.1.0
+   Compiling ahash v0.8.12
+   Compiling wgpu-hal v29.0.4
+    Checking icu_collections v2.2.0
+    Checking icu_locale_core v2.2.0
+    Checking bytes v1.12.1
+   Compiling zmij v1.0.23
+    Checking euclid v0.22.14
+    Checking form_urlencoded v1.2.2
+    Checking fdeflate v0.3.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking unicode-segmentation v1.13.3
+    Checking self_cell v1.3.0
+    Checking nohash-hasher v0.2.0
+   Compiling serde_json v1.0.150
+    Checking digest v0.10.7
+    Checking num-integer v0.1.46
+    Checking itertools v0.14.0
+   Compiling wgpu-core v29.0.4
+   Compiling radium v0.7.0
+    Checking http v1.4.2
+    Checking sha2 v0.10.9
+   Compiling num-rational v0.2.4
+    Checking uuid v1.24.0
+    Checking icu_provider v2.2.0
+   Compiling num-complex v0.2.4
+    Checking guillotiere v0.7.0
+    Checking lyon_geom v1.0.19
+    Checking aho-corasick v1.1.4
+   Compiling wgpu v29.0.4
+    Checking sync_wrapper v1.0.2
+    Checking icu_properties v2.2.0
+    Checking tap v1.0.1
+    Checking regex-syntax v0.8.11
+    Checking hex v0.4.3
+    Checking js-sys v0.3.103
+    Checking byteorder v1.5.0
+    Checking smallvec v1.15.2
+    Checking font-types v0.11.3
+    Checking emath v0.35.0
+    Checking accesskit v0.24.1
+    Checking kurbo v0.13.1
+    Checking icu_normalizer v2.2.0
+    Checking siphasher v1.0.3
+    Checking base64 v0.22.1
+    Checking libbz2-rs-sys v0.2.5
+    Checking parking_lot v0.12.5
+    Checking phf_shared v0.12.1
+    Checking hash32 v0.2.1
+    Checking lyon_path v1.0.19
+    Checking wyz v0.5.1
+    Checking geo-types v0.7.19
+    Checking read-fonts v0.39.2
+   Compiling thiserror v1.0.69
+    Checking ecolor v0.35.0
+    Checking regex-automata v0.4.16
+   Compiling heapless v0.7.17
+    Checking idna_adapter v1.2.2
+    Checking num-iter v0.1.46
+    Checking bzip2 v0.6.1
+    Checking uom v0.38.0
+    Checking geographiclib-rs v0.2.7
+    Checking idna v1.1.0
+    Checking tinyvec_macros v0.1.1
+    Checking pxfm v0.1.30
+    Checking allocator-api2 v0.2.21
+    Checking foldhash v0.1.5
+    Checking zune-core v0.5.1
+    Checking peniko v0.6.1
+    Checking option-ext v0.2.0
+    Checking rustc-hash v2.1.3
+    Checking bitflags v1.3.2
+    Checking funty v2.0.0
+    Checking static_assertions v1.1.0
+    Checking const_soft_float v0.1.4
+    Checking url v2.5.8
+    Checking float-cmp v0.10.0
+    Checking utf8parse v0.2.2
+    Checking ryu v1.0.23
+    Checking type-map v0.5.1
+    Checking zune-jpeg v0.5.15
+    Checking vello_common v0.0.9
+    Checking anstyle-parse v1.0.0
+    Checking png v0.17.16
+    Checking dirs-sys v0.4.1
+    Checking mappers v0.7.2
+    Checking hashbrown v0.15.5
+    Checking serde_urlencoded v0.7.1
+    Checking tinyvec v1.12.0
+    Checking num v0.2.1
+    Checking half v2.7.1
+    Checking bitvec v1.1.1
+   Compiling chrono-tz v0.10.4
+   Compiling mime_guess2 v2.3.1
+    Checking phf v0.12.1
+    Checking png v0.18.1
+   Compiling anyhow v1.0.103
+    Checking itertools v0.10.5
+    Checking cobs v0.3.0
+    Checking vello_cpu v0.0.9
+    Checking futures-channel v0.3.33
+    Checking colorchoice v1.0.5
+    Checking xml v1.3.0
+    Checking anstyle-query v1.1.5
+    Checking mime v0.3.17
+    Checking byteorder-lite v0.1.0
+    Checking gribberish-types v1.5.0
+    Checking float_next_after v1.0.0
+    Checking is_terminal_polyfill v1.70.2
+    Checking regex v1.13.1
+   Compiling getrandom v0.3.4
+    Checking unicase v2.9.0
+    Checking anstyle v1.0.14
+    Checking lyon_tessellation v1.0.20
+    Checking postcard v1.1.3
+    Checking env_filter v2.0.0
+   Compiling mvt-reader v2.4.0
+    Checking anstream v1.0.0
+    Checking enum-map v2.7.3
+    Checking lru v0.12.5
+    Checking prost v0.13.5
+    Checking geojson v1.0.0
+    Checking directories v5.0.1
+    Checking nexrad-level3 v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\nexrad-level3)
+    Checking lyon_algorithms v1.0.20
+    Checking hdf5lite v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hdf5lite)
+    Checking jiff v0.2.32
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Checking console_error_panic_hook v0.1.7
+    Checking glam v0.29.3
+    Checking lyon v1.0.19
+    Checking moxcms v0.8.1
+    Checking harfrust v0.7.0
+    Checking skrifa v0.42.1
+    Checking env_logger v0.11.11
+    Checking image v0.25.10
+    Checking epaint v0.35.0
+    Checking web-sys v0.3.103
+    Checking wasm-bindgen-futures v0.4.76
+    Checking chrono v0.4.45
+    Checking web-time v1.1.0
+    Checking gloo-timers v0.3.0
+    Checking nexrad-model v1.0.0-rc.2 (C:\Users\wushi\hookecho\vendor\nexrad-model)
+    Checking gribberish v1.5.0 (C:\Users\wushi\hookecho\vendor\gribberish)
+    Checking egui v0.35.0
+    Checking egui-phosphor v0.13.0
+    Checking egui_extras v0.35.0
+    Checking nexrad-decode v1.0.0-rc.3
+    Checking wgpu-types v29.0.4
+    Checking glow v0.17.0
+    Checking wasm-streams v0.4.2
+    Checking reqwest v0.13.4
+    Checking console_log v1.1.0
+    Checking nexrad-data v1.0.0-rc.7 (C:\Users\wushi\hookecho\vendor\nexrad-data)
+    Checking reqwest v0.12.28
+    Checking wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-core-deps-wasm v29.0.4
+warning: function `total_pages` is never used
+   --> crates\wxdata\src\meteoalarm.rs:606:4
+    |
+606 | fn total_pages(body: &str) -> usize {
+    |    ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wxdata` (lib) generated 1 warning
+    Checking egui-wgpu v0.35.0
+    Checking eframe v0.35.0
+warning: unused import: `AtomicBool`
+  --> crates\hookecho\src\tiles.rs:10:25
+   |
+10 | use std::sync::atomic::{AtomicBool, Ordering};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Mutex`
+  --> crates\hookecho\src\tiles.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+
+warning: unused variable: `root`
+ --> crates\hookecho\src\app\frame_end.rs:8:61
+  |
+8 |     pub(crate) fn frame_end(&mut self, ctx: &egui::Context, root: &mut egui::Ui) {
+  |                                                             ^^^^ help: if this is intentional, prefix it with an underscore: `_root`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Clipboard` is never constructed
+   --> crates\hookecho\src\app.rs:815:5
+    |
+813 | pub(crate) enum ShotDest {
+    |                 -------- variant in this enum
+814 |     File(std::path::PathBuf),
+815 |     Clipboard,
+    |     ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `STRIKE_CAP` is never used
+    --> crates\hookecho\src\app.rs:1130:7
+     |
+1130 | const STRIKE_CAP: usize = 20_000;
+     |       ^^^^^^^^^^
+
+warning: field `nwr_pick` is never read
+    --> crates\hookecho\src\app.rs:2068:5
+     |
+1193 | pub struct HookEchoApp {
+     |            ----------- field in this struct
+...
+2068 |     nwr_pick: String,
+     |     ^^^^^^^^
+
+warning: method `nwr_rows` is never used
+    --> crates\hookecho\src\app.rs:4509:8
+     |
+2344 | impl HookEchoApp {
+     | ---------------- method in this implementation
+...
+4509 |     fn nwr_rows(&mut self, ui: &mut egui::Ui) {
+     |        ^^^^^^^^
+
+warning: variant `PlacefileError` is never constructed
+   --> crates\hookecho\src\app\overlay_fetch.rs:149:5
+    |
+  7 | pub(crate) enum OverlayMsg {
+    |                 ---------- variant in this enum
+...
+149 |     PlacefileError(String, String),
+    |     ^^^^^^^^^^^^^^
+
+warning: method `label` is never used
+  --> crates\hookecho\src\dialog.rs:94:8
+   |
+93 | impl ImportKind {
+   | --------------- method in this implementation
+94 |     fn label(self) -> &'static str {
+   |        ^^^^^
+
+warning: `hookecho` (lib) generated 9 warnings (run `cargo fix --lib -p hookecho` to apply 3 suggestions)
+error[E0432]: unresolved import `hookecho::headless`
+  --> crates\hookecho\src\main.rs:16:23
+   |
+16 | use hookecho::{audio, headless, icon, settings, tiles, tray};
+   |                       ^^^^^^^^ no `headless` in the root
+   |
+note: found an item that was configured out
+  --> crates\hookecho\src\lib.rs:67:9
+   |
+66 | #[cfg(not(target_arch = "wasm32"))]
+   |          ------------------------ the item is gated here
+67 | pub mod headless;
+   |         ^^^^^^^^
+
+error[E0432]: unresolved import `hookecho::status`
+   --> crates\hookecho\src\main.rs:62:13
+    |
+ 62 |         use hookecho::status;
+    |             ^^^^^^^^^^------
+    |                       |
+    |                       no `status` in the root
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:148:9
+    |
+147 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+148 | pub mod status;
+    |         ^^^^^^
+
+error[E0432]: unresolved import `image::codecs::ico`
+    --> crates\hookecho\src\main.rs:1410:24
+     |
+1410 |     use image::codecs::ico::{IcoEncoder, IcoFrame};
+     |                        ^^^ could not find `ico` in `codecs`
+     |
+note: found an item that was configured out
+    --> C:\Users\wushi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\image-0.25.10\src\lib.rs:256:13
+     |
+ 255 |     #[cfg(feature = "ico")]
+     |           --------------- the item is gated behind the `ico` feature
+ 256 |     pub mod ico;
+     |             ^^^
+
+error[E0433]: cannot find `perf` in `hookecho`
+  --> crates\hookecho\src\main.rs:37:15
+   |
+37 |     hookecho::perf::mark_start();
+   |               ^^^^ could not find `perf` in `hookecho`
+   |
+note: found an item that was configured out
+  --> crates\hookecho\src\lib.rs:96:9
+   |
+95 | #[cfg(not(target_arch = "wasm32"))]
+   |          ------------------------ the item is gated here
+96 | pub mod perf;
+   |         ^^^^
+
+error[E0433]: cannot find `crash` in `hookecho`
+  --> crates\hookecho\src\main.rs:49:15
+   |
+49 |     hookecho::crash::install_hook();
+   |               ^^^^^ could not find `crash` in `hookecho`
+   |
+note: found an item that was configured out
+  --> crates\hookecho\src\lib.rs:35:9
+   |
+34 | #[cfg(not(target_arch = "wasm32"))]
+   |          ------------------------ the item is gated here
+35 | pub mod crash;
+   |         ^^^^^
+
+error[E0433]: cannot find `soak` in `hookecho`
+   --> crates\hookecho\src\main.rs:102:30
+    |
+102 |         let opts = hookecho::soak::Options {
+    |                              ^^^^ could not find `soak` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:137:9
+    |
+136 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+137 | pub mod soak;
+    |         ^^^^
+
+error[E0433]: cannot find `soak` in `hookecho`
+   --> crates\hookecho\src\main.rs:109:25
+    |
+109 |         match hookecho::soak::run(site, minutes, &opts) {
+    |                         ^^^^ could not find `soak` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:137:9
+    |
+136 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+137 | pub mod soak;
+    |         ^^^^
+
+error[E0433]: cannot find `status` in `hookecho`
+   --> crates\hookecho\src\main.rs:136:31
+    |
+136 |         let spots = hookecho::status::spots(&saved, None);
+    |                               ^^^^^^ could not find `status` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:148:9
+    |
+147 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+148 | pub mod status;
+    |         ^^^^^^
+
+error[E0433]: cannot find `mqtt` in `hookecho`
+   --> crates\hookecho\src\main.rs:141:19
+    |
+141 |         hookecho::mqtt::spawn(&saved, false);
+    |                   ^^^^ could not find `mqtt` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:84:9
+    |
+ 83 | #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    |          ---------------------------------------------------- the item is gated here
+ 84 | pub mod mqtt;
+    |         ^^^^
+
+error[E0433]: cannot find `serve` in `hookecho`
+   --> crates\hookecho\src\main.rs:148:35
+    |
+148 |         if let Err(e) = hookecho::serve::run(spots, bind, port, web_root, token, public) {
+    |                                   ^^^^^ could not find `serve` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:132:9
+    |
+131 | #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    |          ---------------------------------------------------- the item is gated here
+132 | pub mod serve;
+    |         ^^^^^
+
+error[E0433]: cannot find `devlog_admin` in `hookecho`
+   --> crates\hookecho\src\main.rs:172:35
+    |
+172 |         if let Err(e) = hookecho::devlog_admin::run(bind, port, token) {
+    |                                   ^^^^^^^^^^^^ could not find `devlog_admin` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:42:9
+    |
+ 41 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+ 42 | pub mod devlog_admin;
+    |         ^^^^^^^^^^^^
+
+error[E0433]: cannot find `headless_fusion` in `hookecho`
+   --> crates\hookecho\src\main.rs:757:35
+    |
+757 |         if let Err(e) = hookecho::headless_fusion::run_fusion(&sites, time, center, out) {
+    |                                   ^^^^^^^^^^^^^^^ could not find `headless_fusion` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:70:9
+    |
+ 69 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+ 70 | pub mod headless_fusion;
+    |         ^^^^^^^^^^^^^^^
+
+error[E0433]: cannot find `alert_latency_watch` in `hookecho`
+   --> crates\hookecho\src\main.rs:863:35
+    |
+863 |         if let Err(e) = hookecho::alert_latency_watch::run(minutes, interval, export) {
+    |                                   ^^^^^^^^^^^^^^^^^^^ could not find `alert_latency_watch` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:10:9
+    |
+  9 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+ 10 | pub mod alert_latency_watch;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: cannot find `watch` in `hookecho`
+   --> crates\hookecho\src\main.rs:951:32
+    |
+951 |         let result = hookecho::watch::parse_args(rest, &workspaces)
+    |                                ^^^^^ could not find `watch` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:176:9
+    |
+175 | #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    |          ---------------------------------------------------- the item is gated here
+176 | pub mod watch;
+    |         ^^^^^
+
+error[E0433]: cannot find `watch` in `hookecho`
+   --> crates\hookecho\src\main.rs:952:39
+    |
+952 |             .and_then(|job| hookecho::watch::run(&job));
+    |                                       ^^^^^ could not find `watch` in `hookecho`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\lib.rs:176:9
+    |
+175 | #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    |          ---------------------------------------------------- the item is gated here
+176 | pub mod watch;
+    |         ^^^^^
+
+error[E0425]: cannot find function `install_native` in module `hookecho::devlog`
+   --> crates\hookecho\src\main.rs:44:23
+    |
+ 44 |     hookecho::devlog::install_native(env_logger::Builder::from_env(
+    |                       ^^^^^^^^^^^^^^ not found in `hookecho::devlog`
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\devlog.rs:311:29
+    |
+310 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+311 | pub use native::{install as install_native, maybe_spawn_shipper as maybe_spawn_native_shipper};
+    |                             ^^^^^^^^^^^^^^
+
+error[E0425]: cannot find function `maybe_spawn_native_shipper` in module `hookecho::devlog`
+   --> crates\hookecho\src\main.rs:147:27
+    |
+147 |         hookecho::devlog::maybe_spawn_native_shipper();
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: crates\hookecho\src\devlog.rs:396:5
+    |
+396 |     pub fn maybe_spawn_shipper() {
+    |     ---------------------------- similarly named function `maybe_spawn_wasm_shipper` defined here
+    |
+note: found an item that was configured out
+   --> crates\hookecho\src\devlog.rs:311:68
+    |
+310 | #[cfg(not(target_arch = "wasm32"))]
+    |          ------------------------ the item is gated here
+311 | pub use native::{install as install_native, maybe_spawn_shipper as maybe_spawn_native_shipper};
+    |                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: a function with a similar name exists
+    |
+147 -         hookecho::devlog::maybe_spawn_native_shipper();
+147 +         hookecho::devlog::maybe_spawn_wasm_shipper();
+    |
+
+error[E0433]: cannot find module or crate `tokio` in this scope
+   --> crates\hookecho\src\main.rs:492:18
+    |
+492 |         let rt = tokio::runtime::Builder::new_multi_thread()
+    |                  ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+help: consider importing this struct
+    |
+ 15 + use std::thread::Builder;
+    |
+help: if you import `Builder`, refer to it directly
+    |
+492 -         let rt = tokio::runtime::Builder::new_multi_thread()
+492 +         let rt = Builder::new_multi_thread()
+    |
+
+error[E0433]: cannot find module or crate `tokio` in this scope
+   --> crates\hookecho\src\main.rs:566:18
+    |
+566 |         let rt = tokio::runtime::Builder::new_multi_thread()
+    |                  ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+help: consider importing this struct
+    |
+ 15 + use std::thread::Builder;
+    |
+help: if you import `Builder`, refer to it directly
+    |
+566 -         let rt = tokio::runtime::Builder::new_multi_thread()
+566 +         let rt = Builder::new_multi_thread()
+    |
+
+error[E0425]: cannot find function `maybe_spawn_native_shipper` in module `hookecho::devlog`
+    --> crates\hookecho\src\main.rs:1317:23
+     |
+1317 |     hookecho::devlog::maybe_spawn_native_shipper();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: crates\hookecho\src\devlog.rs:396:5
+     |
+ 396 |     pub fn maybe_spawn_shipper() {
+     |     ---------------------------- similarly named function `maybe_spawn_wasm_shipper` defined here
+     |
+note: found an item that was configured out
+    --> crates\hookecho\src\devlog.rs:311:68
+     |
+ 310 | #[cfg(not(target_arch = "wasm32"))]
+     |          ------------------------ the item is gated here
+ 311 | pub use native::{install as install_native, maybe_spawn_shipper as maybe_spawn_native_shipper};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: a function with a similar name exists
+     |
+1317 -     hookecho::devlog::maybe_spawn_native_shipper();
+1317 +     hookecho::devlog::maybe_spawn_wasm_shipper();
+     |
+
+error[E0425]: cannot find function `run_desktop` in crate `hookecho`
+    --> crates\hookecho\src\main.rs:1319:15
+     |
+1319 |     hookecho::run_desktop()
+     |               ^^^^^^^^^^^ not found in `hookecho`
+     |
+note: found an item that was configured out
+    --> crates\hookecho\src\lib.rs:230:8
+     |
+ 229 | #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+     |          ---------------------------------------------------- the item is gated here
+ 230 | pub fn run_desktop() -> eframe::Result<()> {
+     |        ^^^^^^^^^^^
+
+error[E0599]: no method named `num_seconds` found for struct `DateTime<Tz>` in the current scope
+   --> crates\hookecho\src\main.rs:507:64
+    |
+507 |                     let age = (chrono::Utc::now() - last.time).num_seconds();
+    |                                                                ^^^^^^^^^^^
+    |
+help: there is a method `second` with a similar name
+    |
+507 -                     let age = (chrono::Utc::now() - last.time).num_seconds();
+507 +                     let age = (chrono::Utc::now() - last.time).second();
+    |
+
+Some errors have detailed explanations: E0425, E0432, E0433, E0599.
+For more information about an error, try `rustc --explain E0425`.
+error: could not compile `hookecho` (bin "hookecho") due to 22 previous errors

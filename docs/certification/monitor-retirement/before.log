@@ -1,0 +1,26 @@
+warn: could not canonicalize path C:\Users\wushi
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+    Finished `test` profile [unoptimized] target(s) in 46.36s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-e1b9f64e42c835da.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-94d18808a3966026.exe)
+
+running 1 test
+
+thread 'provider_health::tests::retiring_a_monitor_drops_an_uncooperative_subscription_without_recording_failure' (27292) panicked at crates\hookecho\src\provider_health.rs:338:14:
+owner retirement must drop the subscription even if its provider ignores active: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test provider_health::tests::retiring_a_monitor_drops_an_uncooperative_subscription_without_recording_failure ... FAILED
+
+failures:
+
+failures:
+    provider_health::tests::retiring_a_monitor_drops_an_uncooperative_subscription_without_recording_failure
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1623 filtered out; finished in 2.01s
+
+error: test failed, to rerun pass `-p hookecho --lib`

@@ -42,6 +42,8 @@ competitive workflow “completed”. See live workstreams for remaining work.
 | L2b: owned displayed-subscription losses | [Controller/manager and actual app-channel/GPU evidence](../../docs/certification/display-feedback/README.md); separate counters, accepted clock floor, scoped recovery, older-candidate/override/duplicate safeguards | Independent operational sources, silent consumer stalls, visible presentation, full-app long runs and devices remain open |
 | L2c: progressive idle delivery retirement | [Controller and real-app/GPU control](../../docs/certification/delivery-idle/README.md); monotonic deadline, source-advance renewal, generation retirement, retained pixels and completed-cadence exclusion | Operational cadence, task/socket accounting, browser/devices and full-app long-duration profiles remain open |
 
+| L2d: provider monitor retirement | [Pending-subscription and actual app/GPU control](../../docs/certification/monitor-retirement/README.md); inactive managers retire after stream End; ignored cancellation drops subscription guard without failure accounting; started/finished task counters | OS sockets, detached/blocking jobs, independent upstream outages and full-app long runs remain unmeasured |
+
 Add subsequent entries only after recording actual verification. Peer increments
 retain their dated workstream/certification records; their open running-window and
 device gates prevent blanket completion of those parent rows.

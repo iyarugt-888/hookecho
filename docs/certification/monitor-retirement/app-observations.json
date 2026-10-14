@@ -1,0 +1,723 @@
+{
+  "frames": [
+    {
+      "display_failures": [
+        0,
+        0,
+        0
+      ],
+      "following": true,
+      "frame": "primary-partial",
+      "live_revision": 1,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "52140e3ce635ce4ac6ddf8b0eb6558c86a353a9cabaee54c1ef89f20214595d7",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 120,
+      "uploaded": false,
+      "volume": "primary-partial",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": null,
+      "following": false,
+      "frame": "sibling-archive",
+      "live_revision": 0,
+      "pane": 1,
+      "playing": false,
+      "revision_traces": [],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": null,
+      "source_phase_at_host_clock": "Awaiting volume",
+      "source_radials": 240,
+      "uploaded": true,
+      "volume": "KFTG20170508_203405_V06",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": [
+        1,
+        0,
+        0
+      ],
+      "following": true,
+      "frame": "lost-keeps-last-good",
+      "live_revision": 1,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "52140e3ce635ce4ac6ddf8b0eb6558c86a353a9cabaee54c1ef89f20214595d7",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 120,
+      "uploaded": false,
+      "volume": "primary-partial",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": null,
+      "following": false,
+      "frame": "sibling-after-failover",
+      "live_revision": 0,
+      "pane": 1,
+      "playing": false,
+      "revision_traces": [],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": null,
+      "source_phase_at_host_clock": "Awaiting volume",
+      "source_radials": 240,
+      "uploaded": false,
+      "volume": "KFTG20170508_203405_V06",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": [
+        1,
+        0,
+        0
+      ],
+      "following": true,
+      "frame": "backup-full",
+      "live_revision": 2,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": true,
+      "volume": "backup-full",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 1
+    },
+    {
+      "display_failures": [
+        1,
+        0,
+        0
+      ],
+      "following": false,
+      "frame": "selected-archive",
+      "live_revision": 2,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": true,
+      "volume": "KFTG20170508_203405_V06",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": [
+        1,
+        0,
+        0
+      ],
+      "following": false,
+      "frame": "archive-after-queued-live",
+      "live_revision": 2,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": false,
+      "volume": "KFTG20170508_203405_V06",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": [
+        1,
+        0,
+        0
+      ],
+      "following": true,
+      "frame": "resumed-live",
+      "live_revision": 3,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 3,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "resumed-backup",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": true,
+      "volume": "resumed-backup",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 1
+    },
+    {
+      "display_failures": null,
+      "following": false,
+      "frame": "sibling-after-resume",
+      "live_revision": 0,
+      "pane": 1,
+      "playing": false,
+      "revision_traces": [],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": null,
+      "source_phase_at_host_clock": "Awaiting volume",
+      "source_radials": 240,
+      "uploaded": false,
+      "volume": "KFTG20170508_203405_V06",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 0
+    },
+    {
+      "display_failures": [
+        1,
+        1,
+        0
+      ],
+      "following": true,
+      "frame": "silent-idle-keeps-last-good",
+      "live_revision": 3,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 3,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "resumed-backup",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": false,
+      "volume": "resumed-backup",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 1
+    },
+    {
+      "display_failures": null,
+      "following": true,
+      "frame": "monitor-retirement-keeps-last-good",
+      "live_revision": 3,
+      "pane": 0,
+      "playing": false,
+      "revision_traces": [
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 1,
+            "provider": "Unidata Level II (AWS S3)",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275648619
+              ],
+              "observed_radials": 120,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "primary-partial",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 2,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "backup-full",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        },
+        {
+          "decode_work_us": 0,
+          "first_2d_upload": null,
+          "first_byte_unavailable_reason": "provider receipt does not expose a first-byte UTC clock",
+          "first_byte_unix_ms": null,
+          "gpu_observation": "no_observed_2d_upload",
+          "identity": {
+            "accepted_revision": 3,
+            "provider": "HookEcho Relay",
+            "raw_acquisition": {
+              "elevation_number": 1,
+              "known_interval_unix_ms": [
+                1494275645820,
+                1494275651452
+              ],
+              "observed_radials": 240,
+              "unknown_clock_radials": 0
+            },
+            "receiver_pane": 0,
+            "site": "KFTG",
+            "volume": "resumed-backup",
+            "volume_start_unix_ms": 1494275645000
+          },
+          "presentation_unavailable_reason": "no compositor or external display observer attached",
+          "receipt_to_accept_us": null,
+          "receipt_to_gpu_callback_us": null,
+          "receipt_to_queue_writes_us": null,
+          "receipt_to_visible_presentation_us": null
+        }
+      ],
+      "sha256_rgba": "b714377d842087d09effbee403f4233a51a4c0a23daa2ae1f78c7476d2a2d363",
+      "source_clock": "2017-05-08T20:34:05Z",
+      "source_phase_at_host_clock": "Stale",
+      "source_radials": 240,
+      "uploaded": false,
+      "volume": "resumed-backup",
+      "volume_clock": "2017-05-08T20:34:05Z",
+      "volume_revision": 1
+    }
+  ],
+  "gpu": "NVIDIA GeForce RTX 2060 (Vulkan, DiscreteGpu)",
+  "input": "KFTG20170508_203405_V06",
+  "scope": "real app constructor/channel/receiver/upload/GPU; direct controlled messages from a partial NOAA fragment; no byte receipts/window/scan-out/upstream independence"
+}

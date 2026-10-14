@@ -21,8 +21,10 @@ records owned losses, rejects invalid contexts, compares a fresh backup to accep
 source clocks and preserves failback hysteresis. L2 still requires independent
 operational inputs and sustained recovery. A [progressive idle watchdog](../../docs/certification/delivery-idle/README.md)
 now retires consumers without source advances or an End event after a bounded window;
-completed cadence is excluded. Next: provider task/socket accounting and full-app
-long-running recovery profiles alongside operational source validation.
+completed cadence is excluded. [Monitor retirement](../../docs/certification/monitor-retirement/README.md)
+now drops pending subscriptions even when a provider ignores cancellation and releases
+inactive-pane managers, with process task counters. Next: socket/resource measurements
+and full-app long-running recovery profiles alongside operational source validation.
 
 The [handoff control](../../docs/certification/handoff-2026-10-14/README.md) now exercises
 the actual application channel, upload cache and GPU through controlled loss, a late

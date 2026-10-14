@@ -43,6 +43,9 @@ pub enum Counter {
     RadarTexturesBuilt,
     /// Tile-quad vertex lists rebuilt and re-uploaded.
     TileQuadsBuilt,
+    /// Provider-monitor tasks entered/exited. Their difference is currently retained tasks.
+    RadarMonitorsStarted,
+    RadarMonitorsFinished,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -50,7 +53,7 @@ impl Counter {
     const COUNT: usize = Self::LABELS.len();
 
     /// Prometheus/log names, in declaration order.
-    pub const LABELS: [&'static str; 12] = [
+    pub const LABELS: [&'static str; 14] = [
         "net_requests",
         "net_bytes",
         "net_not_modified",
@@ -63,6 +66,8 @@ impl Counter {
         "sweeps_binned",
         "radar_textures_built",
         "tile_quads_built",
+        "radar_monitors_started",
+        "radar_monitors_finished",
     ];
 }
 

@@ -454,6 +454,14 @@ impl HookEchoApp {
     ) {
         use crate::radar_provider_manager::SiteProviders;
 
+        // There is one display subscription. Observers follow that same active-pane
+        // lifetime, including a pane switch after the old stream already ended.
+        for (view, pane) in self.views.iter_mut().enumerate() {
+            if view != idx {
+                pane.radar_providers = None;
+            }
+        }
+
         let configured_relay = live_session::relay_endpoint_key(&self.settings.radar_relay_url);
         let relay_url = (!configured_relay.is_empty()).then(|| configured_relay.to_string());
         let override_tier = match self.settings.radar_provider_override {

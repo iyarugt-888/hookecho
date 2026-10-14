@@ -1,0 +1,57 @@
+warn: could not canonicalize path C:\Users\wushi
+    Blocking waiting for file lock on build directory
+   Compiling nexrad-model v1.0.0-rc.2 (C:\Users\wushi\hookecho\vendor\nexrad-model)
+   Compiling nexrad-level3 v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\nexrad-level3)
+   Compiling gribberish v1.5.0 (C:\Users\wushi\hookecho\vendor\gribberish)
+   Compiling hdf5lite v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hdf5lite)
+   Compiling hookecho v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho)
+   Compiling hookecho-ffi v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho-ffi)
+   Compiling hookecho-lite v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\hookecho-lite)
+   Compiling nexrad-decode v1.0.0-rc.3
+   Compiling nexrad-data v1.0.0-rc.7 (C:\Users\wushi\hookecho\vendor\nexrad-data)
+   Compiling wxdata v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\wxdata)
+   Compiling radar-ingest v0.12.0-beta.2 (C:\Users\wushi\hookecho\crates\radar-ingest)
+    Finished `test` profile [unoptimized] target(s) in 2m 26s
+     Running unittests src\lib.rs (target\debug\deps\hdf5lite-94d547c9fd39d80a.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho-49bb090cfd1e1247.exe)
+
+running 1 test
+test provider_health::tests::retiring_a_monitor_drops_an_uncooperative_subscription_without_recording_failure ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1623 filtered out; finished in 0.27s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_ffi-0d23b4eb7a914f9a.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\hookecho_lite-44213d29d18627b4.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\nexrad_level3-70f5fee0f1e40c3c.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\radar_ingest-9500309504700d3f.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\wxdata-538568a610fc5b1d.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1214 filtered out; finished in 0.00s
+

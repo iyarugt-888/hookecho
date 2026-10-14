@@ -10,7 +10,7 @@ certification. No blanket competitor parity is claimed.
 
 | Order | Workstream | Current status | Next reviewable action | Dependencies |
 | --- | --- | --- | --- | --- |
-| 1 | [Live radar](live-radar/README.md) | Partially implemented; bounded L1/L3a archived | L2 operational independent outage/recovery; L3 source-pass/first-byte/observer correlation and durable capture | Existing provider/health/receiver contracts; independent live inputs and presentation observer for certification |
+| 1 | [Live radar](live-radar/README.md) | Partially implemented; bounded L1/L3a/L2a–d archived | L2 operational independent outage/recovery; L3 source-pass/first-byte/observer correlation and durable capture | Existing provider/health/receiver contracts; independent live inputs and presentation observer for certification |
 | 2 | [Radar analysis](radar-analysis/README.md) | Partially implemented | Validate landed R1 import/inspection advice and R2 pane-owned column evaluation; inspect R3 vertical interrogation next | Preserve formulas, missing values and recorded environment; corpus |
 | 3 | [Storm analysis](storm-analysis/README.md) | Partially implemented | Validate landed S1 archived local-cell replay; audit S2 end-to-end workflow transitions | Time/revision integrity; pinned storm and negative cases |
 | 4 | [Broadcast](broadcast/README.md), [GIS](gis/README.md) | Partially implemented | B1: sustained independent program/capture proof; G1: external reader round trip | Existing scenes, manifests and collection model |

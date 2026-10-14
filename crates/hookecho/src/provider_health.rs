@@ -128,6 +128,19 @@ impl ProviderHealth {
 /// any time — a monitor only ever holds the lock for the duration of one field update.
 pub type HealthBoard = Arc<Mutex<HashMap<&'static str, ProviderHealth>>>;
 
+struct MonitorLifetime;
+impl MonitorLifetime {
+    fn new() -> Self {
+        wxdata::stats::bump(wxdata::stats::Counter::RadarMonitorsStarted);
+        Self
+    }
+}
+impl Drop for MonitorLifetime {
+    fn drop(&mut self) {
+        wxdata::stats::bump(wxdata::stats::Counter::RadarMonitorsFinished);
+    }
+}
+
 /// Runs one provider's `subscribe` in a reconnect loop (restarting on error or a clean end, while
 /// `active` stays true) purely to observe its health — it never calls a caller-supplied
 /// `on_update`, so nothing here can end up rendered. Intended to run alongside the site's real,
@@ -143,6 +156,7 @@ pub async fn monitor_provider(
     active: Arc<dyn Fn() -> bool + Send + Sync>,
     board: HealthBoard,
 ) {
+    let _lifetime = MonitorLifetime::new();
     let label = provider.label();
     {
         let mut board = board.lock().unwrap();
@@ -181,23 +195,30 @@ pub async fn monitor_provider(
         let board_for_updates = board.clone();
         let active_for_subscribe = active.clone();
         let active_for_updates = active.clone();
-        let result = provider
-            .subscribe(
-                site.clone(),
-                base.clone(),
-                Box::new(move || active_for_subscribe()),
-                Box::new(move |update: wxdata::live::Update| {
-                    if !active_for_updates() {
-                        return;
-                    }
-                    let mut board = board_for_updates.lock().unwrap();
-                    if let Some(health) = board.get_mut(label) {
-                        health.record_observed_update(&update, Utc::now());
-                    }
-                }),
-                Box::new(|_progress| {}),
-            )
-            .await;
+        let subscription = provider.subscribe(
+            site.clone(),
+            base.clone(),
+            Box::new(move || active_for_subscribe()),
+            Box::new(move |update: wxdata::live::Update| {
+                if !active_for_updates() {
+                    return;
+                }
+                let mut board = board_for_updates.lock().unwrap();
+                if let Some(health) = board.get_mut(label) {
+                    health.record_observed_update(&update, Utc::now());
+                }
+            }),
+            Box::new(|_progress| {}),
+        );
+        tokio::pin!(subscription);
+        let result = loop {
+            tokio::select! {
+                result = &mut subscription => break result,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                    if !active() { return; } // dropping the future releases pending transport work
+                }
+            }
+        };
 
         {
             // Block-scoped rather than an explicit `drop()`: this reliably ends the guard's
@@ -268,6 +289,84 @@ mod tests {
     use super::*;
     use crate::volume::LatestVolume;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct IgnoringCancellation {
+        entered: tokio::sync::Notify,
+        subscriptions: std::sync::atomic::AtomicUsize,
+    }
+    struct SubscriptionGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+    impl Drop for SubscriptionGuard<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    #[async_trait::async_trait]
+    impl Level2LiveProvider for IgnoringCancellation {
+        fn label(&self) -> &'static str {
+            "cancellation control"
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::relay()
+        }
+        async fn subscribe(
+            &self,
+            _: String,
+            _: Arc<Scan>,
+            _: Box<dyn Fn() -> bool + Send + Sync>,
+            _: Box<dyn FnMut(wxdata::live::Update) + Send>,
+            _: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
+        ) -> anyhow::Result<()> {
+            self.subscriptions.fetch_add(1, Ordering::SeqCst);
+            let _guard = SubscriptionGuard(&self.subscriptions);
+            self.entered.notify_one();
+            std::future::pending().await
+        }
+        async fn latest_complete_volume(
+            &self,
+            _: &str,
+            _: Option<&str>,
+        ) -> anyhow::Result<LatestVolume> {
+            Ok(LatestVolume::UpToDate)
+        }
+    }
+
+    #[tokio::test]
+    async fn retiring_a_monitor_drops_an_uncooperative_subscription_without_recording_failure() {
+        let provider = Arc::new(IgnoringCancellation {
+            entered: tokio::sync::Notify::new(),
+            subscriptions: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let flag = active.clone();
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::new()));
+        let handle = tokio::spawn(monitor_provider(
+            provider.clone(),
+            "KTLX".into(),
+            Arc::new(empty_scan()),
+            Arc::new(move || flag.load(Ordering::SeqCst)),
+            board.clone(),
+        ));
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            provider.entered.notified(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(provider.subscriptions.load(Ordering::SeqCst), 1);
+        active.store(false, Ordering::SeqCst);
+        tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect(
+                "owner retirement must drop the subscription even if its provider ignores active",
+            )
+            .unwrap();
+        assert_eq!(provider.subscriptions.load(Ordering::SeqCst), 0);
+        let health = &board.lock().unwrap()[provider.label()];
+        assert_eq!(
+            (health.failures, health.reconnects, health.successes),
+            (0, 0, 0)
+        );
+    }
 
     /// A provider that calls `on_update` a fixed number of times, each with a synthetic Update,
     /// then ends `subscribe` cleanly — deterministic and network-free, per this engagement's

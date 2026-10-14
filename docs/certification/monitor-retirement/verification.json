@@ -1,0 +1,163 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-14T06:01:34.507518+00:00",
+  "baseline_commit": "cfa667ed54deabbd54f45205a2f02788a0a621f3",
+  "basis": "shared working-tree bytes; concurrent cell-panel edits present and preserved outside this increment",
+  "status": [
+    " M crates/hookecho/src/app/chrome/dock/cell.rs",
+    " M crates/hookecho/src/app/delivery_fault_tests.rs",
+    " M crates/hookecho/src/app/radar_feed.rs",
+    " M crates/hookecho/src/provider_health.rs",
+    " M crates/wxdata/src/stats.rs",
+    " M roadmaps/README.md",
+    " M roadmaps/archive/README.md",
+    " M roadmaps/certification/README.md",
+    " M roadmaps/live-radar/README.md",
+    " M scripts/certification/readme.py",
+    "?? docs/certification/monitor-retirement/"
+  ],
+  "commands": {
+    "control": "CARGO_INCREMENTAL=0 cargo test --workspace --lib retiring_a_monitor_drops --config profile.test.debug=0 --config profile.dev.debug=0 -- --nocapture",
+    "workspace": "CARGO_INCREMENTAL=0 cargo test --workspace --lib --config profile.test.debug=0 --config profile.dev.debug=0",
+    "clippy": "CARGO_INCREMENTAL=0 cargo clippy --workspace --all-targets --config profile.dev.debug=0 --config profile.test.debug=0 -- -D warnings",
+    "wasm": "CARGO_INCREMENTAL=0 cargo check -p hookecho --lib --target wasm32-unknown-unknown --config profile.dev.debug=0",
+    "app_gpu": "HOOKECHO_APP_FAULT_CONTROL=1; HTTP_PROXY/HTTPS_PROXY/ALL_PROXY=http://127.0.0.1:9; pinned hookecho-tests.exe app::data_poll::delivery_fault_tests::app_delivery_recovery_keeps_archive_and_sibling_frames_owned --ignored --exact --nocapture"
+  },
+  "results": {
+    "before": 101,
+    "disk_full_build": 101,
+    "control": 0,
+    "workspace": 0,
+    "clippy": 0,
+    "app_gpu": 0,
+    "wasm": 0
+  },
+  "library_totals": {
+    "passed": 2692,
+    "ignored": 207
+  },
+  "sources": [
+    {
+      "path": "crates/hookecho/src/provider_health.rs",
+      "bytes": 40488,
+      "sha256": "6c5d20a868520693657a8d85b168f2dfe31ecec5298e63985625ab4e54ca6f75"
+    },
+    {
+      "path": "crates/hookecho/src/app/radar_feed.rs",
+      "bytes": 29284,
+      "sha256": "358a0c7156d15e226305f077d484485bb2797f242360cf3dfba0ad99cd46b033"
+    },
+    {
+      "path": "crates/hookecho/src/app/delivery_fault_tests.rs",
+      "bytes": 20275,
+      "sha256": "e49169988df6c6e91d80ef7dd0166bab5bc622e268c2149c616ca75043207e38"
+    },
+    {
+      "path": "crates/wxdata/src/stats.rs",
+      "bytes": 4552,
+      "sha256": "102a3e813726a79665c8100893715dc037419873bbbfaaf497d864125c4f411b"
+    }
+  ],
+  "executable": {
+    "path": "target/parity-review/monitor-retirement/pinned/hookecho-tests.exe",
+    "bytes": 114003968,
+    "sha256": "bf2e2babf0eee4f31e9f704729bb9ac0fa9a140ea0a831efbd6d795eedf30701"
+  },
+  "artifacts": [
+    {
+      "path": "docs/certification/monitor-retirement/after-no-incremental.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after-no-incremental.log",
+      "bytes": 2605,
+      "sha256": "a5eb715a99ed9f2fb396c6ff1a1dc68efa8d15b5a157f94dbb65370b4f8f2382"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/after.log",
+      "bytes": 4601,
+      "sha256": "f09130fa736a31beed8a415f8b30950f80a23eedad26d08cf6a003816199422d"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-gpu.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-gpu.log",
+      "bytes": 232,
+      "sha256": "7e048a4c1510b6b470012ede0d19e3b827d9b238dea6514afc98cce3925f4efa"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/app-observations.json",
+      "bytes": 25673,
+      "sha256": "1adb4729d719c0318fcc35c1226dc6e9acf81bc1274a45d641565665a318ffaf"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/before.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/before.log",
+      "bytes": 1275,
+      "sha256": "2f60e7759cb66077c3ac82674bf19d12f4c138a56c6841ef8f33e10f7c76fee9"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/clippy.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/clippy.log",
+      "bytes": 13409,
+      "sha256": "513fcdd59d27f917728802b6b4e42f121d20b6f9739dde9bcb6169dbfea3f5e0"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/README.md",
+      "bytes": 1976,
+      "sha256": "3dff78552a80e25b6bc4052d2f0ff095e03b1c21d498148de8ce0583fc830dcd"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.exit",
+      "bytes": 5,
+      "sha256": "bdc830287616dae1818ced3e7c186e1387155900ad30d5983ec02da1519c4a95"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm-bin-unsupported.log",
+      "bytes": 23808,
+      "sha256": "e1fa8e96fc19ed525bfcddbf153b8e27ba8721ec31167fdeaecfeb5a2b05373b"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/wasm.log",
+      "bytes": 2997,
+      "sha256": "524fa1aff4d5839a27f5db0cf4d1550dccd541c665fb202b1af2c084382b4a6a"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/workspace.exit",
+      "bytes": 3,
+      "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    {
+      "path": "docs/certification/monitor-retirement/workspace.log",
+      "bytes": 243887,
+      "sha256": "cc1b6f38f8ce005f1e5d577d8be64bcae80ff661c6a07ffd7a134c7bd3004c95"
+    }
+  ],
+  "limitations": [
+    "WASM library target passed with nine existing warnings; initial desktop binary WASM invocation is retained as unsupported-target failure.",
+    "Offscreen Windows physical GPU control, not visible presentation or real upstream outage.",
+    "No socket, detached job, physical Android or full-application long-duration measurements."
+  ]
+}
