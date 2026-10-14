@@ -196,3 +196,11 @@ It showed two faults, both fixed before this capture:
 The capture reads 74,907 gates on 14 tilts. The core peaks at 70 dBZ on 0.9° and still holds
 64 dBZ at 19.6° (25 kft). CC p5 is 0.39–0.51 through the low tilts, the debris, and rises to 0.6
 above 6.5°.
+
+Two more faults, found by reading the code (2026-10-13). A worker gathering for a volume the
+pane had moved past kept running. Stepping or playing a loop with the card open started a
+full-volume job per frame, and the jobs piled up on the CPU. A superseded gathering now stops at
+its next tilt (`cell_core::Cancel`, raised when its handle is dropped; test
+`dropping_a_gathering_stops_its_worker`). Nothing is gathered while the pane's loop plays: the
+card shows the displayed tilt ("while the loop plays; every tilt once it stops") and reads every
+tilt when the loop stops.

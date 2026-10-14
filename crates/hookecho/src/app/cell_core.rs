@@ -91,12 +91,29 @@ pub(crate) type Gathered = Vec<((u64, u64), Option<RegionSamples>)>;
 
 /// Where a gathering runs.
 enum Running {
-    /// On a worker thread; its answer lands in the slot.
+    /// On a worker thread; its answer lands in the slot. The flag stops it between tilts once
+    /// nothing wants it (dropped with the cache it was for).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    Thread(Arc<Mutex<Option<Gathered>>>),
+    Thread {
+        slot: Arc<Mutex<Option<Gathered>>>,
+        /// Held for its drop: it stops the worker.
+        _cancel: Cancel,
+    },
     /// Stepped on the UI thread, a tilt per frame (the browser).
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     Local(Box<CoreJob>),
+}
+
+/// A worker gathering's stop flag, raised when this handle goes (the gathering finished, or the
+/// cache it was for was replaced). A worker for a volume no longer shown stops at its next tilt:
+/// stepping through volumes with the card open would otherwise leave one full-volume job running
+/// per volume passed.
+struct Cancel(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for Cancel {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Cores kept per volume. A big supercell's is tens of thousands of gates (several MB), so the
@@ -148,6 +165,9 @@ pub(crate) enum CellCore {
     Empty,
     /// Still being gathered: tilts done, of how many (0 of 0 before it starts).
     Gathering(usize, usize),
+    /// Not gathered while the pane's loop plays: each frame would start a full-volume job only
+    /// to drop it a moment later. Gathered once the loop stops.
+    Paused,
 }
 
 impl HookEchoApp {
@@ -171,7 +191,7 @@ impl HookEchoApp {
         let mut finished = None;
         let mut local_done = false;
         match cores.running.as_mut() {
-            Some((Running::Thread(slot), _)) => {
+            Some((Running::Thread { slot, .. }, _)) => {
                 finished = slot.lock().ok().and_then(|mut s| s.take());
             }
             Some((Running::Local(job), progress)) => {
@@ -201,7 +221,8 @@ impl HookEchoApp {
             .copied()
             .filter(|&(lon, lat)| !cores.done.contains(&key_of(lon, lat)))
             .collect();
-        if cores.running.is_none() && !missing.is_empty() {
+        let playing = self.views[idx].timeline.playing;
+        if cores.running.is_none() && !missing.is_empty() && !playing {
             if let Some(scan) = self.views[idx].volume.as_ref().map(|v| Arc::clone(&v.scan)) {
                 let job = CoreJob::new(scan, missing);
                 let progress = job.progress();
@@ -209,11 +230,16 @@ impl HookEchoApp {
                     Running::Local(Box::new(job))
                 } else {
                     let slot = Arc::new(Mutex::new(None));
-                    let out = Arc::clone(&slot);
+                    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    let (out, stop) = (Arc::clone(&slot), Arc::clone(&cancel));
                     let ctx = ctx.cloned();
                     let mut job = job;
                     self.spawner.spawn_blocking(move || {
-                        while !job.step() {}
+                        let stopped = || stop.load(std::sync::atomic::Ordering::Relaxed);
+                        while !stopped() && !job.step() {}
+                        if stopped() {
+                            return;
+                        }
                         if let Ok(mut s) = out.lock() {
                             *s = Some(job.finish());
                         }
@@ -221,7 +247,10 @@ impl HookEchoApp {
                             ctx.request_repaint();
                         }
                     });
-                    Running::Thread(slot)
+                    Running::Thread {
+                        slot,
+                        _cancel: Cancel(cancel),
+                    }
                 };
                 self.whole_cores.running = Some((running, progress));
             }
@@ -232,6 +261,7 @@ impl HookEchoApp {
             .map(|&(lon, lat)| match cores.done.get(&key_of(lon, lat)) {
                 Some(Some(s)) => CellCore::Ready(Arc::clone(s)),
                 Some(None) => CellCore::Empty,
+                None if playing && cores.running.is_none() => CellCore::Paused,
                 None => {
                     let (d, n) = cores.running.as_ref().map_or((0, 0), |r| r.1);
                     CellCore::Gathering(d, n)
@@ -244,6 +274,20 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worker's handle raises its stop flag when it goes: replacing the cache (another
+    /// volume) or collecting the answer stops the job between tilts rather than letting it run on.
+    #[test]
+    fn dropping_a_gathering_stops_its_worker() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let running = Running::Thread {
+            slot: Arc::new(Mutex::new(None)),
+            _cancel: Cancel(Arc::clone(&flag)),
+        };
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+        drop(running);
+        assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
+    }
 
     /// The gathering on a real (first-records) volume: the job steps once per tilt, every row of
     /// the core lies in its box with every moment's column, and a tilt's rows are exactly what a

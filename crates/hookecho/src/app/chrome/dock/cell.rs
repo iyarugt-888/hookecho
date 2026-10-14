@@ -169,11 +169,12 @@ pub(super) const TILT_COLUMNS: (&str, &str) = (
 );
 
 /// What the cell card's core covers: every tilt (how many have gates there), or the displayed
-/// tilt while every tilt is still being read (tilts done, of how many).
+/// tilt while every tilt is still being read (tilts done, of how many) or while the loop plays.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum CoreScope {
     Every(usize),
     Displayed(usize, usize),
+    Playing,
 }
 
 impl CoreScope {
@@ -188,6 +189,10 @@ impl CoreScope {
             ),
             CoreScope::Displayed(..) => {
                 "Displayed tilt around the cell center while every tilt is read; dual-pol rows read gates \u{2265}40 dBZ"
+                    .to_string()
+            }
+            CoreScope::Playing => {
+                "Displayed tilt around the cell center while the loop plays; every tilt once it stops. Dual-pol rows read gates \u{2265}40 dBZ"
                     .to_string()
             }
         }
@@ -336,7 +341,10 @@ impl HookEchoApp {
             return Vec::new();
         }
         let whole = self.cell_cores(idx, at, None);
-        let sweeps = if whole.iter().any(|w| matches!(w, CellCore::Gathering(..))) {
+        let sweeps = if whole
+            .iter()
+            .any(|w| matches!(w, CellCore::Gathering(..) | CellCore::Paused))
+        {
             self.core_sweeps(idx)
         } else {
             Vec::new()
@@ -347,7 +355,9 @@ impl HookEchoApp {
                 let rows = match w {
                     CellCore::Ready(s) => Some(core_rows(s)),
                     CellCore::Empty => None,
-                    CellCore::Gathering(..) => core_at(&sweeps, lon, lat).map(|s| core_rows(&s)),
+                    CellCore::Gathering(..) | CellCore::Paused => {
+                        core_at(&sweeps, lon, lat).map(|s| core_rows(&s))
+                    }
                 };
                 rows.map(|r| r.into_iter().map(|(l, v, _)| (l.to_string(), v)).collect())
                     .unwrap_or_default()
@@ -448,7 +458,9 @@ impl HookEchoApp {
             centres.extend(open.iter().map(|(o, _)| (o.lon, o.lat)));
         }
         let whole = self.cell_cores(self.active, &centres, Some(&ctx));
-        let gathering = whole.iter().any(|w| matches!(w, CellCore::Gathering(..)));
+        let gathering = whole
+            .iter()
+            .any(|w| matches!(w, CellCore::Gathering(..) | CellCore::Paused));
         let sweeps = if gathering {
             self.core_sweeps(self.active)
         } else {
@@ -460,6 +472,10 @@ impl HookEchoApp {
             CellCore::Gathering(done, of) => (
                 core_at(&sweeps, c.lon, c.lat).map(Arc::new),
                 CoreScope::Displayed(*done, *of),
+            ),
+            CellCore::Paused => (
+                core_at(&sweeps, c.lon, c.lat).map(Arc::new),
+                CoreScope::Playing,
             ),
         };
         // Its rows, worked out once per core: a whole cell is tens of thousands of gates.
@@ -866,7 +882,9 @@ impl HookEchoApp {
                                             "{CORE_KM:.0} km \u{b7} {n} tilt{}",
                                             if n == 1 { "" } else { "s" }
                                         ),
-                                        CoreScope::Displayed(..) => format!("{CORE_KM:.0} km \u{b7} this tilt"),
+                                        CoreScope::Displayed(..) | CoreScope::Playing => {
+                                            format!("{CORE_KM:.0} km \u{b7} this tilt")
+                                        }
                                     };
                                     ws::fold_section(ui, &t, "cell_core", "Core statistics", Some(&label), true, |ui| {
                                         for (k, v, hot) in &core_rows_now {
@@ -913,7 +931,7 @@ impl HookEchoApp {
                                     ws::section_rule(ui, &t, "Core statistics");
                                     let why = match core_scope {
                                         CoreScope::Every(_) => "No gates around this storm on any tilt",
-                                        CoreScope::Displayed(..) => "No volume on this pane",
+                                        CoreScope::Displayed(..) | CoreScope::Playing => "No volume on this pane",
                                     };
                                     ui.label(ws::text(why, 11.0, t.text_faint));
                                 }
@@ -1895,6 +1913,9 @@ mod tests {
             "Every tilt within 8 km of the cell center; dual-pol rows read gates \u{2265}40 dBZ"
         );
         assert!(CoreScope::Displayed(3, 14).caption().contains("(3 of 14)"));
+        assert!(CoreScope::Playing
+            .caption()
+            .contains("while the loop plays"));
     }
 
     #[test]
