@@ -70,7 +70,9 @@ that radar's storm with the same number, with its card and Cell window switching
 storm list could also show the previous radar's storms for up to a few minutes. Now the list
 stays empty until the active radar's own storms arrive, and HookEcho asks for them immediately.
 A storm you selected keeps showing as it was when you picked it, and it updates again when you
-go back to its radar.
+go back to its radar. A manual track started from a storm likewise stays with that storm's
+radar instead of being shown for another radar's storm with the same number. Saved cases now
+record the radar too.
 
 ### Improved: a storm's core statistics read the whole storm, tilt by tilt
 

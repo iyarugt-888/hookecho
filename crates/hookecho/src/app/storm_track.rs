@@ -74,6 +74,8 @@ pub(crate) struct TrackSource {
     /// The SCIT cell ID at seeding, and the time of that table.
     pub cell_id: String,
     pub scan: Option<DateTime<Utc>>,
+    /// The radar whose table the cell was in: its ID names another storm on another radar's.
+    pub site: Option<String>,
     /// SCIT's motion then, toward degrees and km/h, so an adjustment can be read against it.
     pub scit_bearing_deg: f64,
     pub scit_speed_kmh: f64,
@@ -120,6 +122,9 @@ impl ManualTrack {
                 if let Some(scan) = src.scan {
                     p["source_scan"] = Value::from(scan.to_rfc3339());
                 }
+                if let Some(site) = &src.site {
+                    p["source_site"] = Value::from(site.clone());
+                }
             }
             p.as_object().cloned().unwrap_or_default()
         };
@@ -157,6 +162,7 @@ impl ManualTrack {
             edge: self.edge.clone(),
             source_cell: self.source.as_ref().map(|s| s.cell_id.clone()),
             source_scan: self.source.as_ref().and_then(|s| s.scan),
+            source_site: self.source.as_ref().and_then(|s| s.site.clone()),
             scit_motion: self
                 .source
                 .as_ref()
@@ -185,6 +191,7 @@ impl ManualTrack {
             source: c.source_cell.as_ref().map(|cell| TrackSource {
                 cell_id: cell.clone(),
                 scan: c.source_scan,
+                site: c.source_site.clone(),
                 scit_bearing_deg: c.scit_motion.map_or(0.0, |m| m.0),
                 scit_speed_kmh: c.scit_motion.map_or(0.0, |m| m.1),
             }),
@@ -250,6 +257,7 @@ impl ManualTrack {
         t.source = Some(TrackSource {
             cell_id: cell.id.clone(),
             scan: cell.time,
+            site: None,
             scit_bearing_deg: t.bearing_deg,
             scit_speed_kmh: t.speed_kmh,
         });
@@ -851,6 +859,10 @@ impl HookEchoApp {
                 let Some(src) = &t.source else {
                     return false;
                 };
+                // Started on another radar: the same ID in this table is another storm.
+                if src.site.as_deref() != self.storm_table_site() {
+                    return false;
+                }
                 match self
                     .dock
                     .storm_ids
@@ -870,7 +882,10 @@ impl HookEchoApp {
             .time
             .or_else(|| self.views[self.active].volume.as_ref().map(|v| v.time))
             .unwrap_or_else(Utc::now);
-        if let Some(track) = ManualTrack::from_cell(c, t0) {
+        if let Some(mut track) = ManualTrack::from_cell(c, t0) {
+            if let Some(src) = &mut track.source {
+                src.site = self.storm_table_site().map(str::to_string);
+            }
             self.storm_tracks.tracks.push(track);
             self.storm_tracks.selected = Some(self.storm_tracks.tracks.len() - 1);
             self.tool = super::MapTool::StormTrack;

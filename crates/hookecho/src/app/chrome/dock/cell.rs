@@ -1904,6 +1904,8 @@ mod tests {
             lon,
             lat,
             time: Some(time),
+            mvt_deg: Some(60.0),
+            mvt_kt: Some(30.0),
             ..Default::default()
         };
         let camera = crate::render::mercator::Camera::at_lonlat(-97.0, 36.0, 6.0);
@@ -1927,6 +1929,9 @@ mod tests {
         assert_eq!(app.dock.cells_open, ["A3"]);
         let (sel, live) = app.selected_storm_live().unwrap();
         assert!(live && sel.lon == -97.5);
+        // A manual track started from it, on KTLX.
+        app.track_cell_manually(&sel);
+        assert_eq!(app.manual_tracks_for(&sel).len(), 1);
 
         // KINX's pane made active: no table yet, and KINX is asked for now.
         app.active = 1;
@@ -1952,6 +1957,11 @@ mod tests {
         assert_eq!((sel.lon, sel.lat), (-97.5, 35.3));
         app.sync_open_cells();
         assert!(app.dock.cells_open.is_empty(), "{:?}", app.dock.cells_open);
+        let kinx_a3 = app.active_storm_cells()[0].clone();
+        assert!(
+            app.manual_tracks_for(&kinx_a3).is_empty(),
+            "KTLX's track shown for KINX's A3"
+        );
 
         // Back on KTLX: empty until KTLX's table is back, then the pick is matched there.
         app.active = 0;
@@ -1964,6 +1974,12 @@ mod tests {
         assert!(live && sel.lon == -97.45);
         app.sync_open_cells();
         assert_eq!(app.dock.cells_open, ["A3"]);
+        assert_eq!(app.manual_tracks_for(&sel).len(), 1);
+        // The track keeps its radar through a case file.
+        let case = app.storm_tracks.tracks[0].to_case();
+        assert_eq!(case.source_site.as_deref(), Some("KTLX"));
+        let back = crate::app::storm_track::ManualTrack::from_case(&case);
+        assert_eq!(back.source.unwrap().site.as_deref(), Some("KTLX"));
     }
 
     /// The real cell card in a real app: the app built headlessly with its storage isolated

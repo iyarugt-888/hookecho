@@ -128,6 +128,9 @@ pub struct CaseTrack {
     pub source_cell: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_scan: Option<DateTime<Utc>>,
+    /// The radar whose table that cell was in (SCIT IDs are per radar).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_site: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scit_motion: Option<(f64, f64)>,
 }
