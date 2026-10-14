@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generated_utc": "2026-10-14T06:02:47+00:00",
-  "generated_from_commit": "150e047c6879e6a0dd51df8503384593f5b418d1",
+  "generated_utc": "2026-10-14T06:07:49+00:00",
+  "generated_from_commit": "ea366e45d49edd0c78bb88afb2d08d6875a60ebc",
   "branch": "feat/wsv3-redesign",
   "measurement_host": "Windows 11 Home 10.0.22631, NVIDIA GeForce RTX 2060 (Vulkan)",
   "hash_basis": "exact bytes as stored in the recorded Git commit, including each artifact's stored line endings; checkout conversion can change working-tree bytes",
@@ -1914,8 +1914,8 @@
     },
     {
       "path": "docs/certification/m3.3/README.md",
-      "sha256": "294b779c404e6170493ee64f2734f24b820ea352155821ad3455922b20c30cb9",
-      "bytes": 17480
+      "sha256": "f3cdb2f363a8ba427525ba816e498bc8bf47ae595fa8ac3fd6b6cdaeb13b1a7b",
+      "bytes": 18825
     },
     {
       "path": "docs/certification/m3.3/column-composite.png",
@@ -1946,6 +1946,16 @@
       "path": "docs/certification/m3.3/r2-two-panes-two-column-products.jpg",
       "sha256": "7ad7d8998de7b8eef9d2e6a70ef80204137aab2bae9dca40b11728500c048ebe",
       "bytes": 105503
+    },
+    {
+      "path": "docs/certification/m3.3/r3-app-cut-column-mask.png",
+      "sha256": "556945a75138b99f48ed220c1c3cf235741de7a6e93a91989052e6cf4b420b70",
+      "bytes": 144309
+    },
+    {
+      "path": "docs/certification/m3.3/r3-app-cut-column.png",
+      "sha256": "5efec3beec0d2abf7b483aa3cc274f89924dfed041fdacf86ffd8a3d39b8bf91",
+      "bytes": 191572
     },
     {
       "path": "docs/certification/m3.3/r3-column-height-on-section.jpg",
