@@ -17,25 +17,41 @@ pub(crate) struct RegionStatsState {
     samples: Option<RegionSamples>,
     ui: crate::ui::region_stats_window::RegionStatsUi,
     cache: crate::ui::region_stats_window::RegionCache,
-    /// Gates a hovered chart bar or scatter cell stands for, `[lon, lat]`, and the pass that set
-    /// them: they draw only while something keeps hovering.
-    hl: Vec<[f64; 2]>,
+    /// Gates a hovered chart bar or scatter cell stands for, and the pass that set them: they draw
+    /// only while something keeps hovering.
+    hl: Vec<HighlightGate>,
     hl_pass: u64,
 }
 
 /// Most gates the map outlines for one hovered bar; past it every n-th stands in.
 const MAX_HIGHLIGHT: usize = 20_000;
 
-/// The positions of `s`'s gates that `h` keeps.
+/// A gate a hovered chart stands for: where it is over the ground, and where on its beam, so the
+/// 3D view can put it on its own tilt rather than on the ground under it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct HighlightGate {
+    pub ll: [f64; 2],
+    pub az_deg: f32,
+    /// Slant range, km.
+    pub range_km: f32,
+    pub elevation_deg: f32,
+}
+
+/// The gates of `s` that `h` keeps.
 pub(crate) fn highlight_points(
     s: &RegionSamples,
     h: &crate::ui::region_stats_window::Highlight,
-) -> Vec<[f64; 2]> {
-    let pts: Vec<[f64; 2]> = s
+) -> Vec<HighlightGate> {
+    let pts: Vec<HighlightGate> = s
         .rows
         .iter()
         .filter(|r| h.matches(r))
-        .map(|r| [r.lon, r.lat])
+        .map(|r| HighlightGate {
+            ll: [r.lon, r.lat],
+            az_deg: r.az_deg,
+            range_km: r.range_km,
+            elevation_deg: r.elevation_deg,
+        })
         .collect();
     let step = pts.len().div_ceil(MAX_HIGHLIGHT).max(1);
     pts.into_iter().step_by(step).collect()
@@ -63,7 +79,7 @@ impl RegionStatsState {
 
     /// Outline `pts` on the map this pass (and the next, whichever of the map and the window
     /// draws first).
-    pub(crate) fn set_highlight(&mut self, pass: u64, pts: Vec<[f64; 2]>) {
+    pub(crate) fn set_highlight(&mut self, pass: u64, pts: Vec<HighlightGate>) {
         self.hl = pts;
         self.hl_pass = pass;
     }
@@ -81,8 +97,14 @@ impl RegionStatsState {
     }
 
     /// Outline the box being drawn: a dot for the first corner, the rectangle once there are two.
-    /// `screen` maps `[lon, lat]` to the map's screen position.
-    pub(crate) fn paint(&self, painter: &egui::Painter, screen: impl Fn([f64; 2]) -> egui::Pos2) {
+    /// `screen` maps `[lon, lat]` to the map's screen position, `gate` a hovered gate to where the
+    /// pane draws it (on its tilt in 3D), `None` when it is not on screen.
+    pub(crate) fn paint(
+        &self,
+        painter: &egui::Painter,
+        screen: impl Fn([f64; 2]) -> egui::Pos2,
+        gate: impl Fn(&HighlightGate) -> Option<egui::Pos2>,
+    ) {
         // Orange: apart from the yellow measure line and the cyan cross-section.
         let col = egui::Color32::from_rgb(255, 150, 60);
         match self.pts.as_slice() {
@@ -103,8 +125,8 @@ impl RegionStatsState {
         }
         let pass = painter.ctx().cumulative_pass_nr();
         if !self.hl.is_empty() && self.hl_pass + 1 >= pass {
-            for p in &self.hl {
-                painter.circle_filled(screen(*p), 1.3, egui::Color32::WHITE);
+            for p in self.hl.iter().filter_map(&gate) {
+                painter.circle_filled(p, 1.3, egui::Color32::WHITE);
             }
             // One more pass takes the outline away once nothing hovers.
             painter.ctx().request_repaint();
@@ -113,6 +135,46 @@ impl RegionStatsState {
 }
 
 impl HookEchoApp {
+    /// Where pane `idx` draws hovered gate `g`, in screen points within `prect`. On the map, over
+    /// the ground. In 3D, where the volume draws that gate: on its tilt's beam among the observed
+    /// sweeps (beam rise and exaggeration as drawn, like the 3D ruler's ends), or at its height
+    /// above sea level in a resampled volume. `None` behind the camera.
+    pub(crate) fn highlight_screen(
+        &self,
+        idx: usize,
+        cam: &crate::render::mercator::Camera,
+        vp: (f32, f32),
+        prect: egui::Rect,
+        g: &HighlightGate,
+    ) -> Option<egui::Pos2> {
+        let at = |p: (f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
+        let v = &self.views[idx];
+        let site = v.site.as_deref().and_then(wxdata::sites::site_by_id);
+        let (true, Some(site)) = (v.map_3d.enabled, site) else {
+            let w = crate::render::mercator::lonlat_to_world(g.ll[0], g.ll[1]);
+            return Some(at(cam.world_to_screen(w, vp)));
+        };
+        let antenna_m = f64::from(site.elevation_meters) + wxdata::towers::tower_m(site.id);
+        let (slant, elev) = (f64::from(g.range_km), f64::from(g.elevation_deg));
+        let vex = f64::from(v.map_3d.vertical_exaggeration);
+        if v.map_3d.representation == crate::view::Map3dRepresentation::ObservedSweeps {
+            let local = crate::render3d::beam_local(
+                cam,
+                f64::from(site.longitude),
+                f64::from(site.latitude),
+                antenna_m,
+                vex,
+                f64::from(v.map_3d.beam_rise),
+                f64::from(g.az_deg),
+                wxdata::xsection::ground_from_slant_km(slant, elev),
+                g.elevation_deg,
+            );
+            return crate::render3d::project_local(cam, vp, local).map(at);
+        }
+        let km = antenna_m / 1000.0 + wxdata::xsection::beam_height_km(slant, elev);
+        crate::render3d::lonlat_alt_screen(cam, vp, g.ll[0], g.ll[1], km, vex).map(at)
+    }
+
     /// A click with the region tool: the first corner, then the second (which gathers the box),
     /// then a fresh box.
     pub(crate) fn region_click(&mut self, idx: usize, lon: f64, lat: f64) {

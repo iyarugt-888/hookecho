@@ -310,6 +310,7 @@ impl HookEchoApp {
             tracks_cache: None,
             archive_cells: None,
             archive_labels: Default::default(),
+            whole_cores: Default::default(),
             tds_tracks_cache: None,
             rot_tracks_cache: None,
             show_local_tracks: false,

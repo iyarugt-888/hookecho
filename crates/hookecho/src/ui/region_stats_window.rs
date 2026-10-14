@@ -966,6 +966,7 @@ mod tests {
                 lat: 35.1 + i as f64 * 0.001,
                 range_km: 10.0 + i as f32 * 0.25,
                 az_deg: 0.0,
+                elevation_deg: 0.5,
                 values: vec![
                     Some(20.0 + i as f32),
                     Some(i as f32 * 0.05),

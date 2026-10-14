@@ -37,6 +37,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 - **Cleaner velocity** — Velocity is unfolded at the radar's own Nyquist value, sector by sector
   where the radar scans at two speeds, so rotation stands out from the noise.
 
+### Improved: a storm's core statistics read the whole storm, tilt by tilt
+
+A storm's Core statistics, Core distribution and comparison used to read only the tilt on
+screen. They now read every tilt of the volume around the storm, and a new By tilt list shows
+each tilt with how high the beam is over the storm and what it found there: peak reflectivity,
+velocity spread, CC and ZDR. While every tilt is still being read, the card shows the tilt on
+screen and says so. Hovering a bar in Core distribution now outlines those gates where they are
+in 3D, on their own tilt, not on the ground beneath.
+
 ### Fixed: today's warnings no longer appear over an archived scan
 
 When you scrubbed back in time, the map could show today's live warnings, discussions and storm

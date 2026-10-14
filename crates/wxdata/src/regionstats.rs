@@ -7,9 +7,12 @@
 //! reference — its gates are the rows — and every other moment is read at the same azimuth and
 //! range from its own sweep, so a row is one place in the sky across all the moments.
 //!
-//! Positions use a flat-earth projection about the radar with range taken along the ground. At low
-//! tilts slant and ground range differ by well under a percent inside the ranges a box is drawn at,
-//! which is noise against a box several kilometres across.
+//! Positions use a flat-earth projection about the radar with range taken along the ground (the
+//! gate's slant range brought down through the beam model, which matters on the upper tilts: at
+//! 15 deg the slant range runs 3% past the ground under it).
+//!
+//! A storm cell's core reads every tilt ([`gather_tilt`] per tilt, then [`stack`]): each row keeps
+//! the tilt it came from, so the whole cell can be summarised, or split back tilt by tilt.
 
 use crate::level2::{BinnedSweep, Moment};
 use crate::tds::decode;
@@ -19,18 +22,23 @@ use crate::tds::decode;
 pub struct GateRow {
     pub lon: f64,
     pub lat: f64,
+    /// Slant range, as the radar measures it.
     pub range_km: f32,
     pub az_deg: f32,
+    /// The tilt the gate is on.
+    pub elevation_deg: f32,
     /// One entry per [`RegionSamples::moments`], in the same order; `None` where that moment has
     /// no data at this gate (below its threshold, range-folded, or past its sweep's reach).
     pub values: Vec<Option<f32>>,
 }
 
-/// Every reference gate inside a box on one tilt, sampled in every moment given.
+/// Every reference gate inside a box, sampled in every moment given: on one tilt, or on several
+/// stacked ([`stack`]), each row naming its own.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegionSamples {
     pub moments: Vec<Moment>,
     pub rows: Vec<GateRow>,
+    /// The tilt, or the lowest of those stacked.
     pub elevation_deg: f32,
     /// `(west, south, east, north)` in degrees.
     pub bbox: (f64, f64, f64, f64),
@@ -89,10 +97,24 @@ fn sample(sweep: &BinnedSweep, az_deg: f64, range_km: f32) -> Option<f32> {
 /// Every gate of `sweeps[0]` inside `bbox` (`(west, south, east, north)`), with each sweep's value
 /// read at the same place. `None` when there is no reference sweep, or no gate falls in the box.
 pub fn gather(sweeps: &[BinnedSweep], bbox: (f64, f64, f64, f64)) -> Option<RegionSamples> {
-    let reference = sweeps.first()?;
+    let moments: Vec<Moment> = sweeps.iter().map(|s| s.moment).collect();
+    let present: Vec<Option<&BinnedSweep>> = sweeps.iter().map(Some).collect();
+    gather_tilt(&moments, &present, bbox)
+}
+
+/// [`gather`] on one tilt with a fixed list of moments: `sweeps[i]` is `moments[i]` on this tilt,
+/// `None` where the tilt does not carry it (that column is then blank), so tilts gathered alike
+/// can be [`stack`]ed. The first sweep present is the reference.
+pub fn gather_tilt(
+    moments: &[Moment],
+    sweeps: &[Option<&BinnedSweep>],
+    bbox: (f64, f64, f64, f64),
+) -> Option<RegionSamples> {
+    let reference = sweeps.iter().flatten().next().copied()?;
     if reference.az_bins == 0 || reference.gate_count == 0 {
         return None;
     }
+    let elevation = f64::from(reference.elevation_deg);
     let (west, south, east, north) = bbox;
     let (rlon, rlat) = (
         f64::from(reference.radar_lon),
@@ -106,14 +128,16 @@ pub fn gather(sweeps: &[BinnedSweep], bbox: (f64, f64, f64, f64)) -> Option<Regi
         let (sin, cos) = az_deg.to_radians().sin_cos();
         for gate in 0..reference.gate_count {
             let range_km = reference.first_gate_km + gate as f32 * reference.gate_interval_km;
-            let r = f64::from(range_km);
+            let r = crate::xsection::ground_from_slant_km(f64::from(range_km), elevation);
             let lon = rlon + r * sin / km_per_deg_lon;
             let lat = rlat + r * cos / KM_PER_DEG_LAT;
             if lon < west || lon > east || lat < south || lat > north {
                 continue;
             }
-            let values: Vec<Option<f32>> =
-                sweeps.iter().map(|s| sample(s, az_deg, range_km)).collect();
+            let values: Vec<Option<f32>> = sweeps
+                .iter()
+                .map(|s| s.and_then(|s| sample(s, az_deg, range_km)))
+                .collect();
             // A gate no moment has anything at is empty sky, not a sample.
             if values.iter().all(Option::is_none) {
                 continue;
@@ -123,16 +147,30 @@ pub fn gather(sweeps: &[BinnedSweep], bbox: (f64, f64, f64, f64)) -> Option<Regi
                 lat,
                 range_km,
                 az_deg: az_deg as f32,
+                elevation_deg: reference.elevation_deg,
                 values,
             });
         }
     }
     (!rows.is_empty()).then(|| RegionSamples {
-        moments: sweeps.iter().map(|s| s.moment).collect(),
+        moments: moments.to_vec(),
         rows,
         elevation_deg: reference.elevation_deg,
         bbox,
     })
+}
+
+/// Tilts of one place as one sample, lowest tilt first, every row keeping its own tilt. The parts
+/// must be gathered with the same moments ([`gather_tilt`]); `None` when there are none.
+pub fn stack(mut parts: Vec<RegionSamples>) -> Option<RegionSamples> {
+    parts.sort_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg));
+    let mut it = parts.into_iter();
+    let mut out = it.next()?;
+    for p in it {
+        debug_assert_eq!(p.moments, out.moments, "stacked tilts share their moments");
+        out.rows.extend(p.rows);
+    }
+    Some(out)
 }
 
 /// The value at quantile `q` (0..1) of an ascending slice, by nearest rank.
@@ -142,6 +180,30 @@ fn quantile(sorted: &[f32], q: f32) -> f32 {
 }
 
 impl RegionSamples {
+    /// The tilts the rows are on, lowest first.
+    pub fn tilts(&self) -> Vec<f32> {
+        let mut t: Vec<f32> = self.rows.iter().map(|r| r.elevation_deg).collect();
+        t.sort_by(f32::total_cmp);
+        t.dedup();
+        t
+    }
+
+    /// The rows of one tilt, as a sample of their own; `None` when no row is on it.
+    pub fn tilt(&self, elevation_deg: f32) -> Option<RegionSamples> {
+        let rows: Vec<GateRow> = self
+            .rows
+            .iter()
+            .filter(|r| r.elevation_deg == elevation_deg)
+            .cloned()
+            .collect();
+        (!rows.is_empty()).then(|| RegionSamples {
+            moments: self.moments.clone(),
+            rows,
+            elevation_deg,
+            bbox: self.bbox,
+        })
+    }
+
     /// The position of `moment` among [`Self::moments`].
     pub fn index_of(&self, moment: Moment) -> Option<usize> {
         self.moments.iter().position(|m| *m == moment)
@@ -227,7 +289,7 @@ impl RegionSamples {
     /// Every gate as a CSV row — position, then each moment in [`Self::moments`] order, blank where
     /// a moment has no value — under a header naming the moments by their product codes.
     pub fn to_csv(&self) -> String {
-        let mut out = String::from("lat,lon,range_km,azimuth_deg");
+        let mut out = String::from("lat,lon,range_km,azimuth_deg,elevation_deg");
         for m in &self.moments {
             out.push(',');
             out.push_str(m.short_name());
@@ -235,8 +297,8 @@ impl RegionSamples {
         out.push('\n');
         for r in &self.rows {
             out.push_str(&format!(
-                "{:.5},{:.5},{:.3},{:.2}",
-                r.lat, r.lon, r.range_km, r.az_deg
+                "{:.5},{:.5},{:.3},{:.2},{:.2}",
+                r.lat, r.lon, r.range_km, r.az_deg, r.elevation_deg
             ));
             for v in &r.values {
                 out.push(',');
@@ -338,7 +400,7 @@ mod tests {
         assert!(far.iter().all(|r| r.values[1].is_none()));
         let csv = s.to_csv();
         assert!(
-            csv.starts_with("lat,lon,range_km,azimuth_deg,REF,VEL\n"),
+            csv.starts_with("lat,lon,range_km,azimuth_deg,elevation_deg,REF,VEL\n"),
             "{csv}"
         );
         assert!(csv.lines().any(|l| l.ends_with(',')), "a blank VEL cell");
@@ -379,6 +441,45 @@ mod tests {
         assert!(r < -0.98, "{r}");
         assert_eq!(s.index_of(Moment::CorrelationCoefficient), Some(2));
         assert_eq!(s.index_of(Moment::Velocity), None);
+    }
+
+    /// A cell read tilt by tilt: each tilt gathered with the same moments (a tilt without velocity
+    /// leaves that column blank), stacked lowest first with every row keeping its tilt, and split
+    /// back. Positions are over the ground under the gate, which on a 15 deg tilt is 3% short of
+    /// its slant range.
+    #[test]
+    fn a_cell_reads_every_tilt_and_splits_back_tilt_by_tilt() {
+        let moments = [Moment::Reflectivity, Moment::Velocity];
+        let low_z = sweep(Moment::Reflectivity, 400, 0.25, |_, _| 30.0);
+        let low_v = sweep(Moment::Velocity, 400, 0.25, |_, _| 12.0);
+        let mut high_z = sweep(Moment::Reflectivity, 400, 0.25, |_, _| 50.0);
+        high_z.elevation_deg = 15.0;
+        let low = gather_tilt(&moments, &[Some(&low_z), Some(&low_v)], north_box()).unwrap();
+        let high = gather_tilt(&moments, &[Some(&high_z), None], north_box()).unwrap();
+        let cell = stack(vec![high, low]).unwrap();
+        assert_eq!(cell.tilts(), [0.5, 15.0]);
+        assert_eq!(cell.elevation_deg, 0.5, "the lowest");
+        assert_eq!(cell.moments, moments);
+        let top = cell.tilt(15.0).unwrap();
+        assert!(top.rows.iter().all(|r| r.elevation_deg == 15.0));
+        assert!(
+            top.rows.iter().all(|r| r.values[1].is_none()),
+            "no velocity up there"
+        );
+        assert!((top.summary(0).unwrap().max - 50.0).abs() < 0.3);
+        let base = cell.tilt(0.5).unwrap();
+        assert_eq!(base.rows.len() + top.rows.len(), cell.rows.len());
+        assert!((base.summary(1).unwrap().max - 12.0).abs() < 0.6);
+        assert!(cell.tilt(3.0).is_none());
+        // Due north: the row's distance north is the ground under the gate, not its slant range.
+        for r in &top.rows {
+            let north_km = (r.lat - 35.0) * 110.57;
+            let ground = crate::xsection::ground_from_slant_km(f64::from(r.range_km), 15.0);
+            assert!((north_km - ground).abs() < 0.3, "{north_km} vs {ground}");
+            assert!(ground < f64::from(r.range_km) * 0.975);
+        }
+        assert!(stack(Vec::new()).is_none());
+        assert!(gather_tilt(&moments, &[None, None], north_box()).is_none());
     }
 
     #[test]

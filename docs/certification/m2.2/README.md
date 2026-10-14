@@ -146,3 +146,36 @@ from the row's ID, and the card and the manual track's line use it. Tests:
 `arrivals_name_whose_motion_they_come_from` and the manual-track line in
 `a_manual_motion_reads_against_the_scit_motion_it_started_from`. SCIT rows read as before. Not
 seen in a run.
+
+## A storm cell's core on every tilt, and its distribution in 3D (2026-10-13)
+
+The cell card's Core statistics, its Core distribution, the compare view and the Storm Digest's
+core lines read only the pane's displayed tilt within 8 km of the cell's centre. A cell is a
+column, so that was one slice of it, and the slice changed with the tilt the pane happened to
+show. A hovered distribution bar outlined its gates on the ground under the storm. In 3D they
+belong on their tilts, so the outline did not line up with the echo it stood for.
+
+- `cell_core` reads a core on every tilt. A job bins the volume tilt by tilt, in every moment,
+  velocity dealiased as drawn, and cuts out the gates in the core box around each wanted centre
+  (`regionstats::gather_tilt`). It drops each sweep before the next tilt, then stacks the tilts
+  (`regionstats::stack`), each row keeping its own. Natively it runs on a worker. In the browser,
+  which has no thread for it, it runs one tilt per frame. Results are cached for the pane's
+  volume. Until a core is read, the card shows the displayed tilt's and says so, with progress.
+- The card's Core statistics read the whole cell ("8 km · 14 tilts"). A new **By tilt** section
+  lists each tilt with the beam's height over the cell's centre and that tilt's peak dBZ, velocity
+  spread, and the p5 CC and p95 ZDR of its ≥40 dBZ core, flagged by the Core statistics
+  thresholds. Core distribution charts every tilt's gates. The compare view uses whole cells once
+  every open storm is read, and never mixes one storm's whole cell with another's slice. The
+  Digest's core lines use whole cells when they are read.
+- A hovered bar's gates carry their azimuth, slant range and tilt (`region_stats::HighlightGate`).
+  On the map they sit over the ground. In 3D Observed they sit on their tilt's beam, with beam rise
+  and exaggeration as drawn, like the 3D ruler's ends. In a resampled volume they sit at their
+  height above sea level (`highlight_screen`). The Region tool's outline uses the same path.
+- Region gates are now placed by ground range, as the module always said (the code used slant
+  range, 3% too far out at 15°). The Region CSV gains an `elevation_deg` column.
+
+Tests: `a_cell_reads_every_tilt_and_splits_back_tilt_by_tilt` (wxdata), `a_core_is_gathered_tilt_by_tilt`
+(a tilt's rows are exactly a single-tilt gather of it), `a_whole_cell_reads_tilt_by_tilt` (rows,
+heights, flags, captions). Network control `a_full_volume_core_reads_the_storm_on_many_tilts`: the
+Moore storm at KTLX 20:16Z reads on 14 tilts from 0.5° to 19.6°, 74,907 gates, 70 dBZ at most and
+64 dBZ still at 19.6°. Not seen in a run (the browser pane was hidden).

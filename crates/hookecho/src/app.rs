@@ -11,6 +11,7 @@ mod case;
 /// drawer / pills / alert dock. Only the chrome differs; the map,
 /// windows, and every data path are shared.
 mod chrome;
+mod cell_core;
 mod column_product;
 mod column_trail;
 mod trail;
@@ -1324,6 +1325,8 @@ pub struct HookEchoApp {
     /// The labels those cells are shown by, carried from one rebuilt table to the next so a
     /// followed or compared storm keeps its ID while the playhead moves.
     archive_labels: wxdata::celltrack::LocalLabels,
+    /// Storm cells' cores read on every tilt of the active volume (`cell_core`).
+    whole_cores: cell_core::CellCores,
     /// Confidence-over-time for the active pane's debris/rotation detections (C5's "timeline of
     /// score changes"), rebuilt from `tds_shown_cache`/`rot_shown_cache` the same bounded-window
     /// way `tracks_cache` is. See `compute_tds_score_track`/`compute_rot_score_track`.
@@ -6686,11 +6689,16 @@ impl HookEchoApp {
         // A feature followed through the loop (ROADMAP_NEW R4).
         self.paint_feature_track(&painter, prect, cam, vp, idx);
 
-        self.region.paint(&painter, |ll| {
-            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
-            let (sx, sy) = cam.world_to_screen(w, vp);
-            egui::pos2(prect.left() + sx, prect.top() + sy)
-        });
+        // A hovered chart's gates sit on their own tilts in 3D (`highlight_screen`).
+        self.region.paint(
+            &painter,
+            |ll| {
+                let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                egui::pos2(prect.left() + sx, prect.top() + sy)
+            },
+            |g| self.highlight_screen(idx, &cam, vp, prect, g),
+        );
 
         // Cross-section endpoints + line (cyan, distinct from the yellow measure tool).
         if !self.xsection_pts.is_empty() {
